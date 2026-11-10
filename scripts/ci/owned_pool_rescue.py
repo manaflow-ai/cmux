@@ -5003,7 +5003,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_log(f"hosted light rescue policy unavailable ({error}); primary owned-pool rescue continues")
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                         now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue)
+                         now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
+                         stall_destination=stall_destination_label(env.get("STALL_RUNNER")))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5290,7 +5291,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 #   stalled, and has a slot for every owned job the move sends there, counting the jobs this sweeper moved within
 #   STALL_ROOM_WINDOW_SECONDS, which the snapshot may not show yet (stall_room()). On 2026-11-10 that label had 27
 #   jobs queued against its 10 slots: nothing moves then;
-# - at most STALL_MOVES_PER_SCAN runs a scan, STALL_MOVES_PER_SWEEP a sweeper, and one move a run per sweeper.
+# - at most STALL_MOVES_PER_SCAN runs a scan, STALL_MOVES_PER_SWEEP a sweeper, and STALL_MOVES_PER_RUN a run (one an
+#   attempt) per sweeper; a sweeper handing over ends a move between its rounds, never between a cancel and its re-run.
 # The move cancels the run and re-runs its failed and cancelled jobs (rescue() with `stall`). cmux-next.yml sends a
 # bot's re-run of failed jobs to Blacksmith only past attempt 3 (bot_rerun_leaves_owned(); its carried-placement
 # fallback takes the owned side label while github.run_attempt <= 3). From an earlier attempt the re-run rejoins the
@@ -5320,11 +5322,25 @@ STALL_CHECKOUT_STEP = re.compile(r"(?i)^(?:checkout\b|run actions/checkout@|retr
 STALL_SCAN_TICKS = 5  # as SIDE_FAILURE_TICKS: a few minutes late costs nothing against a 10-minute bound
 # No stall is shorter than the shortest bound above; an attempt younger than it is not read.
 STALL_MIN_AGE_SECONDS = min(SETUP_WAIT_SECONDS, STALL_CHECKOUT_SECONDS, STALL_QUEUE_SECONDS)
-# cmux-next.yml's macOS fallback past the bot's attempt 3, fromJSON(vars.RUNNER_POOLS).macos_26.
+# cmux-next.yml's macOS fallback past the bot's attempt 3: `vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26`.
+# The workflow passes vars.MACOS_RUNNER_26 as STALL_RUNNER (stall_destination_label()); unset, the pool is this one.
 STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
+
+
+def stall_destination_label(value: str | None) -> str | None:
+    """The Blacksmith label the stall move's re-runs take, from vars.MACOS_RUNNER_26: unset, STALL_DESTINATION; a
+    picker Blacksmith label, that one; anything else (cloud_overflow_switch.py points it at an owned pool during a
+    failover) None, so nothing moves: the re-run would only rejoin an owned queue, and its room is not judged."""
+    label = (value or "").strip()
+    if not label:
+        return STALL_DESTINATION
+    return label if label in simple_pool_picker.CAPACITY else None
 # The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
 STALL_ROOM_WINDOW_SECONDS = 20 * 60
 STALL_MOVES_PER_SCAN = 1
+# A run's moves a sweeper: one, and one more for an attempt the first left on the owned label (a pass-through whose
+# attempt a sibling job's runner held, so it stayed: that bot attempt 3 is refusals only, and nothing else moves it).
+STALL_MOVES_PER_RUN = 2
 # How long a pass-through attempt's owned jobs get to be taken by a mini before the move passes it through.
 STALL_PASS_LOOK_SECONDS = FAILOVER_LOOK_SECONDS
 
@@ -5433,23 +5449,24 @@ def moved_jobs(jobs: Sequence[Mapping[str, Any]]) -> int:
         "failure", "cancelled", "timed_out")))
 
 
-def stall_room(snapshot: Mapping[str, Any] | None, now: dt.datetime, wanted: int, recent: int) -> str:
-    """Why STALL_DESTINATION has no room for `wanted` more jobs, `recent` of this sweeper's moves not yet counted, or
-    "": the label is listed in a fresh snapshot, not stalled, and running + queued + recent + wanted fits its slots."""
+def stall_room(snapshot: Mapping[str, Any] | None, now: dt.datetime, wanted: int, recent: int,
+               label: str = STALL_DESTINATION) -> str:
+    """Why `label` (the move's destination, STALL_DESTINATION by default) has no room for `wanted` more jobs, with
+    `recent` of this sweeper's moved jobs not yet counted, or "": the label is listed in a fresh snapshot, not stalled, and running + queued + recent + wanted fits its slots."""
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return "the janitor's pool snapshot is missing or stale, so Blacksmith's room is unknown"
-    entry = snapshot["pools"].get(STALL_DESTINATION)
+    entry = snapshot["pools"].get(label)
     if not isinstance(entry, Mapping):
-        return f"the pool snapshot does not list {STALL_DESTINATION}"
-    if blacksmith_states(snapshot, now).get(STALL_DESTINATION) == "stalled":
-        return f"{STALL_DESTINATION} is stalled (simple_pool_picker.stalled())"
+        return f"the pool snapshot does not list {label}"
+    if blacksmith_states(snapshot, now).get(label) == "stalled":
+        return f"{label} is stalled (simple_pool_picker.stalled())"
     try:
         queued, running = max(0, int(entry.get("queued", 0))), max(0, int(entry.get("running", 0)))
     except (TypeError, ValueError):
-        return f"the pool snapshot's {STALL_DESTINATION} counts are unreadable"
-    slots = simple_pool_picker.CAPACITY[STALL_DESTINATION]
+        return f"the pool snapshot's {label} counts are unreadable"
+    slots = simple_pool_picker.CAPACITY[label]
     if running + queued + recent + wanted > slots:
-        return (f"{STALL_DESTINATION} has {running} running and {queued} queued"
+        return (f"{label} has {running} running and {queued} queued"
                 + (f", and {recent} more moved there in the last {STALL_ROOM_WINDOW_SECONDS // 60} min" if recent else "")
                 + f", against its {slots} slots; {wanted} more would not fit")
     return ""
@@ -5517,10 +5534,12 @@ def pass_through_check(attempt_started: dt.datetime | None) -> Callable[[Sequenc
 
 def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Callable[[], dt.datetime],
                sleep: Callable[[float], None], log: Callable[[str], None],
-               deadline: dt.datetime | None = None) -> str:
+               deadline: dt.datetime | None = None, stopped: Callable[[], bool] = lambda: False) -> str:
     """Move `target`'s stalled owned jobs to Blacksmith (see STALL_MOVE): cancel the run and re-run its failed and
     cancelled jobs, passing an attempt that rejoins the owned label through while no mini takes it. Returns what
-    happened."""
+    happened. `stopped` (the sweeper is handing over) ends the move between rounds, never between a cancel and its
+    re-run. An attempt it leaves on the owned label is a later scan's to move again: that one's jobs are fresh, so
+    no scan finds them stalled while this move still acts on them."""
     why = "; ".join(str(stall) for stall in stalls)
     started = target.attempt_started_at
 
@@ -5535,8 +5554,13 @@ def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Cal
         if lands or not result.startswith("re-ran the failed jobs"):
             return result
         target = dataclasses.replace(target, attempt=target.attempt + 1, refusals_only=True)
+        if stopped():
+            # The round before re-ran the run, so stopping here loses nothing; the next sweeper's scan finds it.
+            return f"{result}; the sweeper is handing over, so attempt {target.attempt} is left to the next one"
         log(f"{result}; looking again in {STALL_PASS_LOOK_SECONDS}s for a mini to take attempt {target.attempt}")
         sleep(STALL_PASS_LOOK_SECONDS)
+        if stopped():
+            return f"{result}; the sweeper is handing over, so attempt {target.attempt} is left to the next one"
         run = read(lambda: api.run(target.run_id), sleep, log) or {}
         if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
             return f"{result}; attempt {target.attempt} has moved on, so it is left as it is"
@@ -5574,20 +5598,24 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
 
 
 def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
-               moved: set[int], moves: list[tuple[dt.datetime, int]],
-               start: Callable[[Target, list[Stall]], None]) -> int:
+               moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
+               start: Callable[[Target, list[Stall]], None], destination: str | None = STALL_DESTINATION) -> int:
     """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
-    STALL_MOVES_PER_SCAN moves through `start`, never two for one run (`moved`), and none past STALL_MOVES_PER_SWEEP
+    STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
+    for one run (`moved`: the run id and attempt each move started on), none past
+    STALL_MOVES_PER_SWEEP, and none at all without a Blacksmith `destination` (stall_destination_label())
     (`moves`: when each move started and how many owned jobs it sends). Returns how many it started. Raises
     READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run."""
-    if len(moves) >= STALL_MOVES_PER_SWEEP:
+    if len(moves) >= STALL_MOVES_PER_SWEEP or destination is None:
         return 0
     started = 0
     snapshot: Mapping[str, Any] | None = None
     snapshot_read = False
     for run in client.next_pull_runs(SWEEP_LISTING):
         run_id = int(run.get("id") or 0)
-        if not run_id or run_id in moved:
+        attempt = int(run.get("run_attempt") or 0)
+        if not run_id or (run_id, attempt) in moved or \
+                sum(1 for moved_id, _ in moved if moved_id == run_id) >= STALL_MOVES_PER_RUN:
             continue
         at = now()
         began = parse_time(run.get("run_started_at") or run.get("created_at"))
@@ -5621,11 +5649,11 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         recent = sum(count for when, count in moves
                      if (at - when).total_seconds() < STALL_ROOM_WINDOW_SECONDS)
         wanted = max(1, moved_jobs(jobs))
-        full = stall_room(snapshot, at, wanted, recent)
+        full = stall_room(snapshot, at, wanted, recent, destination)
         if full:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {full}")
             continue
-        moved.add(run_id)
+        moved.add((run_id, target.attempt))
         moves.append((at, wanted))
         log(f"[run {run_id}] {STALL_MOVE}: {what}; moving {wanted} owned job(s) of attempt {target.attempt}")
         start(target, stalls)
@@ -5788,7 +5816,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
-          light_rescue: Callable[[], None] | None = None) -> dict[str, int]:
+          light_rescue: Callable[[], None] | None = None,
+          stall_destination: str | None = STALL_DESTINATION) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -5811,7 +5840,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
-    stall_moved: set[int] = set()  # runs this sweeper made a stall move of (stall_scan())
+    stall_moved: set[tuple[int, int]] = set()  # (run, attempt) each of this sweeper's stall moves started on
     stall_moves: list[tuple[dt.datetime, int]] = []  # each stall move's start and owned jobs
 
     def watch_sleep(delay: float) -> None:
@@ -5900,7 +5929,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             log(f"[run {target.run_id}] {text}")
         try:
             # Its waits are the rescue's own (`wait`, not the handover's): a started move always gets its re-run.
-            outcome = stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest)
+            outcome = stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest,
+                                 stopped=stopping.is_set)
         except QuotaSpent as error:
             outcome = "quota spent"
             say(f"{STALL_MOVE} stopped: {error.why}")
@@ -6034,8 +6064,10 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 log(f"{remaining} API requests left: the stall scan waits for a later scan")
             else:
                 try:
+                    if stall_destination is None and looks == 1:
+                        log(f"{STALL_MOVE}: vars.MACOS_RUNNER_26 names no Blacksmith label, so nothing is moved")
                     stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
-                               start=start_move)
+                               start=start_move, destination=stall_destination)
                 except READ_ERRORS as error:
                     log(f"could not list cmux-next pull request runs for the stall scan ({error}); next scan")
         ticks += 1
