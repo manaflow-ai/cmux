@@ -4468,7 +4468,9 @@ function TranscriptView({
     const settleHeldFollowMotion = () => {
       if (followingRef.current || jumpTarget.current !== undefined) return;
       const chase = followChase.current;
-      const held = chase?.outstanding() ?? 0;
+      // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
+      // rounds the write (WebKit drew a fractional fold 0.7 px off). Under a pixel stays drawn.
+      const held = Math.round(chase?.outstanding() ?? 0);
       if (!chase || held === 0) return;
       const top = layoutScrollTop(node) - held;
       // An offset the scroller cannot take (a thread drawn above its layout at the very end) stays
@@ -4476,12 +4478,12 @@ function TranscriptView({
       if (top < 0 || top > node.scrollHeight - node.clientHeight) return;
       const was = layoutScrollTop(node);
       writeAnchorScrollTop(node, top);
-      // A write the scroller did not take (a scroll of its own still easing in) keeps the chase drawn.
-      if (Math.abs(layoutScrollTop(node) - top) > 1) {
+      // A write the scroller did not take (a scroll of its own still easing in), or a chase that is
+      // not held after all, keeps the chase drawn where it is and the offset where it was.
+      if (Math.abs(layoutScrollTop(node) - top) > 1 || !chase.release(held)) {
         writeAnchorScrollTop(node, was);
         return;
       }
-      chase.stop();
       scrolledTo.current = { top: node.scrollTop, atLatest: false };
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop, 0);
