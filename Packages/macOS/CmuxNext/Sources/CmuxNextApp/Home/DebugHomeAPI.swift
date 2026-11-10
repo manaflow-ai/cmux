@@ -75,10 +75,10 @@ enum DebugHomeAPI {
                                        services: AppServices) async -> JSONValue {
         guard let id = conversation ?? services.home.defaultChiefConversation else { return failure("no Chief conversation") }
         #if DEBUG || CMUX_BENCH_HOOKS
-        guard let view = services.home.tabViews.values.first(where: { $0.conversation.rawValue == id && $0.window != nil }) else {
+        guard let view = services.home.debugHostViews.allObjects.first(where: { $0.debugConversation == id && $0.window != nil }) else {
             return failure("no Home view shows \(id)")
         }
-        let result = await view.chief.debugEditPicture(URL(fileURLWithPath: path), zoom: zoom, save: save)
+        let result = await view.debugEditPicture(URL(fileURLWithPath: path), zoom: zoom, save: save)
         return .object(["ok": .bool(result != nil), "opened": .bool(result != nil), "saved": .bool(result == true)])
         #else
         return failure("edit_picture is DEBUG only")
@@ -94,8 +94,13 @@ enum DebugHomeAPI {
         let key = ConversationID(id)
         let tab = home.homeWorkspace?.screens.flatMap(\.panes).flatMap(\.tabs)
             .first { $0.kind == .conversation && $0.snapshot.conversation?.conversation == id }
-        // The header is the Messages page's own (its title is the tile's name: `home.chiefName`).
+        // A header showing this Chief now (a Home tab's, or the Home page's), else none.
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let header = home.debugHostViews.allObjects.filter { $0.debugConversation == id && $0.window != nil }
+            .compactMap(\.transcript.headerTitle).first
+        #else
         let header: String? = nil
+        #endif
         let tile = home.chiefNames[key]
         let tabTitle = tab.map { home.tabTitle(for: $0) }
         let shown = [tile, header, tabTitle].compactMap { $0 }

@@ -64,14 +64,32 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
+        #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
         // The composer's attach button as an action (home.attachFiles): a path goes to the shown
-        // Messages page's composer (HomeComposerHandoff), as a drop; without one its file picker opens.
+        // Home composer, a conversation tab's or the Chief panel's native transcript (HomeComposerIntake),
+        // else the Messages page's (HomeComposerHandoff), as a drop; without one its file picker opens.
         registry.bindEffect("home.attachFiles", effect: { invocation in
+            if let intake = HomeComposerIntake(window: services.windows.active?.window), case .native = intake.target {
+                guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+                    intake.pickFiles(openPanel: services.openPanel)
+                    return .done
+                }
+                // action-wait-allow: the native composer's intake reads the file before it takes it; nothing shows before
+                return .waiting(.fileSystem) {
+                    switch await intake.attach(paths: [path], via: .drop).result {
+                    case .accepted: return nil
+                    case .missingFile: return ActionWorkFailure(refusal: .notFound, reason: RefusalStrings.homeAttachNoFile(path))
+                    case .notConnected: return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.homeAttachNoHome)
+                    }
+                }
+            }
             guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {
                 return .refused(RefusalStrings.homeAttachNoHome)
             }
@@ -91,6 +109,10 @@ extension AppActions {
         // Reply to Selection (Cmd-Shift-R on Home, the palette): the text selected in a message of
         // the shown Messages page opens that message's reply with them quoted (pageCommands.ts `home.messages.replyToSelection`).
         registry.bindEffect("home.replyToSelection", effect: { _ in
+            // A conversation tab's or the Chief panel's native transcript answers at once.
+            if let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) {
+                return view.replyToSelection() ? .done : .refused(RefusalStrings.homeReplyNoSelection)
+            }
             guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {
                 return .refused(RefusalStrings.homeReplyNoSelection)
             }
@@ -105,7 +127,7 @@ extension AppActions {
         bindHomeMessaging(services)
         services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
-        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
+        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? [], homes: services.home.chiefHomes).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }

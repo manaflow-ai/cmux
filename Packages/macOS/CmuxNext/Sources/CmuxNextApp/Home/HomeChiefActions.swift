@@ -10,7 +10,8 @@ import CmuxNextHomeEngine
 /// with none in front, Stop stops the working Chief directly and Settings brings Home forward at
 /// the Chief and opens its settings (``HomeChiefActionPlan``). Each refuses with a reason only when
 /// there is nothing to act on. `home.stopAllAgents` acts only on the front window's Chief Home
-/// (``HomeChiefSurface/stopAllAgents()``) and is unavailable, with its reason, without one.
+/// (a native transcript's HomeHostView+StopAll, else ``HomeChiefSurface/stopAllAgents()``) and is
+/// unavailable, with its reason, without one.
 @MainActor
 enum HomeChiefActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -20,9 +21,63 @@ enum HomeChiefActions {
                       run: { _ in stopAllTarget()?.stopAllAgents() })
     }
 
+    /// The Chief Home in the front window: a conversation tab's or the Chief panel's native transcript
+    /// (``HomeHostView``), else a Messages page's Chief (``HomeChiefSurface``).
+    enum Front {
+        case native(HomeHostView)
+        case page(HomeChiefSurface)
+
+        var control: HomeChiefControl {
+            switch self {
+            case .native(let view): view.chiefControl
+            case .page(let surface): surface.control
+            }
+        }
+        var isWorking: Bool {
+            switch self {
+            case .native(let view): view.chiefIsWorking
+            case .page(let surface): surface.isWorking
+            }
+        }
+        var turnActions: HomeChiefTurnActions {
+            switch self {
+            case .native(let view): view.turnActions
+            case .page(let surface): surface.turnActions
+            }
+        }
+        func toggleSettings() {
+            switch self {
+            case .native(let view): view.toggleChiefSettings()
+            case .page(let surface): _ = surface.toggleSettings()
+            }
+        }
+        func stopAllAgents() {
+            switch self {
+            case .native(let view): view.stopAllAgents()
+            case .page(let surface): surface.stopAllAgents()
+            }
+        }
+    }
+
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
-    private static func stopAllTarget() -> HomeChiefSurface? {
-        frontHome().flatMap { $0.control.isHosted ? nil : $0 }
+    private static func stopAllTarget() -> Front? {
+        frontChief().flatMap { $0.control.isHosted ? nil : $0 }
+    }
+
+    /// The front window's Chief Home: its native transcript first (``HomeHostView``), else its Messages page's.
+    private static func frontChief() -> Front? {
+        if let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView, let native = firstNativeChief(in: root) {
+            return .native(native)
+        }
+        return frontHome().map(Front.page)
+    }
+
+    private static func firstNativeChief(in view: NSView) -> HomeHostView? {
+        if let home = view as? HomeHostView, home.showsChiefOnScreen { return home }
+        for subview in view.subviews where !subview.isHidden {
+            if let home = firstNativeChief(in: subview) { return home }
+        }
+        return nil
     }
 
     /// The Chief a Messages page in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) shows:
@@ -31,7 +86,7 @@ enum HomeChiefActions {
         HomeShownView.find(in: HomeChiefSettingsPopover.frontToggleTarget) { ($0 as? any HomeChiefShowing)?.shownChief }
     }
 
-    private static func plan(_ context: AppActionContext, front: HomeChiefSurface?) -> HomeChiefActionPlan {
+    private static func plan(_ context: AppActionContext, front: Front?) -> HomeChiefActionPlan {
         let home = context.services.home
         let defaultID = HomeChiefName.select(from: home.conversations)?.id
         let chiefs = home.homeStore.rows.filter { $0.summary.participants.contains { $0.agentClass == .chief } }.map {
@@ -41,7 +96,7 @@ enum HomeChiefActions {
     }
 
     private static func stop(_ context: AppActionContext) {
-        let front = frontHome()
+        let front = frontChief()
         let control: HomeChiefControl
         switch plan(context, front: front).stop {
         case .front:
@@ -77,7 +132,7 @@ enum HomeChiefActions {
     }
 
     private static func toggleSettings(_ context: AppActionContext) {
-        let front = frontHome()
+        let front = frontChief()
         switch plan(context, front: front).settings {
         case .front:
             front?.toggleSettings()
