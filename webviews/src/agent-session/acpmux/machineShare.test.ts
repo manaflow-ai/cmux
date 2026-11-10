@@ -17,19 +17,28 @@ describe("machineShareOutcome", () => {
     expect(machineShareOutcome({ ok: true })).toEqual({ kind: "shared" });
   });
   test("only the creator or an admin shares: Ask the Owner next", () => {
-    const error = new NativeError({ code: "vm_chat_share_forbidden", userMessage: "Only the machine's creator…" });
+    const error = new NativeError({ code: "machine.creator_or_admin", userMessage: "not allowed to share_chat this" });
     expect(machineShareOutcome({ ok: false, error })).toEqual({ kind: "forbidden" });
   });
-  test("the Cloud API's other refusals are keyed on their code, never their words", () => {
-    expect(
-      machineShareOutcome({ ok: false, error: { code: "vm_chat_grants_personal_machine", message: "x" } }),
-    ).toEqual({
+  test("the platform's other refusals are keyed on their code, never their words", () => {
+    expect(machineShareOutcome({ ok: false, error: { code: "machine.private", message: "x" } })).toEqual({
       kind: "failed",
-      key: "switch.share.personal",
+      key: "switch.share.private",
     });
-    expect(machineShareOutcome({ ok: false, error: { code: "vm_chat_grants_unavailable" } })).toEqual({
+    for (const code of ["timed_out", "transport", "no_backend"]) {
+      expect(machineShareOutcome({ ok: false, error: { code, message: "connection refused" } })).toEqual({
+        kind: "failed",
+        key: "switch.share.unavailable",
+      });
+    }
+    expect(
+      machineShareOutcome({ ok: false, error: { code: "machine.not_member", message: "share with a member of this team" } }),
+    ).toEqual({ kind: "failed", key: "switch.share.failed", reason: "share with a member of this team" });
+  });
+  test("the retired classic codes are no longer special", () => {
+    expect(machineShareOutcome({ ok: false, error: { code: "vm_chat_share_forbidden" } })).toEqual({
       kind: "failed",
-      key: "switch.share.unavailable",
+      key: "switch.share.failed",
     });
   });
   test("anything else says the app's reason, or none", () => {
@@ -51,17 +60,17 @@ describe("shareMachineWithMe", () => {
     expect(await shareMachineWithMe(async () => ({ shared: true }))).toEqual({ kind: "shared" });
     expect(
       await shareMachineWithMe(async () => {
-        throw new NativeError({ code: "vm_chat_share_forbidden" });
+        throw new NativeError({ code: "machine.creator_or_admin" });
       }),
     ).toEqual({ kind: "forbidden" });
   });
 });
 
 describe("askOwnerRequest", () => {
-  test("names the machine and the menu item that shares it", () => {
+  test("names the machine, and no menu item the owner does not have", () => {
     const text = askOwnerRequest(translate, "build-box");
     expect(text).toContain("build-box");
-    expect(text).toContain("Share Machine…");
-    expect(askOwnerRequest(translate, undefined)).toContain("Share Machine…");
+    expect(text).not.toContain("Share Machine…");
+    expect(askOwnerRequest(translate, undefined)).not.toContain("Share Machine…");
   });
 });

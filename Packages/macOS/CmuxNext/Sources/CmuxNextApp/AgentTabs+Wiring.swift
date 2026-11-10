@@ -373,7 +373,10 @@ extension AgentTabStore {
             guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
             }
-            return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
+            let socket = await services.machines.local.connection?.endpoint?.socketPath
+            guard let refused = await CloudCLICall(cli: services.bundledCLI).shareChatWithMe(machine: session.machineID, signedIn: services.cloud.auth,
+                                                                                             socket: socket) else { return .shared }
+            return .refused(code: refused.code, message: refused.code == "not_signed_in" ? CloudStrings.signInFirst : refused.message)
         }
         tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         tabs.remoteHostScoped = { [weak services, weak tabs] key in

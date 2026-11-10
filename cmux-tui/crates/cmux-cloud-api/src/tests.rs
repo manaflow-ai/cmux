@@ -1420,3 +1420,115 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         assert_eq!(failure, Failure::http(500, None, None));
     });
 }
+
+// MARK: chat access and Share with Me (cmux-platform /v1/machines/{id}/chat-grants)
+
+const ACCESS_NONE: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"none","canShare":false,"grants":[]}"#;
+const ACCESS_GRANTED: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":false,"grants":[]}"#;
+const ACCESS_ADMIN: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":true,"grants":["user_me"]}"#;
+const NOT_CREATOR: &str =
+    r#"{"_tag":"MachineForbidden","code":"machine.creator_or_admin","message":"not allowed to share_chat this"}"#;
+
+fn share(origin: &str, args: Value) -> Request {
+    let mut call = request(origin, Auth::Worker, "machine.share_chat", args);
+    call.team = Some("team_1".into());
+    call
+}
+
+#[test]
+fn a_share_puts_the_grant_on_the_platform_with_the_persons_session_and_team() {
+    let (origin, seen) = fake(|_| ok(ACCESS_ADMIN));
+    let answer = go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me" }))).unwrap();
+    assert_eq!(answer["chatStart"], "granted");
+    assert_eq!(answer["grants"], json!(["user_me"]));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "PUT /v1/machines/vm_team/chat-grants/user_me");
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_1"));
+}
+
+#[test]
+fn a_revoke_deletes_the_grant() {
+    let (origin, seen) = fake(|_| ok(ACCESS_NONE));
+    let call = share(&origin, json!({ "machine": "vm_team", "user": "user_mate", "revoke": true }));
+    assert_eq!(go(&call).unwrap()["chatStart"], "none");
+    assert_eq!(seen.lock().unwrap()[0].target(), "DELETE /v1/machines/vm_team/chat-grants/user_mate");
+}
+
+#[test]
+fn the_chat_access_is_the_callers() {
+    let (origin, seen) = fake(|_| ok(ACCESS_GRANTED));
+    let call = request(&origin, Auth::Worker, "machine.chat_access", json!({ "machine": "vm_team" }));
+    assert_eq!(go(&call).unwrap()["chatStart"], "granted");
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /v1/machines/vm_team/chat-access");
+}
+
+#[test]
+fn share_with_me_by_a_member_is_refused_with_its_code_and_asks_the_owner() {
+    let (origin, seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_NONE) }
+    });
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure::http(
+            403,
+            Some("machine.creator_or_admin".into()),
+            Some("not allowed to share_chat this".into())
+        )
+    );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[1].target(), "GET /v1/machines/vm_team/chat-access");
+}
+
+#[test]
+fn share_with_me_after_the_owner_shared_answers_the_access() {
+    let (origin, _seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
+    });
+    let answer =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true }))).unwrap();
+    assert_eq!(answer["chatStart"], "granted");
+}
+
+#[test]
+fn a_teammates_share_refusal_never_reads_the_callers_access() {
+    let (origin, seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
+    });
+    let failure = go(&share(&origin, json!({ "machine": "vm_team", "user": "user_mate" }))).unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 403, .. }));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_private_machine_refusal_keeps_its_code() {
+    let (origin, seen) = fake(|_| {
+        Some((403, r#"{"_tag":"MachineForbidden","code":"machine.private","message":"no"}"#.into()))
+    });
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 403, code: Some(c), .. } if c == "machine.private"));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_chat_grant_call_is_refused_before_any_request_on_stack_or_a_bad_id() {
+    let (origin, seen) = fake(|_| ok(ACCESS_ADMIN));
+    let mut call = share(&origin, json!({ "machine": "vm_team", "user": "user_me" }));
+    call.auth = Auth::Stack;
+    assert!(matches!(go(&call), Err(Failure::Http { status: 501, .. })));
+    for args in [
+        json!({ "machine": "../v1/teams", "user": "user_me" }),
+        json!({ "machine": "vm_team", "user": "user_me/../x" }),
+        json!({ "machine": "vm_team", "user": "" }),
+        json!({ "machine": "vm_team", "user": "user_me", "me": true, "revoke": true }),
+    ] {
+        assert!(matches!(go(&share(&origin, args)), Err(Failure::Transport(_))));
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}

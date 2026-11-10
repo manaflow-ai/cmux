@@ -28,6 +28,8 @@ fn wire_name_round_trips_through_serde() {
         "cloud.vm.domains",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
+        "cloud.machine.chat_access",
+        "cloud.machine.share_chat",
         "palette.rank",
     ] {
         let operation: ResourceOperation =

@@ -239,7 +239,7 @@ final class AgentTabStore {
     /// then the folders under it), for the same project list; none from an older daemon.
     var remoteMachineFoldersScoped: (@MainActor (AgentTabKey) async -> [String])?
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
-    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    /// its Cloud machine (``CloudCLICall/shareChatWithMe(machine:signedIn:socket:)``).
     var shareMachineWithMeScoped: (@MainActor (AgentTabKey) async -> AgentPaneMachineShare)?
     /// The Share dialog's op on tab `key`'s own chat (``AgentShareActions/pane(_:tab:host:)``).
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?

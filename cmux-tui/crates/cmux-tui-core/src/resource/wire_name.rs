@@ -304,6 +304,8 @@ impl ResourceOperation {
             Self::CloudPreviewsCreateLink => "cloud.previews.create_link",
             Self::CloudPreviewsRevokeLink => "cloud.previews.revoke_link",
             Self::CloudMachineIo => "cloud.machine.io",
+            Self::CloudMachineChatAccess => "cloud.machine.chat_access",
+            Self::CloudMachineShareChat => "cloud.machine.share_chat",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

@@ -106,7 +106,7 @@ test("only the creator or an admin shares: the button becomes Ask the Owner, whi
   await render(
     container,
     async () => {
-      throw new NativeError({ code: "vm_chat_share_forbidden", userMessage: "no" });
+      throw new NativeError({ code: "machine.creator_or_admin", userMessage: "no" });
     },
     ran,
   );
@@ -129,7 +129,7 @@ test("once the owner was asked, Retry looks for their share before it starts aga
     container,
     async () => {
       calls += 1;
-      if (!shared) throw new NativeError({ code: "vm_chat_share_forbidden" });
+      if (!shared) throw new NativeError({ code: "machine.creator_or_admin" });
       return { shared: true };
     },
     ran,
@@ -150,7 +150,7 @@ test("once the owner was asked, Retry with no share yet is a plain retry", async
     container,
     async () => {
       calls += 1;
-      throw new NativeError({ code: "vm_chat_share_forbidden" });
+      throw new NativeError({ code: "machine.creator_or_admin" });
     },
     ran,
   );

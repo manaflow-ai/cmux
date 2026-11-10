@@ -49,7 +49,9 @@ const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
+  "cloud.machine.chat_access",
   "cloud.machine.io",
+  "cloud.machine.share_chat",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
