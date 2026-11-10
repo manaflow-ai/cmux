@@ -3700,6 +3700,20 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+# A one-line JS/TS helper definition (`const settle = () => act(async () => new Promise((r) => setTimeout(r, 0)));`)
+# declares a sleep; it runs nothing where it is written, so the lines after it are not gated by it. A call of the
+# helper followed by an assertion is a different line, and is not judged here.
+_JS_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+_JS_HELPER_DEFINITION = re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*(?::[^=]+)?=\s*(?:async\s*)?\([^)]*\)\s*(?::[^=]+)?=>")
+
+
+def _sleep_in_one_line_helper(line: str, path_suffix: str) -> bool:
+    if path_suffix not in _JS_SUFFIXES or not _JS_HELPER_DEFINITION.search(line):
+        return False
+    code = line.split("//", 1)[0]
+    return code.count("(") == code.count(")") and code.count("{") == code.count("}")
+
+
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
@@ -3709,6 +3723,8 @@ def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bo
     if not is_sleep:
         return False
     if _sleep_in_loop(lines, idx):
+        return False
+    if _sleep_in_one_line_helper(line, path_suffix):
         return False
     seen = 0
     for j in range(idx + 1, len(lines)):
@@ -4032,6 +4048,12 @@ def _self_test() -> int:
             "web/tests/c.ts",
             "const res = await fetch('https://api.openai.com/v1/items')\n",
             {RULE_LIVE_NETWORK_HOST},
+        ),
+        # A sleep statement in the test's own flow, then an assertion, still counts in TS.
+        (
+            "webviews/test/p31.test.ts",
+            "await new Promise((resolve) => setTimeout(resolve, 50));\nexpect(seen).toBe(1);\n",
+            {RULE_SLEEP_THEN_ASSERT},
         ),
         (
             "web/tests/c2.ts",
@@ -5689,6 +5711,17 @@ def _self_test() -> int:
         (
             "tests/n29.py",
             'assert span < 5, "the duration was off"\n',
+        ),
+        # A one-line helper that declares a settle sleep runs nothing where it is written.
+        (
+            "webviews/test/n31.test.tsx",
+            (
+                "const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));\n"
+                "\n"
+                "test(\"fits\", () => {\n"
+                "  expect(layout(400)).toEqual({ card: 0 });\n"
+                "});\n"
+            ),
         ),
         # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
         (

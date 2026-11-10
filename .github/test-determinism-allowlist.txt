@@ -104,7 +104,6 @@ webviews/test/all-chats-live.test.tsx	sleep-then-assert	feat-cmux-next debt befo
 webviews/test/all-chats-projects.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/attach-config-current.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/check-fixed-waits.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
-webviews/test/diff-viewer-freshness.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/harnesses-page.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/history-page-error.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/home-chief-host-calls.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
@@ -178,7 +177,6 @@ tests/test_nightly_helpers_beside_release_build.py	assert-on-duration	feat-cmux-
 tests/test_r2_upload_requests.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 3ded5ceec04b); determinize, then remove
 tests/test_remote_daemon_notices.py	assert-on-duration	feat-cmux-next debt while the gate was red (added in 3ded5ceec04b); determinize, then remove
 web/tests/run-route-db-behavior.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 802f9b7aa241); determinize, then remove
-web/tests/run-sandbox-launcher.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 29755d649fe4); determinize, then remove
 webviews/test/access-chip-pending-warning.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 3a0e1b66a133); determinize, then remove
 webviews/test/agent-pane-needs-you.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in a8ee82acea31); determinize, then remove
 webviews/test/agent-pane-subsession-limits.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 462745eb50ba); determinize, then remove
@@ -191,7 +189,6 @@ webviews/test/composer-settings.test.ts	sleep-then-assert	feat-cmux-next debt wh
 webviews/test/environment-picker-cloud-machines.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 7d6a47418677); determinize, then remove
 webviews/test/inline-media.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 43d062716739); determinize, then remove
 webviews/test/long-task-queue.test.ts	assert-on-duration	feat-cmux-next debt while the gate was red (added in 38af08278fc4); determinize, then remove
-webviews/test/media-drag-out.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 0c9818b509b5); determinize, then remove
 webviews/test/model-menu-providers.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in a7a510437502); determinize, then remove
 webviews/test/sandbox-run.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 3dbd6fe57560); determinize, then remove
 webviews/test/transcript-fold-motion.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 8ae8fd5f2bd4); determinize, then remove
@@ -238,7 +235,16 @@ tests/test_scroll_measurement_metrics.py	assert-on-duration	debt from #33471 (la
 webviews/test/inbox-sender-mark.test.tsx	sleep-then-assert	debt from #32892 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/sent-video-tile.test.tsx	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/session-info-no-flicker.test.tsx	sleep-then-assert	debt from #33203 (landed while this step was red on the base); use fake timers instead of a 50 ms wait
-webviews/test/thread-rail-bookmark-every-row.test.tsx	sleep-then-assert	debt from #32880 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/agent-pane-idle-probe.test.ts	sleep-then-assert	the timeouts are the probe's input: the test counts setTimeout calls, it never sleeps to wait for state
 tests/test_cmux_next_guardrails_observation.py	assert-on-duration	test_the_rules_are_fast is a performance guard: the observation rules over 100 copies of every fixture must finish far under 3 s (regex backtracking makes it minutes); no correctness assertion waits on time
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeNeedsYouTests.swift	sleep-then-assert	absence checks from #37378 (a not-live empty view keeps the section; with the setting off a change reads nothing): each sleep follows the observed read or toggle, and no event marks that nothing happened; give FeedNeedsYou a processed-change counter to await, then remove
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneChromiumMoveTests.swift	sleep-then-assert	debt from #40052 (landed with no CI while Mac runners were down); determinize per cmuxterm-hq#8911, then remove
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneVerbsKeyTurnTests.swift	sleep-then-assert	debt from #40278 (landed with no CI while Mac runners were down); determinize per cmuxterm-hq#8911, then remove
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChatHistoryTests.swift	sleep-then-assert	debt from #40314 (landed with no CI while Mac runners were down); determinize per cmuxterm-hq#8911, then remove
+# Guard-group tip reds of 2026-11-10 from merges that landed with no CI run (#40464, #40574, #40631, #40688).
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SocketSettingsWriteTests.swift	sleep-then-assert	debt from #40464 (landed with no CI while Mac runners were down): the 500 ms wait before asserting the locked file is unchanged; give the router a "waiting for the lock" signal to await, then remove (cmuxterm-hq#8911)
+tests/test_ci_cmux_next_compile_status.py	assert-on-duration	each elapsed bound (15-20 s) proves the step hands off within its BAD_BOUND instead of the 40-minute long poll it replaced: the hang is the behavior under test, and the bound sits ten times above the expected time
+tests/test_ci_cmux_next_compile_status.py	live-network-host	the URLs are detector fixture strings fed to unbounded_retries(); the test never requests them
+tests/test_ci_no_bare_urlopen.py	assert-on-duration	deadline_http's own deadline tests: that a request ends at its deadline (not before, not long after) is the behavior under test, served by a local socket
+tests/test_ci_no_bare_urlopen.py	sleep-then-assert	deadline_http's own deadline tests: the sleep spends the deadline itself (a shared Deadline already past, or a refused send that must stay unsent past it); no state is awaited
+tests/test_cmux_next_base_tier.py	assert-on-duration	the whole-request bound of the tree-notify and quota clients is the behavior under test: a trickling local server must be cut at the bound, not before
