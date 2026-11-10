@@ -932,8 +932,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func mouseDown(with event: NSEvent) {
         focusEnclosingSessionInfoPanel()
         let point = convert(event.locationInWindow, from: nil)
-        pressedGrip = line.reorderable && line.id != nil && (gripHitRect?.contains(point) == true)
-        dragStart = pressedGrip ? point : nil
+        let reorderable = line.reorderable && line.id != nil
+        pressedGrip = reorderable && (gripHitRect?.contains(point) == true)
+        // A press anywhere on a reorderable line can start a drag (Lucas, 2026-11-10: "you don't
+        // necessarily need to hover on the 6 dot selector"). It becomes a drag only past the 4 pt
+        // threshold, so a plain click still folds or runs the line. Buttons, toggles and the menu are
+        // their own views and take their presses before this line sees them.
+        dragStart = reorderable ? point : nil
         isDragging = false
     }
     override func mouseDragged(with event: NSEvent) {
