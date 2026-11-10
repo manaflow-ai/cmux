@@ -954,25 +954,23 @@ def _stamp_time(value) -> datetime | None:
     return parsed if parsed.tzinfo else None
 
 
-def failed_steps_log(job: dict, log: str) -> str:
-    """LOG without the lines of JOB's passing steps. A job runs many steps, and a passing one may print error-looking
-    stderr on purpose: test_ghostty_licenses.py's negative cases print "pinned license manifest digest changed" and
-    pass. 2026-11-10: cmux#40369's static checks failed only in "Every page's strings generate with no missing
-    translation" (feat-cmux-next runs 42820823641, 42820590433), and the excuse quoted that digest line, sending an
-    agent after the wrong cause.
+def step_owners(job: dict, log: str) -> tuple[list[dict], list[frozenset[int]]] | None:
+    """(the steps of JOB that ran, by number, without skipped ones; for each line of LOG, the indices into them of the
+    steps that may have printed it), or None when LOG's lines cannot be told to steps. The one owner of a line's step:
+    failed_steps_log, step_lines and every caller of theirs place lines through it.
 
     A line's step is told by the log's own order, never by a step's name (names repeat) or by whole-second step times
-    (steps share seconds: cmux#40497 and cmux#40542's Codex reviews). The steps that ran (the jobs API's steps[], by
-    number, without skipped ones) and the log's sections match by index: "Set up job" holds the lines before the first
-    STEP_START line, each STEP_START line opens the next step's section, and "Complete job", which prints no such line,
-    shares the last section with the step before it. Timestamps only cross-check that match: every stamped line must
-    fall within its section's steps' [started_at - 1s, completed_at + 1s] (the metadata keeps whole seconds).
-
-    A step passed when the jobs API says success and its section has no `##[error]` line: a continue-on-error step
-    that failed also reads as a success there, but its section still ends with `##[error]Process completed with exit
-    code N.`. Only a section whose every step passed is dropped. When the sections cannot be matched one to one with
-    the steps (a composite action prints a STEP_START line per inner step, a step that printed nothing, a step with no
-    times, a line outside its steps' times), nothing can be placed and the whole log is kept."""
+    alone (steps share seconds: cmux#40497 and cmux#40542's Codex reviews). The log splits into blocks at each
+    STEP_START line; the steps that ran take the blocks in order, each step one run of them: "Set up job" from the
+    first line, every other step from a STEP_START line, and "Complete job", which prints no such line, shares the last
+    run with the step before it (those lines have two owners). A step takes more than one block when it prints more
+    than one STEP_START line: a composite action prints one per inner step (cmux-next-ios kit's "Set up pinned Rust",
+    job 129951569749: 13 STEP_START lines for 10 steps). A placement holds only when every stamped line falls within
+    its steps' [started_at - 1s, completed_at + 1s] (the metadata keeps whole seconds) and each step's first line
+    carries a stamp. A line's owners are every step that some placement that holds gives it, so a line two placements
+    disagree on has both steps, and with as many STEP_START lines as steps print one there is one placement only.
+    None when no placement holds: fewer STEP_START lines than steps (a step that printed nothing), a step with no
+    times, a line outside the times of every step it could be given to."""
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     if all(isinstance(step.get("number"), int) for step in steps):
         steps.sort(key=lambda step: step["number"])
@@ -980,39 +978,95 @@ def failed_steps_log(job: dict, log: str) -> str:
     for step in steps:
         start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
         if start is None or end is None or end < start:
-            return log
+            return None
         windows.append((start - timedelta(seconds=1), end + timedelta(seconds=1)))
+    if len(steps) < 2:
+        return None
     lines, texts = log.splitlines(), lines_of(log)
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if len(steps) < 2 or len(starts) != len(steps) - 2:
+    times = []
+    for line in lines:
+        parts = line.replace("\ufeff", "").split("\t", 2)
+        stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+        at = _stamp_time(stamp.group()) if stamp else None
+        if stamp and at is None:
+            return None
+        times.append(at)
+    cuts = [0, *(n for n, text in enumerate(texts) if STEP_START.match(text)), len(lines)]
+    blocks = list(zip(cuts, cuts[1:]))
+    spans = [(min(found), max(found)) if (found := [t for t in times[a:z] if t is not None]) else None
+             for a, z in blocks]
+    runs = len(steps) - 1  # run k is step k's; the last is also "Complete job"'s
+
+    def owners_of(k: int) -> tuple[int, ...]:
+        return (k, len(steps) - 1) if k == runs - 1 else (k,)
+
+    def ends(k: int, first: int) -> list[int]:
+        """Each block run k may end before, starting at block FIRST."""
+        if first > 0 and times[blocks[first][0]] is None:
+            return []  # a step's first line must carry its stamp; a continuation line may not
+        low = min(windows[i][0] for i in owners_of(k))
+        high = max(windows[i][1] for i in owners_of(k))
+        found = []
+        for b in range(first, len(blocks)):
+            if spans[b] is not None and not (low <= spans[b][0] and spans[b][1] <= high):
+                break
+            found.append(b + 1)
+        return found
+
+    ahead = [[False] * (len(blocks) + 1) for _ in range(runs + 1)]  # runs before k fill the blocks before b
+    ahead[0][0] = True
+    for k in range(runs):
+        for first in range(len(blocks)):
+            if ahead[k][first]:
+                for end in ends(k, first):
+                    ahead[k + 1][end] = True
+    behind = [[False] * (len(blocks) + 1) for _ in range(runs + 1)]  # runs from k on fill the blocks from b on
+    behind[runs][len(blocks)] = True
+    for k in reversed(range(runs)):
+        for first in range(len(blocks)):
+            behind[k][first] = any(behind[k + 1][end] for end in ends(k, first))
+    if not behind[0][0]:
+        return None
+    owners: list[set[int]] = [set() for _ in blocks]
+    for k in range(runs):
+        for first in range(len(blocks)):
+            if ahead[k][first]:
+                for end in ends(k, first):
+                    if behind[k + 1][end]:
+                        for b in range(first, end):
+                            owners[b].update(owners_of(k))
+    return steps, [frozenset(owners[b]) for b, (a, z) in enumerate(blocks) for _ in range(a, z)]
+
+
+def failed_steps_log(job: dict, log: str) -> str:
+    """LOG without the lines of JOB's passing steps. A job runs many steps, and a passing one may print error-looking
+    stderr on purpose: test_ghostty_licenses.py's negative cases print "pinned license manifest digest changed" and
+    pass. 2026-11-10: cmux#40369's static checks failed only in "Every page's strings generate with no missing
+    translation" (feat-cmux-next runs 42820823641, 42820590433), and the excuse quoted that digest line, sending an
+    agent after the wrong cause.
+
+    Each line's steps are step_owners'. A step passed when the jobs API says success and its section has no
+    `##[error]` line: a continue-on-error step that failed also reads as a success there, but its section still ends
+    with `##[error]Process completed with exit code N.`. Only a line whose every owner passed is dropped. When
+    step_owners cannot place the lines, the whole log is kept."""
+    placed = step_owners(job, log)
+    if placed is None:
         return log
-    bounds = [0, *starts, len(lines)]
-    # Section k is step k's; the last is also "Complete job"'s.
-    owners = [{k} for k in range(len(bounds) - 1)]
-    owners[-1].add(len(steps) - 1)
+    steps, owners = placed
     passed = [step.get("conclusion") == "success" for step in steps]
-    for k, steps_here in enumerate(owners):
-        low = min(windows[i][0] for i in steps_here)
-        high = max(windows[i][1] for i in steps_here)
-        for n in range(bounds[k], bounds[k + 1]):
-            parts = lines[n].replace("\ufeff", "").split("\t", 2)
-            stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
-            at = _stamp_time(stamp.group()) if stamp else None
-            # A section's first line must carry its stamp; a continuation line may not.
-            if (at is None and (stamp or n == bounds[k] > 0)) or (at is not None and not low <= at <= high):
-                return log
-            if texts[n].startswith("##[error]"):
-                for i in steps_here:
-                    passed[i] = False
-    return "\n".join(line for k, steps_here in enumerate(owners) if not all(passed[i] for i in steps_here)
-                     for line in lines[bounds[k]:bounds[k + 1]])
+    for text, steps_here in zip(lines_of(log), owners):
+        if text.startswith("##[error]"):
+            for i in steps_here:
+                passed[i] = False
+    return "\n".join(line for line, steps_here in zip(log.splitlines(), owners)
+                     if not all(passed[i] for i in steps_here))
 
 
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
     excused because the base's log echoed the same `echo "::error::..."` lines of its step's script)."""
-    steps = {step["name"] for step in job.get("steps") or []
+    steps = {step["name"] for step in job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
     tests = test_reds.failed_names(test_reds.lines_of(log))
     errors: set[str] = set()
@@ -1090,7 +1144,7 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
         if (job.get("head_sha") != sha or job.get("name") != check.get("name")
                 or job.get("run_id") != int(link[1])):
             continue
-        steps = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
+        steps = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}  # step-name: classify
         if not COMPILE_STEPS & steps.keys():
             continue
         if job.get("conclusion") == "success" and any(steps.get(name) == "success" for name in COMPILE_STEPS):
@@ -1323,7 +1377,8 @@ def crash_signals(log: str) -> set[str]:
 
 def refused_at_setup(job: dict, log: str | None = None) -> bool:
     steps = job.get("steps") or []
-    if not steps or any(step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
+    if not steps or any(step.get("name") in SETUP_STEPS  # step-name: classify
+                        and step.get("conclusion") == "failure" for step in steps):
         return True
     return log is not None and HOOK_REFUSAL in log
 
@@ -2466,16 +2521,22 @@ def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    by_step = step_lines(job, head_log, only=steps)
-    if by_step is None:
-        raise Refused("its log's lines cannot each be told to one step")
-    failed: set[str] = set()
-    for step in sorted(steps):
-        found = test_reds.read("\n".join(by_step.get(step, []))).failed
+    placed = step_lines(job, head_log)
+    if placed is None:
+        raise Refused("its log's lines cannot each be told to one step by the log's step order (step_owners)")
+    tests: set[str] = set()
+    for step, lines in placed:
+        if not step_failed(step):
+            continue
+        if lines is None:
+            said = step.get("name")  # step-name: display
+            raise Refused(f"its failed step {said!r} shares its log lines with another step")
+        found = test_reds.read("\n".join(lines)).failed
         if not found:
-            raise Refused(f"its failed step {step!r} names no failing test of its own")
-        failed |= found
-    return sorted(failed)
+            said = step.get("name")  # step-name: display
+            raise Refused(f"its failed step {said!r} names no failing test of its own")
+        tests |= found
+    return sorted(tests)
 
 
 def guard_job(name: str) -> bool:
@@ -2674,7 +2735,7 @@ def guard_group(repo: str, base: str, name: str, job: dict, head_log: str, base_
                 github) -> str:
     """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
     (the rule above); raises Refused naming the first step that is not."""
-    failed = {step["name"] for step in job.get("steps") or []
+    failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
               if step.get("conclusion") not in (None, "success", "skipped")}
     if failed != {GUARD_GROUP_STEP}:
         raise Refused(f"'{name}': failed steps {sorted(failed)}, not only '{GUARD_GROUP_STEP}'; nothing to compare "
@@ -2793,45 +2854,33 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str, only: set[str] | None = None) -> dict[str, list[str]] | None:
-    """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
-    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines. With
-    ONLY, a line is placed among those steps' windows alone (a failed step's last second is also the first of the
-    steps after it, which ran no test)."""
-    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"
-                and (only is None or step.get("name") in only)]
-    names = [step.get("name") for step in metadata]
-    if len(set(names)) != len(names):
+def step_lines(job: dict, head_log: str) -> list[tuple[dict, list[str] | None]] | None:
+    """[(step, the lines of HEAD_LOG it printed)] for each step of JOB that ran, by number, as step_owners places them;
+    None when it cannot. A step with a line another step may have printed (a composite action's inner STEP_START line
+    in a second two steps share) has None for its lines, so no caller reads one step's output as another's. "Complete
+    job" (the last step) is the runner's own cleanup, which runs no test: the last section is the step's before it,
+    and "Complete job" has None. Each line is its stamp and text (`gh run view --log`'s job and step columns
+    dropped)."""
+    placed = step_owners(job, head_log)
+    if placed is None:
         return None
-    by_step: dict[str, list[str]] = {}
-    for line in head_log.splitlines():
+    steps, owners = placed
+    found: list[list[str] | None] = [[] for _ in steps]
+    found[-1] = None
+    for line, steps_here in zip(head_log.splitlines(), owners):
         parts = line.split("\t", 2)
-        if len(parts) == 3 and STAMP.match(parts[2]):
-            by_step.setdefault(parts[1], []).append(parts[2])
-    if not by_step:
-        def timestamp(value):
-            try:
-                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                return parsed if parsed.tzinfo else None
-            except (AttributeError, TypeError, ValueError):
-                return None
-        windows = []
-        for step in metadata:
-            start, end = timestamp(step.get("started_at")), timestamp(step.get("completed_at"))
-            if start is None or end is None or end < start:
-                return None
-            # Actions step metadata rounds to seconds. A line in a shared boundary second cannot identify its
-            # step, so match every possible window and retain it only when there is exactly one owner.
-            windows.append((step["name"], start, end + timedelta(seconds=1)))
-        for line in head_log.splitlines():
-            stamp = STAMP.match(line)
-            when = timestamp(stamp.group().strip()) if stamp else None
-            if when is None:
-                continue
-            owners = [name for name, start, end in windows if start <= when < end]
-            if len(owners) == 1:
-                by_step.setdefault(owners[0], []).append(line)
-    return by_step
+        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
+        mine = steps_here - {len(steps) - 1}
+        for i in mine:
+            if len(mine) > 1:
+                found[i] = None
+            elif (lines := found[i]) is not None:
+                lines.append(text)
+    return list(zip(steps, found))
+
+
+def step_failed(step: dict) -> bool:
+    return step.get("conclusion") not in (None, "success", "skipped")
 
 
 def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
@@ -2841,12 +2890,18 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
             or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
         return False
-    # A generic failed test-named step must not borrow a quarantined test from another step.
-    by_step = step_lines(job, head_log)
-    if by_step is None:
+    # A generic failed test-named step must not borrow a quarantined test from another step: each failed step's own
+    # lines (step_lines, by the log's step order) name its quarantined tests, and a step whose lines cannot be told
+    # from another's is never explained.
+    placed = step_lines(job, head_log)
+    if placed is None:
         return False
-    for step in steps:
-        result = test_reds.read("\n".join(by_step.get(step, [])))
+    for step, lines in placed:
+        if not step_failed(step):
+            continue
+        if lines is None:
+            return False
+        result = test_reds.read("\n".join(lines))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
             return False
     normalized = normalise_error
@@ -3235,7 +3290,7 @@ def gallery_replay_crash(job: dict, head_log: str) -> tuple[str, str] | None:
     """(the replay's base sha, its load error) when gallery health shard JOB's base replay crashed loading the base:
     its first failed step is GALLERY_REPLAY_STEP and a BASE_LOAD_CRASH line follows the replay's start, before the
     next step. None otherwise: any other red, or a crash before the replay (the head's own)."""
-    failed = [step.get("name") for step in job.get("steps") or []
+    failed = [step.get("name") for step in job.get("steps") or []  # step-name: classify
               if step.get("conclusion") not in (None, "success", "skipped")]
     if not failed or failed[0] != GALLERY_REPLAY_STEP:
         return None
@@ -3296,11 +3351,11 @@ def gallery_run_results(repo: str, run: dict, github) -> list[str] | None:
     if not jobs or any(job.get("conclusion") not in VERDICTS for job in jobs):
         return None
     for job in jobs:
-        failed = [step.get("name") for step in job.get("steps") or []
+        failed = [step.get("name") for step in job.get("steps") or []  # step-name: classify
                   if step.get("conclusion") not in (None, "success", "skipped")]
         if failed and failed[0] != GALLERY_REPLAY_STEP:
             return None  # red before its verdict step (a checkout, the entries it renders): no verdict
-    rendered = [job for job in jobs if any(step.get("name") == GALLERY_RENDER_STEP
+    rendered = [job for job in jobs if any(step.get("name") == GALLERY_RENDER_STEP  # step-name: classify
                                            and step.get("conclusion") not in (None, "skipped")
                                            for step in job.get("steps") or [])]
     if not rendered:
@@ -3433,7 +3488,7 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
     if repo != HOME_REPO or found is None:
         return None
     replay = bool(found.group(1))
-    failed = [step.get("name") or "" for step in job.get("steps") or []
+    failed = [step.get("name") or "" for step in job.get("steps") or []  # step-name: classify
               if step.get("conclusion") not in (None, "success", "skipped")]
     outside = [step for step in failed if step not in WEB_TEST_STEPS["replay" if replay else "shard"]]
     if outside or not failed:
@@ -3505,7 +3560,7 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
     Raises Refused when a red file is not red on the base, or the run crashed or timed a file out."""
     if repo != HOME_REPO or job.get("conclusion") not in CUT_SHORT or not WEB_SHARD_JOB.fullmatch(name):
         return None
-    cut = [step.get("name") or "" for step in job.get("steps") or []
+    cut = [step.get("name") or "" for step in job.get("steps") or []  # step-name: classify
            if step.get("conclusion") not in (None, "success", "skipped")]
     if not cut or any(step not in WEB_TEST_STEPS["shard"] for step in cut):
         return None
