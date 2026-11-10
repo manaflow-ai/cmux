@@ -449,7 +449,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     {
         return relay::run(rest);
     }
-    let (args, allow_large) = size_cap::take_allow_large(args);
+    let (args, allow_large) = size_cap::take_allow_large(args, &["--socket", "--store"]);
     let Some((action, socket, local, remote, store)) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;

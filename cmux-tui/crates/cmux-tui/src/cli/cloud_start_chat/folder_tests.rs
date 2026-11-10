@@ -223,3 +223,14 @@ fn a_folder_refusal_is_its_reason_not_the_help() {
     let parsed = parse(&strings(&["--prompt", "x", "--bogus"]), || Ok(String::new()));
     assert_eq!(parsed.map_err(|error| refusal(&error).is_none()), Err(true));
 }
+
+/// `--allow-large` is a flag of the start, never taken out of a prompt: `--prompt --allow-large`
+/// and `-- --allow-large` send that text.
+#[test]
+fn allow_large_is_a_flag_never_a_prompt() {
+    assert!(request(&["--prompt", "x", "--allow-large"]).allow_large);
+    let asked = request(&["--prompt", "--allow-large"]);
+    assert_eq!((asked.prompt.as_deref(), asked.allow_large), (Some("--allow-large"), false));
+    let literal = request(&["--", "--allow-large"]);
+    assert_eq!((literal.prompt.as_deref(), literal.allow_large), (Some("--allow-large"), false));
+}

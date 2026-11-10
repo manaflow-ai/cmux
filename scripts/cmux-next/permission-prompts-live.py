@@ -17,7 +17,8 @@ page (a new port, so a new origin, every run). For each engine:
      the page's `onclick`. Chromium shows no web notifications (DesktopNotifier owns the
      app's one macOS notification authorization), but its pages keep `Notification` and
      `PushManager` with the permission `default`, as in Chrome: a page without them fails
-     bot checks (Akamai's challenge page reloaded godaddy.com forever).
+     bot checks (Akamai's challenge page reloaded godaddy.com forever). A request for the
+     permission ends at once as `denied`, with no prompt.
 
 Location is only ever denied: allowing it would raise the macOS location prompt on the
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
@@ -213,6 +214,10 @@ def run_engine(engine):
         check(run(engine, "notifyNow('cmux chromium early')"), f"{engine}: the page makes a notification without permission")
         time.sleep(2)
         check(banner("cmux chromium early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
+        check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications")
+        got = settled("notify")
+        check(got == "denied" and not permission_prompts("notifications"),
+              f"{engine}: a notification request ends at once, refused, with no prompt ({got}, {prompts()})")
     else:
         check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
         time.sleep(2)
