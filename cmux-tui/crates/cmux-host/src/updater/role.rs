@@ -827,11 +827,6 @@ pub fn adopt(paths: &Paths) -> Outcome {
         Ok(payload) => payload,
         Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
     };
-    match super::relink_work_link(paths) {
-        Ok(true) => log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI)),
-        Ok(false) => {}
-        Err(e) => return Outcome::Failed(format!("relinking {}: {e}", super::WORK_CMUX_TUI_LINK)),
-    }
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
         Ok(Decision::Update(plan)) => plan,
@@ -852,16 +847,34 @@ pub fn adopt(paths: &Paths) -> Outcome {
     if let Err(e) = save_pending(paths, &pending) {
         return Outcome::Failed(format!("recording the update: {e}"));
     }
-    if let Err(e) = arm_guard_with(&pending, &store_binary(&plan.cmux_tui.sha256)) {
+    // The new profile's own `cmux` (the binary has `host` only under that name).
+    let guard = store::profile_dir(paths, plan.to).join("bin/cmux");
+    if let Err(e) = arm_guard_with(&pending, &guard) {
         clear_pending(paths);
         return Outcome::Failed(format!("arming the guard: {e}"));
     }
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    // Last before the flip, so a step that failed above left the work link as it was.
+    let relinked = match super::relink_work_link(paths) {
+        Ok(relinked) => relinked,
+        Err(e) => {
+            drop(commit);
+            disarm_guard();
+            clear_pending(paths);
+            return Outcome::Failed(format!("relinking {}: {e}", super::WORK_CMUX_TUI_LINK));
+        }
+    };
     if let Err(e) = store::flip(paths, plan.to) {
+        if relinked {
+            super::restore_work_link(paths);
+        }
         drop(commit);
         disarm_guard();
         clear_pending(paths);
         return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
+    }
+    if relinked {
+        log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
     }
     log(&format!(
         "adopt: profile {} -> {}: cmux-tui {} ({}); restarting the services",

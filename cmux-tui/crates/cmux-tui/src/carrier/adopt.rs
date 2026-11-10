@@ -24,7 +24,9 @@
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use tokio::time::Instant;
 
 use cmux_host::updater::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI};
 
@@ -42,6 +44,8 @@ const TICK: Duration = Duration::from_millis(500);
 const LOOK_TIMEOUT: Duration = Duration::from_secs(30);
 /// The adopt's time on the machine: a 160 MB download, the store, the restarts.
 const ADOPT_TIMEOUT: Duration = Duration::from_secs(240);
+/// The least an adopt gets: a serve outlives one dial's deadline, so its adopt may finish.
+const ADOPT_FLOOR: Duration = Duration::from_secs(90);
 /// The channel file's fetch here.
 const CHANNEL_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -51,8 +55,8 @@ s=$(sudo -n /opt/cmux/current/bin/cmux host update status 2>&1)
 case "$s" in
   *'unknown verb update'*) u=none ;;
   *'"off":null'*) u=on ;;
-  *no-self-update*) u=marked ;;
-  *'.cmux/bin/cmux-tui'*) u=relink ;;
+  *'"off":"/etc/cmux/no-self-update'*) u=marked ;;
+  *'"off":"/home/cmux/.cmux/bin/cmux-tui'*) u=relink ;;
   *) u=unknown ;;
 esac
 printf 'arch=%s updater=%s\n' "$m" "$u""#;
@@ -87,7 +91,8 @@ pub(super) fn found(stdout: &str) -> Found {
 
 /// The adopt: fetch `url`, check it is `sha256`, put it at its store entry (the
 /// layout of the machine's own updater, `store::add_entry`), and run its
-/// `cmux host update adopt`. Both values come from a verified channel payload
+/// `cmux host update adopt` (as `cmux`: the binary mounts `host` only under that
+/// name, `cli/host_mount.rs`). Both values come from a verified channel payload
 /// (`check_binary`: an https files.cmux.com url, a lowercase sha256), so nothing
 /// here needs quoting.
 pub(super) fn adopt_command(url: &str, sha256: &str) -> String {
@@ -100,7 +105,7 @@ curl --fail --silent --show-error --proto =https --tlsv1.2 --connect-timeout 20 
 e='/opt/cmux/store/{sha256}'
 sudo -n install -d -m 0755 "$e"
 sudo -n install -m 0555 -o root -g root "$f" "$e/{CMUX_TUI}"
-sudo -n "$e/{CMUX_TUI}" host update adopt"#
+sudo -n bash -c 'exec -a cmux "$0" host update adopt' "$e/{CMUX_TUI}""#
     )
 }
 
@@ -111,6 +116,20 @@ static CLAIMED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 pub(super) fn claim(machine: &str) -> bool {
     let mut claimed = CLAIMED.lock().unwrap_or_else(PoisonError::into_inner);
     claimed.get_or_insert_with(HashSet::new).insert(machine.to_owned())
+}
+
+/// Gives `machine` back after a look or adopt that did not get an answer (the exec route
+/// or the channel did not answer): a later parked attempt looks again.
+fn unclaim(machine: &str) {
+    let mut claimed = CLAIMED.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(claimed) = claimed.as_mut() {
+        claimed.remove(machine);
+    }
+}
+
+/// The outcomes a later attempt may retry: nothing answered.
+pub(super) fn retryable(outcome: &str) -> bool {
+    matches!(outcome, "look_refused" | "channel_unread" | "adopt_refused")
 }
 
 /// Whether the attempt's first link has been parked for at least `limit` at `now`.
@@ -159,7 +178,10 @@ pub(super) fn watch(
         // task-owner: the process; one look and at most one adopt per machine, past the attempt that saw it parked
         tokio::spawn(async move {
             let began = Instant::now();
-            let outcome = look_and_adopt(source.as_ref(), &machine).await;
+            let outcome = look_and_adopt(source.as_ref(), &machine, deadline).await;
+            if retryable(outcome) {
+                unclaim(&machine);
+            }
             log(format!(
                 "carrier.adopt machine={machine} outcome={outcome} ms={}",
                 began.elapsed().as_millis()
@@ -168,8 +190,10 @@ pub(super) fn watch(
     }))
 }
 
-/// The look, then the adopt when it needs one: a short `[a-z_]` outcome.
-async fn look_and_adopt(source: &dyn CarrierSource, machine: &str) -> &'static str {
+/// The look, then the adopt when it needs one: a short `[a-z_]` outcome. The adopt gets
+/// what is left of the dial's `deadline` (at least [`ADOPT_FLOOR`]): a `carrier dial`
+/// process ends with it, and its runtime with the request.
+async fn look_and_adopt(source: &dyn CarrierSource, machine: &str, deadline: Instant) -> &'static str {
     let looked = match source.exec(machine, LOOK, LOOK_TIMEOUT).await {
         Ok(reply) if reply.exit_code == 0 => reply,
         Ok(_) => return "look_failed",
@@ -181,7 +205,8 @@ async fn look_and_adopt(source: &dyn CarrierSource, machine: &str) -> &'static s
     };
     let Ok(payload) = verified_channel().await else { return "channel_unread" };
     let Ok((tui, _hook)) = payload.binaries_for(target) else { return "channel_no_build" };
-    match source.exec(machine, &adopt_command(&tui.url, &tui.sha256), ADOPT_TIMEOUT).await {
+    let left = deadline.saturating_duration_since(Instant::now()).max(ADOPT_FLOOR);
+    match source.exec(machine, &adopt_command(&tui.url, &tui.sha256), ADOPT_TIMEOUT.min(left)).await {
         Ok(reply) if reply.exit_code == 0 => "adopted",
         Ok(_) => "adopt_failed",
         Err(_) => "adopt_refused",

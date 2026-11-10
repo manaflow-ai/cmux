@@ -37,6 +37,9 @@ fn the_look_script_classifies_each_status_answer() {
     let on = r#"{"channel":"https://files.cmux.com/cmux-tui/channels/cloud-machine.json","off":null}"#;
     assert!(matches!(run(on), Found::Leave("updater_on" | "arch")));
     let marked = r#"{"off":"/etc/cmux/no-self-update exists"}"#;
+    // An old outcome line naming the file is not the updater being off now.
+    let on_after = r#"{"off":null,"state":{"last":"off: /etc/cmux/no-self-update exists"}}"#;
+    assert!(matches!(run(on_after), Found::Leave("updater_on" | "arch")));
     assert!(matches!(run(marked), Found::Leave("updates_off" | "arch")));
     let relink = r#"{"off":"/home/cmux/.cmux/bin/cmux-tui is not the store link"}"#;
     assert!(matches!(run(relink), Found::Adopt(_) | Found::Leave("arch")));
@@ -58,7 +61,7 @@ fn the_adopt_checks_the_download_then_runs_the_new_builds_adopt() {
     assert!(at(&format!("'{url}'")) < at("sha256sum"));
     assert!(at("sha256sum") < at("sudo -n install -m 0555"));
     assert!(command.contains(&format!("/opt/cmux/store/{sha}")));
-    assert!(command.ends_with(&format!("\"$e/{CMUX_TUI}\" host update adopt")));
+    assert!(command.ends_with(&format!("'exec -a cmux \"$0\" host update adopt' \"$e/{CMUX_TUI}\"")));
     assert!(command.starts_with("set -eu"));
 }
 
@@ -76,6 +79,8 @@ fn a_link_counts_as_parked_once_it_waited_unallocated() {
 fn each_machine_is_looked_at_once() {
     assert!(claim("vm_adopt_test_once_000"));
     assert!(!claim("vm_adopt_test_once_000"));
+    assert!(claim("vm_adopt_test_once_001"));
+    unclaim("vm_adopt_test_once_001");
     assert!(claim("vm_adopt_test_once_001"));
 }
 
@@ -112,10 +117,11 @@ impl CarrierSource for Looks {
 #[tokio::test]
 async fn a_machine_that_updates_itself_gets_only_the_look() {
     let source = Looks { look: "arch=x86_64 updater=on\n", ran: Mutex::new(Vec::new()) };
-    assert_eq!(look_and_adopt(&source, "vm_x").await, "updater_on");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    assert_eq!(look_and_adopt(&source, "vm_x", deadline).await, "updater_on");
     assert_eq!(source.ran.lock().unwrap().as_slice(), [LOOK.to_owned()]);
     let marked = Looks { look: "arch=x86_64 updater=marked\n", ran: Mutex::new(Vec::new()) };
-    assert_eq!(look_and_adopt(&marked, "vm_x").await, "updates_off");
+    assert_eq!(look_and_adopt(&marked, "vm_x", deadline).await, "updates_off");
     assert_eq!(marked.ran.lock().unwrap().len(), 1);
 }
 
@@ -128,5 +134,8 @@ async fn a_source_without_exec_adopts_nothing() {
             Err(SourceError::fatal("not here"))
         }
     }
-    assert_eq!(look_and_adopt(&NoExec, "vm_x").await, "look_refused");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    assert_eq!(look_and_adopt(&NoExec, "vm_x", deadline).await, "look_refused");
+    assert!(retryable("look_refused"));
+    assert!(!retryable("updater_on"));
 }

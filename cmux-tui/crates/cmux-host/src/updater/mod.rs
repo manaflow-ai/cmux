@@ -247,6 +247,15 @@ pub fn relink_work_link(paths: &Paths) -> io::Result<bool> {
     Ok(true)
 }
 
+/// Undoes [`relink_work_link`] when the flip after it failed: the file it kept goes back.
+#[cfg(unix)]
+pub fn restore_work_link(paths: &Paths) {
+    let kept = paths.at(WORK_CMUX_TUI_KEPT);
+    if kept.exists() {
+        let _ = fs::rename(&kept, paths.at(WORK_CMUX_TUI_LINK));
+    }
+}
+
 pub fn load_state(paths: &Paths) -> State {
     fs::read(paths.at(STATE_FILE))
         .ok()
