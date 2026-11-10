@@ -2813,7 +2813,7 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
-        if guard == TerminalCloseGuard::Unplaced {
+        if guard.requires_unplaced() {
             // The registry lock serializes placement commits and the creation
             // fence excludes a creation between runtime and placement, so
             // this check cannot race a new view of the terminal.
@@ -2824,7 +2824,15 @@ impl Mux {
                     state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
                 });
             if placed {
-                return Err(TerminalCloseGuardFailed.into());
+                return Err(TerminalCloseGuardFailed::Placed.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
             }
         }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {

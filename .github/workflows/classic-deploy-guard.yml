@@ -1,0 +1,78 @@
+name: classic deploy guard
+
+# Every push to main that changes a web build input redeploys classic cmux.com and its API: Vercel's Git
+# integration builds it on its own (web/vercel.json), and docs-channels.yml deploys the docs projects. This
+# checks each commit the push lands before it ships: one that changes a deployed classic path passes only when
+# its pull request carries Leo's `classic-migration` label (the one classic-frozen-guard accepts) or a teammate
+# opened it (scripts/ci/classic-auto-deploy.json `deploy_guard`). A refusal turns this red and cancels the
+# Vercel production deployment of the pushed commit while it is still building; docs-channels.yml calls this
+# first and does not deploy past a refusal. scripts/ci/classic_deploy_guard.py decides.
+# Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont
+# change it for clasisc".
+#
+# Each run judges every commit since the last green push run of this workflow (the last deploy it passed; before
+# the first one, deploy_guard.seed_baseline), so a refused commit stays refused on later pushes until its pull
+# request is approved; a push that rewrote history past that baseline is refused. workflow_dispatch judges one
+# commit and never cancels anything (a dry run).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "CHANGELOG.md"
+      - ".vercelignore"
+      - "config/iroh/managed-relay-catalog.json"
+      - "workers/presence/src/generated/managedRelayCatalog.ts"
+  workflow_call:
+    inputs:
+      role:
+        description: "who calls: `docs` (docs-channels.yml) only checks; the push run cancels"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "the main commit to judge (dry run: nothing is cancelled)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  guard:
+    name: classic-deploy-guard
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      actions: read # the last green push run: the baseline every later commit is judged from
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the guard from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/classic_deploy_guard.py
+            scripts/ci/classic_api_guard.py
+            scripts/ci/classic-auto-deploy.json
+          sparse-checkout-cone-mode: false
+
+      - name: Judge the commits this push lands
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.after }}
+          BASELINE: ${{ github.event_name == 'workflow_dispatch' && 'before' || 'auto' }}
+        run: python3 scripts/ci/classic_deploy_guard.py check --repo "$REPOSITORY" --before "$BEFORE" --after "$AFTER" --baseline "$BASELINE"
+
+      - name: Cancel the refused Vercel production deployment
+        if: ${{ failure() && steps.check.outcome == 'failure' && github.event_name == 'push' && inputs.role != 'docs' }}
+        env:
+          AFTER: ${{ github.event.after }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        run: python3 scripts/ci/classic_deploy_guard.py cancel --sha "$AFTER" --wait 300
