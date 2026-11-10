@@ -95,7 +95,7 @@ async function pasteTwoScreenshots(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
 }
 
-/// The `attachment-inline-image-and-file` scene, in the view that shows: a screenshot pasted after
+/// The `attachment-inline-image-and-file` scene, in the inline view: a screenshot pasted after
 /// "Compare this" and a notes file after "the notes in", in the draft "Compare this with the notes
 /// in and summarize."
 async function pasteImageAndNotes(ctx: PlayContext) {
@@ -1647,7 +1647,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-inline-image-and-file": {
-      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot pasted after "Compare this" and a notes file pasted after "the notes in" sit in the text where they were pasted, as iMessage places them. With the strip view, both sit above the text.',
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot pasted after "Compare this" and a notes file pasted after "the notes in" sit in the text where they were pasted, as iMessage places them. attachments-menu-picked-top shows the same draft at the top.',
       snapshot: chat(finished),
       ready: { draft: "Compare this with the notes in and summarize." },
       play: async (ctx) => {
