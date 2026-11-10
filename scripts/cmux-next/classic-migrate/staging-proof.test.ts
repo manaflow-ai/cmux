@@ -3,6 +3,7 @@ import { buildPlan } from "./plan.ts"
 import { fixtureSource, readFixture } from "./source.ts"
 import {
   checkDryRun,
+  guardedDryRun,
   runProof,
   SCOPE_HEADER,
   summaryMarkdown,
@@ -324,5 +325,68 @@ describe("teardownOnly", () => {
     const g = fakeOps()
     expect(await teardownOnly(g.ops, false)).toEqual({ ok: true, notes: ["teardown ok"], failures: [] })
     expect(g.calls).toEqual(["teardown"])
+  })
+})
+
+describe("the staging witness", () => {
+  // A fake connection that records every statement and answers the witness lookup with `held` VM ids.
+  const fakeDb = (held: string[]) => {
+    const statements: string[] = []
+    const connect = async () => ({
+      unsafe: async (text: string, params?: unknown[]) => {
+        statements.push(text)
+        if (text === "SHOW transaction_read_only") return [{ transaction_read_only: "on" }]
+        if (text.startsWith("select provider_vm_id")) {
+          const asked = (params?.[0] as string[]) ?? []
+          return asked.filter((id) => held.includes(id)).map((id) => ({ provider_vm_id: id }))
+        }
+        return []
+      },
+      release: () => {},
+    })
+    return { statements, connect }
+  }
+  const url = "postgres://u:p@db.example.com:5432/cmux"
+
+  test("a database without SETUP's VMs is refused after one lookup, and the plan never runs", async () => {
+    const db = fakeDb([])
+    const cfg = { databaseUrl: url, hostAllow: "" }
+    let planned = false
+    await expect(
+      guardedDryRun(cfg, ["fs-a", "fs-b"], db.connect, async () => {
+        planned = true
+        return ""
+      }),
+    ).rejects.toThrow(/lacks classic VM\(s\) fs-a, fs-b .* not classic staging/)
+    expect(planned).toBe(false)
+    expect(cfg.hostAllow).toBe("")
+    expect(db.statements.filter((t) => /^select/i.test(t))).toHaveLength(1)
+    expect(db.statements).toContain("ROLLBACK")
+  })
+
+  test("one missing VM is enough to refuse", async () => {
+    const db = fakeDb(["fs-a"])
+    await expect(guardedDryRun({ databaseUrl: url, hostAllow: "" }, ["fs-a", "fs-b"], db.connect, async () => "")).rejects.toThrow(/fs-b/)
+  })
+
+  test("the database holding SETUP's VMs earns its own host, then the plan runs", async () => {
+    const db = fakeDb(["fs-a", "fs-b"])
+    const cfg = { databaseUrl: url, hostAllow: "" }
+    const out = await guardedDryRun(cfg, ["fs-a", "fs-b"], db.connect, async () => "planned")
+    expect(cfg.hostAllow).toBe("db.example.com")
+    expect(out).toBe("staging witness: the database holds the VMs SETUP made; planned")
+  })
+
+  test("a given allowlist skips the witness and connects nothing here", async () => {
+    const db = fakeDb([])
+    const out = await guardedDryRun({ databaseUrl: url, hostAllow: "db.example.com" }, ["fs-a"], db.connect, async () => "planned")
+    expect(out).toBe("planned")
+    expect(db.statements).toEqual([])
+  })
+
+  test("no database URL is refused before anything", async () => {
+    const db = fakeDb([])
+    await expect(guardedDryRun({ databaseUrl: "", hostAllow: "" }, ["fs-a"], db.connect, async () => "")).rejects.toThrow(/missing DATABASE_URL/)
+    expect(db.statements).toEqual([])
   })
 })
