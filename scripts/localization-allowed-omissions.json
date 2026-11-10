@@ -7463,5 +7463,31 @@
     "identityLocales": {
       "es": "Google Calendar is the product's name in Spanish."
     }
+  },
+  "argument.cloud.chiefComputer.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "argument.cloud.chiefComputer.args": {
+    "source": "Arguments",
+    "identityLocales": {
+      "fr": {
+        "reason": "Arguments is the standard French plural noun for command arguments.",
+        "values": [
+          "Arguments"
+        ]
+      }
+    }
+  },
+  "argument.cloud.chiefComputer.op": {
+    "source": "Action",
+    "identityLocales": {
+      "fr": {
+        "reason": "Action is the standard French noun for an action.",
+        "values": [
+          "Action"
+        ]
+      }
+    }
   }
 }
