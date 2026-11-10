@@ -25,6 +25,8 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
+import { Slot } from "../../../slots/Slot";
+import { thinkingIndicatorSlot } from "../../../slots/thinkingIndicator";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
@@ -239,14 +241,6 @@ export function Thinking({
     () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
     [t, statusVerbConfig, thinkingVerbs],
   );
-  // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
-  const verbSizes = useMemo(
-    () =>
-      verbs.map((word, index) => (
-        <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
-      )),
-    [verbs],
-  );
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
@@ -434,6 +428,10 @@ export function Thinking({
           >
             {compactLook === "calm" ? (
               label
+            ) : decorative ? (
+              // The thinking indicator is a theme slot (schemas/theme/slots.json `chat.thinkingIndicator`):
+              // its default variant draws exactly the shimmer below did for this case.
+              <Slot slot={thinkingIndicatorSlot} props={{ label, verbs, elapsed, elapsedMs }} />
             ) : (
               <ShimmerText
                 text={label}
@@ -443,20 +441,13 @@ export function Thinking({
                       <span className="cv-worked__lead">{lead.lead}</span>
                       {lead.rest}
                     </>
-                  ) : decorative ? (
-                    <span className="cv-status-verb">
-                      {verbSizes}
-                      <span className="cv-status-verb__word">{label}</span>
-                    </span>
                   ) : (
                     label
                   )
                 }
                 lit={
                   <>
-                    <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-                      {decorative && verbSizes}
-                    </span>
+                    <span className="cv-shimmer__lit-label" data-text={label} />
                     {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                   </>
                 }

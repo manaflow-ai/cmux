@@ -12,6 +12,25 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Upstream scroll and resize fixes picked onto the pin (ghostty-next, GI PIN SYNC)
+
+- Release branch `release/cmux-gi-pin-sync-2` at `a0975fd8c`, on `b3a5ebfdf`: first `9ae6954e2`, the upstream tests of
+  the three resize fixes without their fixes (red), then `cherry-pick -x` of upstream ghostty-org/ghostty `5ce2325ec`,
+  `1b8b3f55b`, `321a32a42`, `96d379822` and `15a443234`. All five picked with no conflict. The test parts of the three
+  resize fixes fold into `9ae6954e2` (same bytes as upstream). The `endUpdate` fixes are byte-equal to upstream.
+- What: `src/terminal/render.zig` `RenderState.endUpdate` looks up a row's styles once per segment and walks the
+  pending runs as a shrinking slice (less work per row on every scroll frame). `src/terminal/PageList.zig` and
+  `Screen.zig`: a resize that grows rows and shrinks columns keeps the scrollback it pulled down; a shrink with no
+  scrollback clears the cursor pin's garbage flag (a Kitty image at the cursor drew nothing); the no-reflow column
+  backfill remaps tracked pins when it stops early (a viewport pin was left on a freed page). No C API change.
+- Why: plans/cmux-next/ghostty-integration.md step 2 (Lawrence m91).
+- Not done here, on purpose: the full merge of upstream main. Upstream's libghostty-vt ABI freeze after the base
+  (`657e82d1a`, `796f09a6f`, `12206bfb8`, `0b7f9c156`) replaces the formatter options struct with
+  `ghostty_formatter_set/get` and renames 28 symbols that `cmux-tui/crates/ghostty-vt` calls (formatter, cursor
+  style, Kitty image data, scroll viewport, encoder setopt). A merge with its conflicts resolved (not compiled) is
+  `17b8ed38b` on `release/cmux-gi-pin-sync-1`; it needs the cmux-tui binding migration in the same pin PR.
+- Conflict notes: the next upstream merge brings all five commits; they fold away (equal content).
+
 ### One pin for the RESIZE hold and the upstream picks (ghostty-next)
 
 - Release branch `release/cmux-538a3e2e-resize-p0-22` at `b3a5ebfdf`: a `--no-ff` merge of

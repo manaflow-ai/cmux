@@ -29,7 +29,7 @@
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
- *   agent daemon restart, each mid-turn and timed to recovery (cloud-chaos.ts).
+ *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -2404,9 +2404,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
-        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
+        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
         for (const r of results) {
-          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.recover_ms ?? 0, detail: r.detail });
+          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.felt_ms ?? 0, detail: r.detail });
         }
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);

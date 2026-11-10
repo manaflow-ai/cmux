@@ -6,6 +6,7 @@
  */
 import type { SnapshotCaptureCommand, SnapshotCaptureResult } from "./snapshot-capture.ts";
 import type { MeshCreationCommand, MeshCreationResult } from "./mesh-creation.ts";
+import type { AgentSlotOutcome } from "./agent-slots.ts";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -59,6 +60,11 @@ export class TenantLimitsObject extends DurableObject {
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision> {
     return this.ledger.reserve(kind, limit, liveCount, nowMs, reservationId);
   }
+
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId); }
+  settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return this.ledger.settleAgentSlot(agent, slotId, outcome, nowMs); }
+  bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return this.ledger.bindAgentCreation(agent, creationKey, vmId, nowMs); }
+  forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return this.ledger.forgetAgentVm(vmId, creationKey); }
 
   release(reservationId: string): Promise<void> {
     return this.ledger.release(reservationId);

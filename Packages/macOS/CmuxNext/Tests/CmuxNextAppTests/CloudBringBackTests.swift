@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -18,6 +19,14 @@ import Testing
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloudBringBackTests {
+    @Test func twoChatsWithTimeOrderedIDsGetTheirOwnFoldersOnTheTarget() {
+        // UUIDv7 session ids made seconds apart share their first characters; each chat still gets its own folder.
+        let first = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000a")
+        let second = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000b")
+        let otherMachine = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000002", session: "019a6b2c-1111-7000-8000-00000000000a")
+        #expect(Set([first, second, otherMachine]).count == 3)
+    }
+
     @Test func aChatStartedInACopiedSubfolderCanComeBackAndUseLocalAccess() async throws {
         try await Self.withRoundTrip("started", fromStart: true) { trip in
             let record = try #require(trip.machineChat()?.agentSession)

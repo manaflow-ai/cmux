@@ -211,6 +211,95 @@ class JobListPages(unittest.TestCase):
         self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
 
 
+QUOTA_TEXT = ("API rate limit exceeded for installation ID 1. If you reach out to GitHub Support for help, please "
+              "include the request ID ABCD and timestamp 2026-11-10 06:00:00 UTC. " + "x" * 300)
+
+
+class StrBaseRunsGitHub(FakeGitHub):
+    """FakeGitHub whose list of a workflow's base runs comes back as a str, as it did while the REST quota was spent."""
+
+    def json(self, route, *, paginate=False):
+        if "/actions/workflows/7/runs?" in route:
+            self.routes.append(route)
+            return QUOTA_TEXT
+        return super().json(route, paginate=paginate)
+
+
+class UnreadShape(unittest.TestCase):
+    """2026-11-10: merge_hold refused cmux#39676 at 9be3f014 with a traceback, not a reason: list_base_runs read a
+    workflow's base runs while the REST quota was spent, the answer was a str, and `listed.get("workflow_runs")` raised
+    AttributeError. Every json read that is not a JSON object or list is now Refused as unread, naming what came back."""
+
+    def assert_unread(self, error, route):
+        said = str(error.exception)
+        self.assertIn(f"GitHub's answer to {route}", said)
+        self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], said)
+        self.assertNotIn(QUOTA_TEXT[:excuse.SHAPE_CHARS + 1], said)  # the first 200 characters only
+
+    def test_a_str_base_run_list_refuses_the_judge_with_a_reason(self):
+        github = StrBaseRunsGitHub()
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("could not be read: API rate limit exceeded", str(error.exception))
+
+    def test_main_reports_a_str_answer_as_not_excused(self):
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", StrBaseRunsGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1)
+        self.assertIn("not excused: ", err.getvalue())
+        self.assertIn("could not be read: API rate limit exceeded", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+
+    def test_every_json_read_through_the_judges_reader_is_checked(self):
+        class Answers:
+            def __init__(self, found):
+                self.found = found
+
+            def json(self, route, *, paginate=False):
+                return self.found
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for found, paginate in ((QUOTA_TEXT, False), (QUOTA_TEXT, True), ([{"check_runs": []}, QUOTA_TEXT], True)):
+            with self.subTest(found=str(found)[:20], paginate=paginate), self.assertRaises(excuse.Refused) as error:
+                excuse.rate_limit_aware(Answers(found)).json(route, paginate=paginate)
+            self.assert_unread(error, route)
+        # An object, a list, and a fake's None (nothing) still read as they did.
+        for found in ({"workflow_runs": []}, [], None, [{"check_runs": []}]):
+            self.assertEqual(excuse.rate_limit_aware(Answers(found)).json(route, paginate=True), found)
+
+    def test_list_base_runs_reads_a_str_as_unread(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.list_base_runs(REPO, "feat-cmux-next", 7, excuse.rate_limit_aware(StrBaseRunsGitHub()), {})
+        self.assert_unread(error, route)
+
+    def reader(self, answers):
+        github = excuse.GitHub()
+        github.run = lambda args: answers.pop(0)
+        return github
+
+    def test_the_real_client_refuses_a_json_str_or_text_that_is_not_json(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for said in (json.dumps(QUOTA_TEXT), QUOTA_TEXT, "null", "3"):
+            with self.subTest(said=said[:20]), self.assertRaises(excuse.Refused) as error:
+                self.reader([said]).json(route)
+            self.assertIn(f"GitHub's answer to {route} could not be read: ", str(error.exception))
+            if said.startswith(("\"", "A")):
+                self.assert_unread(error, route)
+        self.assertEqual(self.reader(['{"workflow_runs": []}']).json(route), {"workflow_runs": []})
+
+    def test_the_real_client_checks_each_page_before_the_pager_reads_it(self):
+        # A projected read (a run's jobs) and a whole one (a commit's check runs), paginated: a str page is unread,
+        # never the pager's TypeError.
+        for route in (f"repos/{REPO}/actions/runs/42/jobs?filter=all&per_page=100",
+                      f"repos/{REPO}/commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            with self.subTest(route=route), self.assertRaises(excuse.Refused) as error:
+                self.reader([json.dumps(QUOTA_TEXT)]).json(route, paginate=True)
+            self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], str(error.exception))
+
+
 class LastRealAttemptGitHub(FakeGitHub):
     """Head run 10 of cmux#35906 at e1d1894a (run 41931705470): attempt 1 ran and failed, then each later attempt
     in ATTEMPTS ran the jobs it lists, [] for one that ended in startup_failure with no jobs. GitHub's latest-attempt
@@ -3916,7 +4005,7 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
                 self.gh.routes.append(route)
                 return [{"sha": self.TIP}, {"sha": self.MERGE_BASE}, {"sha": self.OLDER}]
             for sha in (self.PR_HEAD, self.MERGE_BASE, self.TIP, self.OLDER):
-                if route.endswith(f"commits/{sha}/status?per_page=100"):
+                if route.endswith((f"commits/{sha}/status?per_page=100", f"commits/{sha}/status")):
                     self.gh.routes.append(route)
                     found = self.statuses.get(sha)
                     return {"statuses": [] if found is None else [
@@ -3975,7 +4064,8 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
     def test_receipt_down_and_a_no_verdict_head_is_never_a_base_red(self):
         no_result = ("failure", "No compile result for this head in 40 minutes")
         self.statuses[self.PR_HEAD] = self.statuses[self.MERGE_BASE] = no_result
-        with self.assertRaisesRegex(excuse.Refused, "only a real compile fail can be the base's"):
+        # Judged as no verdict (COMPILE_STATUS_NO_VERDICT): nothing else compiled the head, so it is refused.
+        with self.assertRaisesRegex(excuse.Refused, "no compile verdict .*never a base red"):
             self.judge()
 
     def test_a_5xx_or_unreachable_host_is_unreachable_and_a_4xx_is_not(self):
@@ -3992,6 +4082,85 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
                 self.assertRaises(excuse.Refused) as caught:
             REAL_COMPILE_RECEIPT(REPO, HEAD)
         self.assertNotIsInstance(caught.exception, excuse.ReceiptUnreachable)
+
+
+class NoVerdictCompileStatus(InheritedCompileRed):
+    """2026-11-10: the controller was off from 01:00Z and its receipts answered HTTP 530, so every PR's
+    cmux-next/compile read "No compile result for this head in 40 minutes", and the unread receipt refused each one
+    (cmux#40041 at ab52ea3b). A no-verdict status is ignored when another compile passed at the head, as the
+    no-verdict fleet job is; with none, it is refused, never compared with the base."""
+
+    MAC = "cmux-next Release compile (Xcode 26)"
+
+    def setUp(self):
+        super().setUp()
+        self.status["description"] = "No compile result for this head in 40 minutes"
+        self.mac_runs = []
+        routed = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": self.mac_runs}]
+            if route.endswith(f"commits/{self.PR_HEAD}/status"):
+                return {"statuses": [copy.deepcopy(self.status)]}
+            if route.endswith("actions/jobs/77"):
+                return {"head_sha": self.PR_HEAD, "name": self.MAC, "run_id": 70, "conclusion": "success",
+                        "steps": [{"name": "Release compile", "conclusion": "success"}]}
+            return routed(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def down(repo, sha):
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", down)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def mac_pass(self):
+        self.mac_runs.append({"id": 5, "name": self.MAC, "head_sha": self.PR_HEAD, "status": "completed",
+                              "conclusion": "success", "app": {"slug": "github-actions"},
+                              "details_url": f"https://github.com/{REPO}/actions/runs/70/job/77"})
+
+    def test_a_no_verdict_status_is_ignored_when_the_mac_compile_passed(self):
+        self.mac_pass()
+        audit = "\n".join(self.judge_status())
+        self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
+        self.assertIn(f"'{self.MAC}' (job 77)", audit)
+
+    def test_a_no_verdict_status_with_nothing_compiled_is_refused(self):
+        for description in ("No compile result for this head in 40 minutes (last: running)",
+                            "The compile check gave no verdict (unavailable); re-run this job",
+                            "The compile result does not match this head; re-run this job"):
+            with self.subTest(description=description):
+                self.status["description"] = description
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled .*HTTP 530"):
+                    self.judge_status()
+
+    def test_a_compile_fail_is_never_ignored_for_a_pass_elsewhere(self):
+        """A real fail goes to inherited_compile_red (receipts, else GitHub: ReceiptDownGitHubDecides), Mac pass or
+        not."""
+        self.mac_pass()
+        self.status["description"] = "The app did not compile in SwiftPM Release (-Onone); see the log"
+        with unittest.mock.patch.object(excuse, "inherited_compile_red",
+                                        lambda *args: "excused 'cmux-next/compile': inherited") as inherited:
+            self.assertIn("excused 'cmux-next/compile': inherited", "\n".join(self.judge_status()))
+
+    def test_the_no_verdict_fleet_job_is_ignored_when_the_mac_compile_passed(self):
+        self.gh.logs[1] = log(self.FLEET, self.STEP,
+                              f"##[error]cmux-next/compile is not a pass for {self.PR_HEAD} (no result)")
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+            self.judge_job()
+        self.mac_pass()
+        self.assertIn(f"ignored '{self.FLEET}'", "\n".join(self.judge_job()))
+
+    # The inherited-red cases are InheritedCompileRed's; this class's status is no verdict and its receipts unread.
+    test_the_status_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_the_fleet_job_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_a_head_fail_on_a_merge_base_that_passes_is_the_heads = None
+    test_a_head_with_no_verdict_or_no_receipt_is_never_excused = None
+    test_a_merge_base_with_no_receipt_does_not_excuse = None
+    test_an_unread_receipt_refuses = None
 
 
 class CompileReceiptRead(unittest.TestCase):
