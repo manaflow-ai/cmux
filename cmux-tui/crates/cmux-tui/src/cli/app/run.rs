@@ -54,7 +54,7 @@ pub(in crate::cli) const NOT_RUN_DEADLINE_FLOOR: Duration = Duration::from_secs(
 
 /// How long [`request_with_retry`] keeps asking again after not-run refusals: the request's own
 /// timeout, never less than [`NOT_RUN_DEADLINE_FLOOR`]. A request with no timeout gets the floor:
-/// the hang breaker for an app that refuses forever, logged when it fires.
+/// the hang breaker for an app that refuses forever, named in the refusal it ends with (`not_run_waited_ms`).
 /// A test build reads `CMUX_TEST_NOT_RUN_DEADLINE_MS` instead (a release build ignores it), so a test of an app that
 /// refuses forever ends in milliseconds.
 pub(in crate::cli) fn not_run_deadline(timeout: Option<Duration>) -> Duration {
