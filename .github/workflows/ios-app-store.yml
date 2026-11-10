@@ -271,6 +271,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # This workflow's own helpers (the certificate check) come from the
+      # workflow's commit, not from the app commit above.
+      - name: Checkout the workflow's helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .workflow-src
+          persist-credentials: false
+          sparse-checkout: ios/scripts
+          sparse-checkout-cone-mode: true
+
       - name: Record app source
         run: |
           set -euo pipefail
@@ -369,6 +380,29 @@ jobs:
             exit 1
           fi
           echo "CMUX_MOBILE_SIGN_IDENTITY=$IDENTITY_SHA1" >> "$GITHUB_ENV"
+
+      # The release environment's certificate must be the team's active Apple
+      # Distribution certificate in App Store Connect; checked before anything
+      # signs. Only the public certificate leaves the keychain, and only the
+      # serial number and the team are printed.
+      - name: Verify the release certificate in App Store Connect
+        run: |
+          set -euo pipefail
+          CERT_PEM="$RUNNER_TEMP/release-certificate.pem"
+          security find-certificate -a -Z -p ios-app-store.keychain |
+            awk -v want="$CMUX_MOBILE_SIGN_IDENTITY" '
+              /^SHA-1 hash: / { keep = ($3 == want) }
+              keep && /-----BEGIN CERTIFICATE-----/ { inside = 1 }
+              keep && inside { print }
+              /-----END CERTIFICATE-----/ { inside = 0 }
+            ' > "$CERT_PEM"
+          if ! grep -q 'BEGIN CERTIFICATE' "$CERT_PEM"; then
+            echo "::error::the imported keychain has no certificate for the distribution identity"
+            exit 1
+          fi
+          python3 -I .workflow-src/ios/scripts/asc_verify_distribution_certificate.py \
+            --certificate-pem "$CERT_PEM" --team 7WLXT3NR37
+          rm -f "$CERT_PEM"
 
       # Bundle ids (com.cmux.app and its two notification extensions),
       # capabilities (push, Sign in with Apple) and the App Store profiles that
@@ -633,5 +667,5 @@ jobs:
       - name: Cleanup signing material
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/appstoreconnect" "$RUNNER_TEMP/archive" "$RUNNER_TEMP/handoff" "$RUNNER_TEMP/cmux-mobile-builds"
+          rm -rf "$RUNNER_TEMP/appstoreconnect" "$RUNNER_TEMP/release-certificate.pem" "$RUNNER_TEMP/archive" "$RUNNER_TEMP/handoff" "$RUNNER_TEMP/cmux-mobile-builds"
           security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true

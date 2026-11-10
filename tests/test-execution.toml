@@ -951,6 +951,10 @@ path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_distribution_certificate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
