@@ -10,7 +10,8 @@ prints (a path, a process name) has its key-shaped parts replaced by their kind 
 can be named with a key.
 
 Matches inside installed software (`shipped`) are listed apart from `findings`: /opt, which the image build
-writes and every fresh machine shares, and the harnesses' plugin caches. There a key shape is public text: an
+writes and every fresh machine shares, the harnesses' plugin caches, and the programs cmux and Codex install in a
+home (only when the file there is a program). There a key shape is public text: an
 SDK's documented example, a scanner's list of known public keys, a harness's own redaction pattern. A clean
 check counts `findings` only; a key in a home, a workspace (its node_modules too) or a temp folder is a finding.
 
@@ -84,6 +85,24 @@ LOGIN_FILES = {
 
 # Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
 SHIPPED = re.compile(r"^/opt/|/\.codex/\.tmp/plugins/|/\.claude/plugins/")
+# Programs the machine's installers put in its home, matched only when the file is a program (ELF): acpmux and
+# cmux carry gitleaks' list of known public Google keys, and Codex copies its own program to arg0/apply_patch.
+SHIPPED_PROGRAM = re.compile(r"^/home/[^/]+/(\.local/bin/(acpmux|cmux|cmux-tui)|\.local/share/cmux-tui/builds/[^/]+/bin/[^/]+|"
+                             r"\.codex/tmp/arg0/[^/]+/apply_patch)$")
+
+
+def is_shipped(where, path):
+    """Whether a file's matches are installed software's public text, by where it is (and, for a program in a
+    home, that it is one)."""
+    if SHIPPED.search(where):
+        return True
+    if not SHIPPED_PROGRAM.search(where):
+        return False
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
 # The stand-in AWS documents its examples with (AKIAIOSFODNN7EXAMPLE); a real id is random and never spells it.
 PUBLIC_VALUE = re.compile(r"EXAMPLE")
 
@@ -405,7 +424,7 @@ def scan_files(root, deadline, report):
                     if os.path.lexists(path):
                         report["scanned"]["files_unreadable"] += 1
                     continue
-                listed = report["shipped"] if SHIPPED.search(where) else report["findings"]
+                listed = report["shipped"] if is_shipped(where, path) else report["findings"]
                 for line, what in hits:
                     listed.append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
 

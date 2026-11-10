@@ -1117,6 +1117,37 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("the programs cmux and Codex install in a home are shipped, only while they are programs", () => {
+    const elf = (text: string) => `\x7fELF\0\0${text}\0`;
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // As on every fresh staging machine: gitleaks' known public Google keys, Codex's copy of itself.
+      "home/cmux/.local/bin/acpmux": elf(GEMINI_SHAPE),
+      "home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux": elf(GEMINI_SHAPE),
+      "home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch": elf(PROJ),
+      // The same names holding a script, and a program elsewhere in the home: findings.
+      "home/cmux/.local/bin/cmux": `#!/bin/sh\nexport OPENAI_API_KEY=${PROJ}\n`,
+      "home/cmux/.local/bin/other": elf(GEMINI_SHAPE),
+    });
+    try {
+      const { probe } = run(root);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/.local/bin/cmux:2: OPENAI_API_KEY",
+        "/home/cmux/.local/bin/cmux:2: an OpenAI project key",
+        "/home/cmux/.local/bin/other: a Google AI key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
+        "/home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch",
+        "/home/cmux/.local/bin/acpmux",
+        "/home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",
