@@ -38,15 +38,28 @@ impl Hub {
         crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
     }
 
+    /// `web_modes::web_mode_family` for a session, against the config entry its
+    /// harness name runs now. A config being written counts as no entry.
+    pub(crate) fn web_mode_family(&self, m: &SessionMeta) -> String {
+        let Ok(cfg) = self.config.try_read() else { return crate::web_modes::family_of(m) };
+        crate::web_modes::web_mode_family(m, cfg.profile(&m.harness))
+    }
+
+    /// Whether a session's mode asks, for a Web gate: the asking row of
+    /// [`Self::web_mode_family`] (`WebModeTable::session_asks_as`).
+    pub(crate) fn web_session_asks(&self, m: &SessionMeta) -> bool {
+        self.web_modes().session_asks_as(m, &self.web_mode_family(m))
+    }
+
     pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
         let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
         if self.any_mode_for_web(meta) {
             return crate::web_modes::family_of(meta) == "codex" && mode == "ask";
         }
-        if crate::web_modes::mode_family(meta) != "claude" {
+        if self.web_mode_family(meta) != "claude" {
             return false;
         }
-        self.web_modes().session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
+        self.web_session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
     }
 
     /// The merged asking-mode table the remote guard and Web control use.
@@ -100,7 +113,7 @@ impl Hub {
                 json!(
                     !table.refused().contains(&family)
                         && table.config_value_asks(
-                            &crate::web_modes::mode_family(&m),
+                            &self.web_mode_family(&m),
                             Some(id),
                             Some(value)
                         )
@@ -147,7 +160,8 @@ impl Hub {
         let table = self.web_modes();
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let asked = crate::web_modes::mode_of(&m).is_some() && table.session_asks(&m);
+            let asked = crate::web_modes::mode_of(&m).is_some()
+                && table.session_asks_as(&m, &self.web_mode_family(&m));
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
@@ -213,7 +227,7 @@ impl Hub {
     /// new Web session to its asking default): an asking mode clears the
     /// sticky flag.
     pub(crate) fn restore_web_control(&self, session: &Session) {
-        let asks = self.web_modes().session_asks(&session.meta());
+        let asks = self.web_session_asks(&session.meta());
         if asks && session.web_control_ended.swap(false, Ordering::SeqCst) {
             self.append(session, "mux", "remote_control_restored", json!({}));
         }
