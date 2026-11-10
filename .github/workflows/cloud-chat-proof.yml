@@ -473,7 +473,7 @@ jobs:
           name: cloud-workspace-matrix-staging
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -686,7 +686,7 @@ jobs:
           name: cloud-workspace-matrix-prod
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Summarize the evidence
         id: evidence

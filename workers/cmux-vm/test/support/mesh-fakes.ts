@@ -236,8 +236,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       path.startsWith("/v5/firewall/rules/") ||
       /^\/v5\/vms\/[^/]+\/networks$/u.test(path);
     if (!isMesh) return null;
-    // A VM's public egress (live-public-egress.ts) is fake-upstream.ts's: the list, and a create sourced by one VM.
+    // A VM's public egress (live-public-egress.ts) is fake-upstream.ts's: the list, a create sourced by one VM, and
+    // a delete of a rule fake-upstream.ts holds.
     if (path === "/v5/firewall/rules" && method === "GET") return null;
+    if (path.startsWith("/v5/firewall/rules/") && method === "DELETE" && !rules.has(decodeURIComponent(path.slice("/v5/firewall/rules/".length)))) return null;
     if (path === "/v5/firewall/rules" && method === "POST") {
       const peek: unknown = await request.clone().json().catch(() => null);
       const source: unknown = typeof peek === "object" && peek !== null ? Reflect.get(peek, "source") : undefined;
