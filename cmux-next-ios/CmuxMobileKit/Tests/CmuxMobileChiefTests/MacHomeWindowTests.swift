@@ -193,12 +193,12 @@ import Testing
     }
 
     /// Four plain rows, newest first, as the owner lists them.
-    static let plainRows: [[String: Any]] = ["conv_a", "conv_b", "conv_c", "conv_d"].map { id in
+    nonisolated(unsafe) static let plainRows: [[String: Any]] = ["conv_a", "conv_b", "conv_c", "conv_d"].map { id in
         ["id": id, "owner": "local", "kind": "direct", "name": "Name \(id)", "unread": 0, "preview": "hi",
          "activity_at": "2026-10-12T09:41:07.123Z", "pinned": false, "marked_unread": false, "muted": false]
     }
 
-    static func ids(in request: Data) -> [String]? {
+    nonisolated static func ids(in request: Data) -> [String]? {
         ((try? JSONSerialization.jsonObject(with: request.dropLast())) as? [String: Any])?["ids"] as? [String]
     }
 
