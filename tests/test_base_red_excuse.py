@@ -6485,6 +6485,73 @@ class FailingStepLogOnly(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def adjacent_job(self, job_id, run_id, sha):
+        # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
+        # stamped 12:00:12.5 is in both steps' [started_at, completed_at + 1s) windows.
+        found = self.job(job_id, run_id, sha)
+        found["steps"][1]["completed_at"] = "2026-11-10T12:00:12Z"
+        found["steps"][2]["started_at"] = "2026-11-10T12:00:12Z"
+        found["steps"][2]["completed_at"] = "2026-11-10T12:00:14Z"
+        return found
+
+    def adjacent_sections(self, missing):
+        """The license step passes with the digest stderr (second 11); the strings step's annotation is printed at
+        12:00:12.5, the second the license step ended in."""
+        return [(self.LICENSES, 10, "##[group]Run python3 cmux-tui/build-support/notices/ghostty/"
+                                    "test_ghostty_licenses.py"),
+                (self.LICENSES, 10, "##[endgroup]"),
+                (self.LICENSES, 11, self.DIGEST), (self.LICENSES, 11, self.COLLECT),
+                (self.LICENSES, 11, "ok: changed manifest is refused"),
+                (self.STRINGS, 12, "##[group]Run node webviews/scripts/pages/gen-strings.mjs"),
+                (self.STRINGS, 12, "##[endgroup]"),
+                *((self.STRINGS, 12, f"##[error]{line}") for line in missing),
+                (self.STRINGS, 13, "##[error]Process completed with exit code 1.")]
+
+    def test_a_line_in_the_second_one_step_ends_and_the_next_starts_never_un_passes_the_passing_step(self):
+        # cmux#40497's Codex P2: the failing step's annotation in the shared second read as the license step's too,
+        # took it out of "passed" and brought back its whole log, so the excuse quoted "digest changed" again.
+        missing = ["settings: 42 strings missing"]
+        log = self.raw(self.adjacent_sections(missing))
+        scoped = excuse.failed_steps_log(self.adjacent_job(1, 10, HEAD), log)
+        self.assertNotIn("digest changed", scoped)
+        self.assertIn("##[error]settings: 42 strings missing", scoped)
+        github = self.github(log, self.raw(self.adjacent_sections(missing)))
+        github.jobs = {1: self.adjacent_job(1, 10, HEAD), 2: self.adjacent_job(2, 20, BASE_SHA)}
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+        self.assertIn("settings: # strings missing", text)
+        self.assertNotIn("digest changed", text)
+
+    def test_a_continue_on_error_steps_exit_line_in_a_shared_second_still_counts(self):
+        # The other side of the ambiguous second: a continue-on-error step that failed (a success to the jobs API)
+        # prints the runner's exit line in the second the rollup step starts. That line is the step's own end, so
+        # the step's errors stay compared, and a different red there is never excused by the rollup lines alone.
+        check, rollup = "Main-thread concurrency", "Fail on any red check"
+
+        def job(job_id, run_id, sha):
+            found = self.job(job_id, run_id, sha)
+            found["steps"] = [
+                {"name": check, "status": "completed", "conclusion": "success",
+                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                {"name": rollup, "status": "completed", "conclusion": "failure",
+                 "started_at": "2026-11-10T12:00:12Z", "completed_at": "2026-11-10T12:00:14Z"}]
+            return found
+
+        def lines(error):
+            return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
+                    (check, 10, "##[endgroup]"),
+                    (check, 11, f"concurrency: error: {error}"),
+                    (check, 12, "##[error]Process completed with exit code 1."),
+                    (rollup, 13, "##[group]Run scripts/ci/rollup.sh"),
+                    (rollup, 13, "##[endgroup]"),
+                    (rollup, 13, f"##[error]red check: {check}"),
+                    (rollup, 13, "##[error]Process completed with exit code 1.")]
+
+        github = self.github(self.raw(lines("Sources/New.swift:9 blocks the main thread")),
+                             self.raw(lines("Sources/Old.swift:3 blocks the main thread")))
+        github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+        with self.assertRaisesRegex(excuse.Refused, "New.swift"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
 
 if __name__ == "__main__":
     unittest.main()

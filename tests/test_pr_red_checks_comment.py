@@ -257,6 +257,26 @@ def test_a_new_failure_annotation_inside_a_shared_step_is_new():
     assert line.startswith(f"red: {name}; NEW: `red check: Motion tokens` is not red on the base bbbbbbbbbb;"), line
 
 
+def test_the_line_quotes_the_failing_steps_red_never_a_passing_steps_negative_case_stderr():
+    # cmux#40369 (feat-cmux-next runs 42820823641, 42820590433): the static checks job failed only in its page strings
+    # step, and base_red_excuse.py quoted the license step's expected stderr ("pinned license manifest digest
+    # changed"), printed by a passing negative-case test. This line is built from the failed steps' names and the
+    # job's failure annotations (`##[error]` lines), never from plain log text, so a passing step's stderr is never
+    # quoted or compared here (base_red_excuse.failed_steps_log keeps any step whose section has an `##[error]`).
+    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)"
+    licenses = "The nightly's Ghostty license checks pass on fixtures"
+    strings = "Every page's strings generate with no missing translation"
+    exit_line = {"annotation_level": "failure", "message": "Process completed with exit code 1."}
+    line = checks_line(FakeGitHub(
+        [run(name, "failure", id_=11)], [],
+        base_runs=[run(name, "failure", id_=21)],
+        steps={11: [ok(licenses), failed(strings)], 21: [ok(licenses), failed(strings)]},
+        annotations={11: [{"annotation_level": "failure", "message": "settings: 42 strings missing"}, exit_line],
+                     21: [{"annotation_level": "failure", "message": "home: 3 strings missing"}, exit_line]}))
+    assert line.startswith(f"red: {name}; NEW: `settings: 42 strings missing` is not red on the base bbbbbbbbbb;"), line
+    assert "digest" not in line and "license" not in line.lower(), line
+
+
 def test_a_base_that_is_green_makes_every_red_new():
     line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "success", id_=21)],
                                   steps={11: [failed("Test webviews")]}))
