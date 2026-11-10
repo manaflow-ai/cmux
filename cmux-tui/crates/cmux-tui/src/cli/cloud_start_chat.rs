@@ -1352,6 +1352,8 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // The chat tab's handle on the machine's daemon, for a caller that attaches to it (the carrier fault drill).
+        internal::fault_routes::keep_chat_tab(&mut answer, &started);
         // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
         // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
         // a read that fails leaves the answer without `cwd`, never fails a chat that started.

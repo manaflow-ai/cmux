@@ -125,6 +125,7 @@ mod answer;
 mod client;
 mod contract;
 pub(crate) mod drill;
+pub(crate) mod drill_dial;
 pub(crate) mod fault;
 mod held;
 mod noise_key;

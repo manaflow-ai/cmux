@@ -268,13 +268,6 @@ pub(crate) struct DrillError {
 pub(crate) struct FaultPlan {
     pub spec: FaultSpec,
     /// The session's carriers in order; more than one.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "read by the drill, whose event source lands with plan slice S1"
-        )
-    )]
     pub candidates: Vec<Route>,
 }
 

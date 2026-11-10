@@ -15,12 +15,20 @@
 //! run), and connects a new one once the connection retired it
 //! ([`CachedGroup`]).
 //!
+//! The probe's fault drill kills one route inside a running session
+//! ([`CarrierRoutes::kill`]): that route's group goes dead the way a cut
+//! carrier does (its links fail, [`CachedGroup::kill`]) and the session's
+//! own reconnect leaves the route out from then on, so it resumes on the
+//! next one. Nothing else calls it, and only the drill's gates reach it
+//! (`carrier::fault`).
+//!
 //! [`select_initial_route`]: crate::remote_runtime::select_initial_route
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use cmux_remote::connection::ReconnectGroupSource;
 use cmux_remote::crypto::AuthKind;
 use cmux_remote::link::{FrameLink, LinkError};
@@ -32,6 +40,7 @@ use cmux_remote::provider::{
 use cmux_remote_protocol::{LanePolicy, SessionId};
 
 use super::answer::CarrierAnswer;
+use super::fault::Route;
 use super::ssh::SshRoute;
 use crate::remote_runtime::{ReconnectRouteAttempt, ResolvedRouteCandidate, next_reconnect_route};
 
@@ -60,6 +69,11 @@ impl RouteDialer {
 
     pub(super) fn is_ssh(&self) -> bool {
         matches!(self, Self::Ssh(_))
+    }
+
+    /// The kind of carrier this route is.
+    pub(super) fn route(&self) -> Route {
+        if self.is_ssh() { Route::Ssh } else { Route::Relay }
     }
 
     /// Why the platform refused this route for the rest of the dial (an ssh
@@ -125,18 +139,81 @@ impl CurrentRoute {
 /// A group the route cache holds. Closing it (the connection retires the
 /// group it moved off, `reconnect_once`) takes it out of the cache for
 /// good, so no route resumes on a closed group, whatever kind it is.
+/// Killing it ([`Self::kill`]) closes it and fails every link it opened.
 pub(super) struct CachedGroup {
     inner: Arc<dyn LinkGroup>,
     closed: AtomicBool,
+    killed: tokio::sync::watch::Sender<bool>,
 }
 
 impl CachedGroup {
     pub(super) fn new(inner: Arc<dyn LinkGroup>) -> Arc<Self> {
-        Arc::new(Self { inner, closed: AtomicBool::new(false) })
+        let (killed, _) = tokio::sync::watch::channel(false);
+        Arc::new(Self { inner, closed: AtomicBool::new(false), killed })
     }
 
     fn is_open(&self) -> bool {
         !self.closed.load(Ordering::Acquire)
+    }
+
+    /// The fault drill's cut: the group opens nothing more, and every link
+    /// it opened fails its sends and receives from now on, a pending one
+    /// included, as a carrier that died under them would.
+    pub(super) async fn kill(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.killed.send_replace(true);
+        let _ = self.inner.close().await;
+    }
+}
+
+/// A link of a [`CachedGroup`]: the route's own link until the group is
+/// killed, then a dead one.
+struct GroupLink {
+    inner: Box<dyn FrameLink>,
+    killed: tokio::sync::watch::Receiver<bool>,
+}
+
+fn killed_link() -> LinkError {
+    LinkError::Transport("the carrier route was killed".into())
+}
+
+impl GroupLink {
+    /// Resolves once the group is killed (never, for a group that is not).
+    async fn killed(&self) {
+        let mut killed = self.killed.clone();
+        if killed.wait_for(|killed| *killed).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+#[async_trait]
+impl FrameLink for GroupLink {
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+    fn maximum_frame_bytes(&self) -> usize {
+        self.inner.maximum_frame_bytes()
+    }
+    fn terminal_control_drain_active(&self) -> bool {
+        self.inner.terminal_control_drain_active()
+    }
+    async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+        tokio::select! {
+            biased;
+            () = self.killed() => Err(killed_link()),
+            sent = self.inner.send(frame) => sent,
+        }
+    }
+    async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        tokio::select! {
+            biased;
+            () = self.killed() => Err(killed_link()),
+            received = self.inner.receive() => received,
+        }
+    }
+    async fn close(&self) -> Result<(), LinkError> {
+        self.inner.close().await
     }
 }
 
@@ -158,7 +235,8 @@ impl LinkGroup for CachedGroup {
         if !self.is_open() {
             return Err(ProviderError::Link(LinkError::Closed));
         }
-        self.inner.open(request).await
+        let inner = self.inner.open(request).await?;
+        Ok(Box::new(GroupLink { inner, killed: self.killed.subscribe() }))
     }
     async fn close(&self) -> Result<(), ProviderError> {
         self.closed.store(true, Ordering::Release);
@@ -173,6 +251,8 @@ pub(super) struct CarrierRoutes {
     dialers: Vec<RouteDialer>,
     /// Each route's last connected group, by index (`None`: none yet).
     groups: Mutex<Vec<Option<Arc<CachedGroup>>>>,
+    /// The routes the fault drill killed, by index: left out from then on.
+    killed: Mutex<Vec<bool>>,
     session: SessionId,
     next: AtomicUsize,
     current: Arc<CurrentRoute>,
@@ -191,10 +271,12 @@ impl CarrierRoutes {
         let RouteSet { routes, dialers } = set;
         let groups =
             (0..routes.len()).map(|index| (index == selected).then(|| group.clone())).collect();
+        let killed = vec![false; routes.len()];
         Self {
             routes,
             dialers,
             groups: Mutex::new(groups),
+            killed: Mutex::new(killed),
             session,
             next: AtomicUsize::new(selected.saturating_add(1)),
             current,
@@ -205,6 +287,39 @@ impl CarrierRoutes {
     fn cached(&self, index: usize) -> Option<Arc<CachedGroup>> {
         let groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
         groups.get(index).cloned().flatten().filter(|group| group.is_open())
+    }
+
+    /// The fault drill's kill of every `route` carrier of this session: its
+    /// group dies under the session ([`CachedGroup::kill`]), which resumes
+    /// through [`ReconnectGroupSource::next_group`] on another route, and
+    /// the session never connects it again. Answers how many routes it
+    /// killed (0: the session has no such route).
+    pub(super) async fn kill(&self, route: Route) -> usize {
+        let indexes: Vec<usize> = (0..self.dialers.len())
+            .filter(|index| self.dialers.get(*index).is_some_and(|d| d.route() == route))
+            .collect();
+        let groups: Vec<Arc<CachedGroup>> = {
+            let mut killed = self.killed.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+            indexes
+                .iter()
+                .filter_map(|index| {
+                    if let Some(slot) = killed.get_mut(*index) {
+                        *slot = true;
+                    }
+                    groups.get_mut(*index).and_then(Option::take)
+                })
+                .collect()
+        };
+        for group in groups {
+            group.kill().await;
+        }
+        indexes.len()
+    }
+
+    fn was_killed(&self, index: usize) -> bool {
+        let killed = self.killed.lock().unwrap_or_else(PoisonError::into_inner);
+        killed.get(index).copied().unwrap_or(false)
     }
 }
 
@@ -240,14 +355,32 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
                 "carrier ssh route dropped: {reason}"
             ))));
         }
+        if self.was_killed(index) {
+            return Err(ProviderError::Link(killed_link()));
+        }
         let group = match self.cached(index) {
             Some(group) => group,
             None => {
                 let group = CachedGroup::new(dialer.connect(request).await?);
-                if let Some(slot) =
-                    self.groups.lock().unwrap_or_else(PoisonError::into_inner).get_mut(index)
-                {
-                    *slot = Some(group.clone());
+                // The kill's flag and the cache under one lock: a route killed
+                // while this group was connecting never carries the session.
+                let killed = {
+                    let killed = self.killed.lock().unwrap_or_else(PoisonError::into_inner);
+                    let killed = killed.get(index).copied().unwrap_or(false);
+                    if !killed
+                        && let Some(slot) = self
+                            .groups
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .get_mut(index)
+                    {
+                        *slot = Some(group.clone());
+                    }
+                    killed
+                };
+                if killed {
+                    group.kill().await;
+                    return Err(ProviderError::Link(killed_link()));
                 }
                 group
             }

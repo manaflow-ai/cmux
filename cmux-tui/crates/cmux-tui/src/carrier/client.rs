@@ -82,6 +82,11 @@ pub(super) struct Dialed {
     pub vmk: Option<super::contract::Vmk>,
     /// The desktop datagram link's settings, when the platform turned it on.
     pub rd_link: Option<super::answer::RdLink>,
+    /// The session's routes, the very ones its reconnect resumes through:
+    /// the fault drill kills one of them here ([`CarrierRoutes::kill`]).
+    pub routes: Arc<CarrierRoutes>,
+    /// The carrier the session is on now.
+    pub current: Arc<CurrentRoute>,
 }
 
 /// What one dial needs.
@@ -530,13 +535,14 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let routes: Arc<dyn ReconnectGroupSource> = Arc::new(CarrierRoutes::new(
+        let carrier_routes = Arc::new(CarrierRoutes::new(
             RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
             index,
             cached,
             self.session,
             self.current.clone(),
         ));
+        let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connection =
             match ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes))
                 .await
@@ -589,6 +595,8 @@ impl RouteAttempt<'_> {
             mux,
             vmk: self.answer.vmk,
             rd_link: self.answer.rd_link.clone(),
+            routes: carrier_routes,
+            current: self.current.clone(),
         })
     }
 }

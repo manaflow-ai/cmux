@@ -12,8 +12,12 @@
 //!    in `carrier capabilities`: no tunnel hub, or no carrier key) always ends here for
 //!    `kill-route=relay`.
 //!
-//! 5. The build has an event source for the turn over its carriers, else
-//!    `carrier_fault.no_event_source` (every build until plan slice S1 gives the drill one).
+//! 5. The drill's event source (`internal/fault_routes.rs`): the chat starts as `cloud start-chat` starts one,
+//!    without its prompt (a start's own failure is the answer, unchanged, so a probe retries a cold start as
+//!    it does any); the app hands its credential (`auth.token`, else `carrier_fault.no_credential`); one Cloud
+//!    carrier dial to the machine opens the chat tab's event stream on the relay, and the prompt is sent once
+//!    it is attached. The drill kills the relay inside that dial after N events, the session resumes over ssh
+//!    and the stream attaches again there after the last seq it had.
 //!
 //! A refusal at step 4 or later carries the drill record in `error.details`: `capabilities`
 //! (`routes`, `faults`), `fault`, `kill`, `events` and `resumes`, the fields the probe's judge reads
@@ -23,9 +27,14 @@
 
 use serde_json::{Value, json};
 
+use std::io::Read as _;
+use std::time::Duration;
+
+use super::internal::fault_routes;
 use super::{
     GlobalArgs, Outcome, Parsed, Request, Runner, SelfRunner, TAKES_VALUE, UsageError, failed,
-    forwarded_globals, lift_output_of, parse, report, step_result, words,
+    forwarded_globals, lift_output_of, parse, report, run, self_runner, send_to, step_result,
+    words,
 };
 use crate::carrier::drill::{Drill, EventRoutes, run_drill};
 use crate::carrier::fault::{
@@ -38,6 +47,8 @@ pub(super) const FLAG: &str = "--carrier-fault";
 /// The prompt `--prompt -` stands for until the drill reads stdin.
 const STDIN_PROMPT: &str = "(the prompt on stdin, read when the drill runs)";
 const NOT_PROBE: &str = "--carrier-fault is for cmux's probe accounts only";
+/// `auth.token`'s own limit (auth_token.rs).
+const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `cloud start-chat …` with `--carrier-fault` (`rest`: the words after the verb), run as the
 /// drill; `None` without the flag, for the usual start. Read before the start's own parse, which
@@ -55,10 +66,14 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
         Ok((words, Some(spec))) => (words, spec),
         Err(error) => return Some(usage(error, global.output)),
     };
-    // `--prompt -` is never read here: every run of this build is refused before its turn, and
-    // reading stdin first would block a refused run with stdin open. The drill reads it once it
-    // has a turn to send it to (plan slice S1), after the gates.
-    let parsed = parse(&words, || Ok(STDIN_PROMPT.to_owned()));
+    // `--prompt -` is not read here: reading stdin first would block a refused run with stdin
+    // open. The drill reads it once the gates passed (`drill_source`).
+    let stdin = std::cell::Cell::new(false);
+    let parsed = parse(&words, || {
+        stdin.set(true);
+        Ok(STDIN_PROMPT.to_owned())
+    });
+    let stdin = stdin.get();
     let request = match parsed {
         Ok(Parsed::Run(request)) => request,
         Ok(Parsed::Help) => {
@@ -69,9 +84,70 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
     };
     let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
-    let outcome =
-        start(&mut runner, &request, spec, env.as_deref(), || this_device(None), |_| None);
+    let source = |runner: &mut dyn Runner, plan: &FaultPlan, caps: &Value, deadline| {
+        drill_source(runner, &global, &request, stdin, (plan, caps, deadline))
+    };
+    let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None), source);
     Some(report(&outcome, global.output))
+}
+
+/// The drill's event source for `request` (`stdin`: its prompt is `--prompt -`): the chat started without its
+/// prompt, the app's credential, and the routes over one Cloud dial that send the prompt once attached. A start
+/// that failed answers as it would without the drill.
+fn drill_source(
+    runner: &mut dyn Runner,
+    global: &GlobalArgs,
+    request: &Request,
+    stdin: bool,
+    (plan, caps, deadline): (&FaultPlan, &Value, tokio::time::Instant),
+) -> Result<Box<dyn EventRoutes>, Outcome> {
+    let refuse = |code: &str, message: String| {
+        failed(code, message, Drill::new(plan.spec, caps.clone()).json(), 2)
+    };
+    let prompt = if stdin {
+        let mut text = String::new();
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .map_err(|error| refuse("usage.invalid", format!("--prompt -: {error}")))?;
+        text
+    } else {
+        request.prompt.clone().unwrap_or_default()
+    };
+    let started = match run(runner, &Request { prompt: None, wait: false, ..request.clone() }) {
+        Outcome::Done(answer) => answer,
+        refused => return Err(refused),
+    };
+    let token = match runner.app("auth.token", json!({}), TOKEN_TIMEOUT) {
+        Some(Ok(token)) => token,
+        Some(Err(error)) => {
+            return Err(refuse(
+                "carrier_fault.no_credential",
+                format!("the app gave no cmux credential: {error}"),
+            ));
+        }
+        None => {
+            return Err(refuse("carrier_fault.no_credential", "no app answered auth.token".into()));
+        }
+    };
+    let text = |key: &str| started.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let (machine, session) = (text("machine_id"), text("session_id"));
+    let send_request = Request { prompt: Some(prompt), wait: false, ..request.clone() };
+    let global = global.clone();
+    let send = Box::new(move || {
+        let mut runner = self_runner(&global);
+        match send_to(&mut runner, &send_request, &machine, &session) {
+            Outcome::Done(_) => Ok(()),
+            Outcome::Failed { error, .. } => Err(error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("the send failed")
+                .to_owned()),
+        }
+    });
+    match fault_routes::cloud_routes(&started, &token, deadline, send) {
+        Ok(routes) => Ok(Box::new(routes)),
+        Err(why) => Err(refuse("carrier_fault.no_event_source", why)),
+    }
 }
 
 /// `words` without `--carrier-fault SPEC` (or `--carrier-fault=SPEC`), and the spec. The flag is
@@ -125,14 +201,20 @@ fn account_email(runner: &mut dyn Runner) -> Option<String> {
 
 /// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value,
 /// `carriers` this device's ([`this_device`]), and `source` the turn's events over the plan's
-/// carriers (`None`: this build has none), both asked only once the gates passed.
+/// carriers (given the plan, the capabilities and the drill's deadline; `Err`: the answer), both
+/// asked only once the gates passed.
 pub(super) fn start(
     runner: &mut dyn Runner,
     request: &Request,
     spec: FaultSpec,
     env: Option<&str>,
     carriers: impl FnOnce() -> [Carrier; 2],
-    source: impl FnOnce(&FaultPlan) -> Option<Box<dyn EventRoutes>>,
+    source: impl FnOnce(
+        &mut dyn Runner,
+        &FaultPlan,
+        &Value,
+        tokio::time::Instant,
+    ) -> Result<Box<dyn EventRoutes>, Outcome>,
 ) -> Outcome {
     let not_probe = || failed("carrier_fault.not_probe", NOT_PROBE, json!({}), 2);
     if !probe_run(env) {
@@ -156,17 +238,13 @@ pub(super) fn start(
         Ok(plan) => plan,
         Err(refused) => return failed(refused.code, refused.message, refused.record, 2),
     };
-    // No build follows a turn's events over its carriers before slice S1 (the drill's event
-    // source on the Cloud dial): say so rather than run half a drill.
-    let Some(mut events) = source(&plan) else {
-        return failed(
-            "carrier_fault.no_event_source",
-            "this build cannot follow a turn's events over its carriers yet",
-            Drill::new(plan.spec, caps).json(),
-            2,
-        );
+    let deadline = tokio::time::Instant::now() + request.timeout;
+    let mut events = match source(runner, &plan, &caps, deadline) {
+        Ok(events) => events,
+        Err(outcome) => return outcome,
     };
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+    // The dial's own runtime, as `cmux carrier dial` runs it.
+    let Ok(runtime) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
         return failed(
             "carrier_fault.runtime",
             "the drill's runtime did not start",
@@ -174,10 +252,9 @@ pub(super) fn start(
             2,
         );
     };
-    let drilled = runtime.block_on(async {
-        let deadline = tokio::time::Instant::now() + request.timeout;
-        run_drill(&plan, events.as_mut(), caps, deadline).await
-    });
+    let drilled = runtime.block_on(run_drill(&plan, events.as_mut(), caps, deadline));
+    // The session's streams end with the routes, inside the runtime.
+    runtime.block_on(async move { drop(events) });
     match drilled {
         Ok(record) => Outcome::Done(json!({"drill": record})),
         Err(error) => failed(error.code, error.message, error.record, 2),

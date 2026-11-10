@@ -668,6 +668,101 @@ async fn a_route_s_group_closed_by_the_connection_is_replaced_not_reused() {
     assert!(Arc::ptr_eq(&cached, &fresh), "and the fresh one is cached in its place");
 }
 
+/// A group whose links never carry anything: a receive waits, a send goes nowhere.
+struct QuietGroup;
+
+struct QuietLink;
+
+#[async_trait]
+impl cmux_remote::link::FrameLink for QuietLink {
+    fn description(&self) -> &str {
+        "quiet"
+    }
+    fn maximum_frame_bytes(&self) -> usize {
+        65_535
+    }
+    async fn send(&self, _: bytes::Bytes) -> Result<(), LinkError> {
+        Ok(())
+    }
+    async fn receive(&self) -> Result<Option<bytes::Bytes>, LinkError> {
+        std::future::pending().await
+    }
+    async fn close(&self) -> Result<(), LinkError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl LinkGroup for QuietGroup {
+    fn description(&self) -> &str {
+        "quiet://relay"
+    }
+    fn capabilities(&self) -> cmux_remote::provider::ProviderCapabilities {
+        cmux_remote::provider::ProviderCapabilities::STREAM
+    }
+    fn evidence(&self) -> &cmux_remote::provider::CarrierEvidence {
+        &cmux_remote::provider::CarrierEvidence::None
+    }
+    async fn open(
+        &self,
+        _: LinkRequest,
+    ) -> Result<Box<dyn cmux_remote::link::FrameLink>, ProviderError> {
+        Ok(Box::new(QuietLink))
+    }
+    async fn close(&self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
+/// The fault drill's kill inside a running session: the relay's group fails the link the
+/// session reads on (a receive in flight included) as a cut carrier would, opens nothing
+/// more, and the session's reconnect never connects the relay again, while ssh still does.
+#[tokio::test]
+async fn a_killed_route_fails_its_links_and_the_reconnect_goes_on_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let relay_group = CachedGroup::new(Arc::new(QuietGroup));
+    let current = Arc::new(CurrentRoute::default());
+    current.set("relay:0");
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    let routes =
+        CarrierRoutes::new(set, 0, relay_group.clone(), SessionId([7; 16]), current.clone());
+    let request = LinkRequest { lane: Lane::Interactive, generation: 0 };
+    let link: Arc<dyn cmux_remote::link::FrameLink> =
+        Arc::from(relay_group.open(request).await.unwrap());
+    let reading = tokio::spawn({
+        let link = link.clone();
+        async move { link.receive().await }
+    });
+    tokio::task::yield_now().await;
+    assert!(!reading.is_finished(), "a live relay link waits for its next frame");
+
+    assert_eq!(routes.kill(super::super::fault::Route::Relay).await, 1);
+    let read = tokio::time::timeout(Duration::from_secs(5), reading).await.unwrap().unwrap();
+    assert!(matches!(read, Err(LinkError::Transport(_))), "{read:?}");
+    assert!(
+        link.send(bytes::Bytes::from_static(b"x")).await.is_err(),
+        "a killed link sends nothing"
+    );
+    let Err(closed) = relay_group.open(request).await else { panic!("a killed group opens") };
+    assert!(matches!(closed, ProviderError::Link(LinkError::Closed)), "{closed}");
+
+    let Err(refused) = routes.connect(0, ssh_request(&route), AuthKind::Grant).await else {
+        panic!("the killed relay connected again")
+    };
+    assert!(refused.to_string().contains("killed"), "{refused}");
+    assert_eq!(current.get(), "relay:0", "a refused route is never the session's");
+    routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    assert_eq!(current.get(), "ssh:0", "the reconnect goes on over ssh");
+    // The kill is of that carrier only: ssh's own route stays.
+    assert_eq!(routes.kill(super::super::fault::Route::Ssh).await, 1);
+    assert!(routes.connect(1, ssh_request(&route), AuthKind::Grant).await.is_err());
+}
+
 /// Carrier keys made at once, in one process, all end as the one key: each
 /// creation's temporary file is its own, the losers of the link race load
 /// the winner's key, and no temporary file stays.
