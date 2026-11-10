@@ -10,6 +10,11 @@
 //! through the real request path beside a snapshot read that is stopped in
 //! its row read; and readers beside a writer, where each snapshot must be one
 //! committed revision (its journal head is never newer than its topology).
+//!
+//! The cache of the committed rows has guards of its own: a warm cache shows
+//! the next commit of each kind (workspace create, state store write, journal
+//! writer batch, metadata write), a read answers when an in-process terminal
+//! closes under it, and a read settles the answer of a late registry commit.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -303,4 +308,194 @@ fn a_snapshot_read_beside_a_writer_is_one_committed_revision() {
             );
         }
     }
+}
+
+/// One read: (snapshot, cursor revision, journal head, registry commit count).
+fn read_cut(mux: &Arc<Mux>) -> (Value, u64, u64, u64) {
+    let (snapshot, head) = public_session_snapshot_with_journal_head(mux).unwrap();
+    let revision = snapshot["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+    (snapshot, revision, head, mux.registry_connection.durability_counts().0)
+}
+
+/// A WARM cache shows the next commit of each kind: a workspace create, a
+/// state store write, a journal writer batch and a metadata write that takes
+/// no resource revision. The cache key is the registry writer's commit count
+/// (`RegistryConnection::durability_counts`), so the count must move in every
+/// commit made after the open path's PRAGMAs: a cache that never invalidates,
+/// a key that is the resource revision, or a WAL hook that no longer counts
+/// fails here.
+#[test]
+fn a_warm_snapshot_shows_the_next_commit_of_each_kind() {
+    let root = temp_root("fresh");
+    let mux = session_at_rest("snapshot-fresh", &root);
+    grow_to(&mux, 3);
+    read_cut(&mux);
+    let (before, revision_0, _, commits_0) = read_cut(&mux);
+    let workspaces_0 = before["workspaces"].as_array().unwrap().len();
+    let workspace = before["workspaces"][0]["id"].as_str().unwrap().to_string();
+
+    // 1. A workspace create.
+    mux.create_empty_workspace(Some("fresh-create".into()), None, None).unwrap();
+    let (after, revision_1, _, commits_1) = read_cut(&mux);
+    assert!(commits_1 > commits_0, "the commit count did not move on a workspace create");
+    assert_eq!(
+        after["workspaces"].as_array().unwrap().len(),
+        workspaces_0 + 1,
+        "a warm snapshot did not show the workspace created after it"
+    );
+    assert!(revision_1 > revision_0, "a warm snapshot kept the cursor of before the create");
+
+    // 2. A state store write.
+    let selectors = mux.local_workspace_selectors(&workspace);
+    mux.state_workspace_status(
+        &WorkspaceMutation::daemon_local("test"),
+        "workspace_status.set",
+        None,
+        &selectors,
+        WorkspaceStatusChange::Set {
+            key: "fresh".into(),
+            text: "fresh-status-text".into(),
+            icon: None,
+            color: None,
+            meta: Box::default(),
+        },
+    )
+    .unwrap();
+    let (after, revision_2, head_2, commits_2) = read_cut(&mux);
+    assert!(commits_2 > commits_1, "the commit count did not move on a state store write");
+    assert!(
+        after["extra"]["state"]["workspace_status"].to_string().contains("fresh-status-text"),
+        "a warm snapshot did not show the status written after it: {}",
+        after["extra"]["state"]["workspace_status"]
+    );
+    assert!(revision_2 > revision_1, "a warm snapshot kept the cursor of before the status write");
+
+    // 3. A journal writer batch.
+    let id = |prefix: &str, value: u128| format!("{prefix}_{value:032x}");
+    mux.journal_local_frontend_event(crate::FrontendJournalEvent::Focus {
+        event_id: "event_snapshot_read_fresh".into(),
+        frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(id(
+            "projection",
+            6,
+        ))
+        .unwrap(),
+        generation: "frontend_generation_1".into(),
+        target: crate::FrontendFocusTarget::Pane,
+        workspace_id: Some(crate::resource::WorkspacePublicId::parse(id("ws", 1)).unwrap()),
+        screen_id: Some(crate::resource::ScreenPublicId::parse(id("screen", 2)).unwrap()),
+        pane_id: Some(crate::resource::PanePublicId::parse(id("pane", 3)).unwrap()),
+        tab_id: Some(crate::resource::TabPublicId::parse(id("tab", 4)).unwrap()),
+        content_id: Some(crate::resource::ContentPublicId::Terminal(
+            crate::resource::TerminalPublicId::parse(id("term", 5)).unwrap(),
+        )),
+    })
+    .unwrap();
+    let (_, revision_3, head_3, commits_3) = read_cut(&mux);
+    assert!(commits_3 > commits_2, "the commit count did not move on a journal writer batch");
+    assert!(
+        head_3 > head_2,
+        "a warm snapshot kept journal head {head_2} after a journal writer batch (head {head_3} expected to be newer)"
+    );
+
+    // 4. A metadata write: no resource revision, no journal record.
+    mux.write_registry_meta(|transaction| {
+        crate::state::workspace_status_store::set_status(
+            transaction,
+            &workspace,
+            "fresh-meta",
+            "fresh-meta-text",
+            None,
+            None,
+            1,
+        )
+    })
+    .unwrap();
+    let (after, revision_4, _, commits_4) = read_cut(&mux);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(commits_4 > commits_3, "the commit count did not move on a metadata write");
+    assert_eq!(revision_4, revision_3, "setup: a metadata write takes no resource revision");
+    assert!(
+        after["extra"]["state"]["workspace_status"].to_string().contains("fresh-meta-text"),
+        "a warm snapshot did not show the metadata row written after it: {}",
+        after["extra"]["state"]["workspace_status"]
+    );
+}
+
+/// A snapshot read that already holds its route tables answers when an
+/// in-process terminal is fully closed under it. The durable identity of an
+/// in-process runtime is in a table of the mux that the close purges after it
+/// releases the state guard; the read failed with "runtime omitted its
+/// durable identity", which every client shows as "machine unreachable".
+#[test]
+fn a_snapshot_read_answers_when_an_in_process_terminal_closes_under_it() {
+    // A child that writes nothing.
+    let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
+    let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
+    let name = format!(
+        "snapshot-close-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    );
+    let mux = Mux::new(name, options);
+    mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    assert!(closed.terminal_host_identity().is_none(), "setup: the terminal runs in process");
+    let host = mux.resource_terminal_host_identity(&closed).expect("setup: a reserved identity");
+    public_session_snapshot(&mux).expect("setup: the snapshot read answers before the close");
+
+    let hook_ran = Arc::new(AtomicBool::new(false));
+    let ran = hook_ran.clone();
+    let closing = mux.clone();
+    crate::resource_api::set_snapshot_after_routes_hook(move || {
+        closing.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+        assert!(
+            closing.resource_terminal_host_identity(&closed).is_none(),
+            "setup: the close purged the identity of the runtime"
+        );
+        ran.store(true, Ordering::SeqCst);
+    });
+    let snapshot = public_session_snapshot(&mux);
+    assert!(hook_ran.load(Ordering::SeqCst), "setup: the terminal closed under the read");
+    let snapshot = snapshot.unwrap_or_else(|error| {
+        panic!("the snapshot read failed when a terminal closed under it: {error:?}")
+    });
+    assert!(snapshot["terminals"].is_array(), "the snapshot read answered: {snapshot}");
+    public_session_snapshot(&mux).expect("the next snapshot read answers too");
+}
+
+/// The answer of an indeterminate registry commit that arrives late owes a
+/// state update (cx-g1fa.3). The old snapshot read settled it, because it
+/// pinned the state. A session that only reads snapshots must still settle
+/// it: the rows of the late commit are in the snapshot, so its state update
+/// and its journal event must not wait for some later mutation.
+#[test]
+fn a_snapshot_read_settles_the_answer_of_a_late_registry_commit() {
+    let root = temp_root("settle");
+    let mux = session_at_rest("snapshot-settle", &root);
+    public_session_snapshot(&mux).unwrap();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    let settled = Arc::new(AtomicBool::new(false));
+    let settled_by = settled.clone();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
+        pending,
+        Some(Box::new(move |_state, _receipt| {
+            settled_by.store(true, Ordering::SeqCst);
+        })),
+    );
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+
+    public_session_snapshot(&mux).unwrap();
+    let settled = settled.load(Ordering::SeqCst);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(settled, "a snapshot read did not settle the answer of a late registry commit");
 }

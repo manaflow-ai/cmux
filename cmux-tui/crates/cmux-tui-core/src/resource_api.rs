@@ -77,6 +77,28 @@ pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static)
     });
 }
 
+/// Runs once on this thread, in the next snapshot read, after the read loaded its route tables and before it
+/// walks them: a test changes the session under a read that already holds its routes.
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_AFTER_ROUTES_HOOK: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
+
+#[cfg(test)]
+pub(crate) fn set_snapshot_after_routes_hook(hook: impl FnOnce() + 'static) {
+    SNAPSHOT_AFTER_ROUTES_HOOK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(hook));
+    });
+}
+
+#[cfg(test)]
+fn run_snapshot_after_routes_hook() {
+    let hook = SNAPSHOT_AFTER_ROUTES_HOOK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 #[cfg(test)]
 fn run_snapshot_before_projection_hook() {
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
@@ -566,6 +588,8 @@ fn session_snapshot_with_journal_head(
     (|| -> anyhow::Result<(Value, u64)> {
         let committed = committed_snapshot::committed_snapshot(mux)?;
         let routes = mux.published_routes()?;
+        #[cfg(test)]
+        run_snapshot_after_routes_hook();
         let browser_surfaces = routes.browser_surfaces_by_content();
         let journal_head = committed.rows.journal_head;
         let topology = &committed.rows.topology;
