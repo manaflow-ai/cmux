@@ -144,7 +144,18 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     let bulk = relay(&mac, &one, &first, &two, &second);
     assert!(bulk["written"].as_u64().unwrap() > 0, "{bulk}");
     let status = ["status", "--porcelain=v2", "--branch"];
-    assert_eq!(git(&second, &status), git(&first, &status), "git status differs on VM two");
+    // The same status but for what the relay leaves out on purpose (checked below).
+    let kept = |text: String| {
+        text.lines()
+            .filter(|line| !matches!(*line, "? outside-link" | "? target/"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        kept(git(&second, &status)),
+        kept(git(&first, &status)),
+        "git status differs on VM two"
+    );
     assert_eq!(git(&second, &["rev-parse", "HEAD"]), git(&first, &["rev-parse", "HEAD"]));
     assert_eq!(git(&second, &["stash", "list"]), git(&first, &["stash", "list"]));
     assert_eq!(git(&second, &["diff", "--cached"]), git(&first, &["diff", "--cached"]));
