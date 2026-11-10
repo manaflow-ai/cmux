@@ -259,6 +259,8 @@ BUNDLE_INPUTS = (
     "schemas/type-scale/type-scale.json",
     # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
     "schemas/design-scale/design-scale.json",
+    # The theme slots the slot registry imports (src/slots/registry.ts).
+    "schemas/theme/slots.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
