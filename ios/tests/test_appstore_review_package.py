@@ -15,6 +15,8 @@ PRIVACY_MANIFEST = APP_SOURCE / "PrivacyInfo.xcprivacy"
 PROJECT_FILE = REPO_ROOT / "ios/cmux-ios.xcodeproj/project.pbxproj"
 APP_PACKAGE = REPO_ROOT / "ios/cmuxPackage/Package.swift"
 METADATA_DIR = REPO_ROOT / "ios/AppStoreReview/metadata"
+JOURNEY_TESTS = REPO_ROOT / "ios/cmuxUITests/AppReviewJourneyUITests.swift"
+TEST_IOS_WORKFLOW = REPO_ROOT / ".github/workflows/test-ios.yml"
 
 
 def collected_types() -> dict[str, dict]:
@@ -97,6 +99,44 @@ class PublicMetadataTests(unittest.TestCase):
             )
             for phrase in self.REVIEW_ONLY_PHRASES:
                 self.assertNotIn(phrase.lower(), text.lower(), f"{path}: {phrase}")
+
+
+class AppReviewJourneyTests(unittest.TestCase):
+    """App Review's path through a fresh install is a required CI check."""
+
+    # Each one is a path App Review took and was stranded on (2026-11-07).
+    REVIEWER_PATHS = (
+        "testSignedOutOnboardingCompletesBeforeShowingSignIn",
+        "testFreshInstallTailscaleScanOpensScannerAndSkipLeavesOnboarding",
+        "testDemonstrationAccountOnboardingHidesTailscaleAndOpensWorkspaces",
+    )
+
+    def test_journey_class_holds_every_reviewer_path(self):
+        source = JOURNEY_TESTS.read_text()
+        self.assertIn("final class AppReviewJourneyUITests: XCTestCase", source)
+        for name in self.REVIEWER_PATHS:
+            self.assertIn(f"func {name}()", source)
+
+    def test_journey_class_is_compiled_into_cmux_ui_tests(self):
+        project = PROJECT_FILE.read_text()
+        sources_phase = project[project.index("/* Begin PBXSourcesBuildPhase section */"):]
+        self.assertIn("AppReviewJourneyUITests.swift in Sources", sources_phase)
+
+    def test_required_ios_lane_runs_the_journey_on_both_families(self):
+        workflow = TEST_IOS_WORKFLOW.read_text()
+        simulator_job = workflow[workflow.index("\n  ios-simulator:\n"):workflow.index("\n  ios-tests:\n")]
+        step = simulator_job[simulator_job.index("- name: Run App Review journey"):]
+        step = step[:step.index("\n      - name: ", 1)]
+        self.assertIn("JOURNEY_FILTER: cmuxUITests/AppReviewJourneyUITests", step)
+        self.assertIn('-only-testing:"$JOURNEY_FILTER"', step)
+        self.assertIn("require_selected_test_execution.sh", step)
+        # Every default run takes it: pull requests, merge groups and
+        # unfiltered dispatches. Only a focused dispatch skips it.
+        self.assertIn("if: ${{ inputs.test_filter == '' }}", step)
+        self.assertNotIn("continue-on-error", step)
+        self.assertIn("family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}", simulator_job)
+        gate = workflow[workflow.index("\n  ios-tests:\n"):]
+        self.assertIn("      - ios-simulator\n", gate)
 
 
 if __name__ == "__main__":
