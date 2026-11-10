@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -107,7 +108,9 @@ struct SpaceSwitchCostTests {
         defer { bench.close() }
         let record = { (id: String) in try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"\#(id)","workspace_key":"k0"}"#.utf8)) }
         let launch = try WindowState(record: record("launch"))
-        let feed = SidebarBridge(services: bench.services, state: launch).rowFeed
+        let bridge = SidebarBridge(services: bench.services, state: launch)
+        defer { bridge.teardown() }
+        let feed = bridge.rowFeed
         try launch.adopt(record("space-bench"))
         // Three passes of the sidebar's feed: the space of workspace k0 shows, another space shows, k0's shows again.
         let workspace = CmuxNextSidebar.WorkspaceID("k0")
