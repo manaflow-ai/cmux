@@ -412,7 +412,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
     // what changed since and the chat is frozen for that delta alone.
     if let Some(sync) = args.sync.as_ref().filter(|sync| sync.way == Way::Relay) {
-        sync_frozen(sync)?;
+        relay_bulk(sync)?;
     }
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     // A running turn stops for the move only where it goes on afterwards: an older source would
@@ -516,6 +516,24 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     }
 }
 
+/// A relay's bulk copy, before the chat freezes. A folder a Move to Cloud seeded from this Mac
+/// (`--sync-seed-local`) hops through this Mac's copy of it: each machine clones from GitHub and
+/// only the diffs cross this Mac (`seed_cli::hop`). A folder the hop cannot take (a conflict
+/// with this Mac's copy, say) and any other folder copy machine to machine.
+fn relay_bulk(sync: &Sync) -> Result<(), Failed> {
+    if let (Some(local), Some(from)) = (&sync.seed_local, &sync.from_socket) {
+        let from_root = sync.local.to_string_lossy();
+        match super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let warning = json!({"warning": "hop_fell_back", "error": format!("{error:#}")});
+                eprintln!("{warning}");
+            }
+        }
+    }
+    sync_frozen(sync)
+}
+
 /// `--sync`'s copy of a frozen chat's folder (module docs).
 fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
     use super::sync_cli::{self, Back};
@@ -544,6 +562,20 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             let from = sync.from_socket.as_deref().ok_or_else(|| {
                 Failed::new("bad_request", "a relay names the source machine's socket".to_string())
             })?;
+            let failed = |e: anyhow::Error| {
+                Failed::new(
+                    super::seed_cli::failure_code(&e),
+                    format!("the folder's last changes: {e:#}"),
+                )
+            };
+            // A folder the bulk pass hopped through this Mac's copy hops again ([`relay_bulk`]).
+            if let Some(local) = &sync.seed_local
+                && super::seed_cli::hop_started(local, &sync.remote)
+            {
+                let from_root = sync.local.to_string_lossy();
+                return super::seed_cli::hop(from, &from_root, &sync.socket, &sync.remote, local)
+                    .map_err(failed);
+            }
             let mut quiet = |_: sync_cli::Progress| {};
             return sync_cli::relay(
                 from,
@@ -767,9 +799,13 @@ fn commit(
         && let (Some(seed_local), Some(from)) = (&sync.seed_local, &sync.from_socket)
     {
         let local_root = sync.local.to_string_lossy();
-        if let Err(error) =
+        let moved = super::seed_cli::land(seed_local, &sync.remote).and_then(|landed| {
+            if landed {
+                return Ok(true);
+            }
             super::seed_cli::follow(seed_local, &local_root, &sync.remote, from, &sync.socket)
-        {
+        });
+        if let Err(error) = moved {
             // The move stands; Bring Back Local then copies instead of merging.
             eprintln!(
                 "{}",

@@ -211,7 +211,13 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert!(!ok && refused["error_code"] == json!("relay.target_exists"), "{refused}");
     assert_eq!(fs::read_to_string(theirs.join("keep.txt")).unwrap(), "not ours\n");
 
-    // 2. The chat moves mid-turn, and what its turn wrote after the bulk goes along.
+    // 2. The chat moves mid-turn, and what its turn wrote after the bulk goes along. VM one's
+    // folder came from this Mac's seed, so the move hops through the Mac's copy (seed_cli::hop)
+    // into a folder VM two does not have yet. Symlinks made on a machine stop a hop (Bring Back
+    // Local's rule), so VM one's go first.
+    fs::remove_file(first.join("lib-link")).unwrap();
+    fs::remove_file(first.join("outside-link")).unwrap();
+    let moved_to = two.home().join("work/moved");
     let mut one_acpmux = one.acpmux();
     let created = one_acpmux.call("session/new", json!({"cwd": first, "mcpServers": []}));
     let session = created["sessionId"].as_str().unwrap().to_owned();
@@ -232,12 +238,13 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     let (ok, moved) = run_json(
         Command::new(bin())
             .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&one.socket)
             .args(["--surface", &surface.to_string(), "--to-socket"])
             .arg(&two.socket)
             .arg("--cwd")
-            .arg(&second)
+            .arg(&moved_to)
             .arg("--interrupt")
             .args(["--vm-kind", "owner"])
             .args(["--sync", "relay", "--sync-from-socket"])
@@ -247,7 +254,7 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
             .arg("--sync-local")
             .arg(&first)
             .arg("--sync-remote")
-            .arg(&second)
+            .arg(&moved_to)
             .arg("--sync-seed-local")
             .arg(&repo)
             .arg("--state-dir")
@@ -256,11 +263,16 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
     assert_eq!(moved["session_id"], json!(session), "{moved}");
     assert_eq!(
-        fs::read_to_string(second.join("src/turn.txt")).unwrap(),
+        fs::read_to_string(moved_to.join("src/turn.txt")).unwrap(),
         "written by the running turn\n",
         "the turn's last change stayed on VM one"
     );
-    assert!(!second.join("notes.txt").exists(), "a file the turn deleted came back on VM two");
+    assert!(!moved_to.join("notes.txt").exists(), "a file the turn deleted came back on VM two");
+    assert_eq!(
+        fs::read_to_string(repo.join("src/turn.txt")).unwrap(),
+        "written by the running turn\n",
+        "the move copied machine to machine instead of hopping through this Mac's copy"
+    );
 
     // 3. On VM two: the chat with its history and draft, and its queue ran there once.
     let mut two_acpmux = two.acpmux();
@@ -274,11 +286,11 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     let draft = two_acpmux.call("_acpmux/draft_get", json!({"sessionId": session}));
     assert_eq!(draft["draft"], json!(DRAFT), "{draft}");
     let there = two_acpmux.summary(&session).expect("the chat is on VM two");
-    assert_eq!(there["cwd"], json!(fs::canonicalize(&second).unwrap()), "{there}");
+    assert_eq!(there["cwd"], json!(fs::canonicalize(&moved_to).unwrap()), "{there}");
 
-    // 4. Bring Back Local from VM two merges into the Mac's folder against the seed the Mac sent
-    // VM one: its record followed the chat. A symlink made on a machine never comes back (Bring
-    // Back Local's own rule, not the relay's); VM two's went above.
+    // 4. Bring Back Local from VM two merges into the Mac's folder against the record the hop
+    // left for VM two's folder.
+    fs::write(moved_to.join("src/on-two.txt"), "made on vm two\n").unwrap();
     let (ok, back) = run_json(
         Command::new(bin())
             .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
@@ -286,7 +298,7 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
             .args(["link", "seed", "pull", "--socket"])
             .arg(&two.socket)
             .arg(&repo)
-            .arg(&second)
+            .arg(&moved_to)
             .arg("--or-copy"),
     );
     assert!(ok && back["ok"] == json!(true), "bring back from VM two: {back}");
@@ -296,7 +308,8 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
         "written by the running turn\n",
         "the turn's change did not come back from VM two"
     );
-    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), git(&second, &["rev-parse", "HEAD"]));
+    assert_eq!(fs::read_to_string(repo.join("src/on-two.txt")).unwrap(), "made on vm two\n");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), git(&moved_to, &["rev-parse", "HEAD"]));
 
     // 5. On VM one: the chat moved away and its queue never ran there.
     let left = one_acpmux.summary(&session);
