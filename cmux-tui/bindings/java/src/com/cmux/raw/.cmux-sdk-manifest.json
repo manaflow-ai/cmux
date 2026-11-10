@@ -2182,7 +2182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2c89467acd29d761a5f7555aea81af5683acbd7ebe1cf60ba93b0db178b64076",
+      "sha256": "16be3396a899d0d7a553721724c2ae9ff03912d8ee1389c89d194b30dbecd414",
       "size": 7838
     },
     {
@@ -3092,8 +3092,8 @@
     },
     {
       "path": "Tab.java",
-      "sha256": "9befb9d4b1a485fc3209668011abc2871f7e1d070cc677891bac62e9d945e3de",
-      "size": 15196
+      "sha256": "7597c7530db4c3253e94eb44575497492d3642f87cc2fe6441f7d397196e6385",
+      "size": 16594
     },
     {
       "path": "TabAddedEvent.java",
@@ -3407,8 +3407,8 @@
     },
     {
       "path": "TitleChangedEvent.java",
-      "sha256": "d2db48831b9c7b55b92e9dbde6cf2637462502ec47c25a4c7e02e65eeed73f3d",
-      "size": 2869
+      "sha256": "e47c47a21533de1fd9a68472fbd23ddcd531d594b2c9e22802a9d3d9a670dd9a",
+      "size": 4094
     },
     {
       "path": "Tree.java",
@@ -3642,7 +3642,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d",
+  "ir_sha256": "feb213a2b2b4ab79d9462b1d3721516281e4a74b0bca245e564fa6df076d6e80",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

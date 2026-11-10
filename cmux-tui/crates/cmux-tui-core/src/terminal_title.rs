@@ -129,7 +129,7 @@ pub struct TabTitle {
 }
 
 impl TabTitle {
-    /// A page's title (or a remote terminal tab's display title): shown as is.
+    /// A page's title: shown as is (a remote terminal tab uses the terminal rule).
     pub fn page(raw: &str) -> Self {
         Self { text: Arc::from(raw), activity: None }
     }

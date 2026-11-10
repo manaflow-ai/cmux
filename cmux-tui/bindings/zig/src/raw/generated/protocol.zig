@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d";
+pub const ir_sha256 = "feb213a2b2b4ab79d9462b1d3721516281e4a74b0bca245e564fa6df076d6e80";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2646,10 +2646,13 @@ pub const Tab = struct {
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,
     title: []const u8,
+    title_activity: wire.Field([]const u8) = .absent,
+    title_text: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
         "supports_clear_history_key_fallback",
+        "title_text",
     };
 };
 
@@ -11519,11 +11522,14 @@ pub const TerminalRegistryChangedEvent = struct {
 };
 
 pub const TitleChangedEvent = struct {
+    activity: wire.Field([]const u8) = .absent,
     event: []const u8,
     surface: Id,
+    text: ?[]const u8 = null,
     title: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "text",
         "title",
     };
 };

@@ -1616,6 +1616,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1812,6 +1819,13 @@
       "/entity/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -2819,6 +2833,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3102,6 +3123,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -3387,6 +3415,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3670,6 +3705,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -4223,6 +4265,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4391,6 +4440,13 @@
       "/entity/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -4565,6 +4621,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4734,6 +4797,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4885,6 +4955,10 @@
       }
     },
     "event:title-changed": {
+      "/activity": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4895,6 +4969,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/text": {
+        "ty": "string"
       },
       "/title": {
         "ty": "string"
@@ -5376,6 +5453,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -5708,6 +5792,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6042,6 +6133,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -6374,6 +6472,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6708,6 +6813,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7018,6 +7130,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -18147,6 +18266,13 @@
       "/data/workspaces/*/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/data/workspaces/*/screens/*/short_id": {
         "ty": "string"

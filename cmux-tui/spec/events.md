@@ -1178,15 +1178,17 @@ Example:
 Payload:
 
 ```text
-object{event:"title-changed",surface:Id,title:string}
+object{event:"title-changed",surface:Id,title:string,text?:string,activity?:string|null}
 ```
 
-Meaning: A surface title changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
+Meaning: What a surface's tab shows changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
+
+`title` is the raw title. `text` and `activity` are the daemon's split of it: a terminal title's leading status glyphs (an agent's spinner, idle, done or failed mark) become `activity` (`working`, `idle`, `done`, `failed` or null) and the rest is `text`; a page title is `text` as is, with a null `activity`. The daemon sends the event only when `text` or `activity` changed, so a spinner frame of the same text sends nothing and a client that shows the raw `title` keeps the first frame. Tree tabs carry the same split as `title_text` and `title_activity`. A daemon from before the split omits `text` and `activity`.
 
 Example:
 
 ```json
-{"event":"title-changed","surface":1,"title":"build logs"}
+{"event":"title-changed","surface":1,"title":"⠐ Fix the login bug","text":"Fix the login bug","activity":"working"}
 ```
 
 ### bell

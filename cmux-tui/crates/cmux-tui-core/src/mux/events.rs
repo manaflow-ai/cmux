@@ -225,7 +225,7 @@ impl MuxEvent {
         Self::TitleChanged { surface, title, shown }
     }
 
-    /// A page's (or a remote terminal tab's display) new title, shown as is.
+    /// A page's new title, shown as is (no glyph split).
     pub fn page_title(surface: SurfaceId, title: Arc<str>) -> Self {
         let shown = crate::TabTitle::page(&title);
         Self::TitleChanged { surface, title, shown }
