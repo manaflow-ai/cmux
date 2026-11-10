@@ -224,6 +224,9 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // BENCH ONLY (split-down-garbage, never merged): hide the surface before the render thread's first wake-up, so
+        // that wake-up builds no cells (`renderCallback` returns while not visible).
+        if Self.benchFirstDraw { ghostty_surface_set_occlusion(surface, false) }
         // Before anything can draw: every frame the layer shows is reported (``TerminalPresents``).
         bridge.takeUnretainedValue().presents.install(on: surface, layer: layer.map(ObjectIdentifier.init), userdata: userdata)
         // The drawable follows the size this view sets (`setFrameSize`), not
@@ -646,6 +649,9 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Occlusion
 
+    /// BENCH ONLY (split-down-garbage, never merged): `CMUX_SDG_BENCH_FIRST_DRAW=1`.
+    private static let benchFirstDraw = ProcessInfo.processInfo.environment["CMUX_SDG_BENCH_FIRST_DRAW"] == "1"
+
     /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
     /// keep parsing output; Ghostty draws the current content on its `.visible` message.
     func updateOcclusion() {
@@ -665,6 +671,18 @@ public final class TerminalSurfaceView: NSView {
         session?.frameChanges.wake() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
         let saved = holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, drawing)
+        // BENCH ONLY (split-down-garbage, never merged): the main thread's synchronous draw comes before the render
+        // thread's first cell build, as it can at a loaded Mac. The line says whether a build came before the draw.
+        if drawing, Self.benchFirstDraw {
+            var cols: UInt16 = 0
+            var rows: UInt16 = 0
+            let builtBefore = ghostty_surface_drawn_grid(surface, &cols, &rows)
+            ghostty_surface_draw(surface)
+            let builtAfter = ghostty_surface_drawn_grid(surface, &cols, &rows)
+            let line = "SDG-BENCH sync draw: built before \(builtBefore) after \(builtAfter) grid \(cols)x\(rows) "
+                + "view \(Int(bounds.width))x\(Int(bounds.height))\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
         // background update) before its view has ever joined a window. The visibility message
         // normally starts the next frame, but a first display after that off-window parse can
