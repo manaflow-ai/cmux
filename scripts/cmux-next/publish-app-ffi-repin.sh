@@ -32,23 +32,56 @@ read -r pin_sha CHECKSUM <<<"$picked"
 [[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
   || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
 TAG="cmux-app-ffi-$pin_sha"
+# A release built from the pinned FFI inputs is not re-pinned (2026-11-10: the bot moved #39863 to a release of the
+# same sources with a new checksum, since the archive is not byte-reproducible). A failed read re-pins as before.
+pin_args=(read "$manifest")
+[[ -f Packages/macOS/CmuxNext/app-ffi-pin.json ]] && pin_args=(read-pin-file Packages/macOS/CmuxNext/app-ffi-pin.json "$manifest")
+current="$(python3 -I scripts/ci/app_ffi_pin.py "${pin_args[@]}" 2>/dev/null | awk '{print $1}' || true)"
+if [[ "$current" =~ ^[0-9a-f]{40}$ && "$current" != "$pin_sha" ]] &&
+    inputs="$(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)" && [[ -n "$inputs" ]]; then
+  mapfile -t input_paths <<<"$inputs"
+  if git diff --quiet "$current" "$pin_sha" -- "${input_paths[@]}"; then
+    echo "$TAG has the same app FFI inputs as the pinned ${current:0:12}: nothing to re-pin"
+    exit 0
+  fi
+fi
 # Wait for a newer release that is still building (2026-11-10: #39863 at 8c29468b pinned 1818fd17 while the run for
 # the newer input commit b2fb62c7 was queued, so the re-pin was stale on arrival). Another app-ffi-release.yml run on
-# feat-cmux-next that is not completed, for a commit newer than the picked release (not its ancestor, or not in this
-# checkout: pushed after it), re-pins when it publishes; its re-pin job runs even when it ends with no release, so the
-# pin always has an owner. A failed read re-pins as before.
+# feat-cmux-next holds this re-pin when all hold:
+# - its commit is newer than the picked release and than this run's commit (not their ancestor, or not in this
+#   checkout: pushed after it), so two runs never hold for each other;
+# - its own re-pin job is still to come (missing, or not completed): a run stays in progress after that job ended
+#   while its macOS cross-compile shadow runs, and its re-pin job runs even when the run ends with no release, so the
+#   pin always has an owner;
+# - it was created less than REPIN_PENDING_MAX_MIN ago: a run stuck waiting for a runner never holds for days.
+# A failed read re-pins as before.
+pending_max_min="${REPIN_PENDING_MAX_MIN:-180}"
+read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api "$@"; }
 pending_newer() {
-  local runs id head
-  if ! runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api \
+  local runs id head created age jobs
+  if ! runs="$(read_runs \
       "repos/$GITHUB_REPOSITORY/actions/workflows/app-ffi-release.yml/runs?branch=feat-cmux-next&per_page=100" \
-      --jq '.workflow_runs[] | select(.status != "completed") | "\(.id) \(.head_sha)"')"; then
+      --jq '.workflow_runs[] | select(.status != "completed")
+        | "\(.id) \(.head_sha) \((now - ((.created_at // "") | if . == "" then now else fromdateiso8601 end)) / 60 | floor)"')"; then
     echo "::warning title=Re-pin::could not read the app FFI release runs; re-pinning $TAG as before" >&2
     return 1
   fi
-  while read -r id head; do
-    [[ "$id" =~ ^[0-9]+$ && "$head" =~ ^[0-9a-f]{40}$ ]] || continue
-    [[ "$id" != "${GITHUB_RUN_ID:-}" && "$head" != "$pin_sha" ]] || continue
+  while read -r id head age; do
+    [[ "$id" =~ ^[0-9]+$ && "$head" =~ ^[0-9a-f]{40}$ && "$age" =~ ^-?[0-9]+$ ]] || continue
+    [[ "$id" != "${GITHUB_RUN_ID:-}" && "$head" != "$pin_sha" && "$head" != "${GITHUB_SHA:-}" ]] || continue
     git merge-base --is-ancestor "$head" "$pin_sha" 2>/dev/null && continue
+    [[ -n "${GITHUB_SHA:-}" ]] && git merge-base --is-ancestor "$head" "$GITHUB_SHA" 2>/dev/null && continue
+    if (( age > pending_max_min )); then
+      echo "release run $id for ${head:0:12} was created $age min ago (bound $pending_max_min min): ignored" >&2
+      continue
+    fi
+    if ! jobs="$(read_runs "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+        --jq '[.jobs[] | select(.name == "open the re-pin pull request") | .status] | if length == 0 then "to-come"
+          elif all(. == "completed") then "done" else "to-come" end')"; then
+      echo "::warning title=Re-pin::could not read release run $id's jobs; it does not hold the re-pin" >&2
+      continue
+    fi
+    [[ "$jobs" == to-come ]] || continue
     echo "$id $head"
     return 0
   done <<<"$runs"
@@ -56,7 +89,7 @@ pending_newer() {
 }
 if newer="$(pending_newer)"; then
   read -r newer_run newer_sha <<<"$newer"
-  echo "release run $newer_run for ${newer_sha:0:12}, newer than $TAG, is not finished: run $newer_run re-pins; this run leaves $branch alone"
+  echo "release run $newer_run for ${newer_sha:0:12}, newer than $TAG, has its re-pin still to come: run $newer_run re-pins; this run leaves $branch alone"
   exit 0
 fi
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
