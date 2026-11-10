@@ -425,7 +425,8 @@ fn provisioned_targets() -> Vec<(String, bool)> {
 /// renamed or added account fails here rather than refusing its probe. An account the
 /// provisioner puts in a team (`team_id=`, such as cmux-cloud-capture-prod-team in the production
 /// company team) shares that team's machines with its people, and `cloud start-chat --target`
-/// can reach them, so it never takes a carrier fault.
+/// can reach them, so it never takes a carrier fault. The probe teams `--probe-teams` makes are
+/// not a `team_id`: they hold only the capture account, which the provisioner checks on every run.
 #[test]
 fn the_probe_accounts_are_the_provisioners_accounts() {
     let targets = provisioned_targets();

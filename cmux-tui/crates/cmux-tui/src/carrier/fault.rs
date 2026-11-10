@@ -193,8 +193,10 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
 /// shared team (its `TARGETS` without a `team_id`: capture, journey,
 /// journey-guest, production, journey-production, platform-staging,
 /// platform-production). Every one is a team-made test account on the
-/// manaflow.dev mailbox, never a person's, alone in its own scope, so any of
-/// them may drive a drill; the production probe (cmuxterm-hq
+/// manaflow.dev mailbox, never a person's, in no team a person is in, so any
+/// of them may drive a drill. (`cmux-cloud-capture` is also the only member of
+/// the provisioner's probe teams, `--probe-teams`, which it refuses to grant
+/// once anyone else is in one.) The production probe (cmuxterm-hq
 /// synthetic-probes.yml app-chat-production) signs in as
 /// `cmux-cloud-capture-prod`. A target with a `team_id`
 /// (`cmux-cloud-capture-prod-team`, a member of the production company team)
