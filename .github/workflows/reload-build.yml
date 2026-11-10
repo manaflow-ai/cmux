@@ -90,6 +90,11 @@ on:
         options:
           - remote
           - local
+      release:
+        description: "macOS only: build the Release configuration (reload.sh --config release) instead of Debug"
+        required: false
+        default: false
+        type: boolean
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -597,6 +602,7 @@ jobs:
         env:
           BUILD_TAG: ${{ inputs.tag }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
@@ -620,7 +626,8 @@ jobs:
             ./scripts/reload.sh \
               --tag "$BUILD_TAG" \
               --derived-data "$derived_data" \
-              --swift-frontend-workaround
+              --swift-frontend-workaround \
+              ${RELEASE_BUILD:+--config release}
           }
 
           set +e
