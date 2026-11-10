@@ -209,5 +209,36 @@ struct AgentPaneChromiumMoveTests {
         #expect(!view.holdsPageAway, "the page is still outside the window after its pane landed")
         #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
     }
+
+    /// A page parked at the size its new pane rests at needs no new frame, but its pane is still on its spring: it
+    /// does not come in at a size of the spring, and no size wait is asked of it. It shows when the pane lands.
+    @Test func aPageParkedAtThePanesRestSizeShowsWhenThePaneLandsWithNoSizeWait() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        var moves = 0
+        view.placeMovedChromiumPage { moves += 1 }
+        let rest = NSSize(width: 800, height: 600)
+        let window = pane(rest)
+        defer { window.close() }
+        let springing = SpringingPane(frame: NSRect(x: 0, y: 0, width: 800, height: 250))
+        springing.rest = rest
+        window.contentView?.addSubview(springing)
+        springing.addSubview(view)
+        view.frame = springing.bounds
+        view.layoutSubtreeIfNeeded()
+
+        let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
+        #expect(view.holdsPageAway, "the page shows in a pane on its spring: it gets a size in each spring frame")
+        #expect(view.pageContent.frame.size == atRest, "the held page is at \(view.pageContent.frame.size), not at its pane's rest size \(atRest)")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(sizeWaits(page) == 0, "a page already drawn at the rest size was asked to wait for a size")
+        #expect(view.holdsPageAway, "the page came in while its pane is on its spring")
+
+        springing.frame.size.height = rest.height
+        view.frame = springing.bounds
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.holdsPageAway, "the page is still outside the window after its pane landed")
+        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+        #expect(moves == 2, "the page's window was told \(moves) times, not once out and once back")
+    }
 }
 #endif
