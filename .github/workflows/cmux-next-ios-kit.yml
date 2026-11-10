@@ -382,4 +382,4 @@ jobs:
           name: instant-perf-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
