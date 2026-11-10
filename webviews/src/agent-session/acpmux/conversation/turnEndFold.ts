@@ -20,6 +20,8 @@
 // mounted now (the view's window), never the whole chat.
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
+import { ARRIVAL_FRAME_LINES } from "./followChase";
+import { currentChatMetrics } from "../chatDisplay";
 import { ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
@@ -130,6 +132,30 @@ function settle(thread: HTMLElement): { ms: number; easing: string } {
   return { ms, easing };
 }
 
+/// How steep `easing` starts: progress per unit of time in its first instant (a cubic-bezier's
+/// y1/x1; the settle's is 6.25, so its first 120 Hz frame of 180 ms draws 29% of the move).
+export function easeStartSlope(easing: string): number {
+  const bezier = /cubic-bezier\(\s*([\d.]+)\s*,\s*(-?[\d.]+)/.exec(easing);
+  if (bezier) {
+    const x1 = Number(bezier[1]);
+    const y1 = Number(bezier[2]);
+    return x1 > 0 ? Math.max(1, y1 / x1) : 1;
+  }
+  if (easing.startsWith("ease-out") || easing === "ease") return 2;
+  return 1;
+}
+
+/// The fold's length for a move of `px`: the settle (`ms`), longer only as a long move needs to keep
+/// its steepest frame (the first, on the settle's curve) under ARRIVAL_FRAME_LINES, as the arrival
+/// step does (followChase.ts `arrivalStepMs`). A 72 px fold moved the reply 21 px in its first frame
+/// at 180 ms (turn-transition-jumps.test.ts, tool-group); on this length it moves 0.6 of a line.
+export function turnEndMs(px: number, ms: number, easing: string): number {
+  const bound = ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
+  if (!(bound > 0) || !(ms > 0)) return ms;
+  const frameMs = 1000 / 120;
+  return Math.max(ms, (easeStartSlope(easing) * frameMs * Math.abs(px)) / bound);
+}
+
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
 export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
   if (!fold) return;
@@ -175,7 +201,10 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  const { ms, easing } = settle(thread);
+  const { ms: settleMs, easing } = settle(thread);
+  /// The fold's one length, set by the first pass from the longest move it plays (`turnEndMs`).
+  let ms = settleMs;
+  let sized = false;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
@@ -213,6 +242,15 @@ export function playTurnEnd(
     // Every place is read before anything plays, so a pass lays the page out once.
     const tops = layoutTops(nodes);
     const copyTops = layoutTops(copies);
+    if (!sized) {
+      sized = true;
+      let longest = 0;
+      nodes.forEach((node, index) => {
+        const before = was.get(node.dataset.rowId!);
+        if (before) longest = Math.max(longest, Math.abs(before.top - tops[index]!));
+      });
+      ms = turnEndMs(longest, settleMs, easing);
+    }
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
     const line = tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
     const restart = (
