@@ -172,6 +172,19 @@ impl EventFilter {
         serde_json::to_vec(self.subagent.as_deref()?).ok()
     }
 
+    /// The kinds a page reads when each is one the log keeps copies of (`store/kind_index.rs`
+    /// `INDEXED_KINDS`), none a group (`transcript`, `mux`, `wire`, `all`), and no subagent is
+    /// named: such a page can be read from the copies (`Hub::events_page`).
+    fn indexed_kinds(&self) -> Option<Vec<&str>> {
+        if self.subagent.is_some() {
+            return None;
+        }
+        let kinds = self.kinds.as_ref()?;
+        let indexed = |k: &String| crate::store::INDEXED_KINDS.contains(&k.as_str());
+        (!kinds.is_empty() && kinds.iter().all(indexed))
+            .then(|| kinds.iter().map(String::as_str).collect())
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -547,6 +560,23 @@ impl Hub {
             })?;
             return Ok(page);
         }
+        // A page of kinds the log keeps copies of reads the copies, not the log: read back from
+        // the end, a page of a chat's last 16 prompts walked its whole log when it had fewer, and
+        // every open asked for one (`turn_opener.rs`), 4 s on a 1 GB chat. No record of these
+        // kinds is ever superseded (`store/superseded.rs` touches tool calls only).
+        if self.store.copies_kinds()
+            && let Some(kinds) = filter.indexed_kinds()
+        {
+            return self.newest_of_copies(
+                id,
+                after,
+                before,
+                limit,
+                max_bytes,
+                &kinds,
+                session.as_deref(),
+            );
+        }
         // Newest first; a slot a later (older) record made moot is empty.
         let mut found: Vec<Option<(EventRecord, usize)>> = Vec::new();
         let mut held = 0usize;
@@ -602,6 +632,55 @@ impl Hub {
             true
         })?;
         page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
+        Ok(page)
+    }
+}
+
+impl Hub {
+    /// [`Self::events_page`]'s newest `limit` records of `kinds` with `after < seq < before`, read
+    /// from the log's copies of them (`Store::scan_kinds`), which hold them oldest first: the
+    /// newest are kept as the scan passes, then bounded by bytes from the newest down.
+    #[allow(clippy::too_many_arguments)]
+    fn newest_of_copies(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        limit: usize,
+        max_bytes: Option<usize>,
+        kinds: &[&str],
+        session: Option<&Session>,
+    ) -> Result<EventPage> {
+        let mut newest = std::collections::VecDeque::with_capacity(limit.min(1024));
+        let mut older = false;
+        self.store.scan_kinds(id, kinds, &mut |rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            if rec.seq > after {
+                if newest.len() == limit {
+                    newest.pop_front();
+                    older = true;
+                }
+                newest.push_back(rec);
+            }
+            true
+        })?;
+        let bounded = max_bytes.is_some();
+        let mut page = EventPage { events: Vec::with_capacity(newest.len()), has_more: older };
+        let mut bytes = 0usize;
+        while let Some(mut rec) = newest.pop_back() {
+            self.display_logged(session, &mut rec);
+            let (rec, rec_bytes) = fit(rec, bounded);
+            // Full by size once it holds a record, as the read back from the end is.
+            if !page.events.is_empty() && max_bytes.is_some_and(|max| bytes + rec_bytes > max) {
+                page.has_more = true;
+                break;
+            }
+            bytes += rec_bytes;
+            page.events.push(rec);
+        }
+        page.events.reverse();
         Ok(page)
     }
 }

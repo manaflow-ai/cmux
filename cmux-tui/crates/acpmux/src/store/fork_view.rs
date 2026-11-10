@@ -682,6 +682,9 @@ impl Store for ForkView {
     fn writes_history(&self) -> bool {
         self.inner.writes_history()
     }
+    fn copies_kinds(&self) -> bool {
+        self.inner.copies_kinds()
+    }
     /// Under `dropping`, as a delete or compaction of the chat is: one that came first is seen
     /// here (the chat is gone, or its records trimmed as a copy made now would read them), and
     /// one after writes the history into the fork first (review of #37020: the reference was

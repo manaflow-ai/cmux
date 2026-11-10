@@ -1029,6 +1029,12 @@ pub trait Store: Send + Sync {
         })?;
         Ok((count, last))
     }
+    /// Whether [`Store::scan_kinds`] for [`INDEXED_KINDS`] reads their copies beside the log
+    /// (`store/kind_index.rs`) rather than the log. False: it reads the whole log, so a newest-first
+    /// page of those kinds reads back from the end instead (`Hub::events_page`).
+    fn copies_kinds(&self) -> bool {
+        false
+    }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
     /// parses no other line (the queue restore at daemon start reads its few kinds out of
     /// logs that are mostly agent output).
@@ -1703,6 +1709,10 @@ impl Store for LocalStore {
     }
 
     fn writes_history(&self) -> bool {
+        true
+    }
+
+    fn copies_kinds(&self) -> bool {
         true
     }
 
