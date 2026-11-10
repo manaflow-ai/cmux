@@ -474,10 +474,13 @@ export function ComposerContext({
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
   // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
+  // a Cloud machine only, since an SSH machine's `~/chats/api` is a project like any other.
+  const summaryOnCloud =
+    summary?.hostKind === "cloud" || (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud");
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? isAgentHome(summaryFolder) || isCloudChatFolder(summaryFolder)
+      ? isAgentHome(summaryFolder) || (summaryOnCloud && isCloudChatFolder(summaryFolder))
         ? undefined
         : normalizeCwd(summaryFolder)
       : projectChoices

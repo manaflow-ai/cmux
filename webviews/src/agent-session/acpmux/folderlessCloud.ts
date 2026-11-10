@@ -56,7 +56,9 @@ export function folderChipState({
 const CLOUD_CHAT_FOLDER = /^((?:\/home\/[^/]+)|\/root)\/chats\/[^/]+\/*$/;
 
 /// Whether `cwd` is the fresh folder a folderless Cloud chat runs in: the chat has no folder of its
-/// own yet, so its chip reads as `cloudFresh`, not as the folder's generated name.
+/// own yet, so its chip reads as `cloudFresh`, not as the folder's generated name. Only the path's
+/// shape: a caller asks it only of a chat on a Cloud machine (an SSH machine's `~/chats/api` is a
+/// project of the person's).
 export function isCloudChatFolder(cwd: string | undefined): boolean {
   return cwd !== undefined && CLOUD_CHAT_FOLDER.test(cwd);
 }

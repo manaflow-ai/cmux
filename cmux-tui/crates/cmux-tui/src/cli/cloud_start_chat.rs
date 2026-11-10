@@ -1154,6 +1154,16 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
+        // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
+        // a read that fails leaves the answer without `cwd`, never fails a chat that started.
+        if request.cwd.is_none()
+            && !deadline.passed(runner)
+            && let Ok(listed) = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{SESSION_CWD}"))
+            && let Some(cwd) = session_cwd(sections(&listed).get("cwd"), session)
+        {
+            answer.set("cwd", json!(cwd));
+        }
         return Outcome::Done(answer);
     };
     // start-session answered after the deadline: the chat is there, and nothing is sent to it.

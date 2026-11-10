@@ -292,7 +292,7 @@ export function cmuxCommandRefusal(
     // which the page cannot open itself; /fork, /continue and /side take this chat with them.
     if (command.action === "cd" && !state.session) {
       if (state.newTab) return "composer.cmuxCdNewTab";
-      return !placed.rest || cdFolder(placed.rest, state.cwd) ? undefined : "composer.cmuxCdPath";
+      return !placed.rest || cdFolder(placed.rest, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
     }
     return command.action === "cd" ? "composer.cmuxOnCloudStarted" : "composer.cmuxOnCloudCarries";
   }
@@ -311,7 +311,7 @@ export function cmuxCommandRefusal(
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":
       if (state.newTab) return "composer.cmuxCdNewTab";
-      return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
+      return !args?.trim() || cdFolder(args, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
     case "side":
       // `/side <prompt>` sends the prompt to the side chat; the chat itself gets nothing.
       if (!state.sideAvailable) return "composer.cmuxSideUnavailable";
@@ -335,15 +335,16 @@ export function cmuxCommandRefusal(
 /// cannot be read here: `~` (the host's home is not the pane's to spell) or a relative path with
 /// no chat folder to read it against. A folderless Cloud chat is the one exception: its fresh
 /// folder (`<home>/chats/<chat>`, folderlessCloud.ts) names the machine's home, so `~` and `~/PATH`
-/// go there, as `cmux chat cd SESSION ~/PATH` does.
-export function cdFolder(args: string | undefined, cwd: string | undefined): string | undefined {
+/// go there, as `cmux chat cd SESSION ~/PATH` does. Only in a chat on a Cloud machine (`inCloud`):
+/// elsewhere `~/chats/x` is a folder like any other.
+export function cdFolder(args: string | undefined, cwd: string | undefined, inCloud = false): string | undefined {
   let typed = args?.trim() ?? "";
   // A path pasted in quotes, as a shell would take it.
   if (typed.length >= 2 && (typed[0] === '"' || typed[0] === "'") && typed.at(-1) === typed[0])
     typed = typed.slice(1, -1).trim();
   if (!typed) return undefined;
   if (typed === "~" || typed.startsWith("~/")) {
-    const home = cloudChatHome(cwd);
+    const home = inCloud ? cloudChatHome(cwd) : undefined;
     if (!home) return undefined;
     typed = home + typed.slice(1);
   } else if (typed.startsWith("~")) return undefined;

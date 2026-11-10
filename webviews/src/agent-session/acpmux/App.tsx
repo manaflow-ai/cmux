@@ -8899,7 +8899,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return callNative<{ cwd?: string }>("project.browse").then((result) => {
           if (result?.cwd) return chooseProject(result.cwd).then(thenCloud);
         });
-      const folder = cdFolder(argument, snapshot.summary?.cwd);
+      const folder = cdFolder(argument, snapshot.summary?.cwd, state.inCloud);
       if (!folder) return t("composer.cmuxCdPath");
       const summary = snapshot.summary;
       const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
