@@ -1381,6 +1381,78 @@ def classify_web_window(head_logs: list, windows, job: str = "", base: str = "th
     return Verdict(True, reasons, shared)
 
 
+# A head shard GitHub cancelled or timed out mid-run (cmux#39676, 2026-11-09: `web / react-apps-check (1)` ran 31 min,
+# its retries spent the time budget, and jobs 129249378930 and 129359593602 were cancelled) never printed its closing
+# summary or a red file's `##[group]FAIL` log: run-webviews-tests.sh keeps each red file's raw log for that summary. Its
+# live `START` / `PASS` / `FAIL` / `TIMEOUT` lines still name every file it judged. So a cancelled shard is judged per
+# file (claude-sr2-coord, 2026-11-09: "a timed-out/cancelled shard whose failing files also fail the same way on base is
+# classified as base red, not 'no verdict'"): the files whose last result is FAIL, and any file it started and never
+# finished (the one running at the cancel), each red on a base webview run of the window. It is never excused when it
+# names no such file (a shard cancelled while green has no failure to share), when a file timed out on its own or the
+# run crashed (both the head's whatever the base shows), or when any one file is not red on the base. A file that
+# failed and then passed its retry is a pass, as the runner counts it. The files the cancel kept from running are not
+# judged at all: they are named in the audit line, and the merged head's own push runs them.
+def web_cut_short(log: str | None) -> tuple[list[str], list[str], list[str]] | None:
+    """(red files: each file whose last live result is FAIL, then each started and never finished; files that timed
+    out alone; crashes) from a head shard's cut-short log, or None when the log is unreadable."""
+    if log is None:
+        return None
+    last: dict[str, str] = {}
+    pending: dict[str, int] = {}
+    for text in lines_of(log):
+        if WEB_SUMMARY.match(text):
+            continue
+        if match := BUN_STARTED.match(text):
+            pending[match.group(1)] = pending.get(match.group(1), 0) + 1
+        elif match := BUN_RESULT.match(text):
+            name = match.group(2)
+            last[name] = match.group(1)
+            if pending.get(name, 0):
+                pending[name] -= 1
+    found = web_failures(log)
+    red = sorted(name for name, result in last.items() if result == "FAIL")
+    red += sorted(name for name, count in pending.items() if count and name not in red)
+    timed_out = sorted({name for name, result in last.items() if result == "TIMEOUT"} | found.timed_out)
+    return red, timed_out, sorted(found.crashed)
+
+
+def web_base_red_files(base_logs: list) -> set[str]:
+    """The webview test files the base logs name as red: failed (any of their tests, or the file) or timed out."""
+    seen = merged_web(base_logs)
+    return {name.split(" > ", 1)[0] for name in seen.failed} | set(seen.timed_out)
+
+
+def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
+    """A cancelled or timed-out head shard judged per file (the rule above) against WINDOWS, which yields (label, that
+    base run's red webview test job logs) newest first, read only while a head file is unmatched: shared when every
+    red file is red on some run of the window. None when the log names no red file (no failure to compare: the caller
+    refuses it as no verdict). A crash, a file that timed out alone, or an unreadable log is the head's own."""
+    got = web_cut_short(head_log)
+    if got is None:
+        return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no file can be compared with {base}"])
+    red, timed_out, crashed = got
+    reasons = crashed + [f"{name} timed out (a cut-short file is never a base red)" for name in timed_out]
+    if reasons:
+        return Verdict(True, reasons)
+    if not red:
+        return None
+    left, shared, labels = list(red), [], []
+    for label, base_logs in windows:
+        labels.append(label)
+        if not base_logs or any(log is None for log in base_logs):
+            return Verdict(True, [f"no readable {base} webview test log in {label} to compare {len(left)} red "
+                                  "file(s) with"])
+        on_base = web_base_red_files(base_logs)
+        shared += [f"{name} ({label})" for name in left if name in on_base]
+        left = [name for name in left if name not in on_base]
+        if not left:
+            return Verdict(False, [], shared)
+    if not labels:
+        return Verdict(True, [f"no {base} webview test verdict to compare {len(red)} red file(s) with"])
+    return Verdict(True, [f"{len(left)} red file(s) pass or do not run on {', '.join(labels)}: "
+                          f"{'; '.join(left)[:600]}"], shared)
+
+
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and

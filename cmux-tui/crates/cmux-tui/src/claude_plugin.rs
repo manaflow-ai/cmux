@@ -83,7 +83,7 @@ fn write_if_changed(path: &Path, data: &[u8]) -> anyhow::Result<()> {
     if fs::read(path).is_ok_and(|existing| existing == data) {
         return Ok(());
     }
-    agent_hook_install::atomic_write(path, data, Some(0o644))
+    agent_hook_install::replace_rewritable_file(path, data, Some(0o644))
 }
 
 /// The pane's `CLAUDE_CODE_PLUGIN_DIRS`: the `inherited` folders except other

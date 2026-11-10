@@ -1,0 +1,171 @@
+{
+  "$comment": "Which material each kind of cmux NEXT surface may show, and the kind of every native file that builds glass. design/surface-materials.md is the rule; scripts/cmux-next/check-surface-materials.py enforces it. Leo, 2026-11-09: \"what is supposed to be native-looking, what is supposed to be not as native ... it's just a consistency, okay?\"",
+  "kinds": {
+    "material-source": {
+      "render": "native",
+      "materials": [
+        "real-glass"
+      ],
+      "for": "the shared glass itself (Glass, GlassPanelView, OverlaySurface, the role table) and the shared native hosts built on it (tooltip, hover card, find pill, chips)"
+    },
+    "window-chrome": {
+      "render": "native",
+      "materials": [
+        "real-glass",
+        "clear"
+      ],
+      "for": "the window's material and what sits clear on it: titlebar, sidebar, tab strip, browser omnibar"
+    },
+    "system-menu": {
+      "render": "native",
+      "materials": [
+        "system"
+      ],
+      "for": "NSMenu menus: the app menu, right-click menus a page hands to the App (rows and SF Symbols only)"
+    },
+    "native-overlay": {
+      "render": "native",
+      "materials": [
+        "real-glass"
+      ],
+      "for": "floating native surfaces that exist today: palette, toasts' and sheets' native bodies, HUDs, drag ghosts, browser bubbles. Closed set: a new floating surface is web-floating."
+    },
+    "web-host": {
+      "render": "native shell, web content",
+      "materials": [
+        "real-glass"
+      ],
+      "for": "the App's glass drawn under or around a web page's own content: host glass, popups past a pane's edge, toast and dialog pages, web cards, the Updated card"
+    },
+    "sidebar-card": {
+      "render": "native",
+      "materials": [
+        "card-veil"
+      ],
+      "for": "cards in the sidebar: a veil and rim over the sidebar glass, never a second glass"
+    },
+    "scene-renderer": {
+      "render": "native",
+      "materials": [
+        "real-glass",
+        "card-veil"
+      ],
+      "for": "the Apps scene renderer, which draws the material each scene node names"
+    },
+    "web-floating": {
+      "render": "web",
+      "materials": [
+        "host-glass",
+        "page-glass"
+      ],
+      "for": "menus, pickers, popovers, hover cards, lists in a web page: host glass in a see-through Chromium agent pane (data-host-glass), the page's glass level elsewhere"
+    },
+    "web-content": {
+      "render": "web",
+      "materials": [
+        "clear",
+        "page-glass"
+      ],
+      "for": "panes and pages: chat, New Tab, Settings, markdown, diff, history. Clear on the window material; docked bars at the chrome level"
+    },
+    "debug": {
+      "render": "native",
+      "materials": [
+        "real-glass"
+      ],
+      "for": "Debug fixtures and playgrounds, never shipped"
+    }
+  },
+  "native": {
+    "CmuxNextAgentPane/AgentPaneActAsMeCard.swift": "native-overlay",
+    "CmuxNextAgentPane/AgentPaneSessionInfoPanel.swift": "web-host",
+    "CmuxNextAgentPane/AgentPaneView+HostGlass.swift": "web-host",
+    "CmuxNextAgentPermissions/UI/PermissionRequestPanel.swift": "native-overlay",
+    "CmuxNextApp/Crash/RestartNoticePanel.swift": "native-overlay",
+    "CmuxNextApp/Handlers/BrowserDownloadsPopup.swift": "native-overlay",
+    "CmuxNextApp/HostPressure/HostPressurePopover.swift": "native-overlay",
+    "CmuxNextApp/IconPicker/IconPickerPanel.swift": "web-host",
+    "CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift": "native-overlay",
+    "CmuxNextApps/NativeRender/AppScenePanelNSView.swift": "scene-renderer",
+    "CmuxNextBookmarks/UI/BookmarkEditBubble.swift": "native-overlay",
+    "CmuxNextBridge/TabDrag/TabDragGhostPanel.swift": "native-overlay",
+    "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift": "native-overlay",
+    "CmuxNextBrowser/UI/BrowserCookieImportCard.swift": "native-overlay",
+    "CmuxNextBrowser/UI/BrowserNoticeView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/FindBarView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/LinkStatusBubbleView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/OmnibarViews.swift": "window-chrome",
+    "CmuxNextBrowser/UI/PageUnresponsiveView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/PromptBarView.swift": "native-overlay",
+    "CmuxNextCookieImport/CookieImportConsentPanel.swift": "native-overlay",
+    "CmuxNextDesign/FindPill/FindPillView.swift": "material-source",
+    "CmuxNextDesign/Glass.swift": "material-source",
+    "CmuxNextDesign/GlassPanelView.swift": "material-source",
+    "CmuxNextDesign/HoverCards/HoverCardPanel.swift": "material-source",
+    "CmuxNextDesign/HoverCards/HoverCardRow.swift": "material-source",
+    "CmuxNextDesign/Overlay/DeclarativePopupHost.swift": "web-host",
+    "CmuxNextDesign/Overlay/WebPopupHost.swift": "web-host",
+    "CmuxNextDesign/Overlay/WindowOverlayHost+AgentCursor.swift": "native-overlay",
+    "CmuxNextDesign/OverlaySurface.swift": "material-source",
+    "CmuxNextDesign/ShortcutHintChipView.swift": "material-source",
+    "CmuxNextDesign/Tooltip/TooltipPanel.swift": "material-source",
+    "CmuxNextDesign/WindowMaterialView.swift": "window-chrome",
+    "CmuxNextFloating/ChiefPet/ChiefPetBubble.swift": "native-overlay",
+    "CmuxNextFloating/ChiefPet/ChiefPetRail.swift": "native-overlay",
+    "CmuxNextFloating/ChiefPet/ChiefPetReplyPanel.swift": "native-overlay",
+    "CmuxNextFloating/QuickComposer/QuickComposerPanel.swift": "web-host",
+    "CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift": "native-overlay",
+    "CmuxNextHome/Conversations/HomeSheetController.swift": "native-overlay",
+    "CmuxNextHomeEngine/HomeChiefSettingsPopover.swift": "native-overlay",
+    "CmuxNextLayout/Views/ChiefPanelView.swift": "native-overlay",
+    "CmuxNextLayout/Views/DockBackdropView.swift": "window-chrome",
+    "CmuxNextLayout/Views/DropOverlay/DropOverlayGlassRenderers.swift": "native-overlay",
+    "CmuxNextLayout/Views/DropOverlay/DropOverlayPreviewRenderers.swift": "native-overlay",
+    "CmuxNextNotifications/Share/AgentShareInviteCard.swift": "native-overlay",
+    "CmuxNextOnboarding/Steps/HelperDragPanel.swift": "native-overlay",
+    "CmuxNextPages/OverlayDialogCard.swift": "web-host",
+    "CmuxNextPages/OverlayToasts/CmuxToastPageView.swift": "web-host",
+    "CmuxNextPages/ViewWindow.swift": "window-chrome",
+    "CmuxNextPages/WebCard/WebCardPanel.swift": "web-host",
+    "CmuxNextPalette/PaletteActionsMenuView.swift": "native-overlay",
+    "CmuxNextPalette/PaletteContentView.swift": "native-overlay",
+    "CmuxNextPalette/PaletteShortcutRecorderView.swift": "native-overlay",
+    "CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift": "native-overlay",
+    "CmuxNextRemoteView/Pane/RemoteLatencyBanner.swift": "native-overlay",
+    "CmuxNextRemoteView/Pane/RemoteStateCard.swift": "native-overlay",
+    "CmuxNextRemoteView/Pane/RemoteUpstreamIndicator.swift": "native-overlay",
+    "CmuxNextServer/AddDevice/AddDeviceCardPanel.swift": "native-overlay",
+    "CmuxNextServer/AddDevice/JoinConsentAskPanel.swift": "native-overlay",
+    "CmuxNextSidebar/Views/DragLiftView.swift": "native-overlay",
+    "CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": "native-overlay",
+    "CmuxNextSidebar/Views/SidebarContainerView.swift": "window-chrome",
+    "CmuxNextSidebar/Views/SidebarNoticeCardView.swift": "sidebar-card",
+    "CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift": "sidebar-card",
+    "CmuxNextSidebar/Views/SidebarStuckVeilView.swift": "window-chrome",
+    "CmuxNextSidebar/Views/SidebarUpdateCardView.swift": "sidebar-card",
+    "CmuxNextSidebar/Views/SidebarUpdatedCardHost.swift": "web-host",
+    "CmuxNextSidebar/Views/StatesPlayground/SidebarStatesPlaygroundRenderer.swift": "debug",
+    "CmuxNextTabs/DebugNativeRowToolsFixtureView.swift": "debug",
+    "CmuxNextTabs/Drag/LinkDragGhost.swift": "native-overlay",
+    "CmuxNextTabs/Groups/Editor/TabGroupEditorPanel.swift": "native-overlay",
+    "CmuxNextTabs/PaneZoomIndicatorView.swift": "native-overlay",
+    "CmuxNextTabs/TabStripView.swift": "window-chrome",
+    "CmuxNextTerminal/TerminalDictationPreview.swift": "native-overlay",
+    "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
+    "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
+    "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
+  },
+  "web_floating_pending": {
+    "ui/FeatureTip.tsx": "the feature tip: page glass in the agent pane, a flat-reading box beside host-glass menus",
+    "agent-session/acpmux/ModelPicker.tsx": "the full model picker with its harness rail (PickerDialog): page glass, while the quick model menus are on host glass",
+    "agent-session/acpmux/SlashMenu.tsx": "the slash list: page glass over the chat",
+    "agent-session/acpmux/Composer.tsx": "the composer's inline slash list: page glass",
+    "agent-session/acpmux/MentionMenu.tsx": "the @ list: page glass",
+    "agent-session/acpmux/EmojiMenu.tsx": "the emoji list: page glass",
+    "agent-session/acpmux/PaletteMenu.tsx": "the in-pane palette menu: page glass",
+    "agent-session/acpmux/NewTabPage.tsx": "New Tab's omni list: page glass",
+    "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass",
+    "agent-session/acpmux/subagents/AgentsPill.tsx": "the agents list: page glass"
+  }
+}

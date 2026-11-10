@@ -145,6 +145,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
             Teams::default(),
             Keys::default(),
             Bearers::default(),
+            None,
         )
         .await;
         (platform_address, host)

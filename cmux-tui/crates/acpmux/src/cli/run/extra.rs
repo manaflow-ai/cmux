@@ -44,6 +44,30 @@ pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Resu
     Ok(v["ok"] == true)
 }
 
+/// What `session resume` prints when nothing ran: the hold a daemon start keeps for a person
+/// (`personHold` in `MUX_INFO`, `hub/protected_hold.rs`) and how to release it, else that
+/// nothing is held. A lane VM's chats run in its home folder and no person opens them there, so
+/// "nothing is held" over a queue that never drained sent people looking elsewhere.
+pub(super) fn not_resumed_line(info: &Value, session: &str) -> String {
+    let Some(hold) = info.get("personHold").filter(|h| h.is_object()) else {
+        return "nothing is held".to_owned();
+    };
+    let reason = hold["reason"].as_str().unwrap_or("its folder is guarded");
+    format!(
+        "held for a person: {reason}. Its queue runs when someone opens the chat in cmux or sends it a prompt; `acpmux session resume {session} --open` opens it now"
+    )
+}
+
+/// Opens chat `id` as the cmux app does when a person clicks it (a visible attach, then a
+/// detach): the release of a daemon start's hold for a person (`Hub::release_protected_hold`).
+async fn open_as_person(client: &Client, id: &str) -> Result<()> {
+    client
+        .request(method::MUX_ATTACH, json!({"sessionId": id, "visible": true, "limit": 0}))
+        .await?;
+    client.request(method::MUX_DETACH, json!({"sessionId": id})).await?;
+    Ok(())
+}
+
 /// What `session resume` prints when it moved the chat first.
 fn moved_line(host: &str) -> String {
     format!(
@@ -167,10 +191,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_queue::run(&client, q, json_out).await
         }
-        Command::ResumeQueue { session } => {
+        Command::ResumeQueue { session, open } => {
             let client = connect(true).await?;
             let mut id = crate::cli::resolve::control_id(&client, &session).await?;
-            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let mut info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            // Released as a person's open: its restored queue starts by itself (`start_restored`).
+            let mut opened = false;
+            if open && info.get("personHold").is_some_and(Value::is_object) {
+                open_as_person(&client, &id).await?;
+                opened = true;
+                info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            }
             let mut moved_to = None;
             let mut resumed = None;
             if resume_moves_off(&info, crate::cli::place::here_is_interactive()) {
@@ -191,14 +222,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "it moved to {id}, but its held queue did not resume there: {why}"
                     )
                 }
-                None => resume_held(&client, &id, &info).await?,
+                None => resume_held(&client, &id, &info).await? || opened,
             };
             if json_out {
-                print_json(&json!({"sessionId": id, "resumed": resumed, "movedTo": moved_to}));
+                print_json(&json!({
+                    "sessionId": id,
+                    "resumed": resumed,
+                    "movedTo": moved_to,
+                    "opened": opened,
+                    "personHold": info.get("personHold").cloned().unwrap_or(Value::Null),
+                }));
+            } else if opened {
+                println!("opened: what waited for a person runs now");
             } else if resumed {
                 println!("resumed");
             } else {
-                println!("nothing is held");
+                println!("{}", not_resumed_line(&info, &session));
             }
             Ok(())
         }
@@ -230,6 +269,36 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
+        Command::Register { name, code } => {
+            let client = connect(true).await?;
+            let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+            // Claude Code exports both to its Bash commands and hooks (its documented inbox).
+            let socket = env("CLAUDE_CODE_MESSAGING_SOCKET");
+            let token = socket.as_ref().and(env("CLAUDE_CODE_MESSAGING_TOKEN"));
+            let params = json!({"name": name, "socket": socket, "token": token, "code": code});
+            let v = client.request(method::MUX_REGISTER, params).await?;
+            if json_out {
+                print_json(&v)
+            } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
+                println!(
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                );
+            } else {
+                let field =
+                    |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+                let how = match field("token").as_str() {
+                    "registered" => "delivered with its own messaging token",
+                    _ => "reached over ACP",
+                };
+                println!(
+                    "registered {} ({} session {}): {how}",
+                    field("name"),
+                    field("family"),
+                    field("agentSessionId")
+                );
+            }
+            Ok(())
+        }
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -1246,7 +1315,7 @@ async fn print_start_modes() {
 
 #[cfg(test)]
 mod tests {
-    use super::{peer_add_params, resume_moves_off};
+    use super::{not_resumed_line, peer_add_params, resume_moves_off};
     use serde_json::json;
 
     #[test]
@@ -1283,5 +1352,22 @@ mod tests {
         let params = peer_add_params("peer", "wss://peer.example", Some("secret"));
         assert_eq!(params["token"], "secret");
         assert_eq!(params["wait"], false);
+    }
+
+    /// A queue a daemon start holds for a person is named, with how to release it, instead of
+    /// "nothing is held" (a lane VM's queues sat a day behind that line).
+    #[test]
+    fn resume_names_a_hold_for_a_person_and_how_to_release_it() {
+        let held = json!({"personHold": {"folder": "/Users/p/Downloads/x", "reason": "/Users/p/Downloads/x is in a privacy-protected folder; an agent starts there only when a person picks it"}});
+        let line = not_resumed_line(&held, "lane-a");
+        assert!(
+            line.starts_with(
+                "held for a person: /Users/p/Downloads/x is in a privacy-protected folder"
+            ),
+            "{line}"
+        );
+        assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
+        assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
+        assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
     }
 }

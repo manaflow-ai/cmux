@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Point a running cmux at live web code, without an app build or relaunch (docs/cmux-next/hot-reload.md,
 # plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which every
-# build watches while Settings > General > Live Web Reload (updates.liveWebReload) is on, the
+# build watches while Settings > General > cmux Live (updates.liveWebReload) is on, the
 # default (WebDevOverride.swift); every open page and agent pane, WebKit or Chromium, reloads on a change.
 #
 #   web-overlay.sh server --local [--worktree DIR] [--port N]
@@ -55,12 +55,17 @@ state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
 
 # Sets keys of web-dev.json to JSON values in one write (`null` removes a key), keeping the others:
-# set_key KEY VALUE [KEY VALUE]...
+# set_key [--if-ours URL TOKEN] KEY VALUE [KEY VALUE]...
+# Every write holds .web-dev.lock beside it, so each writer's read and write are one step. With
+# --if-ours, it writes only while web-dev.json names server URL (`*`: any) with TOKEN (a non-empty
+# one), and otherwise fails, writing nothing.
 set_key() {
   mkdir -p "$config_dir"
   python3 - "$web_dev" "$@" <<'PY'
-import json, os, sys, tempfile
+import fcntl, json, os, sys, tempfile
 path, pairs = sys.argv[1], sys.argv[2:]
+lock = open(os.path.join(os.path.dirname(path), ".web-dev.lock"), "a")
+fcntl.flock(lock, fcntl.LOCK_EX)  # released when this process ends
 try:
     with open(path) as f:
         data = json.load(f)
@@ -68,6 +73,10 @@ try:
         data = {}
 except (OSError, ValueError):
     data = {}
+if pairs[:1] == ["--if-ours"]:
+    url, token, pairs = pairs[1], pairs[2], pairs[3:]
+    if not token or data.get("token") != token or url not in ("*", data.get("server")):
+        sys.exit(3)
 for key, raw in zip(pairs[::2], pairs[1::2]):
     value = json.loads(raw)
     if value is None:
@@ -206,7 +215,33 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree" "$state/follow.pr" "$state/dev-server.token"
+  # dev-server.token stays until the next pick: it says whether web-dev.json still names the server
+  # stopped here (forget_stopped).
+  rm -f "$state/dev-server.tree" "$state/follow.pr"
+}
+
+# The pick `server` wrote last (its server URL and token, one per line), when web-dev.json still
+# names it; nothing otherwise. Read before a start stops that server, so the start's cleanup knows
+# which pick it may clear.
+our_pick() {
+  python3 - "$web_dev" "$(cat "$state/dev-server.token" 2>/dev/null)" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(0)
+if isinstance(data, dict) and sys.argv[2] and data.get("token") == sys.argv[2] and data.get("server"):
+    print(data["server"]); print(sys.argv[2])
+PY
+}
+
+# Clears web-dev.json's server while it still names exactly server $1 with token $2 (a pick read by
+# `our_pick` before its server was stopped), and says why ($3) in dev-server.exit for `cmux live
+# status`. A pick made since (another start, `server URL`) has another token and is kept.
+forget_stopped() {
+  [[ -n "$1" && -n "$2" ]] || return 0
+  set_key --if-ours "$1" "$2" server null >/dev/null 2>&1 || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $3" >"$state/dev-server.exit"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -238,8 +273,12 @@ start_local() {
     fi
   fi
   # One dev server at a time: a new port or checkout replaces the one started before (and frees
-  # the port when it is the same one).
+  # the port when it is the same one). Until the new one answers, any way this start ends (a failed
+  # install, a server that dies) clears the stopped server's pick, so the app does not keep asking it.
+  local stopped
+  stopped="$(our_pick)"
   stop_started
+  trap "forget_stopped $(printf '%q %q' "$(sed -n 1p <<<"$stopped")" "$(sed -n 2p <<<"$stopped")") $(printf '%q' "it did not start on port $port")" EXIT
   answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
@@ -266,6 +305,7 @@ start_local() {
   if ! answers "$port" 60 || ! ours_listens "$port"; then
     echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
   fi
+  trap - EXIT
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
@@ -281,23 +321,9 @@ watch_exit() {
   [[ "$(cat "$state/dev-server.pid" 2>/dev/null)" == "$pid" ]] || return 0
   rm -f "$state/dev-server.pid"
   # Nor is a server picked since (`server URL`, a slot): only web-dev.json still naming this one, with
-  # the token `point_at` wrote for it, is cleared.
-  points_here "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" || return 0
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the dev server on port $port stopped on its own; the app shows the web UI it shipped with (log: $state/dev-server.log)" >"$state/dev-server.exit"
-  set_key server null >/dev/null
-}
-
-# Whether web-dev.json's server is $1 with token $2 (a non-empty one).
-points_here() {
-  [[ -n "$2" ]] || return 1
-  python3 - "$web_dev" "$1" "$2" <<'PY'
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(data, dict) and data.get("server") == sys.argv[2] and data.get("token") == sys.argv[3] else 1)
-PY
+  # the token `point_at` wrote for it, is cleared, checked and cleared in one locked write.
+  set_key --if-ours "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" server null >/dev/null 2>&1 || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) it served port $port" >"$state/dev-server.exit"
 }
 
 # A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
@@ -320,6 +346,179 @@ point_at() {
   set_key server "$(json_string "http://127.0.0.1:$1/")" token "$(json_string "$token")" enabled true
 }
 
+# The first lines of `status`: what the app loads its web UI from right now, and why, in the order
+# the app decides (WebDevOverride.swift): the cmux Live setting ($1, `cmux settings get`'s answer),
+# then web-dev.json, then whether its server answers with the proof of its token (a server that
+# does not answer, or answers without the proof, is skipped for the overlay, else the shipped UI).
+# $2 is the pid of the dev server `cmux live start` runs, empty when none runs.
+explain() {
+  python3 - "$1" "$2" "$web_dev" "$state" <<'PY'
+import hashlib, hmac, json, os, re, secrets, sys, urllib.error, urllib.parse, urllib.request
+
+setting_raw, pid, web_dev, state = sys.argv[1:5]
+SHIPPED = "the web UI it shipped with"
+
+def setting(raw):
+    raw = raw.strip()
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        # Human output: the value is its last word.
+        value = raw.split()[-1].strip(".,'\"").lower() if raw else raw
+    if isinstance(value, dict):
+        value = value.get("value")
+    if value in (True, "true"):
+        return True
+    if value in (False, "false"):
+        return False
+    return None
+
+def read(path):
+    try:
+        with open(path) as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+def say(source, why=()):
+    print(f"cmux loads its web UI from {source}.")
+    for line in why:
+        print(f"  {line}")
+
+on = setting(setting_raw)
+switch = {True: "on", False: "off", None: "unknown (`cmux settings get updates.liveWebReload` did not answer)"}[on]
+print(f"cmux Live (Settings > General, updates.liveWebReload): {switch}")
+if on is False:
+    say(SHIPPED, ["Why: cmux Live is off, so the app ignores web-dev.json.",
+                  "Turn it on in Settings > General, or: cmux settings set updates.liveWebReload true"])
+    sys.exit(0)
+
+raw = read(web_dev)
+if raw is None:
+    say(SHIPPED, [f"Why: there is no {web_dev}. `cmux live start` writes it."])
+    sys.exit(0)
+try:
+    config = json.loads(raw)
+except ValueError:
+    config = None
+if not isinstance(config, dict):
+    say(SHIPPED, [f"Why: {web_dev} is not a JSON object."])
+    sys.exit(0)
+if config.get("enabled", True) is False:
+    say(SHIPPED, [f'Why: {web_dev} says "enabled": false. `cmux live start` turns it back on.'])
+    sys.exit(0)
+
+def overlay_or_shipped(why):
+    overlay = config.get("overlay")
+    if not (isinstance(overlay, str) and overlay):
+        say(SHIPPED, why)
+        return
+    folder = os.path.expanduser(overlay)
+    if not os.path.isabs(folder) or not os.path.isfile(os.path.join(folder, "agent-pane", "index.html")):
+        # WebDevOverride.overlayRoot: a page comes from the overlay only when its files are there.
+        why.append(f"The overlay web-dev.json names, {folder}, has no agent-pane/index.html, so the app does not use it.")
+        say(SHIPPED, why)
+        return
+    try:
+        manifest = json.load(open(os.path.join(folder, "manifest.json")))
+    except (OSError, ValueError):
+        manifest = {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+    commit = manifest.get("commit") or "unknown"
+    why.append("So the app uses the overlay web-dev.json names, where it has the files.")
+    if isinstance(manifest.get("abi"), int):
+        # WebDevOverride.abiRefusal: the app refuses an overlay built for another web ABI.
+        why.append(f"It needs web ABI {manifest['abi']}; an app with another ABI shows {SHIPPED} instead.")
+    say(f"the overlay at {folder} (commit {commit})", why)
+
+def loopback(raw):
+    """PageDevServer.loopbackURL: http to 127.0.0.1 or localhost with a port, no user; else None."""
+    try:
+        parts = urllib.parse.urlsplit(raw.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme.lower() != "http" or host not in ("127.0.0.1", "localhost") or port is None:
+        return None
+    if parts.username is not None or parts.password is not None:
+        return None
+    return f"http://{host}:{port}" + (parts.path or "/")
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+def last_stop():
+    """Why the last server this script started is gone, from the exit watch's note."""
+    stopped = read(os.path.join(state, "dev-server.exit")) if not pid else None
+    if not stopped:
+        return []
+    when, _, reason = stopped.strip().partition(" ")
+    return [f"It stopped on its own at {when}" + (f": {reason}" if reason else "") + ".",
+            f"Its log: {os.path.join(state, 'dev-server.log')}"]
+
+server = config.get("server")
+if not isinstance(server, str) or not server:
+    overlay_or_shipped([f"Why: {web_dev} names no dev server.", *last_stop(),
+                        "`cmux live start` runs one."])
+    sys.exit(0)
+root = loopback(server)
+if root is None:
+    overlay_or_shipped([f"Why: {web_dev} names {server}, which is not http on 127.0.0.1 or localhost with a port,",
+                        "so the app does not use it. `cmux live start` writes a local one."])
+    sys.exit(0)
+token = config.get("token")
+# WebDevOverride.validToken: 32 or more of A-Z, a-z, 0-9, - and _.
+if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,}", token):
+    overlay_or_shipped([f"Why: {web_dev} names {server} but no valid token, so the app does not trust it.",
+                        "`cmux live start` writes a fresh one."])
+    sys.exit(0)
+
+root = root if root.endswith("/") else root + "/"
+tree = read(os.path.join(state, "dev-server.tree"))
+checkout = None
+if pid and tree and ":" in tree:
+    path, _, port = tree.rpartition(":")
+    if root.rstrip("/").endswith(":" + port):
+        checkout = path
+
+nonce = secrets.token_hex(16)
+request = urllib.request.Request(root + "agent-pane/index.html", headers={"X-Cmux-Dev-Nonce": nonce})
+try:
+    # Never follows a redirect: the app asks only the server web-dev.json names.
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=3) as response:
+        proof = response.headers.get("X-Cmux-Dev-Proof")
+    answered = True
+except urllib.error.HTTPError as error:
+    # An error status or a refused redirect is still an answer; the proof decides whose.
+    answered, proof = True, error.headers.get("X-Cmux-Dev-Proof")
+except Exception:
+    answered, proof = False, None
+
+if not answered:
+    why = [f"Why: the dev server web-dev.json names, {root}, does not answer.", *last_stop(),
+           "`cmux live start` starts it again."]
+    overlay_or_shipped(why)
+    sys.exit(0)
+
+want = hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+if not proof or not hmac.compare_digest(proof.strip().lower(), want):
+    overlay_or_shipped([
+        f"Why: something answers on {root}, but not with the token in web-dev.json"
+        + (" (it sent no proof)." if not proof else "."),
+        "Another checkout's dev server or another program holds the port. `cmux live start` replaces it.",
+    ])
+    sys.exit(0)
+
+source = f"the dev server at {root}" + (f", from the checkout {checkout}" if checkout else "")
+why = ["Why: cmux Live is on, web-dev.json names this server, and it answers with its token."]
+if not checkout:
+    why.append("`cmux live start` did not start it here, so its checkout is unknown.")
+say(source, why)
+PY
+}
+
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
   server)
@@ -328,6 +527,7 @@ case "$cmd" in
       off)
         stop_started
         set_key server null
+        rm -f "$state/dev-server.token"
         ;;
       --local)
         tree="$ROOT" port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}"
@@ -505,6 +705,13 @@ PY
     set_key enabled false
     ;;
   status)
+    # First the answer (what the app loads its web UI from, and why), then the details.
+    setting=unknown
+    if command -v cmux >/dev/null 2>&1; then
+      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    fi
+    explain "$setting" "$(live_pid dev-server)"
+    echo
     for name in dev-server tunnel; do
       pid="$(live_pid "$name")"
       [[ -n "$pid" ]] && echo "running: $name (pid $pid)"
@@ -534,10 +741,6 @@ elif want is not None:
     print(f"served by {app}: web ABI {have}")
 PY
     done
-    # The app's switch for all of this: off means the file above is ignored.
-    if command -v cmux >/dev/null 2>&1; then
-      echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
-    fi
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;

@@ -76,13 +76,13 @@ public final class MainTaskBoard: Sendable {
         budgetNanos.store(budget, ordering: .relaxed)
         let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
         current.store(packed, ordering: .releasing)
-        if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
+        if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.load()?() }
     }
 
     /// Publishes the end of the running task (main thread); reports it when it ran past its budget.
     func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
         current.store(0, ordering: .releasing)
-        guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
+        guard overBudget, let sink = overBudgetSink.load() else { return }
         sink(task(), durationNanos)
     }
 
@@ -110,7 +110,8 @@ public final class MainTaskBoard: Sendable {
         return Self.unpack(packed, start: startNanos, budget: budgetNanos, name: name(of:))
     }
 
-    private func name(of index: UInt32) -> String {
+    /// The name interned under `index` ("?" when none is); takes the owners lock, so never on a task's path.
+    func name(of index: UInt32) -> String {
         owners.withLock { owners in Int(index) < owners.names.count ? owners.names[Int(index)] : "?" }
     }
 
@@ -139,7 +140,7 @@ public final class MainTaskBoard: Sendable {
     /// Set once: a later call is ignored (the one watchdog of a board installs it at launch).
     public func setTaskStartHook(_ hook: @escaping @Sendable () -> Void) {
         guard hookState.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged else { return }
-        taskStartHook.withLock { $0 = hook }
+        taskStartHook.store(hook)
         hookState.store(2, ordering: .releasing)
     }
 
@@ -190,13 +191,13 @@ public final class MainTaskBoard: Sendable {
         budgetNanos.store(previous.budgetNanos, ordering: .relaxed)
         current.store(previous.packed, ordering: .releasing)
         let elapsed = nowNanos &- token.startNanos
-        guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
+        guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.load(),
               let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
         sink(task, elapsed)
     }
 
     /// Installs (or removes) the receiver of finished over-budget tasks (main thread, must return at once).
     public func setOverBudgetSink(_ sink: (@Sendable (Task, _ durationNanos: UInt64) -> Void)?) {
-        overBudgetSink.withLock { $0 = sink }
+        overBudgetSink.store(sink)
     }
 }

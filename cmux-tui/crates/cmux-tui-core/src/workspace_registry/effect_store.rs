@@ -275,12 +275,13 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
            )",
         [],
     )?;
+    let ids = StoredIds::load(transaction)?;
     for (idempotency_key, operation, intent_json) in interrupted {
         append_resource_effect_journal_record(
             transaction,
             &idempotency_key,
             &operation,
-            &serde_json::from_str(&intent_json)?,
+            &serde_json::from_str(&ids.text(intent_json))?,
             None,
             ResourceEffectJournalState::Indeterminate,
         )?;
@@ -1315,6 +1316,12 @@ fn read_effect_preparation(
     else {
         return Ok(None);
     };
+    let ids = StoredIds::load(connection)?;
+    let (stored_fingerprint, intent_json, outcome_json) = (
+        ids.fingerprint(stored_fingerprint)?,
+        ids.text(intent_json),
+        outcome_json.map(|outcome| ids.text(outcome)),
+    );
     require_effect_identity(
         idempotency_key,
         operation,
@@ -1356,8 +1363,17 @@ fn read_effect_record(
             [idempotency_key],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .optional()
-        .map_err(Into::into)
+        .optional()?
+        .map(|(operation, fingerprint, state, intent_json): (String, String, String, String)| {
+            let ids = StoredIds::load(connection)?;
+            Ok::<_, anyhow::Error>((
+                operation,
+                ids.fingerprint(fingerprint)?,
+                state,
+                ids.text(intent_json),
+            ))
+        })
+        .transpose()
 }
 
 fn require_effect_identity(

@@ -132,13 +132,20 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
     assert_no_tabless(&server, "agent start beta --split down");
     let beta_pane = text(&beta, "/pane_id");
 
-    // A move into a split: the split opens with a shell tab.
+    // A move into a split. W5-P: the daemon's `pane.move` moves the pane
+    // itself (it keeps its id), so no placeholder shell opens.
     let moved =
         run(&server, &["pane", &beta_pane, "move", "--to-pane", &alpha_pane, "--split", "right"]);
     assert_no_tabless(&server, "pane move --to-pane --split right");
-    let moved_pane = text(&moved, "/destination/pane");
+    let moved_pane = moved
+        .pointer("/value/pane_id")
+        .or_else(|| moved.pointer("/pane_id"))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("no pane_id in {moved}"))
+        .to_owned();
+    assert_eq!(moved_pane, beta_pane, "the moved pane keeps its id: {moved}");
 
-    // A move to a new screen: the screen opens with a shell tab.
+    // A move to a new screen: the pane is the new screen's only pane.
     run(&server, &["pane", &moved_pane, "move", "--new-screen", "--name", "moved"]);
     assert_no_tabless(&server, "pane move --new-screen");
 

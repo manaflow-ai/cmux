@@ -1,5 +1,5 @@
-// The share nudge's line (shareNudgeModel.ts says when it shows): "Share this chat: a teammate can watch
-// or talk in it." with Share… (the Share dialog, as the ••• menu's Share… opens it), Invite people…
+// The share nudge's line (shareNudgeModel.ts says when it shows): "Teammates can watch or join this
+// chat." with Share… (the Share dialog, as the ••• menu's Share… opens it), Invite people…
 // (`agent.share.invite`, the Invite People sheet) and an x. It sits in the one notice slot over the
 // composer at the hint tier, so an error or a running step draws first.
 //

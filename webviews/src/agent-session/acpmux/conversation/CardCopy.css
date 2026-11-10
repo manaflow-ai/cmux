@@ -18,6 +18,8 @@
 }
 .cv-disclosure__panel:hover > .cv-card-copy,
 .cv-agentmsg__card:hover > .cv-card-copy,
+.cv-whole-report:hover > .cv-card-copy,
+.cv-whole-report:has([data-popup-open]) > .cv-card-copy,
 .cv-agentmsg__card:has([data-popup-open]) > .cv-card-copy,
 .cv-card-copy:focus-within,
 .cv-card-copy:has([data-copied]) {

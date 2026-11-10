@@ -142,6 +142,13 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// Drops the current socket only (app health's restart of a connection that stopped answering): the
+    /// close reaches ``transportClosed(serial:reason:)``, which reconnects. Unlike ``close()``, it never
+    /// stops the reconnect or finishes `events`.
+    public func dropTransport() {
+        if case .ready(let ready) = phase { ready.transport.close() }
+    }
+
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
     public func closeAndWait() async {
         let connect = connectTask
@@ -211,8 +218,15 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await self.request(request, timeout: timeout, on: nil)
+    }
+
+    /// `request` on the transport of connection `serial` (``DaemonEventEnvelope/connectionSerial``) only, when given:
+    /// a write its caller checked against that connection's tree (a surface it names) fails as not connected once
+    /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
+    func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
@@ -221,7 +235,12 @@ public actor DaemonConnection {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         } catch let refused as PaneNotReady {
             throw reported(refused)
+        } catch {
+            // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { configuration.health?.noteRequest(timedOut: true) }
+            throw error
         }
+        configuration.health?.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

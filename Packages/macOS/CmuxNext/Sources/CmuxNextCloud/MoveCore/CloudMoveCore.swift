@@ -84,6 +84,13 @@ extension CloudStartCore {
         return CloudMoveCore().call("copies_through_store", Request(account: account, productionAuth: productionAuth), as: Reply.self)?.store ?? false
     }
 
+    /// A refusal sentence inside a start's parentheses: no closing period.
+    public static func reason(_ text: String) -> String {
+        var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
     /// `text` as one shell word. An FFI that does not answer quotes it.
     public static func shellQuoted(_ text: String) -> String {
         struct Request: Encodable { var text: String }

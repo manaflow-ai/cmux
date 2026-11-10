@@ -10,35 +10,61 @@
 //!   with a read-only connection. It copies the non-output records of every
 //!   sealed segment (segments are immutable) into the staging file
 //!   `workspace-registry.sqlite3.output-cleanup`, one segment per staging
-//!   transaction, so a quit resumes at the next segment.
+//!   transaction, so a quit resumes at the next segment. The same thread
+//!   then builds the new registry's journal in that file (`build`): the
+//!   non-output live rows (through the `(kind, sequence)` index, never a
+//!   full scan), all kept records packed into new sealed segments over the
+//!   same sequence range with their index rows, each removed run recorded in
+//!   `journal_pruned_ranges`, and a check. Every step records its progress,
+//!   so a quit or a kill resumes it. While the owner serves on, the thread
+//!   packs the records appended since.
 //! - Phase B ([`swap_at_open`]) runs at the next owner start, inside
 //!   `WorkspaceRegistry::open` while the session locks are held and before
-//!   any connection writes the registry. It copies every other table, the
-//!   non-output live rows (through the `(kind, sequence)` index, never a full
-//!   scan) and their index rows, packs all kept records into new sealed
-//!   segments over the same sequence range, records each removed run in
-//!   `journal_pruned_ranges`, checks the result, and renames it over the
-//!   registry. The old file stays as `workspace-registry.sqlite3.pre-output-
-//!   cleanup` until the next start that opens the new registry.
+//!   any connection writes the registry. It only finishes the built file:
+//!   the journal tail since the last catch-up (a start with a tail, plus
+//!   any records a stopped catch-up left unpacked, over `SWAP_TAIL_LIMIT`
+//!   records defers the swap), every other table copied,
+//!   a check, and the rename over the registry. The old file stays as
+//!   `workspace-registry.sqlite3.pre-output-cleanup` until the next start
+//!   that opens the new registry. A start that swaps used to build the whole
+//!   journal here and took minutes on a large registry.
+//!
+//! The same pass drops the `personal.session.put` records a later put of
+//! the same session superseded ([`session_puts`] says which and why no
+//! reader needs them): a loop that re-put one session every few
+//! milliseconds left 11.5M of them in one registry. The pack records their
+//! runs in `journal_pruned_ranges` like removed output.
 //!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
 //!
-//! Both phases copy every kept record, and Phase B does it inside the open.
-//! That is cheap only while output is most of the journal; a registry whose
-//! journal is mostly other records (one held 12M rows, 96.6% of them session
-//! records) staged 38 GB and would have spent hours of a start copying it. So
+//! The cleanup copies every kept record (in the background; Phase B did it
+//! inside the open before). That is cheap only while output and superseded
+//! session puts are most of the journal; a registry whose journal is mostly
+//! other records (one held 12M rows, 96.6% of them session records) staged
+//! 38 GB and would have spent hours of a start copying it. So
 //! the cleanup runs only while the kept records stay under
 //! [`MAX_KEPT_RECORDS`] and at most half of the journal, and the staging file
 //! under [`MAX_STAGED_BYTES`]: Phase A checks an estimate before it stages and
-//! the staged count as it goes, Phase B the staged count before it copies
-//! anything. Past a bound the staging file is deleted and the registry stays
-//! as it is; the next start estimates again.
+//! the staged count as it goes, the build the staged count and the segments
+//! sealed since before it starts, and the staged size as it packs and
+//! catches up; Phase B the staged size before it copies anything, and it
+//! copies at most a bounded tail of the journal. Past a bound the staging
+//! file is deleted and the registry stays as it is; the next start
+//! estimates again. A refusal after staging is recorded
+//! (`.output-cleanup-refused`, with the journal head), and no start stages
+//! again until the journal has doubled.
+//!
+//! The cleanup runs once per registry ([`DONE_META_KEY`], version 2). A
+//! registry the version 1 cleanup finished or found without output runs it
+//! once more when its journal holds enough session puts to compact.
 
+mod build;
 mod chunks;
 mod codec;
 mod pruned;
+mod session_puts;
 mod stage;
 mod swap;
 
@@ -59,7 +85,12 @@ pub(super) use swap::{
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
 /// cleanup is one-time: a registry with this key is never staged again.
-pub(crate) const DONE_META_KEY: &str = "output_cleanup_v1";
+/// Version 2 also drops superseded session puts (`session_puts.rs`), so a
+/// registry the version 1 cleanup finished or found clean runs it once more.
+pub(crate) const DONE_META_KEY: &str = "output_cleanup_v2";
+/// The version 1 key: a swap of that version wrote it (its backup is still
+/// recognized), but it no longer marks the cleanup done.
+pub(crate) const V1_DONE_META_KEY: &str = "output_cleanup_v1";
 const STAGING_SUFFIX: &str = ".output-cleanup";
 const PREVIOUS_SUFFIX: &str = ".pre-output-cleanup";
 /// Written when a swap failed for a reason other than free space; no later
@@ -69,11 +100,15 @@ const FAILED_SUFFIX: &str = ".output-cleanup-failed";
 /// still held open, e.g. on Windows): no open uses the swapped registry
 /// until a later start finishes the rollback.
 const ROLLBACK_PENDING_SUFFIX: &str = ".output-cleanup-rollback";
+/// Written when staging finished and the result passed a bound
+/// (`stage.rs` `refusal_memo`): no start stages again until the journal
+/// has doubled or the staging format changed.
+const REFUSED_SUFFIX: &str = ".output-cleanup-refused";
 /// Free space beyond the staged file that both phases require.
 const DISK_MARGIN_BYTES: u64 = 1 << 30;
 const OUTPUT_KIND: &str = "terminal.output";
-/// Kept records past which the cleanup does not run: Phase B copies each of
-/// them inside the open.
+/// Kept records past which the cleanup does not run: the build copies each
+/// of them.
 const MAX_KEPT_RECORDS: u64 = 1_000_000;
 /// Staging file size past which the cleanup is abandoned.
 const MAX_STAGED_BYTES: u64 = 2 << 30;
@@ -109,6 +144,10 @@ pub(crate) fn failed_path(db_path: &Path) -> PathBuf {
 
 pub(crate) fn rollback_pending_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, ROLLBACK_PENDING_SUFFIX)
+}
+
+pub(crate) fn refused_path(db_path: &Path) -> PathBuf {
+    sidecar_path(db_path, REFUSED_SUFFIX)
 }
 
 fn disk_margin() -> u64 {
@@ -176,14 +215,17 @@ fn copied_bytes(source: &Connection) -> anyhow::Result<u64> {
 
 /// `Some(reason)` when a cleanup that keeps `kept` of `total` journal
 /// records would copy too much: over [`MAX_KEPT_RECORDS`], or over half of
-/// the journal (output is not what fills it).
+/// the journal (output and superseded puts are not what fills it).
 fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     if kept > MAX_KEPT_RECORDS {
         Some(format!(
             "{kept} of {total} journal records would be kept, over the bound of {MAX_KEPT_RECORDS}"
         ))
     } else if kept.saturating_mul(2) > total {
-        Some(format!("{kept} of {total} journal records are not terminal output"))
+        Some(format!(
+            "{kept} of {total} journal records are neither terminal output nor superseded \
+             session puts"
+        ))
     } else {
         None
     }
@@ -211,11 +253,16 @@ fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<
     }))
 }
 
-/// (non-output, all) live journal rows after the sealed segments. The
-/// non-output count (two index ranges on either side of the output kind)
-/// stops one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
-/// entries; the total is the sequence range (two index seeks).
-fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
+/// (kept, all) live journal rows after the sealed segments. The kept count
+/// (index ranges on either side of the output and session put kinds) stops
+/// one past [`MAX_KEPT_RECORDS`], so it reads at most that many index
+/// entries; the total is the sequence range (two index seeks). Session puts
+/// count with `puts`: the ones its read kept that are still live, and every
+/// live put after its bound. Without it (before the read) no put counts.
+fn live_records(
+    source: &Connection,
+    puts: Option<&session_puts::SessionPuts>,
+) -> anyhow::Result<(u64, u64)> {
     let archive_end: i64 = source.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
         [],
@@ -226,8 +273,13 @@ fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
         [archive_end],
         |row| row.get(0),
     )?;
+    // `personal.session.put` sorts before `terminal.output`. Every range
+    // names ?4 and ?1 binds by index, so an unused one is fine.
     let mut kept = 0_u64;
-    for range in ["kind < ?1", "kind > ?1"] {
+    let ranges = ["kind < ?4", "kind > ?4 AND kind < ?1", "kind > ?1 AND kind > ?4"];
+    let put_range = format!("kind = ?4 AND sequence > {}", puts.map_or(0, |puts| puts.bound()));
+    let ranges = ranges.iter().copied().chain(puts.map(|_| put_range.as_str()));
+    for range in ranges {
         let limit = i64::try_from((MAX_KEPT_RECORDS + 1).saturating_sub(kept))?;
         let rows: i64 = source.query_row(
             &format!(
@@ -235,10 +287,15 @@ fn live_records(source: &Connection) -> anyhow::Result<(u64, u64)> {
                    SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
                    WHERE {range} AND sequence > ?2 LIMIT ?3)"
             ),
-            params![OUTPUT_KIND, archive_end, limit],
+            params![OUTPUT_KIND, archive_end, limit, session_puts::SESSION_PUT_KIND],
             |row| row.get(0),
         )?;
         kept = kept.saturating_add(u64::try_from(rows)?);
+    }
+    if let Some(puts) = puts {
+        // Only the read puts still live: the ones sealed since are counted
+        // with their segments.
+        kept = kept.saturating_add(puts.live_kept_after(source, u64::try_from(archive_end)?)?);
     }
     Ok((kept, u64::try_from((head - archive_end).max(0))?))
 }

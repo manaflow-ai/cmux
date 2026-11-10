@@ -6,8 +6,11 @@
 //! - `cmux carrier capabilities [--json]` prints [`capabilities`]: the routes
 //!   this build can carry a Cloud session over (`routes`), the faults it can
 //!   inject (`faults`), and per carrier whether it is available, can be
-//!   probed and which faults it takes. ssh is `available: false` until the
-//!   build has an ssh route to a Cloud machine (plan slice S6).
+//!   probed and which faults it takes. ssh is available exactly when a dial
+//!   on this device would list it after the relay ([`super::ssh::ssh_ready`],
+//!   the check the dial's own route makes): the tunnel hub answers and the
+//!   carrier key is there. When not, `code` is the connect log's `ssh=` word
+//!   and `reason` says it in words.
 //! - `cmux cloud start-chat … --carrier-fault kill-route=ROUTE,after-events=N`
 //!   ([`FaultSpec`]) kills ROUTE once the turn delivered N events, and the
 //!   session must go on over another carrier, resuming the acpmux event
@@ -28,6 +31,7 @@
 use serde_json::{Value, json};
 
 use super::drill::Drill;
+pub(crate) use super::ssh::Absent;
 
 /// The environment switch a probe sets; any other value, or none, refuses.
 pub(crate) const PROBE_ENV: &str = "CMUX_CARRIER_PROBE_FAULTS";
@@ -35,9 +39,6 @@ pub(crate) const PROBE_ENV: &str = "CMUX_CARRIER_PROBE_FAULTS";
 pub(crate) const KILL_ROUTE: &str = "kill-route";
 /// `after-events` above this is refused: a probe's counting turn is short.
 pub(crate) const MAX_AFTER_EVENTS: u32 = 10_000;
-/// Why ssh is unavailable in this build.
-const SSH_UNAVAILABLE: &str =
-    "this build has no ssh route to a Cloud machine yet (cloud-carrier-ssh-backup slice S6)";
 
 /// A carrier route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,8 +70,8 @@ impl Route {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Carrier {
     pub route: Route,
-    /// `Err(why)` when this build cannot carry a session over it.
-    pub available: Result<(), &'static str>,
+    /// `Err(why)` when this device cannot carry a session over it now.
+    pub available: Result<(), Absent>,
     /// Whether its connects write route lines a probe reads
     /// (`cloud.connect route=carrier …`).
     pub probe: bool,
@@ -78,12 +79,34 @@ pub(crate) struct Carrier {
     pub kill: bool,
 }
 
-/// The carriers of this build, in the order a session tries them.
-pub(crate) fn this_build() -> [Carrier; 2] {
+/// The carriers of this build, in the order a session tries them; `ssh`
+/// is [`super::ssh::ssh_ready`]'s answer on this device.
+pub(crate) fn this_build(ssh: Result<(), Absent>) -> [Carrier; 2] {
     [
         Carrier { route: Route::Relay, available: Ok(()), probe: true, kill: true },
-        Carrier { route: Route::Ssh, available: Err(SSH_UNAVAILABLE), probe: false, kill: false },
+        Carrier { route: Route::Ssh, available: ssh, probe: true, kill: false },
     ]
+}
+
+/// [`this_build`] on this device now, with the tunnel hub at `hub` (the
+/// dial's `--wg-hub`), else the default socket: ssh from the dial's own
+/// check ([`super::ssh::ssh_ready`]).
+pub(crate) fn this_device(hub: Option<std::path::PathBuf>) -> [Carrier; 2] {
+    this_build(super::ssh::ssh_ready(&super::ssh::SshSetup::from_env(hub)))
+}
+
+/// Why a carrier is unavailable, in words.
+fn reason(absent: Absent) -> &'static str {
+    match absent {
+        Absent::Candidate => "the machine's carrier answer has no ssh candidate",
+        Absent::Tunnel => {
+            "no tunnel hub answers on its socket (`cmux carrier tunnel` is not running, or the team's mesh devices are off)"
+        }
+        Absent::Key => {
+            "this device has no carrier key (no private state directory, or the key could not be read or made)"
+        }
+        Absent::Refused => "the platform refused this device's carrier key",
+    }
 }
 
 /// The routes of `carriers` that are available, in order.
@@ -108,7 +131,8 @@ pub(crate) fn capabilities(carriers: &[Carrier]) -> Value {
                 "faults": if c.kill { vec![KILL_ROUTE] } else { Vec::new() },
             });
             if let (Err(why), Some(object)) = (c.available, row.as_object_mut()) {
-                object.insert("reason".into(), json!(why));
+                object.insert("code".into(), json!(why.code()));
+                object.insert("reason".into(), json!(reason(why)));
             }
             (c.route.name().to_owned(), row)
         })
@@ -167,15 +191,21 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
 
 /// The test accounts `scripts/ci/cloud_capture_provision.py` provisions
 /// (its `TARGETS`: capture, journey, journey-guest, production,
-/// journey-production). The production probe (cmuxterm-hq synthetic-probes.yml
-/// app-chat-production) signs in as `cmux-cloud-capture-prod`. A test pins
-/// this list to the provisioner's, so the two can't drift.
+/// production-team, journey-production, platform-staging, platform-production). Every one is a
+/// team-made test account on the manaflow.dev mailbox, never a person's, so
+/// any of them may drive a drill; the production probe (cmuxterm-hq
+/// synthetic-probes.yml app-chat-production) signs in as
+/// `cmux-cloud-capture-prod`. A test pins this list to the provisioner's, so
+/// the two can't drift.
 pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
     "cmux-cloud-capture@manaflow.dev",
     "cmux-cloud-capture-journey@manaflow.dev",
     "cmux-cloud-capture-guest@manaflow.dev",
     "cmux-cloud-capture-prod@manaflow.dev",
+    "cmux-cloud-capture-prod-team@manaflow.dev",
     "cmux-cloud-capture-journey-prod@manaflow.dev",
+    "cmux-cloud-capture-platform@manaflow.dev",
+    "cmux-cloud-capture-platform-prod@manaflow.dev",
 ];
 
 /// Whether `email` is one of cmux's probe accounts: a provisioned test
@@ -290,4 +320,4 @@ impl FaultPlan {
 
 #[cfg(test)]
 #[path = "fault_tests.rs"]
-mod tests;
+pub(crate) mod tests;

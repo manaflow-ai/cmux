@@ -7,6 +7,7 @@ import { showsFirstRunStarters } from "./FirstRunStarters";
 import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { newProjectPrompt, takeProjectPreview } from "./newProject";
 import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
@@ -1590,4 +1591,111 @@ test("Open in New Profile from the address's rows makes a profile with the defau
   await press(field, "ArrowDown");
   await press(field, "Enter");
   expect(made).toEqual([["https://example.com", undefined]]);
+});
+
+/// New Project (newProject.ts): the folder menu's New project row on a New Tab that can make one.
+async function renderNewProject(onNewProject: (name: string) => Promise<string>, asks: unknown[][]): Promise<void> {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        onNewProject={onNewProject}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  const folder = container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
+  expect(folder).toBeTruthy();
+  await act(async () => folder!.click());
+  const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (option) => option.textContent?.trim() === translate("project.new"),
+  );
+  expect(row, "no New project row").toBeTruthy();
+  await act(async () => row!.click());
+}
+
+const projectNameField = () => container.querySelector<HTMLInputElement>(".nt-project-name__field");
+
+async function editProjectName(value: string) {
+  const input = projectNameField()!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+
+test("New project: the name follows the prompt until edited; the send makes that folder and starts the chat there", async () => {
+  const asks: unknown[][] = [];
+  const names: string[] = [];
+  let made!: (folder: string) => void;
+  await renderNewProject((name) => {
+    names.push(name);
+    return new Promise<string>((resolve) => (made = resolve));
+  }, asks);
+
+  // The strip reads New project, and the name field holds the placeholder name of an empty prompt.
+  expect(container.querySelector(".nt-location")?.textContent).toContain(translate("project.new"));
+  const field = projectNameField();
+  expect(field?.getAttribute("aria-label")).toBe(translate("project.new.name"));
+  expect(field?.value).toBe("project");
+
+  await typePrompt("a habit tracker web app");
+  expect(projectNameField()?.value).toBe("habit-tracker");
+
+  // The person's name wins over the prompt's from then on.
+  await editProjectName("Habit Streaks");
+  expect(projectNameField()?.value).toBe("habit-streaks");
+  await typePrompt("a habit tracker web app with streaks");
+  expect(projectNameField()?.value).toBe("habit-streaks");
+
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(names).toEqual(["habit-streaks"]);
+  // Nothing starts until acpmux made the folder.
+  expect(asks).toHaveLength(0);
+
+  const folder = "/Users/you/projects/habit-streaks";
+  await act(async () => made(folder));
+  expect(asks).toHaveLength(1);
+  expect(asks[0]?.[1]).toBe(newProjectPrompt("a habit tracker web app with streaks"));
+  expect(asks[0]?.[2]).toBe(folder);
+  // Its chat opens its first local page beside it (App.tsx), once.
+  expect(takeProjectPreview(folder)).toBe(true);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+  const asks: unknown[][] = [];
+  const names: string[] = [];
+  const reason = "a folder named habit-tracker can't be made";
+  await renderNewProject((name) => {
+    names.push(name);
+    return Promise.reject(new Error(reason));
+  }, asks);
+
+  await typePrompt("a habit tracker web app");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  expect(names).toEqual(["habit-tracker"]);
+  expect(asks).toHaveLength(0);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    translate("project.new.failedBecause", { reason }),
+  );
+  expect(promptValue()).toBe("a habit tracker web app");
+  // Still New project, so a second send tries again.
+  expect(projectNameField()?.value).toBe("habit-tracker");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(names).toEqual(["habit-tracker", "habit-tracker"]);
 });

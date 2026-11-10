@@ -8,9 +8,10 @@ import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSi
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
 import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
 import * as views from "./view.ts"
+import { watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.1.0"
+export const RUNTIME_VERSION = "1.2.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -42,7 +43,7 @@ function install() {
   const native = g.__cmuxAppNative as Native | undefined
   if (native) state.native = native
   // Globals for app code (the old custom sidebar API plus `cmux`, `palette` and `act`).
-  Object.assign(sharedMembers, { palette, act })
+  Object.assign(sharedMembers, { palette, act, watch })
   Object.assign(g, views, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act })
   if (typeof g.console === "undefined") {
     g.console = { log: (...a: unknown[]) => log("info", ...a), info: (...a: unknown[]) => log("info", ...a), warn: (...a: unknown[]) => log("warn", ...a), error: (...a: unknown[]) => log("error", ...a), debug: (...a: unknown[]) => log("debug", ...a) }

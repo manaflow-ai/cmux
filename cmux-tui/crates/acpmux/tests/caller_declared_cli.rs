@@ -231,6 +231,38 @@ fn w5s_an_old_cli_or_an_unproven_agent_shell_is_never_the_person() {
     assert_eq!(agent.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{agent}");
 }
 
+/// Review F1 of #39320: the CLI the guest MCP server runs for a desktop chat's `new`
+/// (`acpmux_mcp_guest.rs`: `ACPMUX_MCP_GUEST` set, `--from` its app) starts a session whose task
+/// is that app's message, never the person's words, through the real binary and daemon.
+#[test]
+fn guest_new_prompt_is_the_apps_message_never_the_persons() {
+    let daemon = Daemon::start("guest");
+    let mut child = daemon
+        .cmd()
+        .env("ACPMUX_MCP_GUEST", "claude-desktop")
+        .args(["--json", "new", "--detach", "--name", "gx", "--from", "Claude desktop"])
+        .args(["--prompt-file", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run acpmux new");
+    child.stdin.take().unwrap().write_all(b"guest-task-words").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "guest new failed: {}", text(&out));
+    let created: Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("new printed no JSON ({e}): {}", text(&out)));
+    let gx = created["sessionId"].as_str().expect("sessionId").to_owned();
+
+    let mut reader = Raw::open(&daemon.socket());
+    reader.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "w5s-test"}}));
+    let task = user_message(&mut reader, &gx, "guest-task-words");
+    assert_eq!(task.pointer("/_meta/origin"), None, "a guest's task is no person's: {task}");
+    // As the message itself or in the inbox notice that carries it (`hub/inbox.rs`).
+    assert!(task.pointer("/_meta/provenance").is_some(), "{task}");
+    assert!(task.to_string().contains("Claude desktop"), "the agent reads who sent it: {task}");
+}
+
 #[test]
 fn w5s_each_agent_gets_its_daemons_own_cli() {
     let daemon = Daemon::start("bin");
@@ -278,6 +310,7 @@ fn w5s_an_old_cli_or_an_agent_shell_gets_no_person_verb() {
         state: State::Paused,
         activities: Default::default(),
         outcome: None,
+        caller_subagent: None,
     };
     Store::new(daemon.root.join("amx").join("workflows")).start(run).expect("store the run");
     let runs = |raw: &mut Raw| {

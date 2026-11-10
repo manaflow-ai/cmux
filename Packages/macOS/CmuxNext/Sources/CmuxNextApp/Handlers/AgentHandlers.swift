@@ -127,8 +127,8 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
-        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud
-            withAgentPane(invocation, context: context, seed: AgentPaneSeed(picksCloud: true)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab())) }
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud, carrying a page's `handoff` token
+            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: invocation["handoff"]?.stringValue)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: invocation["handoff"]?.stringValue)) }
             return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
@@ -146,12 +146,12 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard let view = focusedAgentView(.stopTurn, context, invocation) else { return }
+            guard let view = invocation.target.flatMap({ $0.kind == .tab ? context.services.agentTabs.existingView($0.id, machine: invocation.targetMachineID) : nil }) ?? focusedAgentView(.stopTurn, context, invocation) else { return } // a tab target's chat, shown or not (the sidebar drive indicator)
             view.stopTurn()
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
-                "UI pointer inspector is off. Turn it on in Debug Settings."
+                "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
             // A targeted context-menu invocation starts at the right-click point.

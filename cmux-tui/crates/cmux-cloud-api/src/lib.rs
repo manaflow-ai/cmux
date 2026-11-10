@@ -1,7 +1,7 @@
 //! NEXT Cloud's API calls, one library for the cmux daemon's `cloud.*` ops (cmux-tui-core
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
-//! daemon): machines, tunnel, firewall, domains, publications, sandboxed Runs, the person's
-//! hand-offs and acpmux routes, previews and a machine's files and exec. The macOS app sent these
+//! daemon): a machine's SCP route, domains, publications, sandboxed Runs, the person's hand-offs
+//! and acpmux routes, previews and a machine's files and exec. The macOS app sent these
 //! from Swift (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the retry
 //! of a lost Run create, the long-poll to a Run's receipt, the hand-off paging and every refusal's
 //! reading live here.
@@ -12,12 +12,19 @@
 //! never kept, logged or put in a URL.
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
-//! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic, a classic
-//! one `/api/vm/{id}/exec` and `/fs/*`. `vm.scp_endpoint` is cmux-platform's
+//! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic; a `stack`
+//! one is refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
+//!
+//! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
+//! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
+//! `cloud.not_available` at once and sends nothing.
 //!
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
+//!
+//! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
+//! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
@@ -25,7 +32,7 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's (`/api/vm`, `/api/runs`): the Stack access token as the
+//! Auth: `stack` is classic cmux.com's sandboxed Runs (`/api/runs`): the Stack access token as the
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
@@ -36,7 +43,6 @@
 
 #![cfg(unix)]
 
-mod classic;
 mod http;
 mod machine;
 pub mod machine_io;
@@ -45,6 +51,7 @@ mod owner;
 mod previews;
 mod runs;
 pub mod session;
+mod turns;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -100,24 +107,50 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     };
     let args = &request.args;
     match request.call.as_str() {
-        "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
+        "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
         }
-        call if call.starts_with("vm.") => classic::run(&http, call, args).await,
+        call if NOT_ON_THIS_CLOUD.contains(&call) => Err(not_on_this_cloud(call)),
         "runs.create" => runs::create(&http, args).await,
         "runs.start" => runs::start(&http, args).await,
         "runs.wait" => runs::wait(&http, args).await,
         "runs.cancel" => runs::cancel(&http, args).await,
         "runs.sandbox" => runs::sandbox(&http, args).await,
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
+            turns::run(&http, request.call.as_str(), args).await
+        }
         call if call.starts_with("owner.") => owner::run(&http, call, args).await,
         call if call.starts_with("previews.") => previews::run(request, call, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
+}
+
+/// The calls classic cmux.com's `/api/vm` served that cmux-platform does not yet: each answers
+/// [`not_on_this_cloud`] before any request.
+pub const NOT_ON_THIS_CLOUD: [&str; 9] = [
+    "vm.tunnel_enroll",
+    "vm.tunnel_revoke",
+    "vm.tunnel_attach",
+    "vm.tunnel_detach",
+    "vm.tunnel_rotate_key",
+    "vm.firewall_list",
+    "vm.firewall_get",
+    "vm.firewall_create",
+    "vm.firewall_delete",
+];
+
+/// The refusal of a call this Cloud does not serve: a 501 the caller shows at once.
+fn not_on_this_cloud(call: &str) -> Failure {
+    Failure::http(
+        501,
+        Some("cloud.not_available".to_owned()),
+        Some(format!("{call} is not available on this Cloud yet")),
+    )
 }
 
 /// The answer line.
@@ -129,7 +162,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 34] = [
+pub const CALLS: [&str; 37] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -160,6 +193,9 @@ pub const CALLS: [&str; 34] = [
     "owner.handoff_begin_turn",
     "owner.harness_login_copy",
     "owner.github_app",
+    "owner.turn_checkpoint",
+    "owner.turn_rewind",
+    "owner.turns",
     "previews.refresh",
     "previews.create_link",
     "previews.revoke_link",
@@ -199,6 +235,15 @@ pub fn scrub(line: String, request: &Request) -> String {
 
 // MARK: argument readers
 
+/// `value[name]`, or a decoding failure naming `path`.
+pub(crate) fn field(mut value: Value, name: &str, path: &str) -> Result<Value, Failure> {
+    value
+        .get_mut(name)
+        .map(Value::take)
+        .filter(|v| !v.is_null())
+        .ok_or_else(|| Failure::Decoding(format!("{path}: no {name}")))
+}
+
 pub(crate) fn text<'a>(args: &'a Map<String, Value>, name: &str) -> Result<&'a str, Failure> {
     args.get(name)
         .and_then(Value::as_str)
@@ -211,17 +256,6 @@ pub(crate) fn optional_text<'a>(args: &'a Map<String, Value>, name: &str) -> Opt
 
 pub(crate) fn optional_int(args: &Map<String, Value>, name: &str) -> Option<i64> {
     args.get(name).and_then(Value::as_i64)
-}
-
-/// The listed fields of `args` that are present, as a JSON object.
-pub(crate) fn pick(args: &Map<String, Value>, names: &[&str]) -> Value {
-    let mut body = Map::new();
-    for name in names {
-        if let Some(value) = args.get(*name).filter(|v| !v.is_null()) {
-            body.insert((*name).to_owned(), value.clone());
-        }
-    }
-    Value::Object(body)
 }
 
 #[cfg(test)]
