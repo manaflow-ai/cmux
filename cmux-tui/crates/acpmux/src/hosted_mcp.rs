@@ -449,7 +449,9 @@ impl Bridge {
             "tools/list" | "tools/call" => match self.forward(message).await {
                 // The hosted server's own answer, under the agent's id.
                 Ok(mut reply) => {
-                    reply["id"] = id.clone();
+                    if let Some(fields) = reply.as_object_mut() {
+                        fields.insert("id".to_owned(), id.clone());
+                    }
                     reply
                 }
                 Err(text) if method == "tools/call" => ok(crate::secret_mcp::error_result(text)),
