@@ -74,6 +74,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Runs the SDK step of nightly.yml on a fake macOS 27 host (Command Line Tools 27, Xcode 26.6) and links with each compiling job's environment; run python3 tests/test_nightly_job_sdkroot.py yourself after changing a Select Xcode step or a compiling job in nightly.yml (about 1 s, no Mac)."
 
 [[test]]
+path = "tests/test_nightly_kept_clone_sparse.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs nightly.yml's own checkout steps on a small repository in the order the one nightly Mac ran on 2026-11-10 (signing pattern checkout, deltas cone checkout, warm build checkout) and checks that no file stays hidden; run python3 tests/test_nightly_kept_clone_sparse.py yourself after changing a checkout step of the deltas jobs or build-nightly-app (about 5 s, needs git, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_legacy_publish_linux.py"
 lane = "linux-guard"
 
