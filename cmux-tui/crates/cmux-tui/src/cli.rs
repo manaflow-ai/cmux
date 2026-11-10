@@ -75,6 +75,8 @@ mod cloud_machines;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
+mod cloud_retention;
+#[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
@@ -85,10 +87,14 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod completion;
+pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod dev;
 mod docs;
 mod event_match;
+#[cfg(unix)]
+mod ext;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -102,19 +108,26 @@ mod inference_gateway;
 mod inference_setup;
 mod internal;
 mod keys_help;
+#[cfg(unix)]
+mod last_chat;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_ready;
+#[cfg(unix)]
 mod vm_short;
+mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
@@ -345,7 +358,9 @@ fn unknown_remote_action(args: &[String]) -> Option<i32> {
             "retryable":false,
         }),
         global.output,
-        1,
+        // A word the command does not have is a usage error: exit 2, like
+        // every scope (docs/cli-conventions.md in cmuxterm-hq).
+        2,
     ))
 }
 
@@ -500,6 +515,110 @@ fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
     *args = vec![scope.clone(), own_help.to_string()];
 }
 
+/// A scope's usage error when the scope prints its usage block as the
+/// refusal: the `--json` envelope (the usage in `details.usage`) under
+/// `--json`; else the usage, then one last line with what was wrong and the
+/// help to run, so `| tail -1` names the fix. Exit 2.
+pub(super) fn scope_usage_failure(output: OutputMode, scope: &str, what: &str, usage: &str) -> i32 {
+    let message = format!("{what}; run `cmux {scope} --help` for its usage");
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => wire::print_local_error(
+            &serde_json::json!({
+                "code": "usage.invalid",
+                "message": message,
+                "details": {"usage": usage.trim_end()},
+                "retryable": false,
+            }),
+            output,
+            2,
+        ),
+        OutputMode::Human | OutputMode::Quiet => {
+            eprintln!("{}\n\n{BIN}: {message}", usage.trim_end());
+            2
+        }
+    }
+}
+
+/// What a scope's refusal says about the words it was given: the first
+/// word it does not take, or that it needs one.
+pub(super) fn unknown_words(scope: &str, words: &[String]) -> String {
+    match words.iter().find(|word| !word.is_empty()) {
+        Some(word) if word.starts_with('-') => format!("{scope} does not take {word:?}"),
+        Some(word) => format!("unknown {scope} command {word:?}"),
+        None => format!("{scope} needs a command"),
+    }
+}
+
+/// A usage error of a command `main` refuses before the cmux global options
+/// are parsed: the `--json` envelope when `--json` or `--jsonl` is among the
+/// words before `--`, else `cmux: <message>`; exit 2.
+pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
+    let json = args
+        .iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "--json" | "--jsonl"));
+    let (output, message) = if json {
+        (OutputMode::Json, message.to_owned())
+    } else {
+        (OutputMode::Human, format!("{BIN}: {message}"))
+    };
+    wire::print_local_error(
+        &serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        2,
+    )
+}
+
+/// Scopes `main` routes by their first word, before the cmux global options
+/// are read, whose own parser takes `--json` right after the scope word:
+/// acpmux's (`--json` is a global clap option there).
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+
+/// `cmux --json <scope> …` for a scope `main` routes by its first word: the
+/// leading `--json` moves to just after the scope word (to the end for `host`
+/// and `harness run`), where that scope's own parser reads it, so `cmux --json
+/// chats list` is `cmux chats --json list` (docs/cli-conventions.md in
+/// cmuxterm-hq: `--json` goes anywhere).
+/// `link` prints JSON only: a leading `--json` or `--jsonl` there becomes
+/// one `--json` after the word, which only shapes a refusal. Any other leading option stays where it is, and the parser's
+/// refusal names the right form. `device` keeps its own handling
+/// (devices::device_args).
+pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
+    let lead = args.iter().take_while(|word| matches!(word.as_str(), "--json" | "--jsonl")).count();
+    let (Some(scope), Some(rest)) = (args.get(lead).cloned(), args.get(lead..)) else {
+        return;
+    };
+    if lead == 0 {
+        return;
+    }
+    let only_json = args.iter().take(lead).all(|w| w == "--json");
+    if scope == "link" {
+        // `link` prints JSON only and ignores `--json`, which still asks for
+        // the error object on a refusal.
+        args.drain(..lead);
+        args.insert(1, "--json".to_owned());
+    } else if only_json && (scope == "host" || harness_tab_run(rest)) {
+        // `host`'s verbs read `--json` after their own words (`host status --json`), and
+        // `harness run NAME --tab` is acp.rs's wrapper, which matches the words right after the
+        // scope: it goes last, before any `--`, where a person types it.
+        args.drain(..lead);
+        let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
+        args.insert(end, "--json".to_owned());
+    } else if only_json && JSON_AFTER_SCOPE.contains(&scope.as_str()) {
+        // acpmux's global `--json`, right after the scope word: never after a verb whose
+        // trailing words are another program's (`acp gh pr list`).
+        args.drain(..lead);
+        args.insert(1, "--json".to_owned());
+    }
+}
+
+/// `harness run NAME --tab …`, which acp.rs's wrapper opens as a tab (it matches `harness run`
+/// as the first two words and `--tab` before any `--`).
+fn harness_tab_run(words: &[String]) -> bool {
+    matches!(words, [harness, run, ..] if harness == "harness" && run == "run")
+        && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
+}
+
 /// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
 /// `harness`/`chats` aliases (the whole command line, alias first).
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -531,6 +650,13 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    if let Ok((_, command)) = parse_globals(args) {
+        vm_words::activate_for(&command);
+    }
+    // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
+    if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = dev::run_if_requested(args, surface) {
         return code;
@@ -599,7 +725,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => {
             vm::cloud_rename_note(args);
-            args
+            match vm::cloud_yes(args) {
+                Some(rewritten) => {
+                    cloud_args = rewritten;
+                    cloud_args.as_slice()
+                }
+                None => args,
+            }
         }
     };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
@@ -673,6 +805,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
@@ -683,9 +816,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| safe_mode::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| ext::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
@@ -838,7 +973,11 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         // sheet. The daemon CLI deliberately has no fake approval path. Only
         // options before `--` are flags; after it, every argument is literal.
         Some("set" | "reset" | "unset")
-            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+            // `--yes` is `--confirm` (the CLI's one confirm word; cli/app.rs).
+            if command_args
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "--confirm" | "--yes")) =>
         {
             false
         }
@@ -998,9 +1137,29 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
+    // A scope the root help lists whose own dispatcher did not take these
+    // words (`cmux identify zzz`, `cmux device zzz`): the scope is real, the
+    // words are not; name its help (docs/cli-conventions.md in cmuxterm-hq).
+    if surface == Surface::Cmux
+        && listed_scope(crate::localization::catalog().local_server.cmux_root_help, scope)
+    {
+        return UsageError::new(format!(
+            "unknown or incomplete {scope} command; run `cmux {scope} --help` for its commands"
+        ));
+    }
     let suggestion = internal::classic_verbs::resource_command(scope)
         .or_else(|| suggestion(scope, surface.scopes()));
     UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
+}
+
+/// Whether `help` (a root help text) lists `scope` as a scope row: two
+/// spaces, the scope, then at least two spaces before its description.
+pub(super) fn listed_scope(help: &str, scope: &str) -> bool {
+    help.lines().any(|line| {
+        line.strip_prefix("  ")
+            .and_then(|rest| rest.strip_prefix(scope))
+            .is_some_and(|tail| tail.starts_with("  "))
+    })
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
@@ -1340,6 +1499,7 @@ fn scope_help_with_keys(
         "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
+        "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),

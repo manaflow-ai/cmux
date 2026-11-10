@@ -1,0 +1,80 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "unread-marker-line-tag",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-tag",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-line-text",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-text",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-line-labelled",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-labelled",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-line-light",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-light",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-line-image",
+      "entry": "agent-pane.since-divider",
+      "variant": "line-image",
+      "width": 640,
+      "height": 340,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-banner-expanded",
+      "entry": "agent-pane.unread-marker",
+      "variant": "banner-expanded",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-banner-collapsed",
+      "entry": "agent-pane.unread-marker",
+      "variant": "banner-collapsed",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-banner-off",
+      "entry": "agent-pane.unread-marker",
+      "variant": "banner-off",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "unread-marker-jump-pair",
+      "entry": "agent-pane.unread-marker",
+      "variant": "jump-pair",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

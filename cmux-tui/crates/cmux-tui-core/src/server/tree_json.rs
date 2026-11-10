@@ -267,9 +267,21 @@ pub(super) fn pane_json(
             }
             let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);
+            shown_title_fields(&mut tab);
             tab
         }).collect::<Vec<_>>(),
     })
+}
+
+/// What a tab shows of its `title` (D2): `title_text` and `title_activity`.
+/// A terminal's (a local or a remote terminal tab's) loses its leading status
+/// glyphs; a page's or a chat's stays as is. Clients show these and never
+/// parse the raw `title`.
+fn shown_title_fields(tab: &mut Value) {
+    let raw = tab.field("title").as_str().unwrap_or_default();
+    let shown = crate::TabTitle::of_kind(tab.field("kind").as_str(), raw);
+    tab.insert("title_text", Value::from(shown.text.as_ref()));
+    tab.insert("title_activity", shown.activity.map(crate::TitleActivity::as_str).into());
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
@@ -489,8 +501,24 @@ pub(crate) fn tree_entity_json(
     let entity = entity_json(state, notifications, kind, id);
     // Unit tests check every entity against the whole tree's value at that place (not counted as built).
     #[cfg(test)]
-    check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    if !SKIP_ENTITY_CHECK.with(std::cell::Cell::get) {
+        check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    }
     entity
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Benches only: entities built on this thread skip the whole-tree check, which the
+    /// daemon never runs (it builds the whole tree per entity, so a bench that kept it
+    /// would time a test's cost, not the daemon's).
+    static SKIP_ENTITY_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Benches only: entities built on this thread from now on skip the whole-tree check.
+#[cfg(test)]
+pub(crate) fn skip_entity_check_on_this_thread_for_bench() {
+    SKIP_ENTITY_CHECK.with(|skip| skip.set(true));
 }
 
 /// How many times the check reads an entity whose live fields keep moving before it gives up on

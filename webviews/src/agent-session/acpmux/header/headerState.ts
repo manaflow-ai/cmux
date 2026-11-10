@@ -41,10 +41,15 @@ export interface HeaderCheck {
   readonly onBase?: boolean;
 }
 
+/// One place a started chat can move (Move to…): a Cloud machine, or this Mac (`kind: "local"`, id
+/// `local`, whose label the page writes itself).
 export interface HeaderMoveTarget {
   readonly id: string;
   readonly label: string;
   readonly status?: string;
+  readonly kind: "local" | "cloud";
+  /// Why a move there would refuse now: the row is greyed with it.
+  readonly reason?: string;
 }
 
 export interface HeaderState {
@@ -70,7 +75,8 @@ export interface HeaderState {
   /// Why each of `moves` would refuse now, by action id (a chat with no first message yet): the
   /// picker shows that row greyed with it. Only a `pane.tabState` reply carries it, with `moves`.
   readonly moveReasons: Readonly<Record<string, string>>;
-  /// Eligible Cloud machine targets for the title menu. The host validates ids again on dispatch.
+  /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
+  /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
@@ -142,12 +148,17 @@ export function setHeaderState(value: unknown): void {
     moveTargets: Array.isArray(raw.moveTargets)
       ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
           const row = (target ?? {}) as Record<string, unknown>;
-          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string" || !row.label) return [];
+          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string") return [];
+          const kind = row.kind === "local" ? "local" : "cloud";
+          // Only this Mac's row may come without a name: the page names it.
+          if (!row.label && kind !== "local") return [];
           return [
             {
               id: row.id,
               label: row.label,
+              kind,
               ...(typeof row.status === "string" && row.status ? { status: row.status } : {}),
+              ...(typeof row.reason === "string" && row.reason.trim() ? { reason: row.reason } : {}),
             },
           ];
         })

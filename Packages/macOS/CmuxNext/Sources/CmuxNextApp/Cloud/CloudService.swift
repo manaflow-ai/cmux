@@ -30,6 +30,8 @@ final class CloudService {
     }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    /// The chat tabs a Bring Back Local or Move to Another Machine runs on now (``CloudBringBack``).
+    @ObservationIgnored var movingBack: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexHolder

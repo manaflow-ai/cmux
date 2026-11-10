@@ -62,14 +62,14 @@ extension WindowManager {
         recordSaver.scheduleSave()
     }
 
-    /// Makes each window's selection a workspace it lists in its current
-    /// profile. When that profile has none left there (closed, moved to
-    /// another profile or window), the window shows the most recent other
-    /// profile it holds workspaces in.
-    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:]) {
+    /// Makes each window's selection a workspace it lists in its current profile. When that profile has none left
+    /// there (closed, moved to another profile or window), the window shows the most recent other profile it holds
+    /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
+    /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], only: String? = nil) {
         let machines = services.machines
         let home = machines.local.store
-        for window in registry.value.windows {
+        for window in registry.repairs(only: only) {
             let state = state(for: window.id)
             let room = state.profileID
             // Its room was deleted (here or by another client); cached rooms can lag.

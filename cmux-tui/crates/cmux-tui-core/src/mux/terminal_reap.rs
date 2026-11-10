@@ -35,6 +35,7 @@ use std::thread::JoinHandle;
 
 use super::*;
 use crate::state::kept_tab_store::{KeptTab, LastCommand, kept_title};
+pub(crate) use announce::TerminalReaperSlot;
 use attached::over_grace_cap;
 
 /// Default reap grace period for a terminal with no placement.
@@ -237,7 +238,7 @@ impl Mux {
     }
 
     pub(super) fn wake_terminal_reaper(&self) {
-        if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
+        if let Some(events) = self.terminal_reaper.lock().unwrap().events.as_ref() {
             events.wake();
         }
     }
@@ -945,13 +946,13 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
         }
         // Stopped: `identify` no longer advertises a running reaper.
         if let Some(mux) = weak.upgrade() {
-            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+            mux.end_terminal_reaper();
         }
     });
     let thread = match thread {
         Ok(thread) => thread,
         Err(error) => {
-            mux.terminal_reaper_events.lock().unwrap().take();
+            mux.end_terminal_reaper();
             return Err(error);
         }
     };
@@ -962,18 +963,19 @@ impl Mux {
     /// Whether this owner's unplaced-terminal reaper runs
     /// (`terminal-reaper-active-v1`).
     pub fn terminal_reaper_running(&self) -> bool {
-        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+        self.terminal_reaper.lock().unwrap_or_else(PoisonError::into_inner).events.is_some()
     }
 
     /// Subscribe the reaper to the events that can change the reapable set,
     /// and keep a handle so keep and grace changes can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {
         let events = self.subscribers.subscribe_terminal_topology();
-        *self.terminal_reaper_events.lock().unwrap() = Some(events.clone());
+        self.terminal_reaper.lock().unwrap().events = Some(events.clone());
         events
     }
 }
 
+mod announce;
 mod attached;
 #[cfg(test)]
 mod tests;

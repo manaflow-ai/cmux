@@ -92,7 +92,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             for (index, line) in signedIn.lines.enumerated() {
                 account.append(.info(line, symbol: nil, avatar: index == 0))
             }
-            if let team = signedIn.team { account.append(.action("openTeamPicker", title: team, symbol: "person.2")) }
+            if let team = signedIn.team { account.append(.action("openTeamPicker", title: team, symbol: signedIn.teamSymbol)) }
         } else {
             account.append(.action("palette.auth.signIn", title: Self.text("menu.menuBar.signIn", "Sign In to cmux…"),
                                    symbol: "person.crop.circle"))
