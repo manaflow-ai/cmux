@@ -242,12 +242,27 @@ fn open_dir(path: &Path) -> std::io::Result<std::fs::File> {
         .open(path)
 }
 
+/// Debug builds only: the staging root a test names, beside its chat folder.
+pub const TEST_STAGING_ENV: &str = "ACPMUX_TEST_GITHUB_CLONE_STAGING";
+
+/// Where clones are staged: `clone-staging` in the daemon's state folder (module docs).
+#[cfg(unix)]
+fn staging_root() -> PathBuf {
+    #[cfg(debug_assertions)]
+    if let Some(root) = std::env::var_os(TEST_STAGING_ENV).map(PathBuf::from)
+        && root.is_absolute()
+    {
+        return root;
+    }
+    crate::config::home().join("clone-staging")
+}
+
 /// A new private staging folder for one clone (module docs).
 #[cfg(unix)]
 fn make_stage() -> Result<PathBuf, RpcError> {
     use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::fs::DirBuilderExt as _;
-    let root = crate::config::home().join("clone-staging");
+    let root = staging_root();
     let failed = |e: &dyn std::fmt::Display| {
         RpcError::internal(format!("could not make a staging folder in {}: {e}", root.display()))
     };
@@ -317,7 +332,7 @@ async fn clone_staged(
 fn other_disk() -> RpcError {
     RpcError::invalid_params(format!(
         "this chat's folder is on another file system than acpmux's state folder ({}), where a clone is made out of the agent's reach and then moved in; clone from a chat whose folder is on that file system",
-        crate::config::home().display()
+        staging_root().display()
     ))
     .with_data(json!({"reason": "github.clone_other_disk"}))
 }

@@ -29,11 +29,8 @@ const GITHUB_ACTION: &str = "_acpmux/github_action";
 /// The credential the stand-in Mac lends for a clone.
 const LENT: &str = "ghs_LentCloneToken0123456789";
 
-/// A test's folder: under HOME, on the file system of the daemon's state folder, where a
-/// clone is staged (`github_clone.rs`).
 fn dir(tag: &str) -> PathBuf {
-    let home = PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
-    let d = home.join(format!("ghr-{tag}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("ghr-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("work")).unwrap();
     std::fs::canonicalize(&d).unwrap()
@@ -294,6 +291,10 @@ async fn a_remote_chain_reads_and_clones_through_its_own_channel() {
     let (base, authed) = git_server(&d).await;
     // SAFETY: before the clone starts any child; the daemon reads it in debug builds only.
     unsafe { std::env::set_var("ACPMUX_TEST_GITHUB_CLONE_BASE", &base) };
+    // Clones are staged on the chat folder's file system (`github_clone.rs`): beside it here.
+    let staging = d.join("staging");
+    // SAFETY: as above.
+    unsafe { std::env::set_var("ACPMUX_TEST_GITHUB_CLONE_STAGING", &staging) };
     let clone = mac.tool(&session, "repo_clone", json!({"repo": "o/r", "dir": "cloned"})).await;
     let (text, error) = result(&clone);
     assert!(!error, "{clone}");
@@ -313,7 +314,6 @@ async fn a_remote_chain_reads_and_clones_through_its_own_channel() {
 
     // A folder that is there, or a DIR that leaves the chat's folder, is refused before the Mac
     // is asked.
-    let staging = acpmux::config::home().join("clone-staging");
     let left = |s: &Path| std::fs::read_dir(s).map(|d| d.count()).unwrap_or(0);
     assert_eq!(left(&staging), 0, "a finished clone leaves nothing in its staging folder");
 
