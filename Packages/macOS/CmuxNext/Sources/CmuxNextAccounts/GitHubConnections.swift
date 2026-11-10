@@ -1,5 +1,5 @@
+import CmuxNextCloud
 public import CmuxNextSettings
-import CryptoKit
 public import Foundation
 import Observation
 
@@ -136,17 +136,15 @@ public final class GitHubConnections {
         return Date(timeIntervalSince1970: expires)
     }
 
-    /// The existing API identity contract (`domains/user.ts::stackTeamIdFor`).
+    /// The existing API identity contract (`domains/user.ts::stackTeamIdFor`; an active personal team,
+    /// `team_…`, is its own id), from Rust (``CloudTeamIDs``).
     public nonisolated static func backendTeam(project: String, stackTeam: String?) -> String? {
-        guard let stackTeam else { return nil }
-        let team = UUID(uuidString: stackTeam) == nil ? stackTeam : stackTeam.lowercased()
-        let digest = SHA256.hash(data: Data("stack-team:\(project):\(team)".utf8))
-        return "team_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
+        stackTeam.map { CloudTeamIDs.teamHeader(project: project, team: $0) }
     }
 
+    /// The backend's id for a Stack user (`userIdFor`, ``CloudTeamIDs``).
     public nonisolated static func backendUser(project: String, stackUser: String) -> String {
-        let digest = SHA256.hash(data: Data("stack:\(project):\(stackUser)".utf8))
-        return "user_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
+        CloudTeamIDs.workerUser(project: project, stackUser: stackUser)
     }
 
     public enum GitHubFailure: Error { case changedAccount, invalidReply, refused }

@@ -237,7 +237,11 @@ public final class CloudAuth {
                                       allowsEnvironmentAutoLogin: login?.allowsEnvironmentAutoLogin ?? signIn.devAuth),
             isOnline: { !useCaptureFixture }
         )
-        activeTeam = ActiveTeam(source: coordinator)
+        // The personal team derives from the signed-in Stack user; its choice is kept with the other auth caches.
+        let teamCoordinator = coordinator, project = configuration.stackProjectID
+        activeTeam = ActiveTeam(source: teamCoordinator,
+                                account: { teamCoordinator.currentUser.map { (project: project, user: $0.id) } },
+                                store: authDefaults, personalKey: configuration.authDefaultsKey("cmux.next.activeTeam.personal"))
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
         let coordinator = coordinator
         #if DEBUG

@@ -46,13 +46,18 @@ public final class HomeDirectory {
     @ObservationIgnored private let me: @MainActor () -> String?
     /// The active team's Worker team id (`ActiveTeam`, `CloudIdentity.workerTeamID`), or nil before one loads.
     @ObservationIgnored private let activeTeam: @MainActor () -> String?
+    /// Takes each `user.teams.list` read's team ids (``confirmedTeams(from:)``): `ActiveTeam.confirmedTeams`.
+    @ObservationIgnored private let teamsListed: @MainActor (Set<String>?) -> Void
 
-    /// `call` and `teamCall` reach the Worker; `activeTeam` and `me` name the active team and the signed-in user.
+    /// `call` and `teamCall` reach the Worker; `activeTeam` and `me` name the active team and the signed-in user;
+    /// `teamsListed` takes the account's teams as the backend lists them.
     public init(call: @escaping Call, teamCall: TeamCall? = nil, activeTeam: @escaping @MainActor () -> String? = { nil },
-         me: @escaping @MainActor () -> String?, chiefArchive: HomeChiefArchive = HomeChiefArchive()) {
+         me: @escaping @MainActor () -> String?, teamsListed: @escaping @MainActor (Set<String>?) -> Void = { _ in },
+         chiefArchive: HomeChiefArchive = HomeChiefArchive()) {
         self.call = call
         self.teamCall = teamCall
         self.activeTeam = activeTeam
+        self.teamsListed = teamsListed
         self.me = me
         self.chiefArchive = chiefArchive
     }
@@ -92,13 +97,17 @@ public final class HomeDirectory {
     /// The members of the active team (the user, 2026-10-29: "should only show for a team at a
     /// time… no multi team"), each person once; with no active team yet, the personal team's.
     /// `user.teams.list` runs first because it mirrors a Stack team its webhook never synced
-    /// (72ca5bb), so a new team's members are there to read. A team whose role may not list
+    /// (72ca5bb), so a new team's members are there to read; its list also tells the team
+    /// picker which Stack teams the backend knows (`teamsListed`). A team whose role may not list
     /// members (a guest), or whose read fails, gives nil: never another team's people.
     private func readTeamMembers(team: String?) async -> [HomeContact]? {
         let body: [String: Any] = ["op": "team.members.list", "params": ["limit": 200]]
         let value: Any?
         if let team, let teamCall {
-            _ = try? await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])
+            // A read that fails keeps the last list; one that answers replaces it.
+            if let listed = try? Self.value(try await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])) {
+                teamsListed(Self.confirmedTeams(from: listed))
+            }
             guard let read = try? Self.value(try await teamCall("v1/read", body, team)) else { return nil }
             value = read
         } else {
@@ -398,6 +407,14 @@ public final class HomeDirectory {
             throw FeedServiceError.owner(code: code, message: reply["message"] as? String ?? code)
         }
         return reply["value"]
+    }
+
+    /// The team ids of a `user.teams.list` reply (`{teams: [{id, kind, ...}], incomplete}`); nil when it is
+    /// incomplete or not that shape, so a partial list never hides a team.
+    static func confirmedTeams(from value: Any?) -> Set<String>? {
+        guard let reply = value as? [String: Any], let teams = reply["teams"] as? [[String: Any]],
+              (reply["incomplete"] as? Bool) != true else { return nil }
+        return Set(teams.compactMap { $0["id"] as? String })
     }
 
     static func members(from value: Any?, excluding me: String?) -> [HomeContact] {

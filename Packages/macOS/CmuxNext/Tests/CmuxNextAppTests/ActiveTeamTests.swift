@@ -148,6 +148,53 @@ struct ActiveTeamTests {
         #expect(changed.fired)
     }
 
+    // MARK: The personal team (manaflow-ai/cmux#39950)
+
+    /// The backend's ids for these inputs (backend `domains/user.ts`, pinned in cmux-cloud-config's identity tests).
+    static let project = "9790718f-14cd-4f7e-824d-eaf527a82b82", user = "0b6c2f1e-8d0a-4a51-9a4e-5f3c7d1e2a90"
+    static let personal = "team_249f328cf8ed89fd792e"
+
+    /// `source`'s account as the app's CloudAuth names it, with its Personal choice kept in memory.
+    private func personalTeam(_ source: Source) -> ActiveTeam {
+        ActiveTeam(source: source, account: { (project: Self.project, user: Self.user) }, store: MemoryAuthKeyValueStore())
+    }
+
+    @Test func thePersonalTeamIsTheFirstRow() {
+        let active = personalTeam(Source(teams: ["a", "b"], selected: "a"))
+        #expect(active.teams.map(\.id) == [Self.personal, "a", "b"])
+        #expect(active.teams.first?.displayName == "Personal")
+        #expect(active.id == "a", "the Stack selection stays the default")
+    }
+
+    @Test func choosingPersonalStaysOnThisMacAndAStackTeamEndsIt() async throws {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        let active = personalTeam(source)
+        try await active.select(Self.personal)
+        #expect(source.saved.isEmpty, "Stack has no personal team to save")
+        #expect(active.id == Self.personal)
+        #expect(active.team?.displayName == "Personal")
+        #expect(active.refusal(requesting: Self.personal) == nil)
+        try await active.select("a")
+        #expect(source.saved == ["a"], "the Stack team is saved even though it was Stack's selection")
+        #expect(active.id == "a")
+    }
+
+    @Test func aManagedDeviceHasNoPersonalRow() async {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        let active = personalTeam(source)
+        active.managedTeamID = "b"
+        #expect(active.teams.map(\.id) == ["b"])
+        await #expect(throws: ActiveTeam.Refusal.managed) { try await active.select(Self.personal) }
+        #expect(active.id == "b")
+    }
+
+    @Test func theBackendsListDropsAStackTeamItDoesNotKnow() {
+        let active = personalTeam(Source(teams: ["a", "vm-tenant"], selected: "a"))
+        #expect(active.teams.map(\.id) == [Self.personal, "a", "vm-tenant"], "no list read yet: every Stack team")
+        active.confirmedTeams = [Self.personal, CloudTeamIDs.teamHeader(project: Self.project, team: "a")]
+        #expect(active.teams.map(\.id) == [Self.personal, "a"])
+    }
+
     nonisolated final class Changed: @unchecked Sendable {
         private let lock = NSLock()
         private var value = false

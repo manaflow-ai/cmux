@@ -1,7 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextWakeups
-import CryptoKit
 public import Foundation
 import os
 
@@ -74,18 +73,14 @@ import os
 
     /// The cmux backend's id of the team a lend names (backend `domains/user.ts`, ids derived so
     /// that routing needs no lookup): the active Stack team's (`stackTeamIdFor`), or with none
-    /// the user's personal team (`personalTeamIdFor`). Nil signed out, and when the organization
-    /// manages the account and no team is active (cmux is off for it there).
+    /// the user's personal team (`personalTeamIdFor`); an active personal team (`team_…`) is its
+    /// own id. Nil signed out, and when the organization manages the account and no team is active
+    /// (cmux is off for it there). Rust derives each id (``CloudTeamIDs``).
     public nonisolated static func backendTeam(stackProjectID: String, userID: String?, stackTeamID: String?, managed: Bool) -> String? {
         guard let userID else { return nil }
-        if let stackTeamID { return "team_" + hex20("stack-team:\(stackProjectID):\(stackTeamID)") }
+        if let stackTeamID { return CloudTeamIDs.teamHeader(project: stackProjectID, team: stackTeamID) }
         if managed { return nil }
-        let user = CloudIdentity.workerUserID(stackProjectID: stackProjectID, stackUserID: userID)
-        return "team_" + hex20("personal:\(user)")
-    }
-
-    private nonisolated static func hex20(_ text: String) -> String {
-        String(SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20))
+        return CloudTeamIDs.personalTeam(project: stackProjectID, stackUser: userID)
     }
 
     /// The account the lease last followed. The first one seen always counts, signed out
