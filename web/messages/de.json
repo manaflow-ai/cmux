@@ -509,7 +509,18 @@
         "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
         "seatsUsed": "{members} von {seats} belegt",
         "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Die Plätze folgen der Mitgliederzahl, das Abonnement wird automatisch angepasst.",
-        "addSeats": "Plätze hinzufügen"
+        "addSeats": "Plätze hinzufügen",
+        "enterprise": {
+          "current": "Aktueller Tarif",
+          "body": "{team} hat einen individuellen Tarif, der mit dem cmux-Team vereinbart wurde. Wende dich an das cmux-Team, um ihn zu ändern.",
+          "price": "Preis",
+          "perMonth": "{amount}/Monat",
+          "machines": "Cloud-Maschinen",
+          "pool": "Gemeinsame vCPUs / Arbeitsspeicher",
+          "largest": "Größte Maschine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Keine Begrenzung"
+        }
       },
       "teamList": {
         "heading": "Abrechnungsbereiche",
