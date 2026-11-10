@@ -447,7 +447,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        let frame = topBar.contentFrame(in: bounds)
+        let frame = topBar.pageFrame(in: bounds)
         // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
         let shown = holdsPageAway ? heldPageFrame(of: frame) : frame
         if let page {
