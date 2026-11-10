@@ -621,6 +621,10 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a browser target adoption after its commit failed and before
+    /// its rollback closes the adopted tab (tests).
+    #[cfg(test)]
+    browser_adopt_before_rollback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Runs in a state mutation after its apply step (inside its open

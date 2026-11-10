@@ -292,6 +292,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_before_commit: Mutex::new(None),
             #[cfg(test)]
+            browser_adopt_before_rollback: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             state_commit_after_apply: Mutex::new(None),
