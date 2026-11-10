@@ -171,6 +171,43 @@ import Testing
             "error connecting to /tmp/tmux-501/\(name) (No such file or directory)"))
     }
 
+    /// The overlong-socket-path failure is cmux's own error. It names the host and says what to
+    /// shorten, and carries neither tmux's stderr nor the remote socket path, which would put
+    /// the remote account's directory layout into a socket reply or CLI output.
+    @Test func anOverlongSocketPathIsReportedWithoutTmuxOutputOrTheRemotePath() {
+        let directory = "/Users/dev/Library/Caches/cmux/remote-tmux-et/some-host/tmux/tmux-501"
+        let name = String(repeating: "n", count: 64)
+        let transport = RemoteTmuxSSHTransport(
+            host: RemoteTmuxHost(destination: "dev@example", socketName: name))
+
+        let failure = transport.commandFailure(RemoteTmuxCommandResult(
+            exitCode: 1,
+            stdout: "",
+            stderr: "error connecting to \(directory)/\(name) (File name too long)"
+        ))
+
+        #expect(failure == .socketPathTooLong(destination: "dev@example"))
+        #expect(failure.message.contains("dev@example"))
+        #expect(!failure.message.contains(directory))
+        #expect(!failure.message.contains(name))
+        #expect(!failure.message.localizedCaseInsensitiveContains("file name too long"))
+    }
+
+    /// Any other failed command keeps the generic command failure, exit code included.
+    @Test func otherCommandFailuresAreNotReportedAsAnOverlongSocketPath() {
+        let transport = RemoteTmuxSSHTransport(
+            host: RemoteTmuxHost(destination: "dev@example", socketName: "alpha"))
+
+        let failure = transport.commandFailure(RemoteTmuxCommandResult(
+            exitCode: 1,
+            stdout: "",
+            stderr: "error connecting to /tmp/tmux-501/alpha (Permission denied)"
+        ))
+
+        #expect(failure == .commandFailed(
+            exitCode: 1, stderr: "error connecting to /tmp/tmux-501/alpha (Permission denied)"))
+    }
+
     @Test func socketBoundaryBuildsAndRefusesSocketNames() {
         let host = TerminalController.remoteTmuxHost(
             from: ["host": "dev@host", "socket_name": "alpha"], selectBroker: { _ in .none })
