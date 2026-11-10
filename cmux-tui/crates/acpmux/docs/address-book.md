@@ -11,10 +11,12 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 
 - A session acpmux starts has its acpmux name (`acpmux new -n NAME`).
 - A session acpmux did not start registers one from its own shell: `acpmux register NAME`
-  (`src/hub/register.rs`). That works for a Claude Code session (desktop or terminal) and a Codex
-  desktop thread. The daemon finds the session from the kernel's process tree of the caller, the
-  nearest Claude Code process whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, or the
-  Codex desktop thread whose Codex started it. It never takes a session the caller names. A name
+  (`src/hub/register.rs`). That works for a Claude Code session (desktop or terminal). The daemon
+  finds the session from the kernel's process tree of the caller: the nearest Claude Code process
+  whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, opened with that shell's
+  `CLAUDE_CODE_MESSAGING_TOKEN`. It never takes a session the caller names. A Codex desktop thread
+  does not register: a process named `codex` with `CODEX_THREAD_ID` set is anyone's to start, so
+  nothing proves the caller runs in the thread. A Codex session acpmux starts already has a name. A name
   another session has is refused (`register.name_taken`). The daemon alone records which chats
   are registered (`~/.acpmux/bridge-registered.json`); the `bridge.registered` tag shows it, and
   no client may set that tag (`tag.reserved`).
@@ -29,8 +31,8 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 | Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME`, then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
 | Codex, started by acpmux (in-process bridge) | `acpmux` MCP server in ACP `mcpServers` | ACP `session/prompt` | yes (`turn/steer`) | yes | the same line | none known |
 | Codex through the outside `codex-acp` | same | same | no: after the turn | yes | the same line | no steering |
-| Codex desktop thread | shell `acpmux send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | `acpmux register NAME` (or the bridge setting), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
-| Codex CLI thread not started by acpmux | guest tools (shared `config.toml`) | none: register takes only `codex_desktop` threads | no | no | n/a | cannot receive; start it with acpmux instead |
+| Codex desktop thread | shell `acpmux send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | the bridge setting only (no `register`: nothing proves a shell runs in the thread), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
+| Codex CLI thread not started by acpmux | guest tools (shared `config.toml`) | none | no | no | n/a | cannot receive; start it with acpmux instead |
 | Gemini CLI (`gemini --experimental-acp`) | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | no steering; outside acpmux, no way in |
 | Qwen Code, Antigravity (ACP registry) | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | not run in a test yet |
 | OpenCode | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | no steering; outside acpmux, no way in |

@@ -1,5 +1,5 @@
-//! `acpmux register NAME`: a session acpmux did not start (the Claude desktop app's Code tab, a
-//! Claude Code terminal, a Codex desktop thread) takes a stable acpmux name from its own shell,
+//! `acpmux register NAME`: a Claude Code session acpmux did not start (the Claude desktop app's
+//! Code tab, a Claude Code terminal) takes a stable acpmux name from its own shell,
 //! so `acpmux send NAME` from any machine that peers this one reaches it, through the outbox's
 //! queue, retries and `--status` like any other session (Leo, 2026-11-09: "how formalized/
 //! productionized is this rn, and how much further do we need to take things?").
@@ -7,9 +7,10 @@
 //! Who registers is what the kernel says, never what the caller types: the unix socket peer's
 //! ancestry (`sender_harness::ancestors`) must hold the live Claude Code process the registry
 //! lists (`claude_peers.rs`), and when the caller passes the inbox it runs under
-//! (`CLAUDE_CODE_MESSAGING_SOCKET`), that process's own inbox; else the Codex desktop thread
-//! whose Codex started the caller (`codex_desktop::sender_thread`). The nearest such ancestor is
-//! the one registered. Claude Code's documented per-session token (`CLAUDE_CODE_MESSAGING_TOKEN`)
+//! (`CLAUDE_CODE_MESSAGING_SOCKET`), that process's own inbox. The nearest such ancestor is the
+//! one registered. A Codex desktop thread does not register: nothing the kernel shows ties a
+//! caller to its thread (a process named `codex` with `CODEX_THREAD_ID` set is anyone's to
+//! make), so it is reached through the bridge setting, or started with acpmux instead. Claude Code's documented per-session token (`CLAUDE_CODE_MESSAGING_TOKEN`)
 //! is kept beside the daemon (`claude_peers::save_token`) and opens each later delivery while
 //! the same process runs.
 //!
@@ -100,7 +101,6 @@ impl RegisterRequest {
 /// The conversation the caller runs in.
 enum Found {
     Claude(crate::claude_peers::Peer),
-    Codex(crate::codex_desktop::Thread),
 }
 
 /// The nearest of `ancestry` that `live` lists, with `socket` its inbox when one is given.
@@ -139,19 +139,14 @@ impl Hub {
             // have started.
             let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
             let live = crate::claude_peers::live(&homes.claude);
-            if let Some(peer) = nearest_claude(&ancestry, &live, socket.as_deref()) {
-                return Some(Found::Claude(peer));
-            }
-            let thread = crate::codex_desktop::sender_thread(&ancestry)?;
-            let listed = [crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned()];
-            crate::codex_desktop::find(&homes.codex, &thread, &listed).map(Found::Codex)
+            nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .ok_or_else(not_found)?;
         // A registered Claude Code chat is delivered only with its session's own token (never the
         // undocumented peer key), so a shell that has none registers nothing.
-        if matches!(found, Found::Claude(_)) && (req.token.is_none() || req.socket.is_none()) {
+        if req.token.is_none() || req.socket.is_none() {
             return Err(RpcError::invalid_params(
                 "register.no_token: this shell has no CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN; run it in the Claude Code session's own Bash tool or hook",
             ));
@@ -163,13 +158,6 @@ impl Hub {
                 p.cwd.clone(),
                 super::desktop_bridge::tags_of(p),
                 Some(p.pid),
-            ),
-            Found::Codex(t) => (
-                "codex",
-                t.id.clone(),
-                t.cwd.clone(),
-                super::desktop_bridge::codex_tags_of(t),
-                None,
             ),
         };
         let name = req.name.clone();
@@ -265,7 +253,7 @@ impl Hub {
 
 fn not_found() -> RpcError {
     RpcError::invalid_params(
-        "no Claude Code session or Codex desktop thread runs this shell: run `acpmux register NAME` from a command the session itself runs (its Bash tool or a hook)",
+        "no Claude Code session runs this shell: run `acpmux register NAME` from a command the session itself runs (its Bash tool or a hook)",
     )
     .with_data(json!({"reason": "register.no_session"}))
 }

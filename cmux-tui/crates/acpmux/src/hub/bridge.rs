@@ -251,10 +251,7 @@ impl Hub {
             // The app's own record must name an entrypoint (Claude Code) or originator (Codex)
             // the setting lists: a tag alone is anyone's to set. A registered chat was proven
             // by the kernel's pids at registration instead, so any entrypoint is its own.
-            let mut listed = crate::claude_peers::listed_entrypoints();
-            if registered {
-                listed.push(crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned());
-            }
+            let listed = crate::claude_peers::listed_entrypoints();
             if family == "codex" {
                 let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
                 return Some(Target::Codex { home: homes.codex, thread });
@@ -268,11 +265,11 @@ impl Hub {
             let token = registered
                 .then(|| crate::claude_peers::token_for(&acpmux_home, &chat_id, &peer))
                 .flatten();
-            // A registered chat opens with the token its session handed over. A restarted
+            // A registered chat opens only with the token its session handed over. A restarted
             // session's new process has none until it registers again, so the send waits
-            // (`bridge.not_running`) rather than opening with the undocumented peer key, unless
-            // the bridge setting would have taken the chat by itself.
-            if registered && token.is_none() && !by_setting(&peer) {
+            // (`bridge.not_running`) rather than opening with the undocumented peer key, with the
+            // bridge setting on or off.
+            if registered && token.is_none() {
                 return None;
             }
             Some(Target::Claude { config: homes.claude, peer, token })

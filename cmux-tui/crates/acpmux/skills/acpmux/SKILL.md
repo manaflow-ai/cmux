@@ -227,8 +227,9 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
-A session acpmux did not start (the Claude desktop app's Code tab, a terminal
-`claude`, a Codex desktop thread) takes a stable name from its own shell:
+A Claude Code session acpmux did not start (the Claude desktop app's Code tab,
+a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
+one by being started with acpmux):
 
 ```bash
 acpmux register desktop-zoe            # in its Bash tool, or a SessionStart hook on resume

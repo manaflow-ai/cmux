@@ -548,8 +548,8 @@ pub enum Command {
     Rename { session: String, new_name: String },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
-    /// terminal `claude`) or a Codex desktop thread. Run it from that session's own Bash tool or a
-    /// hook. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
+    /// terminal `claude`). Run it from that session's own Bash tool or a hook. A Codex desktop
+    /// thread does not register (nothing ties a shell to its thread); start Codex with acpmux. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
     /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
     /// Run it again after the session restarts (a new process gets a new token); a SessionStart
     /// hook does that on resume. A brand-new session registers after its first turn, once it has a

@@ -289,7 +289,7 @@ impl Hub {
                 return None;
             }
             let ancestry = crate::sender_harness::ancestors(pid);
-            let mut listed = crate::claude_peers::listed_entrypoints();
+            let listed = crate::claude_peers::listed_entrypoints();
             if !claude.is_empty() {
                 let live = crate::claude_peers::live(&homes.claude);
                 if let Some(id) = bound_chat(&ancestry, &claude, &live, &listed, &registered) {
@@ -301,11 +301,6 @@ impl Hub {
             }
             let thread = crate::codex_desktop::sender_thread(&ancestry)?;
             let (id, _) = codex.iter().find(|(_, sid)| *sid == thread)?;
-            // A registered Codex desktop thread binds whatever the setting lists; any other
-            // only when the setting lists its originator.
-            if registered.contains(id) {
-                listed.push(crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned());
-            }
             crate::codex_desktop::find(&homes.codex, &thread, &listed).map(|_| id.clone())
         })
         .await

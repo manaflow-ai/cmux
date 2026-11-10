@@ -130,8 +130,9 @@ identity and delivery scope.
 
 ## Reach a session acpmux did not start
 
-A Claude Code session in the desktop app or a terminal, or a Codex desktop thread, gets a stable
-acpmux name from its own shell, and from then on is an address like any lane:
+A Claude Code session in the desktop app or a terminal gets a stable acpmux name from its own
+shell, and from then on is an address like any lane (a Codex session gets one by being started
+with acpmux, `acpmux new -n NAME -m codex`):
 
 ```bash
 acpmux register desktop-zoe                          # in its Bash tool, or a SessionStart hook on resume
