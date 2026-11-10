@@ -61,10 +61,10 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
-    /// An order-free digest of which panes there are, each in which screen (XOR of one hash per indexed pane). A
-    /// record indexed again as it was leaves it as it was, and no tab changes it: it moves only when a pane came,
-    /// went or sits in another screen. A snapshot that applies a workspace again notes a tab order change each time
-    /// (`tabOrderChanged`); this digest does not move for it.
+    /// An order-free digest of which panes there are, each in which screen of which workspace (XOR of one hash per
+    /// indexed pane). A record indexed again as it was leaves it as it was, and no tab changes it: it moves only
+    /// when a pane came, went or sits in another screen or workspace. A snapshot that applies a workspace again
+    /// notes a tab order change each time (`tabOrderChanged`); this digest does not move for it.
     private var paneMembership = 0
     private var takenPaneMembership = 0
 
@@ -148,19 +148,21 @@ import Foundation
         return tabOrderChanged || tabMembership != takenMembership
     }
 
-    /// Whether the panes (which there are, each in which screen) changed since the last call; resets it.
+    /// Whether the panes (which there are, each in which screen of which workspace) changed since the last call;
+    /// resets it.
     mutating func takePaneListChange() -> Bool {
         defer { takenPaneMembership = paneMembership }
         return paneMembership != takenPaneMembership
     }
 
-    /// With the screen: a pane that leaves one workspace and comes to another in one publish keeps its id and its
-    /// handle, and the two records must not cancel in the XOR.
-    private static func paneMembership(_ pane: PaneModel, _ screen: ScreenID?) -> Int {
+    /// With the screen and the workspace: a pane that leaves one workspace and comes to another in one publish
+    /// (alone, or with its screen) keeps its id and its handle, and the two records must not cancel in the XOR.
+    private static func paneMembership(_ pane: PaneModel, screen: ScreenID?, workspace: String?) -> Int {
         var hasher = Hasher()
         hasher.combine(pane.id)
         hasher.combine(pane.handle)
         hasher.combine(screen)
+        hasher.combine(workspace)
         return hasher.finalize()
     }
 
@@ -234,7 +236,8 @@ import Foundation
         } else if let pane = record as? PaneModel {
             entry.membership = Self.membership(pane)
             tabMembership ^= entry.membership
-            entry.paneMembership = Self.paneMembership(pane, (parent as? ScreenModel)?.handle)
+            let screen = parent as? ScreenModel
+            entry.paneMembership = Self.paneMembership(pane, screen: screen?.handle, workspace: screen.flatMap(workspace(holding:))?.id)
             paneMembership ^= entry.paneMembership
         }
         entries[id] = entry
