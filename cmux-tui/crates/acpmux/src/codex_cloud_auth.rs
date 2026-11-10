@@ -31,6 +31,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
+/// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
+pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
+    root.join("etc/cmux/agent-auth.sh").is_file()
+        && std::fs::read(root.join("etc/cmux/vm-kind"))
+            .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+}
+
 pub const PLACEHOLDER_KEY: &str = "cmux-vm-edge-placeholder";
 /// What the launch gains in own mode.
 pub const OWN_PROVIDER_ARGS: [&str; 2] = ["-c", "model_provider=\"openai\""];
@@ -52,9 +59,7 @@ impl Inputs<'_> {
     }
 
     pub(crate) fn owner_cloud_image(&self) -> bool {
-        self.root.join("etc/cmux/agent-auth.sh").is_file()
-            && std::fs::read(self.root.join("etc/cmux/vm-kind"))
-                .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+        owner_cloud_image_at(self.root)
     }
 
     fn choice(&self) -> Option<&'static str> {
