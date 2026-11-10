@@ -218,3 +218,50 @@ describe("an overlapping alarm never drops an answer whose run then fails retrya
     })
   })
 })
+
+/**
+ * Review F1 on #40370 (a0e8552d): the per-answer wait awaited the whole commit-time drain, so an answer whose own
+ * delivery had ended stayed blocked behind a slower later channel in the same drain (up to the 2 s bound). It now wakes
+ * on each delivery that ends.
+ */
+describe("an answer's wait ends with its own delivery, not with the drain", { timeout: 60_000 }, () => {
+  it("two Cloud answers in one drain: the first returns when its own delivery ends, not when the slower second does", async () => {
+    const u = user("cloudtwochan1")
+    const ended: Record<string, number> = {}
+    // team_x: the drain in flight when both answers commit (held 150 ms); team_a: quick; team_b: held 1.5 s.
+    const holdMs: Record<string, number> = { team_twochanx: 150, team_twochana: 0, team_twochanb: 1_500 }
+    await inDO(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u)), async (instance) => {
+      instance.targetNamespace = (cls: string) => ({
+        idFromName: (n: string) => n,
+        get: (name: string) => ({
+          systemDeliver: async (_e: string, _s: string, items: ReadonlyArray<{ id: number }>) => {
+            if (cls === "CloudDO") await new Promise((r) => setTimeout(r, holdMs[name] ?? 0))
+            if (cls === "CloudDO") ended[name] = Date.now()
+            return { done: items.map((i) => i.id) }
+          },
+        }),
+      })
+      const item = async (team: string) => {
+        const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+        const prompt = { action: { type: "tool", tool: "cloud.machine.create", summary: "s", risk: "money", input: { approval: { team, request, digest: "sha256:abc" } } }, scopes: ["once"] }
+        const posted = await instance.integrationApproval(u, team, prompt, 3_600_000, `approval:${request}`, "cloud")
+        expect(posted.ok, JSON.stringify(posted)).toBe(true)
+        return posted.item as string
+      }
+      const [x, a, b] = [await item("team_twochanx"), await item("team_twochana"), await item("team_twochanb")]
+      const answer = (it: string) => instance.submit(u, session(u), { t: "op", op: "feed.answer", params: { item: it, answer: { decision: "allow", scope: "once" } }, idempotency_key: `a-${it}`, origin: "user" })
+      const xDone = answer(x)
+      await new Promise((r) => setTimeout(r, 20))
+      // Both commit while team_x's send is in flight, so the next drain sends team_a's answer, then team_b's.
+      const aStarted = Date.now()
+      const aDone = answer(a).then(() => Date.now())
+      const bDone = answer(b)
+      const aReturned = await aDone
+      await Promise.all([xDone, bDone])
+      expect(ended.team_twochana, "team_a's answer was delivered").toBeDefined()
+      expect(ended.team_twochanb - ended.team_twochana, "team_b's delivery ended after team_a's").toBeGreaterThanOrEqual(1_000)
+      expect(aReturned - ended.team_twochana, "team_a's answer waited on team_b's slower delivery").toBeLessThan(300)
+      expect(aReturned - aStarted).toBeLessThan(800)
+    })
+  })
+})
