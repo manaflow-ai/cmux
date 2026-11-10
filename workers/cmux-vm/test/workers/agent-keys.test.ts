@@ -216,6 +216,21 @@ describe("an agent's sandboxes", () => {
     expect(h.upstream.vms.size).toBe(1);
   });
 
+  it("gives the slot back when an agent cancels a create whose ownership write failed, so a replacement fits", async () => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 1 });
+    const keyed = (idempotency: string) =>
+      h.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+    h.recordFault.before = 1;
+    expect((await keyed("agent-cancelled")).status).toBe(503);
+    expect((await keyed("agent-replacement")).status).toBe(429);
+    const cancelled = await h.request("/v1/vm-creations/by-key/cancel", { ...bearer(agent.key), "idempotency-key": "agent-cancelled" }, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ state: "cancelled" });
+    expect(h.upstream.vms.size).toBe(0);
+    expect((await keyed("agent-replacement-2")).status).toBe(201);
+  });
+
   it("stops at the $/h budget, counting the requested size", async () => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
     // The default 4 vCPU / 8 GiB VM is estimated at 0.26 USD/h.
