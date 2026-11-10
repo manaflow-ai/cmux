@@ -76,6 +76,7 @@ const TARGETLESS: &[&str] = &[
     "api-key-revoke",
     "move",
     "bring-back",
+    "move-to-machine",
     "sign-in",
     "sign-out",
     "diagnostics",
