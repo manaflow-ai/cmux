@@ -23,12 +23,14 @@
 //   bubble.file {action, path | attachment {conversation, message, partIndex, part}}: its rows' runs
 //   toastAvoidance {rects: [{left, top, right, bottom}] | []}: the compose bar's box (viewport CSS
 //                      pixels), which the app's toasts rest above (HomePageToastAvoidance.swift)
+//   attachment.drag {conversation, message, partIndex, attachment}: the host drags the attachment out as
+//                      a Finder file promise while the press is held -> {started}
 // Stop, Stop all agents, Continue, Restart and Start now are transcript/chiefTurn.ts's.
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
 import { toastAvoidanceReports, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
-import type { HomeConversation } from "../../home-channels/types";
+import type { HomeAttachment, HomeConversation } from "../../home-channels/types";
 import { isPageError, type PageClient } from "../../shared/pageClient";
 import type { HeaderPanelState } from "../cards/header/HeaderPanelBar";
 import { HEADER_PANEL_STATE_EVENT, HEADER_PANEL_TOGGLE_OP } from "../cards/header/HeaderPanelBar";
@@ -65,7 +67,18 @@ export const DetailOps = {
   bubbleShare: "cmux.home.messages.bubble.share",
   bubbleFile: "cmux.home.messages.bubble.file",
   toastAvoidance: "cmux.home.messages.toastAvoidance",
+  attachmentDrag: "cmux.home.messages.attachment.drag",
 } as const;
+
+/** The `attachment.drag` params of `part`, the `partIndex`th part of `message` (its wire shape). */
+export function attachmentDragParams(
+  message: { id: string; conversation: string },
+  part: HomeAttachment,
+  partIndex: number,
+) {
+  const { type: _type, ...attachment } = part;
+  return { conversation: message.conversation, message: message.id, partIndex, attachment };
+}
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json | undefined =>

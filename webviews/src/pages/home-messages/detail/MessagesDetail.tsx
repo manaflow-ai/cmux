@@ -57,6 +57,7 @@ import {
   bubbleHostActions,
   chatAppearance,
   DEFAULT_APPEARANCE,
+  attachmentDragParams,
   DetailOps,
   homeToastAvoidance,
   linkPreviewFetch,
@@ -532,6 +533,16 @@ function ConversationView(
       agents.after,
     ],
   );
+  // The pinned Needs you section: one element while its route shows (a new one each render would
+  // re-render the Feed under it for nothing).
+  const needsYouRoute = isChief && host ? props.needsYou : undefined;
+  const needsYou = useMemo(
+    () =>
+      needsYouRoute && host ? (
+        <FeedNeedsYou key={`${conversation.id} ${needsYouRoute}`} host={host} route={needsYouRoute} />
+      ) : undefined,
+    [needsYouRoute, host, conversation.id],
+  );
   if (!me) return null;
   const hostCall = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
   const { look, colors } = props.appearance(conversation);
@@ -614,9 +625,7 @@ function ConversationView(
                 hostCall(DetailOps.chiefPlaceOpen, { conversation: id, anchor }),
             }
           : {})}
-        {...(isChief && props.needsYou && host
-          ? { pinned: <FeedNeedsYou key={`${id} ${props.needsYou}`} host={host} route={props.needsYou} /> }
-          : {})}
+        {...(needsYou ? { pinned: needsYou } : {})}
         {...(setupCard ? { setupCard } : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
@@ -648,12 +657,16 @@ function ConversationView(
         onReplyToSelection={onReplyToSelection}
         replyCounts={timelineCounts}
         onOpenReplies={(id) => openBranch(id, [])}
+        {...(host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                hostCall(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex)),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
-        {...(props.approvals ? { approvals: props.approvals } : {})}
         {...turnProps}
-        {...(setupCard ? { pinned: setupCard } : {})}
         {...(extras ? { extras } : {})}
         {...(firstRunShown
           ? {
@@ -823,6 +836,14 @@ function ThreadView(
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={props.onReply}
         {...props.menus}
+        {...(props.host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                void props.host
+                  ?.call(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex))
+                  .catch(() => undefined),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}

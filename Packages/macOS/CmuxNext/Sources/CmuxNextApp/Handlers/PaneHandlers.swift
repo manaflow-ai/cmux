@@ -265,10 +265,10 @@ enum PaneHandlers {
                 ctx.refuseQuietly(RefusalStrings.screenHasNoSplits)
             }
         })
-        registry.bind("toggleSplitZoom", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
-            let handle = pane.handle
-            ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
+        // The zoom shows in the key's turn (a store intent, then the window's layout, where its motion starts); a refusal takes it back.
+        registry.bindEffect("toggleSplitZoom", effect: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return .done }
+            return showNow(ctx, pane) { $0.zoomEffect(pane.handle) }
         })
         ActionTargetTitles.setPaletteState("toggleSplitZoom", in: registry) { ctx.services.windows.active?.focusedPane.map { p in p.workspace?.workspace.screens.contains { $0.zoomedPane == p.pane.handle } ?? false } ?? false }
     }

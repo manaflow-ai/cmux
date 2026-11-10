@@ -26,19 +26,30 @@ pub(crate) const KEPT: usize = 2000;
 /// One wait's answer: `{records, last_seq, ended}`, `ended` one of `turn_end`, `permission`, `closed`, `more` or
 /// `timeout`. An error is a link this side could not read (no socket, no capability, a refusal), or
 /// [`Failure::Timeout`] when the wait passed before the attach answered.
-pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -> Result<Value, Failure> {
+pub(crate) fn observe(
+    socket: &Path,
+    surface: u64,
+    after: u64,
+    wait: Duration,
+) -> Result<Value, Failure> {
     let deadline = Instant::now() + wait;
-    let stream = UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
+    let stream =
+        UnixStream::connect(socket).map_err(|error| Failure::Link(format!("connect: {error}")))?;
     let mut writer = stream.try_clone().map_err(|error| Failure::Link(error.to_string()))?;
     let mut lines = BufReader::new(stream);
     // Pushes that came while an answer was awaited (a page after the attach): handled after the pages, in order.
     let mut early: Vec<Value> = Vec::new();
-    let mut ask = |id: &str, request: Value, lines: &mut BufReader<UnixStream>, early: &mut Vec<Value>| -> Result<Value, Failure> {
+    let mut ask = |id: &str,
+                   request: Value,
+                   lines: &mut BufReader<UnixStream>,
+                   early: &mut Vec<Value>|
+     -> Result<Value, Failure> {
         let mut line = request.to_string();
         line.push('\n');
         writer.write_all(line.as_bytes()).map_err(|error| Failure::Link(error.to_string()))?;
         loop {
-            let answer = next(lines, deadline)?.ok_or_else(|| Failure::Link("the link closed".into()))?;
+            let answer =
+                next(lines, deadline)?.ok_or_else(|| Failure::Link("the link closed".into()))?;
             if answer.get("id").and_then(Value::as_str) != Some(id) {
                 if answer.get("event").is_some() {
                     early.push(answer);
@@ -46,15 +57,24 @@ pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
                 continue;
             }
             if answer.get("ok") == Some(&Value::Bool(false)) {
-                return Err(Failure::Link(format!("{id} refused: {}", answer.get("error").unwrap_or(&Value::Null))));
+                return Err(Failure::Link(format!(
+                    "{id} refused: {}",
+                    answer.get("error").unwrap_or(&Value::Null)
+                )));
             }
             return Ok(answer.get("data").cloned().unwrap_or(Value::Null));
         }
     };
-    let identity = ask("identify", json!({"id": "identify", "cmd": "identify"}), &mut lines, &mut early)?;
-    let serves = identity.get("capabilities").and_then(Value::as_array).is_some_and(|names| names.iter().any(|name| name == ATTACH));
+    let identity =
+        ask("identify", json!({"id": "identify", "cmd": "identify"}), &mut lines, &mut early)?;
+    let serves = identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|names| names.iter().any(|name| name == ATTACH));
     if !serves {
-        return Err(Failure::Link("the machine's daemon does not serve agent-session-attach".into()));
+        return Err(Failure::Link(
+            "the machine's daemon does not serve agent-session-attach".into(),
+        ));
     }
     let mut got = Got { records: Vec::new(), last_seq: after, ended: None };
     let page = ask(
@@ -67,7 +87,10 @@ pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
     // A permission asked before the attach is in the attach's session summary (`session.pending`, as `acpmux
     // run`'s permission read), not pushed again.
     if got.ended.is_none()
-        && page.pointer("/session/pending").and_then(Value::as_array).is_some_and(|asks| !asks.is_empty())
+        && page
+            .pointer("/session/pending")
+            .and_then(Value::as_array)
+            .is_some_and(|asks| !asks.is_empty())
     {
         got.ended = Some("permission");
     }
@@ -111,7 +134,9 @@ pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
         };
         got.push(&line);
     }
-    Ok(json!({"records": got.records, "last_seq": got.last_seq, "ended": got.ended.unwrap_or("timeout")}))
+    Ok(
+        json!({"records": got.records, "last_seq": got.last_seq, "ended": got.ended.unwrap_or("timeout")}),
+    )
 }
 
 /// The chat tab's handle on the machine's daemon, from `cloud start-session`'s answer (its `surface_id`): what the
@@ -137,7 +162,10 @@ fn next(lines: &mut BufReader<UnixStream>, deadline: Instant) -> Result<Option<V
         if left.is_zero() {
             return Err(Failure::Timeout);
         }
-        lines.get_ref().set_read_timeout(Some(left)).map_err(|error| Failure::Link(error.to_string()))?;
+        lines
+            .get_ref()
+            .set_read_timeout(Some(left))
+            .map_err(|error| Failure::Link(error.to_string()))?;
         let mut line = String::new();
         match lines.read_line(&mut line) {
             Ok(0) => return Ok(None),
@@ -146,7 +174,12 @@ fn next(lines: &mut BufReader<UnixStream>, deadline: Instant) -> Result<Option<V
                     return Ok(Some(value));
                 }
             }
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
                 return Err(Failure::Timeout);
             }
             Err(error) => return Err(Failure::Link(error.to_string())),
@@ -165,7 +198,11 @@ pub(crate) fn turn_ended(record: &Value) -> Option<Option<&Value>> {
     match record.get("kind").and_then(Value::as_str)? {
         "turn_end" => Some(None),
         "turn_error" => Some(Some(msg.unwrap_or(&Value::Null))),
-        "turn_result" if msg.and_then(|msg| msg.get("status")).and_then(Value::as_str) == Some("failed") => Some(msg),
+        "turn_result"
+            if msg.and_then(|msg| msg.get("status")).and_then(Value::as_str) == Some("failed") =>
+        {
+            Some(msg)
+        }
         _ => None,
     }
 }
@@ -222,7 +259,11 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     /// A daemon on a socket that answers `identify` and `agent-session-attach` (the page), then pushes `pushed`.
-    fn daemon(capabilities: &[&str], page: Value, pushed: Vec<Value>) -> (tempfile::TempDir, std::path::PathBuf) {
+    fn daemon(
+        capabilities: &[&str],
+        page: Value,
+        pushed: Vec<Value>,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
         serve(capabilities, page, json!({"events": [], "hasMore": false}), pushed)
     }
 
@@ -231,11 +272,17 @@ mod tests {
         serve(&[ATTACH], json!({"events": [], "hasMore": true}), events, vec![])
     }
 
-    fn serve(capabilities: &[&str], page: Value, events: Value, pushed: Vec<Value>) -> (tempfile::TempDir, std::path::PathBuf) {
+    fn serve(
+        capabilities: &[&str],
+        page: Value,
+        events: Value,
+        pushed: Vec<Value>,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("link.sock");
         let listener = UnixListener::bind(&path).unwrap();
-        let capabilities: Vec<String> = capabilities.iter().map(|name| (*name).to_owned()).collect();
+        let capabilities: Vec<String> =
+            capabilities.iter().map(|name| (*name).to_owned()).collect();
         std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut writer = stream.try_clone().unwrap();
@@ -275,14 +322,22 @@ mod tests {
         let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
         assert_eq!(answer["ended"], "turn_end");
         assert_eq!(answer["last_seq"], 3);
-        let seqs: Vec<u64> = answer["records"].as_array().unwrap().iter().map(|r| r["seq"].as_u64().unwrap()).collect();
+        let seqs: Vec<u64> = answer["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["seq"].as_u64().unwrap())
+            .collect();
         assert_eq!(seqs, [1, 2, 3], "each record once, none after the turn's end");
     }
 
     #[test]
     fn a_permission_ends_the_wait_and_a_quiet_link_times_out() {
-        let (_dir, path) = daemon(&[ATTACH], json!({"events": [], "hasMore": false}),
-                                  vec![json!({"event": "agent-session-permission", "surface": 7, "request": {}})]);
+        let (_dir, path) = daemon(
+            &[ATTACH],
+            json!({"events": [], "hasMore": false}),
+            vec![json!({"event": "agent-session-permission", "surface": 7, "request": {}})],
+        );
         assert_eq!(observe(&path, 7, 0, Duration::from_secs(5)).unwrap()["ended"], "permission");
         let (_dir, path) = daemon(&[ATTACH], json!({"events": [], "hasMore": false}), vec![]);
         assert_eq!(observe(&path, 7, 0, Duration::from_millis(200)).unwrap()["ended"], "timeout");
@@ -296,7 +351,10 @@ mod tests {
                                  "record": record(2, "turn_error", json!({"error": "agent process closed"}))})];
         let (_dir, path) = daemon(&[ATTACH], page, pushed);
         let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
-        assert_eq!((answer["ended"].as_str(), answer["last_seq"].as_u64()), (Some("turn_end"), Some(2)));
+        assert_eq!(
+            (answer["ended"].as_str(), answer["last_seq"].as_u64()),
+            (Some("turn_end"), Some(2))
+        );
         let failed = record(3, "turn_result", json!({"status": "failed", "error": "e"}));
         assert_eq!(turn_ended(&failed), Some(Some(&json!({"status": "failed", "error": "e"}))));
         assert_eq!(turn_ended(&record(3, "turn_result", json!({"status": "completed"}))), None);
@@ -304,13 +362,19 @@ mod tests {
 
     #[test]
     fn pages_follow_the_attach_and_pushes_during_them_are_kept() {
-        let record = |seq: u64, kind: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {}});
+        let record =
+            |seq: u64, kind: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {}});
         // The attach answers one page with more; the fake's events answer is empty with no more, then the pushes.
         let page = json!({"events": [record(1, "user_message")], "hasMore": true});
-        let pushed = vec![json!({"event": "agent-session-record", "surface": 7, "record": record(2, "turn_end")})];
+        let pushed = vec![
+            json!({"event": "agent-session-record", "surface": 7, "record": record(2, "turn_end")}),
+        ];
         let (_dir, path) = daemon(&[ATTACH], page, pushed);
         let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
-        assert_eq!(answer["ended"], "turn_end", "the push that came while the page was asked ends the wait");
+        assert_eq!(
+            answer["ended"], "turn_end",
+            "the push that came while the page was asked ends the wait"
+        );
         assert_eq!(answer["last_seq"], 2);
     }
 
@@ -335,6 +399,8 @@ mod tests {
     fn a_daemon_without_attach_is_refused_before_any_attach() {
         let (_dir, path) = daemon(&["workspace-registry-v1"], json!({}), vec![]);
         assert!(observe(&path, 7, 0, Duration::from_secs(5)).is_err());
-        assert!(observe(Path::new("/nonexistent/link.sock"), 7, 0, Duration::from_secs(1)).is_err());
+        assert!(
+            observe(Path::new("/nonexistent/link.sock"), 7, 0, Duration::from_secs(1)).is_err()
+        );
     }
 }

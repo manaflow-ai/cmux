@@ -640,6 +640,9 @@ pub struct Mux {
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
     terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
+    /// Tests: how many hosted readers' frame demultiplexers fail to start.
+    #[cfg(test)]
+    host_frames_spawn_failures: AtomicU64,
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
