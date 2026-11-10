@@ -221,7 +221,7 @@ export class MockAppPanelsClient implements PageClient {
 
   /** `cmux.apps.panels.changed` to every watching page. */
   private announceChanged(): void {
-    for (const listener of [...this.changed]) listener(undefined, ++this.seq);
+    for (const listener of this.changed) listener(undefined, ++this.seq);
   }
 
   /** Mounts the mock holds now (a closed New Tab page holds none). */

@@ -553,7 +553,7 @@ fn every_panels_write_that_changes_a_listing_is_an_apps_changed() {
             .unwrap();
     };
     let clock = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
-    layout("layout-1", clock.clone());
+    layout("layout-1", clock);
     let heard = changes();
     assert_eq!(heard.len(), 1, "{heard:?}");
     assert_eq!(heard[0]["transaction"], "newtab-layout");
