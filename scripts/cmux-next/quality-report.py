@@ -71,8 +71,13 @@ TOP_SIGNATURES = 15
 # Interaction rows of the perf cron: latencies a person waits on. Background and shape rows (idle CPU, long-task
 # totals, slopes, heap) are not interaction latencies and stay out of this metric.
 NOT_INTERACTION = re.compile(r"idle|long_ms|long_tasks|slope|heap|wakeups|\.cls@|_px@|rows_lost|dom_content_loaded")
+SIBLING_RE = re.compile(r"with signature `([0-9a-f]{6,})`")
 TITLE_RE = re.compile(r"^hang-watch ([0-9a-f]{6,}): (\w+)(?: \(([^)]*)\))? in (.+)$")
 REPORT_LINE_RE = re.compile(r"^- `([^`]+)`(.*)$")
+# hang_watch.py lists at most 20 reports per post, then "- and N more".
+MORE_RE = re.compile(r"^- and (\d+) more$")
+# A post's held block ("Earlier reports of this signature, held until it recurred:") lists reports already outside
+# hang-watch's issue; they are older than the post and are read by their own times like any other line.
 # A report's time as hang_watch.py writes it: ISO with Z (app hang files, file names with - for :) or a macOS report's
 # local time with its offset ("2026-11-05 17:52:59.00 -0800").
 STAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[T ](\d{2})[:-](\d{2})[:-](\d{2})(?:\.\d+)?(?:\s*(Z|[+-]\d{2}:?\d{2}))?")
@@ -183,7 +188,7 @@ def sentry_crashes(get: Callable[[str, List[Tuple[str, str]]], Any], hours: int,
     sigs: Dict[str, Dict[str, Any]] = {}
     for env, channel in SENTRY_ENVIRONMENTS.items():
         params = [("project", SENTRY_PROJECT_ID), ("environment", env), ("statsPeriod", f"{hours}h"),
-                  ("query", "is:unresolved level:[fatal,error] app:cmux-next"), ("sort", "freq"), ("limit", "100")]
+                  ("query", "!is:resolved level:[fatal,error] app:cmux-next"), ("sort", "freq"), ("limit", "100")]
         for issue in get(f"/organizations/{SENTRY_ORG}/issues/", params) or []:
             key = str(issue.get("shortId") or issue.get("id"))
             first = parse_time(issue.get("firstSeen"))
@@ -246,16 +251,32 @@ def report_channel(line: str) -> str:
     return "OTHER"
 
 
+def held_block(text: str, line: str) -> bool:
+    """Whether `line` is in the post's held block: an undated held report is not this post's, so it is not counted."""
+    head, sep, _ = (text or "").partition("held until it recurred:")
+    return bool(sep) and line in text[len(head):]
+
+
 def report_lines(text: str, posted: Optional[dt.datetime]) -> List[Tuple[dt.datetime, str]]:
     """(time, channel) per report line of an issue body or comment. A line's own time is the report's start (or the
     time in its file name); a line with none takes the post's time."""
-    out = []
+    out: List[Tuple[dt.datetime, str]] = []
+    channel_of_post = None
     for raw in (text or "").splitlines():
+        more = MORE_RE.match(raw.strip())
+        if more and posted is not None:
+            # The unlisted reports are dated by the post and take the listed reports' most common channel.
+            channels = [c for _, c in out] or ["OTHER"]
+            channel_of_post = max(set(channels), key=channels.count)
+            out += [(posted, channel_of_post)] * int(more.group(1))
+            continue
         m = REPORT_LINE_RE.match(raw.strip())
         if not m:
             continue
         path, rest = m.groups()
-        when = parse_time(rest) or parse_time(os.path.basename(path)) or posted
+        when = parse_time(rest) or parse_time(os.path.basename(path))
+        if when is None and not held_block(text, raw):
+            when = posted
         if when is not None:
             out.append((when, report_channel(raw)))
     return out
@@ -273,6 +294,19 @@ def hang_watch_crashes(issues: List[Dict[str, Any]], since: dt.datetime) -> Dict
         came_back = False
         for c in issue.get("comments") or []:
             body = c.get("body") or ""
+            sib = SIBLING_RE.search(body) if body.startswith("Another signature of this stall") else None
+            if sib:
+                # A new signature that joined this issue (hang_watch.py sibling_body): its own signature.
+                posted = parse_time(c.get("createdAt"))
+                sib_counts: Dict[str, int] = {}
+                for when, channel in report_lines(body, posted):
+                    if when >= since:
+                        sib_counts[channel] = sib_counts.get(channel, 0) + 1
+                if sib_counts:
+                    sigs.append({"id": sib.group(1), "title": f"{kind} in {headline} (joined #{issue.get('number')})"[:140],
+                                 "kind": kind, "url": issue.get("url"), "first_seen": c.get("createdAt"),
+                                 "new": bool(posted and posted >= since), "came_back": False, "counts": sib_counts})
+                continue
             lines += report_lines(body, parse_time(c.get("createdAt")))
             if body.startswith("Came back after the close") and (parse_time(c.get("createdAt")) or since) >= since:
                 came_back = True
@@ -425,15 +459,15 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
     crash_free: Dict[str, Any] = {"value": None, "sessions": 0, "by_environment": {}, "source": None, "why": sentry_why}
     crashes: Optional[Dict[str, Any]] = None
     if sentry_why is None:
+        # Two reads, each with its own reason: a token that can read issues but not sessions still counts crashes.
         try:
             crash_free = sentry_crash_free(get, hours)
         except SourceError as e:
-            crash_free["why"] = sentry_why = str(e)
-        if sentry_why is None:
-            try:
-                crashes = sentry_crashes(get, hours, since)
-            except SourceError as e:
-                sentry_why = str(e)
+            crash_free["why"] = str(e)
+        try:
+            crashes = sentry_crashes(get, hours, since)
+        except SourceError as e:
+            sentry_why = str(e)
     if crashes is None:
         try:
             crashes = hang_watch_crashes(hang_watch(since), since)
@@ -459,6 +493,11 @@ def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
     cr = out.get("crashes") or {}
     for key in ("signatures", "error_signatures"):
         cr.pop(key, None)
+    # Session counts are usage numbers: the rate is public, how many sessions it is over is not.
+    cf = out.get("crash_free_session_rate") or {}
+    cf.pop("sessions", None)
+    for env in (cf.get("by_environment") or {}).values():
+        env.pop("sessions", None)
     return out
 
 
@@ -466,14 +505,14 @@ def pct(v: Optional[float]) -> str:
     return "n/a" if v is None else f"{v * 100:.2f}%"
 
 
-def headline(r: Dict[str, Any]) -> Dict[str, str]:
+def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
     cf = r["crash_free_session_rate"]
     cr = r["crashes"]
     p = r["interaction_p95_ms"]
     g = r["god_vs_small"]
     a = r["animation_token_coverage"]
     return {
-        "Crash-free sessions": f"{pct(cf['value'])} of {cf['sessions']}" if cf["value"] is not None else f"n/a ({cf['why']})",
+        "Crash-free sessions": (pct(cf["value"]) + ("" if public else f" of {cf.get('sessions')}")) if cf["value"] is not None else f"n/a ({cf['why']})",
         "Crashes and hangs": (f"{cr['total']} ({', '.join(f'{k} {v}' for k, v in sorted(cr['by_channel'].items())) or 'none'}; "
                               f"{cr.get('new_signatures', 0)} new, {cr.get('returning_signatures', 0)} returning signatures; "
                               f"from {cr['source']})") if cr.get("total") is not None else f"n/a ({cr.get('why')})",
@@ -487,7 +526,7 @@ def headline(r: Dict[str, Any]) -> Dict[str, str]:
 
 def render_markdown(r: Dict[str, Any], public: bool) -> str:
     out = [f"## cmux NEXT quality, {r['window_hours']} h to {r['generated_at']}", "", "| Metric | Value |", "| --- | --- |"]
-    out += [f"| {k} | {v} |" for k, v in headline(r).items()]
+    out += [f"| {k} | {v} |" for k, v in headline(r, public).items()]
     cr = r["crashes"]
     if cr.get("source") == "hang-watch" and cr.get("sentry_why"):
         out += ["", f"Sentry was not read ({cr['sentry_why']}); crash counts are hang-watch's reports from the hosts it "
@@ -595,7 +634,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if path:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(render_markdown(r, public))
-        print(json.dumps(headline(r), indent=2))
+        print(json.dumps(headline(r, public=True), indent=2))  # the job log is public
         return 0
     with open(args.report, encoding="utf-8") as f:
         r = json.load(f)
