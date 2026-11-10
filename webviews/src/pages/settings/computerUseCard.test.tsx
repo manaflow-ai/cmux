@@ -12,7 +12,7 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
 
-const PATH = "/settings/computer-use";
+const PATH = "/settings/computerUse";
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="computer-use"]');
 const grants = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-granted]")].map((badge) => badge.dataset.granted);
@@ -57,6 +57,8 @@ test("Computer Use is its own category, and Agents no longer draws it", async ()
     "computerUse.allowOwnMachines",
     "computerUse.pauseOnTakeover",
     "computerUse.showCursor",
+    "computerUse.cursorTag",
+    "computerUse.settle",
     "computerUse.livePreview",
     "computerUse.allowForeground",
   ]) {

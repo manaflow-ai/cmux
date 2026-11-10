@@ -210,8 +210,19 @@ fn a_call_carries_the_cursor_tag_the_agent_set_else_its_workspace_name() {
     caller.call("click", &json!({"window_id": "w1", "machine": "studio"}), "t-5");
     let seen = worker.seen.lock().unwrap();
     let tags: Vec<_> = seen.iter().map(|r| r["tag"].clone()).collect();
-    assert_eq!(tags, [json!("cmux rewrite"), json!("Fixing the build"), json!("Fixing the build"), json!("cmux rewrite")]);
-    assert!(seen.iter().all(|r| r["arguments"].get("cursor_tag").is_none()), "the tag never reaches the tool");
+    assert_eq!(
+        tags,
+        [
+            json!("cmux rewrite"),
+            json!("Fixing the build"),
+            json!("Fixing the build"),
+            json!("cmux rewrite")
+        ]
+    );
+    assert!(
+        seen.iter().all(|r| r["arguments"].get("cursor_tag").is_none()),
+        "the tag never reaches the tool"
+    );
     assert_eq!(reads.load(Ordering::SeqCst), 1, "the workspace's name is read once");
     assert_eq!(remote.lock().unwrap()[0]["tag"], "cmux rewrite");
     // No workspace and no tag of its own: no tag.
@@ -219,7 +230,10 @@ fn a_call_carries_the_cursor_tag_the_agent_set_else_its_workspace_name() {
     let caller = Caller::new(FakeDaemon::new(vec![Ok(bare.ready())]), "s-2".into(), "Codex".into());
     caller.call("click", &json!({"window_id": "w1"}), "t-6");
     assert!(bare.seen.lock().unwrap()[0].get("tag").is_none());
-    assert_eq!(cmux_computer_use::tools::safe_tag(&"x".repeat(80)).map(|t| t.chars().count()), Some(60));
+    assert_eq!(
+        cmux_computer_use::tools::safe_tag(&"x".repeat(80)).map(|t| t.chars().count()),
+        Some(60)
+    );
 }
 
 /// The worker dies mid-call and comes back on a new socket with a new

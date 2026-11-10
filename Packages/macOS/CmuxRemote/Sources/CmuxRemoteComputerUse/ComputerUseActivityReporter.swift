@@ -11,10 +11,7 @@ import os
 /// (``ComputerUseActivity``) per session at most every half second unless its label or app changed,
 /// and one when its cursor hides (the session ended or its grant was revoked).
 final class ComputerUseActivityReporter: Sendable {
-    private struct App: Equatable, Sendable {
-        var id: String?
-        var name: String?
-    }
+    private typealias App = ComputerUseActivity.App
 
     private struct SessionState: Sendable {
         var label = ""
@@ -34,7 +31,7 @@ final class ComputerUseActivityReporter: Sendable {
 
     private let write: @Sendable (Data) -> Void
     private let clock: @Sendable () -> Date
-    private let windowApp: @Sendable (UInt32) -> (id: String?, name: String?)?
+    private let windowApp: @Sendable (UInt32) -> ComputerUseActivity.App?
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// - Parameters:
@@ -42,7 +39,7 @@ final class ComputerUseActivityReporter: Sendable {
     ///   - clock: Now (a test passes its own).
     ///   - windowApp: The app that owns a window (CGWindowList); a test passes its own.
     init(write: @escaping @Sendable (Data) -> Void, clock: @escaping @Sendable () -> Date = { Date() },
-         windowApp: @escaping @Sendable (UInt32) -> (id: String?, name: String?)? = ComputerUseActivityReporter.owner(ofWindow:)) {
+         windowApp: @escaping @Sendable (UInt32) -> ComputerUseActivity.App? = { ComputerUseActivityReporter.owner(ofWindow: $0) }) {
         self.write = write
         self.clock = clock
         self.windowApp = windowApp
@@ -86,7 +83,7 @@ final class ComputerUseActivityReporter: Sendable {
             return state.windowApps[captured.id] == nil ? captured.id : nil
         } : nil
         // Outside the lock: one CGWindowList read for a window not seen before.
-        let resolved = window.flatMap { id in windowApp(id).map { (id, App(id: $0.id, name: $0.name)) } }
+        let resolved = window.flatMap { id in windowApp(id).map { (id, $0) } }
         let line = state.withLockUnchecked { state -> Data? in
             if let (id, app) = resolved {
                 if state.windowApps.count >= 64 { state.windowApps.removeAll() }
@@ -115,14 +112,14 @@ final class ComputerUseActivityReporter: Sendable {
         entry.sentLabel = entry.label
         entry.sentApp = entry.app
         state.sessions[session] = entry
-        return ComputerUseActivity.line(session: session, label: entry.label, appID: entry.app?.id, appName: entry.app?.name, at: now)
+        return ComputerUseActivity.line(session: session, label: entry.label, app: entry.app, at: now)
     }
 
-    /// The bundle id and name of the app that owns window `id`; nil when it is gone.
-    @Sendable static func owner(ofWindow id: UInt32) -> (id: String?, name: String?)? {
+    /// The app that owns window `id` (its bundle id, name and process); nil when it is gone.
+    static func owner(ofWindow id: UInt32) -> ComputerUseActivity.App? {
         guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(id)) as? [[String: Any]],
               let info = list.first, let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else { return nil }
         let app = NSRunningApplication(processIdentifier: pid)
-        return (app?.bundleIdentifier, app?.localizedName ?? info[kCGWindowOwnerName as String] as? String)
+        return App(id: app?.bundleIdentifier, name: app?.localizedName ?? info[kCGWindowOwnerName as String] as? String, pid: pid)
     }
 }

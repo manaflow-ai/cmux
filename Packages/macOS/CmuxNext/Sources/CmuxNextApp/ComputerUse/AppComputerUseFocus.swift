@@ -15,17 +15,9 @@ final class AppComputerUseFocus: ComputerUseFocusing {
 
     func raiseTarget(of session: ComputerUseLiveSession) -> Bool {
         guard let target = session.target else { return false }
-        // A pid the host acted on, checked against the bundle id (a recycled pid of another app is
-        // refused); cmux Remote's worker names the app by bundle id alone.
-        if let pid = target.pid {
-            guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
-                  target.bundleID == nil || app.bundleIdentifier == target.bundleID else { return false }
-            return app.activate(options: [])
-        }
-        guard let bundleID = target.bundleID,
-              let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { !$0.isTerminated }) else {
-            return false
-        }
+        // The host reports the pid it acted on; a recycled pid of another app is refused by the bundle id.
+        guard let pid = target.pid, let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
+              target.bundleID == nil || app.bundleIdentifier == target.bundleID else { return false }
         return app.activate(options: [])
     }
 

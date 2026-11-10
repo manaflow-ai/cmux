@@ -51,7 +51,8 @@ pub async fn run() -> Result<()> {
     crate::parent_watch::exit_with_parent();
     // The agent's cmux workspace (its pane's or its chat's env): its name tags the agent's cursor.
     let workspace = var(WORKSPACE_ENV);
-    let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label).with_workspace(workspace));
+    let caller =
+        Arc::new(Caller::new(SocketDaemon::from_env(), session, label).with_workspace(workspace));
     serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 

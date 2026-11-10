@@ -13,8 +13,10 @@ use crate::agent_guidance::UserSkill;
 /// Skills about one MCP server's tools, and that server: a session without the server is not
 /// told about the skill (a Linux or Cloud chat has no computer use; a chat without
 /// `cmux-secrets` has no `request_elevation`).
-const SKILL_SERVERS: &[(&str, &str)] =
-    &[("cmux-computer-use", crate::computer_use::mcp::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
+const SKILL_SERVERS: &[(&str, &str)] = &[
+    ("cmux-computer-use", crate::computer_use::mcp::SERVER_NAME),
+    ("cmux-sudo", crate::secret_mcp::SERVER_NAME),
+];
 
 /// Not indexed: `cmux-chat`'s rules are `AGENT_GUIDANCE` itself, already in the same block.
 const NOT_INDEXED: &[&str] = &["cmux-chat"];
@@ -90,7 +92,14 @@ mod tests {
         };
         assert_eq!(
             names(&full),
-            ["cmux-browser", "cmux-computer-use", "cmux-customization", "cmux-live", "acpmux", "cmux-sudo"]
+            [
+                "cmux-browser",
+                "cmux-computer-use",
+                "cmux-customization",
+                "cmux-live",
+                "acpmux",
+                "cmux-sudo"
+            ]
         );
         for skill in full.skill_index() {
             assert_eq!(skill.dir, plugin.join("skills").join(&skill.name));

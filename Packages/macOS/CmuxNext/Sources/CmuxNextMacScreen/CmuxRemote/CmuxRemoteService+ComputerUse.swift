@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 import os
 
 private let computerUseLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cmux-remote")
@@ -29,13 +30,14 @@ public final class CmuxRemoteComputerUseState {
     public internal(set) var sessions: [CmuxRemoteComputerUseSession] = []
     /// An agent acted through Computer Use within the last 2 s (the menu bar badge).
     public internal(set) var acting = false
-    /// The pending end of ``acting``.
-    @ObservationIgnored var actingClear: Task<Void, Never>?
-    /// Now, and an intentional bounded wait (a test passes its own clock).
+    /// The end of ``acting``: one deadline, replaced by the next activity.
+    let actingClear: DemandTimer
+    /// Now (wall clock, as the worker stamps its actions; a test passes its own).
     @ObservationIgnored var now: @Sendable () -> Date = { Date() }
-    @ObservationIgnored var sleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
 
-    nonisolated init() {}
+    nonisolated init(clock: any Clock<Duration> = ContinuousClock()) {
+        actingClear = DemandTimer(owner: "computer-use.acting", clock: clock)
+    }
 
     /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer).
     func take(host: [String: Any]?) {

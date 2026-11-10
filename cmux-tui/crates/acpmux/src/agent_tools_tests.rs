@@ -399,7 +399,11 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     };
     let full = super::materialize(state.path(), |_| true).unwrap();
     let with = super::AgentTools {
-        servers: vec![server("cmux"), server("cmux-computer-use"), server(crate::secret_mcp::SERVER_NAME)],
+        servers: vec![
+            server("cmux"),
+            server("cmux-computer-use"),
+            server(crate::secret_mcp::SERVER_NAME),
+        ],
         plugin_dir: Some(full.clone()),
         ..Default::default()
     };
@@ -417,14 +421,19 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     assert!(fit.join("hooks/hooks.json").is_file());
     let rows: Vec<_> = without.tool_rows(true, true).into_iter().map(|r| r.id).collect();
     assert!(rows.contains(&"skill:cmux:cmux-browser".to_owned()), "{rows:?}");
-    assert!(!rows.iter().any(|r| r.ends_with("cmux-computer-use") || r.ends_with("cmux-sudo")), "{rows:?}");
+    assert!(
+        !rows.iter().any(|r| r.ends_with("cmux-computer-use") || r.ends_with("cmux-sudo")),
+        "{rows:?}"
+    );
     let parts: Vec<_> = without.context_parts(true).into_iter().map(|p| p.id).collect();
     assert!(!parts.iter().any(|p| p == "cmux-source-skill-cmux-cmux-computer-use"), "{parts:?}");
     // A plugin without the chat skill (`agents.guidance.claude` off) stays without it.
     let no_chat = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
     let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
     let fit = fit.plugin_dir.unwrap();
-    assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-computer-use").exists());
+    assert!(
+        !fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-computer-use").exists()
+    );
 }
 
 /// cmux's hosted MCP server (`hosted_mcp.rs`) reaches a session only while the daemon turns it

@@ -12,9 +12,9 @@ import Testing
     private final class Rig: Sendable {
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 1_000))
         let lines = OSAllocatedUnfairLock(initialState: [[String: Any]]())
-        let windows: [UInt32: (id: String?, name: String?)]
+        let windows: [UInt32: ComputerUseActivity.App]
 
-        init(windows: [UInt32: (id: String?, name: String?)] = [:]) { self.windows = windows }
+        init(windows: [UInt32: ComputerUseActivity.App] = [:]) { self.windows = windows }
 
         func reporter() -> ComputerUseActivityReporter {
             ComputerUseActivityReporter(write: { data in
@@ -34,7 +34,7 @@ import Testing
     }
 
     @Test func anActionSaysWhoActsOnWhichAppAtMostEveryHalfSecond() {
-        let rig = Rig(windows: [42: ("com.apple.TextEdit", "TextEdit")])
+        let rig = Rig(windows: [42: .init(id: "com.apple.TextEdit", name: "TextEdit", pid: 501)])
         let reporter = rig.reporter()
         reporter.noteCapture(.window(42))
         reporter.noteCursor(cursor("look"))
@@ -46,6 +46,7 @@ import Testing
         #expect(first["type"] as? String == "activity" && first["session"] as? String == "s1")
         #expect(first["label"] as? String == "Claude Code")
         #expect((first["app"] as? [String: Any])?["name"] as? String == "TextEdit")
+        #expect((first["app"] as? [String: Any])?["pid"] as? Int == 501)
         #expect((first["at_ms"] as? NSNumber)?.int64Value == 1_000_000)
         rig.advance(0.4)
         reporter.noteCursor(cursor("typing"))
@@ -57,7 +58,7 @@ import Testing
     }
 
     @Test func aNewAppOrAnAppTheEventNamesGoesAtOnce() {
-        let rig = Rig(windows: [1: ("com.apple.Notes", "Notes"), 2: ("com.apple.Safari", "Safari")])
+        let rig = Rig(windows: [1: .init(id: "com.apple.Notes", name: "Notes"), 2: .init(id: "com.apple.Safari", name: "Safari")])
         let reporter = rig.reporter()
         reporter.noteCapture(.window(1))
         reporter.noteCursor(cursor("look"))
@@ -85,6 +86,7 @@ import Testing
         #expect(fields.map { $0["session"] as? String } == ["b", "a"], "newest first")
         #expect(fields[0]["label"] as? String == "Codexbad", "no control characters reach the person")
         #expect((fields[1]["app"] as? [String: Any])?["name"] as? String == "Notes")
+        #expect((fields[1]["app"] as? [String: Any])?["pid"] == nil, "no pid when the line names none")
         #expect(activity.take(["type": "activity", "session": "a", "ended": true], now: now))
         #expect(activity.sessions.keys.sorted() == ["b"])
         let later = now.addingTimeInterval(ComputerUseActivity.forgetAfter + 1)

@@ -471,10 +471,8 @@ impl Inner {
     /// (a status event comes for any change of the host, most of them not
     /// Computer Use's).
     fn note_activity(this: &Arc<Self>, status: &Value) {
-        let activity = status
-            .pointer("/workers/computer-use/activity")
-            .cloned()
-            .unwrap_or_else(|| json!([]));
+        let activity =
+            status.pointer("/workers/computer-use/activity").cloned().unwrap_or_else(|| json!([]));
         {
             let mut last = lock(&this.activity);
             if *last == activity || (last.is_null() && activity == json!([])) {

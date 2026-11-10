@@ -54,7 +54,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     init(output: LineChannel) {
         channel = output
-        activity = ComputerUseActivityReporter(write: { line in output.write(line) })
+        activity = ComputerUseActivityReporter(write: { line in _ = output.write(line) })
     }
 
     @MainActor func start() {

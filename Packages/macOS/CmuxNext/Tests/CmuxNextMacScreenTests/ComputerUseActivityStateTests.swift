@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CmuxNextComputerUse
 import CmuxNextDaemon
+import CmuxNextWakeupsTestSupport
 import Foundation
 @testable import CmuxNextMacScreen
 import os
@@ -7,23 +9,18 @@ import Testing
 
 /// What the app knows of the agents acting through Computer Use, from the daemon's
 /// `computer-use-activity` (and a status read): the sessions, newest first, and `acting` (the menu
-/// bar badge), which ends 2 s after the newest action through one wait on the injected clock.
-@MainActor @Suite struct ComputerUseActivityStateTests {
-    /// A clock the test moves; a wait ends when the test releases it.
-    private final class Clock: Sendable {
+/// bar badge), which ends 2 s after the newest action through one deadline on the injected clock.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct ComputerUseActivityStateTests {
+    /// The wall clock the worker's stamps are compared with; the test moves it.
+    private final class Wall: Sendable {
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 5_000))
-        let waits = OSAllocatedUnfairLock(initialState: [Duration]())
-        let release = AsyncStream<Void>.makeStream()
-
-        func install(on state: CmuxRemoteComputerUseState) {
-            state.now = { self.now.withLock { $0 } }
-            state.sleep = { duration in
-                self.waits.withLock { $0.append(duration) }
-                for await _ in self.release.stream { return }
-            }
-        }
-
         func advance(_ seconds: TimeInterval) { now.withLock { $0 = $0.addingTimeInterval(seconds) } }
+    }
+
+    private func state(_ clock: ManualClock = ManualClock(), wall: Wall = Wall()) -> CmuxRemoteComputerUseState {
+        let state = CmuxRemoteComputerUseState(clock: clock)
+        state.now = { wall.now.withLock { $0 } }
+        return state
     }
 
     private func event(_ sessions: [[String: Any]]) throws -> JSONValue {
@@ -32,48 +29,51 @@ import Testing
     }
 
     @Test func anEventSaysWhoActsOnWhichAppNewestFirst() throws {
-        let state = CmuxRemoteComputerUseState()
-        let clock = Clock()
-        clock.install(on: state)
+        let state = state()
         state.take(activityEvent: try event([
             ["session": "a", "label": "Codex", "last_action_ms": 4_990_000],
-            ["session": "b", "label": "Claude Code", "app": ["id": "com.apple.Notes", "name": "Notes"], "last_action_ms": 4_999_500],
+            ["session": "b", "label": "Claude Code", "app": ["id": "com.apple.Notes", "name": "Notes", "pid": 77],
+             "last_action_ms": 4_999_500],
             ["label": "no session", "last_action_ms": 1],
         ]))
         #expect(state.sessions.map(\.id) == ["b", "a"])
         #expect(state.sessions[0] == CmuxRemoteComputerUseSession(id: "b", agent: "Claude Code", appID: "com.apple.Notes", appName: "Notes",
-                                                                  lastAction: Date(timeIntervalSince1970: 4_999.5)))
-        #expect(state.sessions[1].appName == nil)
+                                                                  appPID: 77, lastAction: Date(timeIntervalSince1970: 4_999.5)))
+        #expect(state.sessions[1].appName == nil && state.sessions[1].live.target == nil)
+        #expect(state.sessions[0].live.target == ComputerUseLiveSession.Target(pid: 77, bundleID: "com.apple.Notes", appName: "Notes"))
         #expect(state.acting, "the newest acted half a second ago")
+        let rows = state.menuBarSessions(now: Date(timeIntervalSince1970: 5_000))
+        #expect(rows.map(\.acting) == [true, false])
+        #expect(rows[0].agent == "Claude Code" && rows[0].bundleID == "com.apple.Notes")
         state.take(activityEvent: try event([]))
         #expect(state.sessions.isEmpty && !state.acting)
+        #expect(!state.actingClear.isScheduled)
     }
 
-    /// The badge clears 2 s after the last action, by one wait for exactly what is left; a newer
-    /// action replaces the wait. Nothing polls.
+    /// The badge clears 2 s after the last action, by one deadline for what is left of the window;
+    /// a newer action replaces it. Nothing polls.
     @Test func actingEndsTwoSecondsAfterTheLastAction() async throws {
-        let state = CmuxRemoteComputerUseState()
-        let clock = Clock()
-        clock.install(on: state)
+        let clock = ManualClock(), wall = Wall()
+        let state = state(clock, wall: wall)
         state.take(activityEvent: try event([["session": "a", "label": "Codex", "last_action_ms": 4_999_500]]))
-        #expect(state.acting)
-        let clear = try #require(state.actingClear)
-        while clock.waits.withLock({ $0.isEmpty }) { await Task.yield() }
-        #expect(clock.waits.withLock { $0 } == [.milliseconds(1500)])
-        clock.advance(1.5)
-        clock.release.continuation.yield()
-        await clear.value
+        #expect(state.acting && state.actingClear.isScheduled)
+        try await clock.waitForSleeper()
+        wall.advance(1.4)
+        clock.advance(by: .milliseconds(1400))
+        await Task.yield()
+        #expect(state.acting, "still within the window")
+        wall.advance(0.1)
+        clock.advance(by: .milliseconds(100))
+        for _ in 0..<10_000 where state.acting { await Task.yield() }
         #expect(!state.acting, "2 s after the last action")
-        #expect(state.actingClear == nil)
         #expect(state.sessions.count == 1, "the session stays listed; it only stopped acting")
         // An old action never turns the badge on.
         state.take(activityEvent: try event([["session": "a", "label": "Codex", "last_action_ms": 4_000_000]]))
-        #expect(!state.acting && state.actingClear == nil)
+        #expect(!state.acting && !state.actingClear.isScheduled)
     }
 
     @Test func aStatusReadCarriesTheSameListAndNoHostClearsIt() {
-        let state = CmuxRemoteComputerUseState()
-        Clock().install(on: state)
+        let state = state()
         state.take(host: ["pid": 7, "workers": ["computer-use": ["state": "ready", "activity": [
             ["session": "a", "label": "Codex", "last_action_ms": 4_999_900],
         ]]]])

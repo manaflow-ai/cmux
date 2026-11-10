@@ -19,11 +19,15 @@ import { RowFrame, RowStatus, SettingRow } from "./SettingRow";
 
 export const COMPUTER_USE_MODE = "computerUse.mode";
 export const COMPUTER_USE_DENIED_APPS = "computerUse.deniedApps";
-/** The switches, in the card's order; Allow Foreground Input (advanced) comes last. */
+/** The switches and pickers under the approvals, in the card's order: the agent cursor's tag and
+ * what agents wait for after each action follow Show Agent Cursor; Allow Foreground Input
+ * (advanced) comes last. */
 export const COMPUTER_USE_SWITCHES = [
   "computerUse.allowOwnMachines",
   "computerUse.pauseOnTakeover",
   "computerUse.showCursor",
+  "computerUse.cursorTag",
+  "computerUse.settle",
   "computerUse.livePreview",
   "computerUse.allowForeground",
 ] as const;

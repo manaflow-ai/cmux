@@ -107,9 +107,9 @@ pub fn workspace_name_in(tree: &Value, id: &str) -> Option<String> {
         .as_array()?
         .iter()
         .find(|w| {
-            ["id", "uuid", "workspace_id"]
-                .iter()
-                .any(|key| w.get(*key).and_then(Value::as_str).is_some_and(|v| v.eq_ignore_ascii_case(id)))
+            ["id", "uuid", "workspace_id"].iter().any(|key| {
+                w.get(*key).and_then(Value::as_str).is_some_and(|v| v.eq_ignore_ascii_case(id))
+            })
         })
         .and_then(|w| w.get("name").or_else(|| w.get("title")))
         .and_then(Value::as_str)
@@ -500,7 +500,10 @@ impl<D: Daemon> Caller<D> {
             }
             tag.workspace.clone()?
         };
-        let name = self.daemon.workspace_name(&workspace).and_then(|n| cmux_computer_use::tools::safe_tag(&n));
+        let name = self
+            .daemon
+            .workspace_name(&workspace)
+            .and_then(|n| cmux_computer_use::tools::safe_tag(&n));
         if let Ok(mut tag) = self.tag.lock() {
             tag.workspace_name = Some(name.clone());
         }
@@ -541,8 +544,9 @@ impl<D: Daemon> Caller<D> {
     pub fn call(&self, name: &str, arguments: &Value, call_id: &str) -> Outcome {
         let mut arguments = if arguments.is_object() { arguments.clone() } else { json!({}) };
         // The agent's cursor tag is the bridge's, not the tool's: it stays for the later calls.
-        if let Some(tag) =
-            arguments.as_object_mut().and_then(|a| a.remove(cmux_computer_use::tools::CURSOR_TAG_ARG))
+        if let Some(tag) = arguments
+            .as_object_mut()
+            .and_then(|a| a.remove(cmux_computer_use::tools::CURSOR_TAG_ARG))
         {
             self.set_cursor_tag(tag.as_str().unwrap_or_default());
         }

@@ -552,20 +552,11 @@ enum AgentHandlers {
     }
 }
 
-/// Computer Use sessions in cmux Remote's worker, as its activity reports them (the daemon's
-/// `computer-use-activity`): who acted on which app, newest first. The worker names no terminal, so
-/// Focus Calling Terminal says there is none; Stop ends them all (the engine's `revoke_sessions`).
+/// Computer Use sessions in cmux Remote's worker, as its activity reports them; Stop ends them all.
 private final class RemoteComputerUseSessions: ComputerUseSessionControlling {
     let remote: CmuxRemoteService, phase: @MainActor () -> ComputerUseSetup.Phase
     init(remote: CmuxRemoteService, phase: @escaping @MainActor () -> ComputerUseSetup.Phase) { self.remote = remote; self.phase = phase }
-    func liveSessions() async throws -> [ComputerUseLiveSession] {
-        try ready()
-        return remote.computerUse.sessions.map { session in
-            ComputerUseLiveSession(id: session.id, lastActionAt: session.lastAction,
-                                   target: session.appID == nil && session.appName == nil
-                                       ? nil : .init(bundleID: session.appID, appName: session.appName))
-        }
-    }
+    func liveSessions() async throws -> [ComputerUseLiveSession] { try ready(); return remote.computerUse.sessions.map(\.live) }
     func stop(_ id: String) async throws { try await stopAll() }
     func stopAll() async throws {
         try ready()

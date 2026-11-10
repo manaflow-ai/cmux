@@ -8,9 +8,36 @@ public import Foundation
 /// them as `workers["computer-use"].activity`, which the cmux-tui daemon turns into its
 /// `computer-use-activity` event for the app (the menu bar badge and Computer Use row).
 ///
-///     worker -> host  {"type":"activity","session":S,"label":L,"app":{"id","name"}?,"at_ms":T}
+///     worker -> host  {"type":"activity","session":S,"label":L,"app":{"id","name","pid"}?,"at_ms":T}
 ///     worker -> host  {"type":"activity","session":S,"ended":true}
 public struct ComputerUseActivity: Equatable, Sendable {
+    /// An app an agent acted on: its bundle id, name and process, each when known.
+    public struct App: Equatable, Sendable {
+        public var id: String?
+        public var name: String?
+        public var pid: Int32?
+
+        public init(id: String? = nil, name: String? = nil, pid: Int32? = nil) {
+            self.id = id
+            self.name = name
+            self.pid = pid
+        }
+
+        /// `{"id","name","pid"?}`.
+        public var fields: [String: Any] {
+            var fields: [String: Any] = ["id": id ?? "", "name": name ?? ""]
+            if let pid { fields["pid"] = Int(pid) }
+            return fields
+        }
+
+        init?(_ object: [String: Any]?) {
+            guard let object else { return nil }
+            let pid = (object["pid"] as? NSNumber)?.int32Value
+            self.init(id: ComputerUseActivity.bounded(object["id"] as? String), name: ComputerUseActivity.bounded(object["name"] as? String),
+                      pid: pid.flatMap { $0 > 0 ? $0 : nil })
+        }
+    }
+
     /// One agent session that acted.
     public struct Session: Equatable, Sendable {
         /// The engine's session key.
@@ -18,23 +45,21 @@ public struct ComputerUseActivity: Equatable, Sendable {
         /// The agent's name as the person sees it ("Claude Code").
         public var label: String
         /// The app it acted on last, when the worker knows it.
-        public var appID: String?
-        public var appName: String?
+        public var app: App?
         /// When it acted last (milliseconds since 1970, this Mac's clock).
         public var lastActionMilliseconds: Int64
 
-        public init(session: String, label: String, appID: String? = nil, appName: String? = nil, lastActionMilliseconds: Int64) {
+        public init(session: String, label: String, app: App? = nil, lastActionMilliseconds: Int64) {
             self.session = session
             self.label = label
-            self.appID = appID
-            self.appName = appName
+            self.app = app
             self.lastActionMilliseconds = lastActionMilliseconds
         }
 
         /// The status object (`{session, label, app?, last_action_ms}`).
         public var fields: [String: Any] {
             var fields: [String: Any] = ["session": session, "label": label, "last_action_ms": lastActionMilliseconds]
-            if appID != nil || appName != nil { fields["app"] = ["id": appID ?? "", "name": appName ?? ""] }
+            if let app { fields["app"] = app.fields }
             return fields
         }
     }
@@ -68,9 +93,7 @@ public struct ComputerUseActivity: Equatable, Sendable {
         if line["ended"] as? Bool == true {
             return sessions.removeValue(forKey: session) != nil || changed
         }
-        let app = line["app"] as? [String: Any]
-        let next = Session(session: session, label: Self.bounded(line["label"] as? String) ?? "",
-                           appID: Self.bounded(app?["id"] as? String), appName: Self.bounded(app?["name"] as? String),
+        let next = Session(session: session, label: Self.bounded(line["label"] as? String) ?? "", app: App(line["app"] as? [String: Any]),
                            lastActionMilliseconds: (line["at_ms"] as? NSNumber)?.int64Value ?? Self.milliseconds(now))
         guard sessions[session] != next else { return changed }
         sessions[session] = next
@@ -82,9 +105,9 @@ public struct ComputerUseActivity: Equatable, Sendable {
     }
 
     /// The worker's line for an action of `session`.
-    public static func line(session: String, label: String, appID: String?, appName: String?, at: Date) -> Data {
+    public static func line(session: String, label: String, app: App?, at: Date) -> Data {
         var fields: [String: Any] = ["type": "activity", "session": session, "label": label, "at_ms": milliseconds(at)]
-        if appID != nil || appName != nil { fields["app"] = ["id": appID ?? "", "name": appName ?? ""] }
+        if let app { fields["app"] = app.fields }
         return RemoteWire.line(fields)
     }
 
@@ -98,7 +121,7 @@ public struct ComputerUseActivity: Equatable, Sendable {
     }
 
     /// One line of at most 80 characters, nil when empty: the label and app name reach the person.
-    private static func bounded(_ text: String?) -> String? {
+    static func bounded(_ text: String?) -> String? {
         guard let text else { return nil }
         let line = String(text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80).map(Character.init))
         return line.isEmpty ? nil : line

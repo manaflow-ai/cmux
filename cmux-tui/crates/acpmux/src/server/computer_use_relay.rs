@@ -234,7 +234,8 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 format!("{} on {machine}", call.label)
             };
             let outcome = tokio::task::spawn_blocking(move || {
-                let caller = Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin);
+                let caller =
+                    Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin);
                 caller.set_cursor_tag(&call.tag);
                 caller.call(&call.name, &call.arguments, &call.call_id)
             })

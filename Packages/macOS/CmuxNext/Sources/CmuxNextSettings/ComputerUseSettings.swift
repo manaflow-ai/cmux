@@ -130,4 +130,3 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let cloudVm: Bool
     }
 }
-
