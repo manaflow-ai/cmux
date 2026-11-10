@@ -137,7 +137,10 @@ jobs:
       - name: Build the tagged app
         run: |
           set -euo pipefail
-          ./scripts/reload.sh --tag "rgp-$GITHUB_RUN_ID" --build-only --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
+          # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
+          # (run 42827751536: "==> removed temporary build-only artifact" after a 63 min build).
+          ./scripts/reload.sh --tag "rgp-$GITHUB_RUN_ID" --build-only --keep-app "$RUNNER_TEMP/rgp-app/cmux DEV rgp.app" \
+            --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
           app="$(awk '/^App path:/{getline; sub(/^ +/, ""); print; exit}' "$RUNNER_TEMP/reload.out")"
           if [ -z "$app" ] || [ ! -d "$app" ]; then
             echo "::error::reload.sh printed no app path"
