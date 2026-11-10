@@ -67,6 +67,13 @@ export const CloudMachine = Schema.Struct({
    * has no rate.
    */
   hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
+  /**
+   * What the machine costs while it is paused, in US dollars an hour: the provider's list price for keeping
+   * its disk and memory (cmux sets it; clients keep no rate table). Clients show it by the month ("about $X
+   * a month while paused"), since an hour of it is under a cent. For display only, not a bill. Absent or
+   * null when the size has no paused rate.
+   */
+  paused_hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** When the machine last started running (a start or a bind); null unless it is running. Clients show rate x time running as "about $X so far". */
   running_since: Schema.optionalKey(Schema.NullOr(Millis)),
   /**
