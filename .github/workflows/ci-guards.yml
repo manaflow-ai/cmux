@@ -904,7 +904,10 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_no_github_token_polling.py
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        run: |
+          python3 tests/test_ci_no_github_token_polling.py
+          python3 tests/test_ci_no_bare_urlopen.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}

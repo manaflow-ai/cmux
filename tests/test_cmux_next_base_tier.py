@@ -769,25 +769,15 @@ class QuotaRetry(unittest.TestCase):
         self.assertEqual(slept, [])
 
     def test_it_reads_the_rate_limit_headers_off_the_http_error(self):
-        import email.message
-
-        headers = email.message.Message()
-        headers["X-RateLimit-Remaining"] = "0"
-        headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
-
-        def urlopen(request, timeout):
-            raise urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
-                                                io.BytesIO(b'{"message": "API rate limit exceeded"}'))
-
-        original = urllib.request.urlopen
-        urllib.request.urlopen = urlopen
-        try:
-            api = quota.QuotaGitHub("t", deadline=quota.Deadline(60, clock=lambda: self.NOW), now=lambda: self.NOW,
-                                    sleep=lambda _: None)
-            with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
-                api.get("repos/o/r/git/ref/heads/x")
-        finally:
-            urllib.request.urlopen = original
+        body = b'{"message": "API rate limit exceeded"}'
+        answer = (f"HTTP/1.1 403 rate limit exceeded\r\nX-RateLimit-Remaining: 0\r\n"
+                  f"X-RateLimit-Reset: {int(self.NOW + 9999)}\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body
+        server = TricklingServer(answer, 0)
+        self.addCleanup(server.stop)
+        api = quota.QuotaGitHub("t", server.url, deadline=quota.Deadline(60, clock=lambda: self.NOW),
+                                now=lambda: self.NOW, sleep=lambda _: None)
+        with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
+            api.get("repos/o/r/git/ref/heads/x")
 
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
