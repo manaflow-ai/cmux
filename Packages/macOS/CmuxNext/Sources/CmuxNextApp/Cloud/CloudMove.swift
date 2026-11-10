@@ -272,8 +272,7 @@ struct CloudMove {
               distinct: String? = nil, suffix: String = "") async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            var remote = folder.remote(under: root)
-            if remote.folder == distinct { remote = (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count))) }
+            let remote = Self.remote(folder, under: root, distinct: distinct, suffix: suffix)
             do {
                 last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -285,6 +284,13 @@ struct CloudMove {
             guard last.errorCode == "fs.permission_denied" else { break }
         }
         throw Self.failure(syncing: last, machine: machine, retry: retry)
+    }
+
+    /// `folder`'s place under `root` on a machine; a path equal to `distinct` takes `suffix` (``sync``).
+    static func remote(_ folder: CloudMoveFolder, under root: String, distinct: String?, suffix: String) -> (folder: String, chat: String) {
+        let remote = folder.remote(under: root)
+        guard remote.folder == distinct else { return remote }
+        return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
     /// A failed copy's failure: an outdated machine's Retry updates it first.

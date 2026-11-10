@@ -138,7 +138,12 @@ struct CloudBringBack {
     /// chat went to). `askFirst` narrows the machine's chat to an asking policy and mode before it moves.
     private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, toMachine: Bool,
                      invocation: ActionInvocation) async throws -> String {
-        let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
+        // A move to another machine that reached the transfer is pinned to that machine (its retry names it, kept across
+        // launches): the rerun goes straight to the transfer, which settles a recorded one first. A pull and a full seed
+        // before it could write over what the chat already did there. Every stop of the rerun keeps that pin.
+        var pinned: String?
+        if toMachine, case .move(let id)? = services.cloud.bringBackRetries[tab.id], id != entry.machineID { pinned = id }
+        var again = CloudMoveRetries.Retry.move(machineID: pinned ?? entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
             if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
@@ -147,22 +152,29 @@ struct CloudBringBack {
         let name = machine.machine.title
         guard FileManager.default.fileExists(atPath: entry.localRoot) else { throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot)) }
         _ = try await CloudMove.connected(machine, invocation)
+        let pending: CloudMachineSession?
+        if let id = pinned {
+            guard let session = services.machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: again) }
+            pending = try await CloudMove.connected(session, invocation)
+        } else {
+            pending = nil
+        }
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
         }
-        if update {
+        if update, pending == nil {
             let toastID = "cloud-bring-back-" + tab.id
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
             CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
         let pulled: CloudMoveCLI.Answer
-        do {
+        if pending != nil { pulled = CloudMoveCLI.Answer(ok: true) } else { do {
             pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
             throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
-        }
+        } }
         guard pulled.ok else {
             // A conflict changed nothing here: the chat stays on the machine until the files are settled.
             if pulled.errorCode == "sync_conflict" { throw Failure(message: CloudBringBackStrings.conflict(pulled.conflicts), retry: again) }
@@ -170,18 +182,24 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.syncFailed(name, pulled.error ?? pulled.errorCode ?? ""), retry: again)
         }
         // Move to Another Machine: the folder, now whole here, is seeded onto the other machine first.
-        var target: CloudMachineSession?
-        if toMachine { target = try await CloudMove(services: services).machine(invocation, except: entry.machineID) { nil } }
+        var target = pending
+        if toMachine, target == nil { target = try await CloudMove(services: services).machine(invocation, except: entry.machineID) { nil } }
         var onto: (socket: String, vmKind: String, remote: (folder: String, chat: String))?
         if let target {
             guard let socket = await target.daemon.connection?.endpoint?.socketPath, let folder = CloudMoveFolder(chat: entry.localChat) else {
                 throw Failure(message: CloudMoveStrings.notConnected(target.machine.title), retry: again)
             }
-            let remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again,
-                                                                      distinct: entry.remoteFolder, suffix: "-" + String(target.machineID.prefix(8)))
+            let suffix = "-" + String(target.machineID.prefix(8))
+            var remote = CloudMove.remote(folder, under: services.cloud.move.workRoots.first ?? "", distinct: entry.remoteFolder, suffix: suffix)
+            if pending == nil {
+                remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again,
+                                                                      distinct: entry.remoteFolder, suffix: suffix)
+            }
             let vmKind = await CloudMove.ownerAnswer(target).vmKind
             onto = (socket, vmKind, remote)
         }
+        // From here the chat may land on the target: every stop's Retry is pinned to it (``pending`` above).
+        if let target { again = .move(machineID: target.machineID) }
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on where the chat lands, with what it wrote on the machine since the pull above
