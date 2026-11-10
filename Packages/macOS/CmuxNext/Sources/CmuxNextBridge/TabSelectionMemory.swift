@@ -82,9 +82,10 @@ public final class TabSelectionMemory {
     /// order so a later removal can pick the neighbor
     /// (``TabCloseSelection/successor(of:old:tabs:hidden:)``, the one
     /// close-selection rule; a member of a collapsed group in `hidden` is
-    /// skipped while a shown tab survives).
+    /// skipped while a shown tab survives). `closing`: the tabs a pending close hides
+    /// (`DaemonStore.closingTabIDs`); asked only when a tab with an opener relation is no longer listed.
     public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
-                        replaced: [StripTabID: StripTabID] = [:]) -> String? {
+                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
         closeRule.adopt(replaced)
         // After the pick: a tab the pane no longer lists (closed, or moved away) leaves the rule's state.
         defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs) }
