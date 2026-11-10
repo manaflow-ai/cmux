@@ -392,7 +392,7 @@ reader of the journal alone still knows when an agent last worked, the daemon
 writes one coalesced record for the whole session, at most one per 5 minutes
 and one at a clean stop, and none while no agent reports: kind
 `agent.state.changed`, adapter `cmux`, `native_event` `AgentActivityObserved`,
-no subject, and `payload.normalized.activity` as a list of
+no terminal subject, and `payload.normalized.activity` as a list of
 `{adapter, agent_session_id, terminal, observed_at_ms}` (the newest report time
 of each terminal that reported since the last such record). A fold applies
 each entry as `last activity = max(last activity, observed_at_ms)` of a session
