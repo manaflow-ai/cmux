@@ -630,14 +630,10 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
             .unwrap_or_default();
         let dialog = dialog_options::blocked_dialog(terminal, agents, &screen)
             .unwrap_or_else(|| dialog_options::dialog_json(AGENT_QUESTION.id, None, &screen));
+        let messages = &crate::localization::catalog().pane_cli;
         return Err(SendFailure::local(
             "agent.waiting_for_input",
-            format!(
-                "the {} agent in {id} waits on a dialog; typed text would answer it. Answer it \
-                 with keys (`dialog` names the keys of each option and `deny_keys`; cmux \
-                 terminal {id} keys escape usually denies it), or pass --force to type anyway",
-                agent.harness
-            ),
+            dialog_options::dialog_refusal(messages, &request.target, &dialog),
             json!({
                 "terminal": id,
                 "harness": agent.harness,

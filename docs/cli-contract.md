@@ -152,6 +152,7 @@ English only). Results go to stdout and diagnostics to stderr.
 | 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
+| 4 | Blocked on a dialog: the agent waits on the person (`agent start`, `terminal wait --until ready` or `--until idle`, `terminal send`, including a send refused with `agent.waiting_for_input`). The result has `dialog` `{kind, msg, options, deny_keys}` and a `reason`. |
 | 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine, a timed-out `process wait` exits 124 only for a caller that sets `CMUX_CALLER_READS_WAIT_124=1` (the current guest adapter does); for any other it still exits 0 and says `timed_out: true`, so an older adapter keeps working. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
@@ -514,7 +515,8 @@ reads fail, a finished turn says `unknown`, never an older read's word); `state`
 is the wait's own word (`idle`, `blocked`, `working`,
 `exited`). `--timeout` (default 5m) exits 124 with the output so far. A
 terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`,
-exit 4, the same `dialog` in `details`)
+exit 4, the same `dialog` in `details`; the localized message names the
+dialog's kind, what it asks and the keys that deny it)
 unless `--force`, because the text would answer the dialog. The MCP tools
 `agents_terminal_list` and `agents_terminal_send` run the same code.
 

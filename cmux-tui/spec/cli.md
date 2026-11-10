@@ -1402,9 +1402,9 @@ is focused unless `--no-focus`.
 
 The wait looks four times a second at the terminal, its agent records and its
 screen. A startup dialog in the last 16 non-blank rows of the screen, where no
-input box shows, is `blocked` with `dialog` (`folder_trust`,
-`bypass_permissions_warning`, `api_key`, `login`, `onboarding`,
-`update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
+input box shows, is `blocked` with a `dialog` object whose `kind` is
+`folder_trust`, `bypass_permissions_warning`, `api_key`, `login`, `onboarding`
+or `update_prompt`, and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
 only once the screen stood still for 1 s. cmux never answers a dialog. A
@@ -1486,7 +1486,9 @@ Enter; `deny_keys` `["escape"]` when the dialog's footer says Escape cancels
 it, else the keys of its first option that says no, else null. A folder-trust
 dialog adds `accept_keys` and `accept_label`. A blocked `send` has `reply` and
 `reply_source` null (the screen text stays in `output`) and a localized
-`reason`; it and the refused send exit 4, as `agent start` does. A blocked
+`reason`; it and the refused send exit 4, as `agent start` does. The
+refused send's localized message (all that human mode prints) names the
+dialog's kind, its `msg`, the keys that deny it and `--force`. A blocked
 `wait --until idle` answers `state: "blocked"` and exits 4. cmux never
 answers a dialog: the caller asks the person and sends the keys with
 `terminal <sel> keys`.

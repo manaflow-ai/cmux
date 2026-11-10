@@ -327,6 +327,22 @@ pub(in crate::cli) fn dialog_reason(
     template.replace("{kind}", kind).replace("{who}", who).replace("{deny}", &deny.join(" "))
 }
 
+/// The message of a `terminal send` that cmux refused because the agent of
+/// `who` waits on `dialog`: the [`dialog_reason`] (kind and deny keys), what
+/// the dialog asks when its `msg` is known, and that `--force` types anyway.
+pub(in crate::cli) fn dialog_refusal(
+    messages: &crate::localization::PaneCliMessages,
+    who: &str,
+    dialog: &Value,
+) -> String {
+    let mut parts = vec![dialog_reason(messages, who, dialog)];
+    if let Some(msg) = dialog["msg"].as_str().filter(|msg| !msg.is_empty()) {
+        parts.push(messages.dialog_asks.replace("{msg}", msg));
+    }
+    parts.push(messages.send_refused_typed.to_owned());
+    parts.join(messages.folder_trust_separator)
+}
+
 /// Words of an option that also lets the agent act without approval (a
 /// Codex "... without asking for approval" choice), lower case.
 const NO_APPROVAL: &[&str] = &[
@@ -472,7 +488,15 @@ mod tests {
             let reason = dialog_reason(messages, "beta", &bare);
             assert!(reason.contains("cmux terminal beta keys"), "{reason}");
             assert!(!reason.contains("{deny}"), "{reason}");
+            let refusal = dialog_refusal(messages, "beta", &dialog);
+            assert!(refusal.starts_with(&dialog_reason(messages, "beta", &dialog)), "{refusal}");
+            assert!(refusal.contains("approve Bash: ls"), "{refusal}");
+            assert!(refusal.contains("--force") && !refusal.contains("{msg}"), "{refusal}");
         }
+        assert_ne!(
+            dialog_refusal(english, "beta", &dialog),
+            dialog_refusal(japanese, "beta", &dialog)
+        );
         assert_ne!(
             dialog_reason(english, "beta", &dialog),
             dialog_reason(japanese, "beta", &dialog)

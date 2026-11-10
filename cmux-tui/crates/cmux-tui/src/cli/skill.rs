@@ -109,7 +109,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                the agent panes of that row then share their space equally), runs \
                the launcher (--cmd; codex works too) in a tab named alpha and returns once the agent can take a message: `state` \
                `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
-               (exit 4) with `dialog` (`folder_trust`, `login`, ...), `reason` and the \
+               (exit 4) with `dialog` (its `kind`: `folder_trust`, `login`, ...), `reason` and the \
                dialog's `options` (each with the `keys` that pick it) when a startup dialog \
                waits on the person. Ask the \
                person; then answer with keys: for folder trust, with their consent, run \
