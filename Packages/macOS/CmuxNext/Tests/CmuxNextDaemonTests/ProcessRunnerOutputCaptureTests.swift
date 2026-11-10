@@ -36,6 +36,27 @@ struct ProcessRunnerOutputCaptureTests {
         #expect(output.contents() == original)
     }
 
+    /// Stdin far past one pipe buffer reaches the child whole: it is fed after launch on the
+    /// feed's queue, not written before the child exists (that write waited, on the main thread
+    /// for a main-actor caller: the NIGHTLY's 391 s hang, 2026-11-09).
+    @Test(.timeLimit(.minutes(1))) func stdinPastThePipeBufferReachesTheChildWhole() async throws {
+        let input = Data(String(repeating: "0123456789abcdef", count: 64 * 1_024).utf8) // 1 MiB
+        let result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/cat"), arguments: [],
+                                                 environment: nil, stdin: input, timeout: .seconds(30),
+                                                 clock: ContinuousClock())
+        #expect(result.status == 0)
+        #expect(result.stdout == input)
+    }
+
+    /// A child that exits without reading its stdin ends the run; the unread bytes never hold it.
+    @Test(.timeLimit(.minutes(1))) func aChildThatNeverReadsStdinStillEnds() async throws {
+        let input = Data(repeating: 0x61, count: 1_024 * 1_024)
+        let result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "exit 3"],
+                                                 environment: nil, stdin: input, timeout: .seconds(30),
+                                                 clock: ContinuousClock())
+        #expect(result.status == 3)
+    }
+
     @Test(.timeLimit(.minutes(1))) func optInBoundsBothStreamsAndDefaultKeepsBothComplete() async throws {
         let script = """
         i=0

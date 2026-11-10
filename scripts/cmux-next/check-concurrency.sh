@@ -8,7 +8,8 @@
 #
 # Rule sets:
 #   everywhere: waits, sleeps, sync hops to main, raw locks, nested run-loop
-#               spinning, synchronous XPC, blocking FileHandle reads, dlopen
+#               spinning, synchronous XPC, blocking FileHandle reads, pipe writes
+#               on the caller's thread (PipeFeed), dlopen
 #               (dyld's loader lock), whole-file code signature validation,
 #               unbounded AsyncStream buffers, and deadlines raced inside a
 #               task group (the group waits for a loser that ignores
@@ -127,6 +128,11 @@ EVERYWHERE = [
     ("nested run loop", r"\bCFRunLoopRunInMode\(|\bRunLoop\.(current|main)\.run\(|\.run\(mode:[^)]*before:"),
     ("synchronous XPC", r"synchronousRemoteObjectProxy"),
     ("blocking FileHandle read", r"readDataToEndOfFile\(|readData\(ofLength:|\.availableData\b|\breadToEnd\(\)"),
+    # A pipe write can wait however few the bytes: a child that never reads, or a fresh pipe when
+    # the kernel's pipe memory is used up. ProcessRunner wrote two tokens to a child's stdin on the
+    # main actor and the NIGHTLY main thread waited in write(2) for 391 s (2026-11-09). Feed stdin
+    # with CmuxNextCompat's PipeFeed (its own queue; writes and close in order).
+    ("pipe write on the caller's thread (use PipeFeed)", r"\bfileHandleForWriting\.write\("),
     ("infinite poll", r"\bpoll\([^)]*,\s*-1\s*\)"),
     # Both resolve every local name through DNS/mDNS and have blocked the
     # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
