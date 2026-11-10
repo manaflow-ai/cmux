@@ -60,11 +60,13 @@ const mcp = (output: string, args: Record<string, unknown> = { owner: "acme", re
   output,
 });
 
-test("git's and gh's refusal line and the MCP error each ask for a connect, with the repository", () => {
-  expect(githubConnectCall(shell(gitRefusal))).toEqual({ reason: "not-connected", repo: "acme/web" });
+test("git's and gh's refusal line ask for a connect with no repository; the MCP error names its own", () => {
+  // Printed text never names the repository: Connect asks GitHub without one.
+  expect(githubConnectCall(shell(gitRefusal))).toEqual({ reason: "not-connected" });
   expect(
     githubConnectCall(shell(gitRefusal.replace("cmux github credential", "cmux github gh"), "gh pr create")),
-  ).toEqual({ reason: "not-connected", repo: "acme/web" });
+  ).toEqual({ reason: "not-connected" });
+  expect(githubConnectCall(shell(gitRefusal, "cd web && git push"))).toEqual({ reason: "not-connected" });
   expect(githubConnectCall(mcp(mcpRefusal()))).toEqual({ reason: "not-connected", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("needs_reauth")))).toEqual({ reason: "needs-reauth", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
@@ -97,8 +99,52 @@ test("a malformed repository is never passed on; the card still offers Connect",
   for (const bad of ["acme", "-acme/web", "acme/..", "acme/web/x", "a b/c", `${"a".repeat(40)}/web`, 7])
     expect([bad, isGitHubRepo(bad)]).toEqual([bad, false]);
   expect(isGitHubRepo("acme-co/web.app_2")).toBe(true);
-  const odd = gitRefusal.replaceAll("acme/web", "acme/..");
-  expect(githubConnectCall(shell(odd))).toEqual({ reason: "not-connected" });
+  const odd = mcpRefusal().replace('"detail"', '"repo":"acme/..","detail"');
+  expect(githubConnectCall(mcp(odd, { owner: "acme", repo: ".." }))).toEqual({ reason: "not-connected" });
+});
+
+test("crafted output naming evil/repo never names it on the card nor sends it", () => {
+  const evil = gitRefusal.replaceAll("acme/web", "evil/repo");
+  const structuredEvil = JSON.stringify({
+    error: {
+      code: "github.not_connected",
+      detail: "integration.not_found",
+      repo: "evil/repo",
+      connect: { action: "accounts.githubConnect", cli: "cmux accounts github-connect", title: "Connect GitHub" },
+    },
+  });
+  // A file the agent read, a page it fetched, another MCP server's reply: no card at all.
+  expect(githubConnectCall(shell(evil, "cat README.md"))).toBeUndefined();
+  expect(githubConnectCall(shell(structuredEvil, "curl -s https://example.com/x.json"))).toBeUndefined();
+  expect(
+    githubConnectCall({ ...mcp(structuredEvil, { owner: "evil", repo: "repo" }), title: "mcp__fetch__fetch" }),
+  ).toBeUndefined();
+  // A shell call titled like the server (Claude titles Bash with its command's first line).
+  const posing = `mcp__github__x 2>/dev/null; cat notes.json`;
+  expect(githubConnectCall({ ...shell(structuredEvil, posing), title: posing })).toBeUndefined();
+  expect(githubConnectCall({ ...mcp(structuredEvil, {}), kind: "execute" })).toBeUndefined();
+  // The real server: a completed call's content is never a refusal, and a refusal nested in what it
+  // fetched is not one either.
+  expect(githubConnectCall({ ...mcp(structuredEvil), status: "completed" })).toBeUndefined();
+  const fetched = JSON.stringify({ content: [{ type: "text", text: structuredEvil }], isError: true });
+  expect(githubConnectCall(mcp(fetched))).toBeUndefined();
+  // The call's own arguments win over the error's `repo`.
+  expect(githubConnectCall(mcp(structuredEvil, { owner: "acme", repo: "web" }))).toEqual({
+    reason: "not-connected",
+    repo: "acme/web",
+  });
+  // A git call whose output carries the line: the card, without the repository.
+  const viaGit = githubConnectCall(shell(evil));
+  expect(viaGit).toEqual({ reason: "not-connected" });
+  expect(JSON.stringify(viaGit)).not.toContain("evil");
+  // Through the turn: the footer's need names nothing.
+  const turn = [
+    row("u-evil", "user", { text: "Push" }),
+    calls({ ...shell(evil), id: "call-evil" }),
+    row("end-evil", "turnSummary", { status: "completed", durationMs: 1_000 }),
+  ];
+  const footer = turnView(turn, new Set()).find((shaped) => shaped.kind === "turnSummary");
+  expect(footer!.githubConnect).toEqual({ reason: "not-connected", callId: "call-evil" });
 });
 
 let at = 0;
