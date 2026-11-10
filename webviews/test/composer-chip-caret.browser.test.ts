@@ -6,8 +6,6 @@
 // weird that it doesn't have a caret"). The link's characters had been drawn at no size under the
 // chip, and the caret at the link's end was drawn there, at no height. Measured on the painted
 // caret (drawn magenta, found in screenshots) in both of the lane's engines (WebKit is the app's).
-// The composer takes a real click and real typing while a Cloud start is out (Leo: "I can't click
-// into the composer at all").
 // cmux-web-test-timeout: 600
 import { expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -69,7 +67,7 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
     return last;
   }
 
-  type Op = "focus" | "caret" | "setCaret" | "text" | "paste" | "reset";
+  type Op = "focus" | "caret" | "setCaret" | "text" | "paste";
   /// One call on the prompt's handle (MarkdownField's `acpmuxMarkdownField`).
   const field = <T>(page: Page, op: Op, arg?: unknown) =>
     page.evaluate(
@@ -81,7 +79,6 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
             setCaret(offset: number): void;
             plainText(): string;
             pasteText(text: string): void;
-            reset(markdown?: string): void;
           };
         };
         const md = element.acpmuxMarkdownField!;
@@ -99,9 +96,6 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
             return md.plainText();
           case "paste":
             md.pasteText(value as string);
-            return null;
-          case "reset":
-            md.reset("");
             return null;
         }
       },
@@ -229,18 +223,6 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         else if (ahead.left > start + 1.5)
           failures.push(`${engine}: the caret before the chip is at ${ahead.left}, inside it (${start})`);
 
-        // A Cloud start is out: a real click focuses the prompt, and real keys type into it.
-        await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "starting-chat", width: WIDTH, frame: "component" })}`,
-        );
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-          timeout: 90_000,
-        });
-        await field(page, "reset");
-        await page.locator(".acpmux-md").click();
-        await page.keyboard.type("hi there");
-        expect(await field<string>(page, "text")).toBe("hi there");
-        expect(await page.evaluate(() => document.activeElement?.closest(".acpmux-md") !== null)).toBe(true);
       } finally {
         await context.close();
       }

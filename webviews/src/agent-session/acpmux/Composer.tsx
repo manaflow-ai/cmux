@@ -436,12 +436,8 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
-  /// A Cloud start is out: its first prompt is the send, so Send keeps the draft until it ends. The
-  /// box still takes clicks, focus, typing, pastes and drops all the while (Leo, 2026-11-09: "I
-  /// can't click into the composer at all to, like potentially type other stuff while it's doing
-  /// that initial load situation"); a failed start's prompt comes back before what was typed. Files
-  /// and huge pastes stay out of it then (ComposerBox `textOnly`): the chat the start opens gets only
-  /// the typed text (cloudStartCarry.ts).
+  /// A Cloud start is out: the box takes no input until it ends (ComposerBox `inert`), since this
+  /// tab closes once the chat opens on the machine and an edit made meanwhile would be lost.
   locked?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
@@ -804,6 +800,8 @@ function ComposerFrame({
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
+    // A Cloud start is out (`locked`): the prompt takes nothing until it ends.
+    if (locked) return false;
     const shellInput = shellRef.current.shell ? shellField.current : null;
     if (shellInput) {
       shellInput.focus();
@@ -1208,10 +1206,7 @@ function ComposerFrame({
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
     unsentDraft.current?.push(unsentText(text));
-    // A Cloud start is out: the host may close this tab any moment, so each edit goes at once (the
-    // text the chat it opens gets, App.tsx `holdCloudCarry`).
-    if (locked) unsentDraft.current?.flush();
-  }, [text, sessionId, onUnsentDraft, locked]);
+  }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -1447,8 +1442,6 @@ function ComposerFrame({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
-    // A Cloud start is out: what was typed meanwhile stays here until it ends.
-    if (locked) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -2447,8 +2440,8 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || locked) && !shell}
-          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !locked && hasDraft) ? " acpmux-send-ready" : ""}`}
+          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
+          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
             shell
@@ -2571,7 +2564,7 @@ function ComposerFrame({
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
-        textOnly={locked}
+        inert={locked}
         fieldRef={fieldRef}
         field={{
           className: shell

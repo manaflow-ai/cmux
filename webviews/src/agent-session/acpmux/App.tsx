@@ -173,7 +173,6 @@ import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
-import { dropCloudCarry, holdCloudCarry, takeCloudCarry } from "./cloudStartCarry";
 import {
   attachmentSource,
   linkAttachment,
@@ -4488,15 +4487,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The last accepted first send, retained so choosing This Mac after a refusal can
   /// explicitly finish its Cloud key just as the native cap-card answer does.
   const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
-  /// A Cloud start is out: Send waits for it (Composer `locked`), but the composer takes clicks,
-  /// typing, pastes, drops and dictation all the while (Leo, 2026-11-09: "I can't click into the
-  /// composer at all"; #28686 had made it inert). On failure the sent prompt comes back before what
-  /// was typed meanwhile.
+  /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
+  /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
+  /// on failure the prompt is still in the composer to edit and send again.
   const cloudStarting = cloudStart?.state === "starting";
-  /// The prompt of the Cloud start that is out: what the composer adds to it meanwhile is carried to
-  /// the chat the start opens (cloudStartCarry.ts), since the host closes this tab on success.
-  const cloudStartTask = useRef<string | undefined>(undefined);
-  cloudStartTask.current = cloudStarting ? cloudStart.task : undefined;
+  /// The same, for dictation's field getter (below), which is made once.
+  const cloudStartingNow = useRef(false);
+  cloudStartingNow.current = cloudStarting;
   /// A Cloud send from the New Tab page opens the chat at once, as a local send does (Leo, 2026-11-04:
   /// "i should never be seeing this it should just insta send me to a new chat just like local"): the
   /// page goes for this visit (its generation), and the chat view shows the sent message with the
@@ -4614,8 +4611,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
-      // Not opened on the machine (refused, or run on this Mac): what was typed stays in this composer.
-      if (!answer.ok || cloudRunsHere(answer)) dropCloudCarry(text);
       cloudStartPending.current = false;
       if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -6119,6 +6114,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
     get current() {
+      // A Cloud start is out: dictation writes nowhere, as typing doesn't (`cloudStarting`).
+      if (cloudStartingNow.current) return null;
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
@@ -8679,9 +8676,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
         if (hasPrompt && ticket) heldPrompt.keep(ticket);
-        // A Cloud chat's first prompt: what was typed in its New Tab's composer while it started.
-        const carried = prompt ? takeCloudCarry(prompt) : undefined;
-        if (carried) restoreComposerDraft(composerHandle, heldBack, carried, []);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
@@ -10031,8 +10025,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (text: string) => {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
-      // A Cloud start is out: what this adds to its prompt goes to the chat it opens.
-      if (cloudStartTask.current !== undefined) holdCloudCarry(cloudStartTask.current, text);
       if (cloudComposeEligible.current) {
         cloudReservation.typed(text);
         return sent;

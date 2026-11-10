@@ -5,9 +5,7 @@
 // formatted view of it"): the link's text is hidden beside a chip that takes no input, so the caret
 // at either end stands outside it (composer-chip-caret.browser.test.ts measures the painted caret);
 // a paste, a typed word, an attachment or a second link right after it leaves a space so it stays a
-// chip; ArrowLeft and ArrowRight step over it; Backspace and Delete take it whole. And the chat
-// composer takes typing while a Cloud start is out (Leo: "I can't click into the composer at all to,
-// like potentially type other stuff while it's doing that initial load situation").
+// chip; ArrowLeft and ArrowRight step over it; Backspace and Delete take it whole.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -109,7 +107,7 @@ function chat(): AcpmuxSnapshot {
   });
 }
 
-async function composer(typed: string, locked = false) {
+async function composer(typed: string) {
   const sent: string[] = [];
   let handle: ComposerHandle | null = null;
   const snapshot = chat();
@@ -129,7 +127,6 @@ async function composer(typed: string, locked = false) {
         }}
         onStop={() => {}}
         localName="studio"
-        locked={locked}
       />,
     ),
   );
@@ -240,25 +237,3 @@ test("Backspace after a chip and Delete before it take the whole link", async ()
   await key(again.field, "Delete");
   expect(again.md.plainText()).toBe("See  now");
 });
-
-test("while a Cloud start is out the chat composer takes typing, and Send keeps the draft", async () => {
-  const { field, md, sent } = await composer("", true);
-  expect(host.querySelector(".acpmux-composer-box")?.hasAttribute("inert")).toBe(false);
-  expect(host.querySelector(".acpmux-composer [inert] [role=combobox]")).toBeNull();
-  await act(async () => md.focus());
-  await act(async () => md.insertTyped("and also the tests"));
-  expect(md.plainText()).toBe("and also the tests");
-  await key(field, "Enter", { keyCode: 13 });
-  expect(sent).toEqual([]);
-  expect(md.plainText()).toBe("and also the tests");
-});
-
-test("while a Cloud start is out a huge paste goes in as text, never a chip the Cloud chat could not get", async () => {
-  const { md } = await composer("", true);
-  await act(async () => md.focus());
-  const huge = Array.from({ length: 400 }, (_, line) => `line ${line} of the log`).join("\n");
-  await act(async () => md.pasteText(huge));
-  expect(md.plainText()).toContain("line 399 of the log");
-  expect(host.querySelector(".acpmux-md [data-inline-attachment]")).toBeNull();
-});
-

@@ -1022,7 +1022,7 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
-test("while a Cloud start is out the box still takes clicks and typing (Leo, 2026-11-09)", async () => {
+test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
   const page = (cloudStarting: boolean) => (
     <NewTabScreen
       snapshot={noChat()}
@@ -1040,8 +1040,7 @@ test("while a Cloud start is out the box still takes clicks and typing (Leo, 202
       cloudStarting={cloudStarting}
     />
   );
-  // "I can't click into the composer at all to, like potentially type other stuff while it's doing
-  // that initial load situation": the box was inert while the start was out.
+  // The tab closes once the chat opens on the machine: an edit made meanwhile would go with it.
   const typeOnPage = (key: string) =>
     act(async () => {
       container.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
@@ -1053,17 +1052,16 @@ test("while a Cloud start is out the box still takes clicks and typing (Leo, 202
   expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
   // The box keeps its space while the shell is visible, so sending does not move the page.
   expect(container.querySelector(".nt-box")).toBeTruthy();
-  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
-  expect(container.querySelector(".nt-box [inert]")).toBeNull();
-  // Typing on the page (outside the field) goes into the field while the start is out.
+  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
+  // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
-  expect(field()).toBe("x");
-  // Once it ends, the box is the same.
+  expect(field()).toBe("");
+  // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
   expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
-  await typeOnPage("y");
-  expect(field()).toBe("xy");
+  await typeOnPage("x");
+  expect(field()).toBe("x");
 });
 
 test("a failed Cloud start leaves one retry send in the composer", async () => {

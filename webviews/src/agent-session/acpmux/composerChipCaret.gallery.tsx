@@ -2,9 +2,7 @@
 // A pasted workspace link in the composer is a chip the caret moves around as one character, and a
 // later paste never turns it back into its URL (Leo, 2026-11-09: "when I do these links that I copy,
 // the caret sort of disappears on it, and then after I paste in another thing, it just becomes
-// unformatted again"); the composer takes typing while a Cloud chat starts (Leo: "I can't click
-// into the composer at all to, like potentially type other stuff while it's doing that initial
-// load situation"). Each variant is the real Composer with the app's link places set.
+// unformatted again"). Each variant is the real Composer with the app's link places set.
 import { componentEntry } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
@@ -15,7 +13,7 @@ const HEX = "a21d11e10694e6e0fbf7ea446075f32c";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
 
 /// `chat`: the variant's own chat, so no variant's saved draft comes back in another's.
-type Props = { chat: string; draft: string; locked?: boolean };
+type Props = { chat: string; draft: string };
 
 /** The field's handle, once the draft drew its chips. */
 const field = async (ctx: PlayContext, chips: number) => {
@@ -42,15 +40,6 @@ const pasteAtEnd = (text: string, chips: number) => async (ctx: PlayContext) => 
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md .is-titled[data-title]").length === chips);
 };
 
-/** Typed while the Cloud start is out: the composer takes it. */
-const typeWhileStarting = async (ctx: PlayContext) => {
-  const element = ctx.document.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
-  await ctx.waitFor(() => Boolean(element.acpmuxMarkdownField));
-  await ctx.click({ selector: ".acpmux-md" });
-  element.acpmuxMarkdownField!.insertTyped("and also check the sidebar tests");
-  await ctx.waitFor(() => element.acpmuxMarkdownField!.plainText().includes("sidebar tests"));
-};
-
 export default componentEntry<Props>({
   id: "agent-pane.composer-chip-caret",
   title: "Composer link chip caret",
@@ -64,7 +53,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/markdownField.css",
     "agent-session/acpmux/Composer.tsx",
   ],
-  keywords: ["deeplink", "workspace link", "chip", "caret", "paste", "cloud", "starting"],
+  keywords: ["deeplink", "workspace link", "chip", "caret", "paste"],
   styles: async () => {
     await import("./styles.css");
     await import("./markdownField.css");
@@ -76,7 +65,7 @@ export default componentEntry<Props>({
     const { setLinkPlaces } = await import("./chips/cmuxLinkPlaces");
     setLinkPlaces([{ id: `ws_${HEX}`, kind: "workspace", title: "workspace-413" }]);
     const Chips = () => null;
-    return function ChipCaret({ chat, draft, locked }: Props) {
+    return function ChipCaret({ chat, draft }: Props) {
       const handle = useRef<ComposerHandle>(null);
       const sessionId = `gallery-chip-caret-${chat}`;
       const snapshot = useMemo(
@@ -98,7 +87,6 @@ export default componentEntry<Props>({
           chips={Chips}
           onStop={() => {}}
           onSend={() => true}
-          locked={locked === true}
         />
       );
     };
@@ -128,11 +116,6 @@ export default componentEntry<Props>({
       note: "Text pasted right after the chip: the chip stays, a space before the text.",
       props: { chat: "after-pasted-text", draft: WORKSPACE },
       play: pasteAtEnd("can you look at this one", 1),
-    },
-    "starting-chat": {
-      note: "A Cloud start is out (locked): the composer still takes a click and typing; Send keeps the draft until the start ends.",
-      props: { chat: "starting-chat", draft: "", locked: true },
-      play: typeWhileStarting,
     },
   },
 });
