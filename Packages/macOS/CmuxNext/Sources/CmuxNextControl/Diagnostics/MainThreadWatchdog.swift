@@ -125,7 +125,7 @@ public final class MainThreadWatchdog: Sendable {
     /// sample is dropped when the stall ends below the threshold.
     private let sampleAfterNanos: UInt64
     // Heartbeat, written by the main-thread observer.
-    private let beatNanos = Atomic<UInt64>(0)
+    let beatNanos = Atomic<UInt64>(0)
     let beatSequence = Atomic<UInt64>(0)
     /// Main-thread CPU time at the last heartbeat (CLOCK_THREAD_CPUTIME_ID).
     private let beatCPUNanos = Atomic<UInt64>(0)
@@ -318,6 +318,7 @@ public final class MainThreadWatchdog: Sendable {
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)
             recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)
+            if now - previous >= hangNanos { nested.hangTurnEnded(now: now) } // reported as a hang: not as a parked run too
         }
         beatCPUNanos.store(cpu, ordering: .releasing)
         beatNanos.store(now, ordering: .releasing)

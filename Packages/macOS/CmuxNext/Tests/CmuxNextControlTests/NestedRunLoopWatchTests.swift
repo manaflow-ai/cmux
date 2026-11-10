@@ -15,17 +15,17 @@ import Testing
         watch.start(insideRun: true)
         #expect(watch.entered(now: 100, inDefaultMode: { true }), "a nested default-mode run wakes the watchdog")
         #expect(watch.parkLimit(now: 100, hangNanos: hang) == hang)
-        #expect(watch.take(now: 100 + hang - 1, hangNanos: hang) == .idle)
-        guard case let .report(id, elapsed) = watch.take(now: 100 + hang, hangNanos: hang) else {
+        #expect(watch.take(now: 100 + hang - 1, hangNanos: hang, busySince: nil) == .idle)
+        guard case let .report(id, elapsed) = watch.take(now: 100 + hang, hangNanos: hang, busySince: nil) else {
             Issue.record("a run parked for the hang threshold is reported")
             return
         }
         #expect(elapsed == hang)
-        #expect(watch.take(now: 100 + 2 * hang, hangNanos: hang) == .idle, "reported once")
+        #expect(watch.take(now: 100 + 2 * hang, hangNanos: hang, busySince: nil) == .idle, "reported once")
         #expect(watch.parkLimit(now: 100 + 2 * hang, hangNanos: hang) == nil, "nothing more to time while it runs")
         #expect(watch.exited(now: 100 + 3 * hang), "the end of a reported run wakes the watchdog")
-        #expect(watch.take(now: 100 + 3 * hang, hangNanos: hang) == .ended(id: id, durationNanos: 3 * hang))
-        #expect(watch.take(now: 100 + 4 * hang, hangNanos: hang) == .idle)
+        #expect(watch.take(now: 100 + 3 * hang, hangNanos: hang, busySince: nil) == .ended(id: id, durationNanos: 3 * hang))
+        #expect(watch.take(now: 100 + 4 * hang, hangNanos: hang, busySince: nil) == .idle)
     }
 
     @Test func aRunThatEndsBeforeTheThresholdIsNeverReported() {
@@ -33,8 +33,42 @@ import Testing
         watch.start(insideRun: true)
         _ = watch.entered(now: 0, inDefaultMode: { true })
         #expect(!watch.exited(now: hang / 2))
-        #expect(watch.take(now: 2 * hang, hangNanos: hang) == .idle)
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: nil) == .idle)
         #expect(watch.parkLimit(now: 2 * hang, hangNanos: hang) == nil)
+    }
+
+    /// A main thread busy in one turn inside the nested run is a hang the heartbeat reports. The
+    /// nested run is not reported for it as well, and after it is timed again from the turn's end.
+    @Test func aBusyTurnInsideANestedRunIsTheHeartbeatsHangNotAParkedRun() {
+        let watch = NestedRunLoopWatch()
+        watch.start(insideRun: true)
+        _ = watch.entered(now: 0, inDefaultMode: { true })
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: 0) == .idle, "one busy turn since the start: the heartbeat's hang")
+        watch.hangTurnEnded(now: 2 * hang)
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: nil) == .idle, "the hang was reported once already")
+        #expect(watch.parkLimit(now: 2 * hang, hangNanos: hang) == hang)
+        #expect(watch.take(now: 3 * hang - 1, hangNanos: hang, busySince: nil) == .idle)
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: nil) == .report(id: 1, elapsedNanos: hang),
+                "parked a full threshold after the hang ended")
+    }
+
+    /// A run kept busy by short turns never sleeps. The turn under way when it fell due is waited out; the next turn
+    /// began after it was due and is short, so the run is reported then.
+    @Test func aRunBusyWithShortTurnsIsReportedFromTheFirstTurnAfterItWasDue() {
+        let watch = NestedRunLoopWatch()
+        watch.start(insideRun: true)
+        _ = watch.entered(now: 0, inDefaultMode: { true })
+        #expect(watch.take(now: hang + 5, hangNanos: hang, busySince: hang - 3) == .idle, "the turn under way began before it was due")
+        #expect(watch.take(now: hang + 20, hangNanos: hang, busySince: hang + 10) == .report(id: 1, elapsedNanos: hang + 20))
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: 3 * hang - 1) == .idle, "reported once")
+    }
+
+    /// A turn that began after the run was due but already lasted the hang threshold is the heartbeat's hang.
+    @Test func aTurnThatIsItselfAHangIsNotAlsoReportedAsTheRun() {
+        let watch = NestedRunLoopWatch()
+        watch.start(insideRun: true)
+        _ = watch.entered(now: 0, inDefaultMode: { true })
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: hang + 1) == .idle)
     }
 
     @Test func menusModalPanelsAndTheOuterLoopAreNotTimed() {
@@ -44,7 +78,7 @@ import Testing
         #expect(!watch.entered(now: 0, inDefaultMode: { true }))
         // A menu or a modal panel: a nested run in another mode.
         #expect(!watch.entered(now: 0, inDefaultMode: { false }))
-        #expect(watch.take(now: 10 * hang, hangNanos: hang) == .idle)
+        #expect(watch.take(now: 10 * hang, hangNanos: hang, busySince: nil) == .idle)
         _ = watch.exited(now: 10 * hang)
         _ = watch.exited(now: 10 * hang)
         // An unbalanced exit (watching began inside a nested run) never goes below zero.
@@ -78,6 +112,103 @@ import Testing
         #expect(first.duration >= .milliseconds(200))
         #expect(!first.addresses.isEmpty, "the main thread's stack names the nested run's caller")
     }
+
+    /// End to end on the real main run loop: one busy turn past the hang threshold inside a nested
+    /// default-mode run is one hang, reported once (the heartbeat's), not a second time as a parked run.
+    @MainActor
+    @Test func aBusyHangInsideARealNestedRunIsReportedOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
+                                                                hangThreshold: .milliseconds(200), hangAssertThreshold: nil))
+        let reported = ReportedHangs()
+        watchdog.onHang = { hang in reported.hangs.withLock { $0.append(hang) } }
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            busyOnTheMainThreadForTest(.milliseconds(600))
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        let hangs = reported.hangs.withLock { $0 }
+        #expect(hangs.count == 1, "one report for one busy hang, got \(hangs.count)")
+    }
+
+    /// End to end on the real main run loop: a nested default-mode run kept busy by many short turns (each far under
+    /// the hang threshold) never lets the main thread sleep and takes no input. No turn is a hang, so the heartbeat
+    /// reports nothing; the nested run is reported once.
+    @MainActor
+    @Test func aNestedRunBusyWithShortTurnsIsReportedOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
+                                                                hangThreshold: .milliseconds(200), hangAssertThreshold: nil))
+        let reported = ReportedHangs()
+        watchdog.onHang = { hang in reported.hangs.withLock { $0.append(hang) } }
+        watchdog.start()
+        defer { watchdog.stop() }
+        let pump = ShortTurnPump(turn: .milliseconds(10), lasting: .milliseconds(800))
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            pump.run()
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        let hangs = reported.hangs.withLock { $0 }
+        #expect(pump.turns > 20, "the run turned many times: \(pump.turns)")
+        #expect(hangs.count == 1, "one report for one nested run that never slept, got \(hangs.count)")
+    }
+}
+
+/// Keeps the main run loop busy with short turns that never let it sleep: a version-0 source that signals itself
+/// again from its own perform, so each run-loop pass handles a source and polls instead of waiting (no
+/// before-waiting). Each turn is busy for `turn`; after `lasting` the source stops the run it was pumped in.
+/// Main thread only (its source is on the main run loop, and `run()` is called there).
+private final class ShortTurnPump {
+    let turn: Duration
+    let lasting: Duration
+    private(set) var turns = 0
+    private var deadline = ContinuousClock.now
+    private var source: CFRunLoopSource?
+
+    init(turn: Duration, lasting: Duration) {
+        self.turn = turn
+        self.lasting = lasting
+    }
+
+    /// Runs a nested default-mode run of the main run loop, pumped until `lasting` has passed.
+    func run() {
+        var context = CFRunLoopSourceContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil,
+                                             copyDescription: nil, equal: nil, hash: nil, schedule: nil, cancel: nil,
+                                             perform: { info in
+                                                 guard let info else { return }
+                                                 Unmanaged<ShortTurnPump>.fromOpaque(info).takeUnretainedValue().perform()
+                                             })
+        let source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
+        self.source = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+        defer {
+            CFRunLoopSourceInvalidate(source)
+            self.source = nil
+        }
+        deadline = ContinuousClock.now + lasting
+        CFRunLoopSourceSignal(source)
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+    }
+
+    private func perform() {
+        turns += 1
+        busyOnTheMainThreadForTest(turn)
+        if ContinuousClock.now < deadline, let source {
+            CFRunLoopSourceSignal(source)
+        } else {
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+    }
+}
+
+/// The forced hang under test: keeps the main thread busy in one run-loop turn for `duration`.
+@inline(never)
+private func busyOnTheMainThreadForTest(_ duration: Duration) {
+    let deadline = ContinuousClock.now + duration
+    while ContinuousClock.now < deadline { usleep(5_000) }
 }
 
 /// The nested run under test: sleeps in the main run loop's default mode, as `waitUntilExit()` does.
