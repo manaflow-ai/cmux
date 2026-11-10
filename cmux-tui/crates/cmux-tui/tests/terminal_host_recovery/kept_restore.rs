@@ -238,3 +238,86 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
         place + 1
     );
 }
+
+/// A restarted terminal that has a command for its new prompt (the resume
+/// command a person set, or its agent's resume) waits for that prompt, up to
+/// 10 s, then for the prompt to settle. That wait ran inside the terminal's
+/// turn in the respawn gate, so the next terminal in line started only when
+/// the prompt of the one before had come: the agent terminals of a restored
+/// session came back a few at a time (14 to 17 of 170 alive after 5 s, all of
+/// them only after 2 minutes).
+///
+/// 3 kept tabs, each with a resume command, a shell that writes for 12 s and
+/// shows no prompt (the longest wait), and 1 slot: the 3 terminals restart
+/// with no prompt wait between them.
+#[test]
+fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
+    use std::os::unix::fs::PermissionsExt;
+
+    const TABS: usize = 3;
+    // Far below one prompt wait (10 s), far above 3 launches.
+    const ALL_RESTARTED_WITHIN_MS: u64 = 5_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("kept-restore-prompt-wait");
+    let terminals = create_workspaces(&harness, "wait", TABS);
+    for terminal in &terminals {
+        let set = request(
+            &harness.socket,
+            serde_json::json!({
+                "cmd": "terminal-resume-command",
+                "terminal_id": terminal,
+                "command": "echo kept",
+            }),
+        );
+        assert_eq!(set["command"], "echo kept", "{set}");
+    }
+    end_sessions_keep_layout(&mut harness);
+
+    // The new shell of each restart: output with no gap as long as a quiet
+    // prompt for 12 s, and never a prompt.
+    let shell = harness.dir.join("no-prompt-shell");
+    fs::write(
+        &shell,
+        "#!/bin/sh\ni=0\nwhile [ $i -lt 120 ]; do printf .; sleep 0.1; i=$((i+1)); done\nexec /bin/cat\n",
+    )
+    .unwrap();
+    fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
+    harness.extra_env.push(("SHELL".into(), shell.to_string_lossy().into_owned()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    let kept = all_tabs(&harness);
+    assert_eq!(kept.len(), TABS, "the restart did not keep every tab");
+    restart_kept_tabs(&harness, &kept);
+
+    // When each terminal restarted, from the loss log (one line per restart).
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(90));
+    let restarted = loop {
+        let lines = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .collect::<Vec<_>>();
+        if terminals
+            .iter()
+            .all(|terminal| lines.iter().any(|line| line["terminal_id"] == terminal.as_str()))
+        {
+            break lines;
+        }
+        assert!(Instant::now() < deadline, "only {} of {TABS} terminals restarted", lines.len());
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    for line in &restarted {
+        // Each restart has a prompt to wait for: the case under test.
+        assert_eq!(line["prefilled"], "resume", "a restart had nothing to type: {line}");
+    }
+    let at = restarted.iter().filter_map(|line| line["at_ms"].as_u64()).collect::<Vec<_>>();
+    assert_eq!(at.len(), TABS, "a restart line has no time: {restarted:?}");
+    let spread = at.iter().max().unwrap() - at.iter().min().unwrap();
+    assert!(
+        spread < ALL_RESTARTED_WITHIN_MS,
+        "{TABS} kept terminals took {spread} ms to restart with 1 respawn slot: each one waited \
+         for the prompt of the terminal before it"
+    );
+}
