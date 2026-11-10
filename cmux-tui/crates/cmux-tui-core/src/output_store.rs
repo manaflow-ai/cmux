@@ -998,17 +998,34 @@ impl OutputStore {
         if self.memory_only() {
             return None;
         }
-        let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
-        #[cfg(test)]
-        run_between_screen_reads_for_test();
-        if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
+        let full = self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full);
+        let (snapshot, generation, tail) = {
+            // The writer replaces a snapshot and then removes the tail it
+            // covers, both under the pass lock. Both files are read under it
+            // too, so a snapshot comes with its own tail: a pass between the
+            // two reads paired the old snapshot with no tail. Only the reads;
+            // the rebuild runs after.
+            let _pass = self.lock_pass();
+            let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
+            #[cfg(test)]
+            run_between_screen_reads_for_test();
+            // Snapshot mode: the output after the snapshot, from its tail.
+            let tail = if full {
+                Vec::new()
+            } else {
+                snapshot_end
+                    .map(|end| tail::bytes_after(directory, terminal_id, &generation, end))
+                    .unwrap_or_default()
+            };
+            (snapshot, generation, tail)
+        };
+        if full
             && let Some(rebuilt) =
                 segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
         {
             return Some(rebuilt);
         }
-        // Snapshot mode: the output after the snapshot, from its tail.
-        Some(tail::restore(directory, terminal_id, &generation, snapshot_end, snapshot))
+        Some(tail::restore(snapshot, &tail))
     }
 
     /// The logs whose terminal printed since the writer last looked; their
