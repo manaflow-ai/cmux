@@ -30,9 +30,14 @@ const HELD_LOCK_ANSWER: Duration = Duration::from_secs(5);
 
 const COLLECTIONS: [&str; 4] = ["workspaces", "screens", "panes", "tabs"];
 
-/// A session of `workspaces` workspaces on an on-disk registry. The first
-/// and the last hold two panes and three tabs; the rest are workspace rows
-/// only. Returns the first pane of each of the two.
+/// A session of `workspaces` workspaces on an on-disk registry. The last
+/// two hold two panes and three tabs; the rest are workspace rows only.
+/// Returns the first pane of each of the two.
+///
+/// The workspace rows come first: `create_empty_workspace` takes the focus
+/// and commits the workspace row and the active workspace alone, so a screen
+/// made before it would keep `focused: true` in the journal, and the next
+/// scoped projection's cross-check (debug builds) panics on that screen.
 fn session(workspaces: usize) -> (Arc<Mux>, std::path::PathBuf, Vec<PaneId>) {
     let root = std::env::temp_dir()
         .join(format!("cmux-single-reads-{}", crate::workspace_registry::new_uuid_v4()));
@@ -41,7 +46,7 @@ fn session(workspaces: usize) -> (Arc<Mux>, std::path::PathBuf, Vec<PaneId>) {
     mux.stop_journal_maintenance();
     let mut panes = Vec::new();
     for index in 0..workspaces {
-        if index > 0 && index + 1 < workspaces {
+        if index + 2 < workspaces {
             mux.create_empty_workspace(Some(format!("idle {index}")), None, None).unwrap();
             continue;
         }
