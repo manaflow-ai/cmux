@@ -72,6 +72,36 @@ struct SpaceSwitchRecordSaveTests {
         }
     }
 
+    /// A snapshot of a live session: a workspace that the window lists and does not show has another name (an agent
+    /// names its work), so the store applies that workspace again. No pane came or went: the save after the next
+    /// switch reads no pane. (The store notes a tab order change for each workspace a snapshot applies again, so a
+    /// key on its tab list revision read every pane after each such snapshot.)
+    @Test(arguments: [60, 826])
+    func theSaveAfterASnapshotThatMovesNoPaneReadsNoPane(_ total: Int) async throws {
+        let bench = try await SpaceSwitchBench(total: total, panes: true, registered: true)
+        defer { bench.close() }
+        let saver = bench.services.windows.recordSaver, store = bench.services.machines.local.store
+        _ = try await bench.settledSwitch(to: bench.rooms[1])
+        _ = try await bench.settledSwitch(to: bench.rooms[0])
+        _ = saver.currentRecords()
+        var live = bench.tree
+        for round in 0..<4 {
+            let room = bench.rooms[(round + 1) % 2]
+            live.workspaces[5].name = "Agent step \(round)"
+            store.apply(snapshot: live)
+            store.advanceAppliedSequence(to: store.appliedSequence + 1)
+            #expect(bench.services.workspace(id: "k5")?.name == "Agent step \(round)", "the snapshot of round \(round) did not apply")
+            _ = try await bench.settledSwitch(to: room)
+            let before = saver.paneReads
+            let record = try #require(saver.currentRecords().first)
+            let reads = saver.paneReads - before
+            print("SPACE-SWITCH-RECORD-SAVE n=\(total) snapshot=\(round) pane_reads=\(reads) selected_tabs=\(record.selectedTabs.count)")
+            #expect(reads == 0, "snapshot \(round) at \(total) workspaces: the save read \(reads) panes")
+            #expect(record.profile == room, "the record of snapshot \(round) names the space the window shows")
+            #expect(record.selectedTabs == rememberedTabs(bench), "the record of snapshot \(round) lists each pane's remembered tab")
+        }
+    }
+
     /// The record lists the remembered tabs of the panes the window holds: a pane that goes leaves the record with
     /// the next save and a pane that comes back is listed again, also when no remembered tab changed in between.
     @Test func theSaveAfterAPaneWentOrCameListsTheWindowsPanes() async throws {
