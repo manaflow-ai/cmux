@@ -397,13 +397,16 @@ export function useSessionInfo({
     setHeldFor(paneSession);
     setHeld(false);
   }
+  // Shown at a width: asked for, or saved open where it has room and no narrow pane held it.
+  const shownAt = (isNarrow: boolean | undefined) => roomyShown && (asked || (!isNarrow && !held));
   if (narrowWas !== narrow) {
     setNarrowWas(narrow);
-    // Narrowed while it showed: it stays (the first measure is a start, not a narrowing).
-    if (narrow && narrowWas === false && roomyShown) setAsked(true);
+    // Narrowed while it showed: it stays (the first measure is a start, not a narrowing). One held
+    // closed is not showing, so narrowing again leaves it closed.
+    if (narrow && narrowWas === false && shownAt(false)) setAsked(true);
   }
   if (narrow && !asked && !held) setHeld(true);
-  const shown = roomyShown && (asked || (!narrow && !held));
+  const shown = shownAt(narrow);
   // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
   // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
   // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).

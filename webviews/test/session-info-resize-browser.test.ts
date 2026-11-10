@@ -69,9 +69,7 @@ await requireBrowserLane("session-info-resize-browser.test.ts", async () => {
   }
 
   const toggled = (page: Page) =>
-    page.evaluate(
-      () => document.querySelector(".acpmux-session-info-toggle")?.getAttribute("aria-pressed") === "true",
-    );
+    page.evaluate(() => document.querySelector(".acpmux-session-info-toggle")?.getAttribute("aria-pressed") === "true");
   const resizeTo = async (page: Page, width: number) => {
     await page.setViewportSize({ width, height: 640 });
     await page.waitForFunction(
