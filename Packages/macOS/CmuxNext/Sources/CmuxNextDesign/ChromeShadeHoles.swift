@@ -27,7 +27,7 @@ public final class ChromeShadeHoles {
         let still: [String: any CAAction] = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
         mask.actions = still
         base.actions = still
-        base.fillColor = CGColor(gray: 0, alpha: 1)
+        base.fillColor = CGColor(gray: 0, alpha: 1) // colour-allow: a mask, only its alpha counts
         mask.addSublayer(base)
     }
 
@@ -68,7 +68,7 @@ public final class ChromeShadeHoles {
             patch.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull()]
             patch.frame = mask.bounds
             patch.path = path
-            patch.fillColor = CGColor(gray: 0, alpha: 1)
+            patch.fillColor = CGColor(gray: 0, alpha: 1) // colour-allow: a mask, only its alpha counts
             patch.opacity = animated ? 1 : 0
             mask.addSublayer(patch)
             open[key] = (path, patch)
