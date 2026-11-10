@@ -171,6 +171,7 @@ impl Supervisor {
 
     /// App host processes this supervisor spawned (live hosts and load
     /// trials): zero for a run that stayed in safe mode.
+    #[cfg(test)]
     pub(crate) fn host_spawns(&self) -> u64 {
         self.host_spawns.load(std::sync::atomic::Ordering::Relaxed)
     }

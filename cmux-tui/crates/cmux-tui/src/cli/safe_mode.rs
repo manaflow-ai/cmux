@@ -142,10 +142,12 @@ fn ask(global: &GlobalArgs, frame: Value) -> Answer {
         }
     };
     match exchange() {
-        Ok(reply) if reply["ok"] == true => Answer::Ok(reply["data"].clone()),
+        Ok(reply) if reply.get("ok") == Some(&Value::Bool(true)) => {
+            Answer::Ok(reply.get("data").cloned().unwrap_or(Value::Null))
+        }
         Ok(reply) => Answer::Refused {
-            code: reply["error_code"].as_str().unwrap_or("error").to_string(),
-            message: reply["error"].as_str().unwrap_or("").to_string(),
+            code: reply.get("error_code").and_then(Value::as_str).unwrap_or("error").to_string(),
+            message: reply.get("error").and_then(Value::as_str).unwrap_or("").to_string(),
         },
         Err(message) => Answer::Refused { code: "io".into(), message },
     }
@@ -167,7 +169,9 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
                 } else {
                     format!(
                         "Rolled back {app} to {}. The files it replaced are kept in cmux's state folder (apps-last-good).",
-                        data["version"].as_str().unwrap_or("its last good version")
+                        data.get("version")
+                            .and_then(Value::as_str)
+                            .unwrap_or("its last good version")
                     )
                 });
                 0
@@ -222,7 +226,9 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
     };
     if json_out {
         let mut out = state;
-        out["via"] = via;
+        if let Some(map) = out.as_object_mut() {
+            map.insert("via".into(), via);
+        }
         print(out.to_string());
     } else {
         print(human(&state, request, via.is_object()));
@@ -262,20 +268,25 @@ fn flag_json(flag: Option<&Flag>) -> Value {
 }
 
 pub(super) fn human(state: &Value, request: &Request, from_file: bool) -> String {
-    if state["on"] != true {
+    if state.get("on") != Some(&Value::Bool(true)) {
         return match (request, from_file) {
             (Request::Off, true) => "Safe mode is off: cmux starts normally next time.".into(),
             _ => "Safe mode is off.".into(),
         };
     }
-    let why = match state["reason"].as_str() {
+    let why = match state.get("reason").and_then(Value::as_str) {
         Some("crash-loop") => "cmux crashed several times in a row at launch",
         Some("env") => "CMUX_SAFE_MODE is set",
         _ => "you turned it on",
     };
     let mut out = format!("Safe mode is on ({why}): every extension is off.");
-    let named: Vec<&str> =
-        state["extensions"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let named: Vec<&str> = state
+        .get("extensions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     if !named.is_empty() {
         out.push_str(&format!("\nRunning when it crashed: {}.", named.join(", ")));
         out.push_str("\nRoll one back in cmux (Roll Back), or remove it in the App Store.");

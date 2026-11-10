@@ -106,7 +106,7 @@ impl AppLocks {
 }
 
 /// The last good copies on disk, by app id.
-pub(super) fn load(state: Option<&Path>) -> std::collections::HashMap<String, Good> {
+pub(super) fn load(state: Option<&Path>) -> HashMap<String, Good> {
     let Some(root) = state.map(|s| s.join(DIR)) else { return Default::default() };
     let Ok(entries) = std::fs::read_dir(root) else { return Default::default() };
     entries
