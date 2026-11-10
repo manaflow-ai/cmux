@@ -130,4 +130,24 @@ struct OverviewLayoutTests {
         // The page points a card shows: the page width at the card's aspect.
         #expect(abs(g.cardPageHeight - 402 * 249.3 / 177) < 1e-9)
     }
+
+    /// An unfolded foldable (about 800 pt wide, nearly square): more columns of
+    /// phone-sized cards, centred, instead of two cards 380 pt wide; every
+    /// iPhone width keeps Safari's two.
+    @Test func wideScreenAddsColumns() {
+        for width: CGFloat in [375, 402, 440, 500] { #expect(OverviewLayout.columns(width: width) == 2) }
+        let wide = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 9)
+        #expect(wide.columns == 4)
+        #expect(wide.cardWidth <= OverviewLayout.maxColumnCard)
+        #expect(wide.card(3).minY == wide.card(0).minY && wide.card(4).minY > wide.card(0).minY)
+        #expect(abs(wide.card(0).minX - (800 - wide.card(3).maxX)) <= 1)
+        #expect(wide.card(1).minX - wide.card(0).maxX == OverviewLayout.gridInset)
+        #expect(wide.rows == 3)
+        // A lone tab stays a phone's lone card, not two thirds of the wide screen.
+        let lone = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 1)
+        #expect(lone.cardWidth == OverviewLayout.maxLoneCard)
+        // The host's card picture scale follows the same grid.
+        #expect(TabsKitGrid(pageWidth: 800).cardScale(lone: false) == wide.cardWidth / 800)
+        #expect(TabsKitGrid(pageWidth: 402).cardScale(lone: false) == 177.0 / 402)
+    }
 }
