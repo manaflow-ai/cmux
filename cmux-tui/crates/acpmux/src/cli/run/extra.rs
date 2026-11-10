@@ -623,15 +623,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // without its opt-in): the person sees it here, not only in daemon.log.
                     let refused = crate::daemon::saved_listen_refusal().await;
                     if json_out {
-                        let out = match &refused {
-                            Some(why) => {
-                                json!({"running": false, "error": e.to_string(), "refused": why})
-                            }
-                            None => json!({"running": false, "error": e.to_string()}),
-                        };
+                        // `daemon status` never starts one: it names the command that does.
+                        let mut out = json!({"running": false, "error": e.to_string(),
+                                             "start": "acpmux daemon start"});
+                        if let Some(why) = &refused {
+                            cmux_json::JsonSet::set(&mut out, "refused", json!(why));
+                        }
                         print_json(&out)
                     } else {
-                        println!("daemon not running ({e})");
+                        println!("daemon not running ({e}); start it: acpmux daemon start");
                         if let Some(why) = &refused {
                             println!("refused:  {why}");
                         }

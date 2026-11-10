@@ -295,8 +295,9 @@ X=/abs/path/to/acpmux                       # the build you try (in a session, "
 mkdir -p /tmp/try-acpmux
 for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
+$X daemon start                             # starts it (`defaults` and `new` start it too)
 $X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
-$X daemon status                            # starts it; this home's sessions and live agents
+$X daemon status                            # never starts it; this home's sessions and live agents
 $X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
 $X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
 ```
