@@ -195,6 +195,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        context.window = { [weak self] in self?.window }
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in _ = self?.landMotion() }

@@ -167,7 +167,7 @@ import QuartzCore
             (layer as? SpacePageLayer)?.shiftX = x
             layer.setValue(x, forKeyPath: keyPath)
         }
-        guard let spring, Motion.sidebar.animatesMovement, start != x else {
+        guard let spring, Motion.sidebar.animatesMovement(in: view.window), start != x else {
             if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.translationKey) }
             return
         }

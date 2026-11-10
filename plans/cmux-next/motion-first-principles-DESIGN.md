@@ -79,8 +79,9 @@ Nothing in this document was measured for it. No build or test can run where it 
 - The program hold (keep the last frame until the program redraws, at most 3 refreshes) is on only for a key resize
   or a drag of a terminal on the alternate screen
   (`S/CmuxNextTerminal/TerminalSurfaceView+FrameOwner.swift:116-137`). A split, close or zoom has no program hold.
-- Movement snaps in every window while any window is in a live resize or a full screen transition: `Motion`'s base
-  policy reads the app-wide `LiveResizeWindows.shared.isActive` (`S/CmuxNextDesign/Motion/Motion.swift:58`).
+- Movement snaps only in the window that is in a live resize or a full screen transition: a gate's policy for a
+  window reads `Motion.isLiveResizing(window)` (`MotionGate.policy(in:)`, `S/CmuxNextDesign/Motion/MotionGate.swift`).
+  Motion in the other windows runs as usual.
 
 ### 1.3 Content hand-off today, per motion
 
@@ -429,7 +430,7 @@ For every class K motion the same content rule holds, so the table does not repe
 | Overlays, popups, hover cards | N | render server (already) | never delay input: the surface takes keys in the turn it opens | three tokens and `grow()` pass their target |
 | Divider drag | P | pointer, one sample per refresh | terminal: surface and grid per refresh, hold rule of #40174; page: one size per refresh at most; the release adds no travel | release carries velocity; page window detaches |
 | Sidebar width drag | P | pointer, one sample per refresh | as a divider drag | one layout per event, not per refresh |
-| Window live resize | P | AppKit | as a divider drag; only THIS window's motion snaps | movement snaps in every window |
+| Window live resize | P | AppKit | as a divider drag; only THIS window's motion snaps | only this window's movement snaps |
 | Space change, screen change | none | one frame | no motion (ordered); a finger swipe follows the finger and lands with no bounce | slide and fade |
 
 ### 4.1 Acceptance, the same for every motion
