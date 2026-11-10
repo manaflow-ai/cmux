@@ -302,8 +302,13 @@ public final class LiveCoordinator {
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
-            focused.link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
-            for session in sessions.values where session !== focused {
+            // A revoked session asks nobody: the roam would reopen the signaling
+            // socket with the refused token.
+            let revoked = sessionRevoked
+            if !revoked {
+                focused.link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+            }
+            for session in sessions.values where session !== focused || revoked {
                 session.link.send(.networkChanged)
             }
         }
@@ -335,7 +340,7 @@ public final class LiveCoordinator {
         // saved (registration is an upsert and survives), so the socket and
         // the dial need not wait for it.
         registeredTeamID = snapshot.teamID
-        idleSession.link.prewarm(baseURL: api.baseURL, teamID: snapshot.teamID, deviceID: identity.link)
+        prewarmSignaling(teamID: snapshot.teamID)
         retarget()
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
@@ -432,7 +437,7 @@ public final class LiveCoordinator {
             ]) {
                 ConnectTimeline.shared.mark("registered", detail: "bootstrap")
                 guard !Task.isCancelled, store.activeTeamID == teamID else { return }
-                if !warm { idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
+                if !warm { prewarmSignaling(teamID: teamID) }
                 registeredTeamID = teamID
                 push.attach(api: api, deviceID: identity.link)
                 checkRelay()
@@ -449,7 +454,7 @@ public final class LiveCoordinator {
             try await linkDevice
             if !warm {
                 // The link device is registered: warm its socket while the rest loads.
-                idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+                prewarmSignaling(teamID: teamID)
             }
             try await presenceDevice
             ConnectTimeline.shared.mark("registered")
@@ -915,6 +920,20 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.blockUDP(blockUDP)) }
     }
 
+    /// Whether the cmux service refused a token minted fresh for one of this
+    /// account's links (``LinkMachine/Phase/signedOut``). The session is gone
+    /// for every link, so nothing opens another signaling socket with it
+    /// (prewarm, roam) until a new sign-in closes these sessions.
+    var sessionRevoked: Bool {
+        idleSession.link.phase == .signedOut || sessions.values.contains { $0.link.phase == .signedOut }
+    }
+
+    /// Warms the signaling socket for the next dial, unless the session was revoked.
+    private func prewarmSignaling(teamID: String) {
+        guard !sessionRevoked else { return }
+        idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+    }
+
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
@@ -928,7 +947,7 @@ public final class LiveCoordinator {
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }
         if let teamID = registeredTeamID {
-            idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
+            prewarmSignaling(teamID: teamID)
         }
         presence?.kick()
         if discoveryTask != nil { startDiscovery() }

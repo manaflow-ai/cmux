@@ -86,6 +86,8 @@ public final class LinkController {
 
     /// Warms the next dial in `teamID` (signaling socket, ICE servers); logs the steps.
     public func prewarm(baseURL: URL, teamID: String, deviceID: String) {
+        // A revoked session opens no signaling socket with its refused token.
+        guard phase != .signedOut else { return }
         let dialer = dialer
         let accessToken = accessToken
         // Detached: a task that starts on the main actor waits for it first.
@@ -135,6 +137,8 @@ public final class LinkController {
         networkTask = Task { [weak self] in
             do { try await clock.sleep(for: Self.networkSettle) } catch { return }
             ConnectTimeline.shared.mark("network_changed")
+            // Revoked (now or during the settle): no roam with the refused token.
+            guard self?.phase != .signedOut else { return }
             // Detached: the roam must not wait for the main actor.
             let steps = await Task.detached { () -> [(String, Double)] in
                 guard let token = try? await accessToken(false) else { return [] }
