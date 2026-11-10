@@ -212,7 +212,7 @@ fn each_verb_carries_its_arguments() {
             "/r2",
         ]
     );
-        // Move to another Cloud machine: the frozen copy is a relay between the two machines.
+    // Move to another Cloud machine: the frozen copy is a relay between the two machines.
     let relayed = call(
         json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
         "cwd": "/home/cmux/work/app",

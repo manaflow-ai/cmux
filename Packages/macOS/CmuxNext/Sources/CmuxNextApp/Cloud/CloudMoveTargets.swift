@@ -8,7 +8,8 @@ import CmuxNextDaemon
 enum CloudMoveTargets {
     static func targets(record: AgentSessionRef?, machine: String, services: AppServices) -> [AgentPaneMoveTarget] {
         guard let record else { return [] }
-        let running = CloudMove.runningMachine(record, services)
+        let running = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
+            ? services.machines.cloud.first { AgentTabStore.registryHost(of: $0.daemon) == record.host } : nil
         let chat = CloudMoveTargetRules.Chat(
             offered: AgentPaneMoveTarget.offered(signedIn: services.cloud.isSignedIn, loadedCurrent: services.cloud.hasLoadedCurrentMachines),
             started: record.session != nil, chief: record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix), running: running?.machineID,

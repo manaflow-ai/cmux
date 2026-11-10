@@ -88,10 +88,10 @@
 //!
 //! `--sync` may be given more than once, each with its own `--sync-socket`,
 //! `--sync-local` and `--sync-remote`; the copies run in that order, and the
-//! first that fails gives the chat back. Move to Another Machine passes two: a
-//! pull from the machine the chat leaves into this Mac's folder, then a seed
-//! push of that folder to the machine it goes to, so the chat lands with every
-//! change the old machine made up to the freeze.
+//! first that fails gives the chat back. Move to Another Machine passes one
+//! `--sync relay`: machine to machine, never through this Mac's folder (as git
+//! when this Mac seeded the folder, [`super::seed_cli::hop_bulk`]), so the chat
+//! lands with every change the old machine made up to the freeze.
 //!
 //! `--interrupt` stops a running turn only on a source whose `identify` lists
 //! `agent-transfer-continues-v1` (its acpmux continues the turn where the

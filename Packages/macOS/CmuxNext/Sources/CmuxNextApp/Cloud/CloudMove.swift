@@ -54,7 +54,6 @@ struct CloudMove {
     func refusal(_ invocation: ActionInvocation, context: AppActionContext) -> String? {
         // An agent's run names its own chat, not the focused tab: its ask checks that chat (``CloudMoveAsks``).
         guard !CloudMoveAsks.isAgent(invocation), let (tab, _) = context.daemonTab(invocation), let reason = Self.refusal(tab, services) else { return nil }
-        if Self.runningMachine(tab.agentSession, services) != nil, invocation["machine"] != nil { return nil } // ``startRelocate(_:context:)``
         if case .show = services.cloud.moveRetries[tab.id] { return nil } // read only on a refusal: a defaults read per menu validation
         return reason
     }
@@ -66,14 +65,13 @@ struct CloudMove {
         return session(tab, services) == nil ? CloudMoveStrings.noSession : nil
     }
 
-    static func session(_ tab: TabModel, _ services: AppServices) -> String? {
+    private static func session(_ tab: TabModel, _ services: AppServices) -> String? {
         services.agentTabs.sessions[services.agentTabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)] ?? tab.agentSession?.session
     }
 
     /// Starts the move of the invocation's chat tab. Throws, before anything
     /// moves, when the tab is not a chat of this Mac with a session.
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        if try startRelocate(invocation, context: context) { return }
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
         var left = retries[tab.id]
@@ -122,7 +120,7 @@ struct CloudMove {
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop
     /// records its retry for `tab` and offers it; success clears it.
-    func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor () async throws -> String) {
+    private func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.moveRetries
@@ -252,8 +250,8 @@ struct CloudMove {
         return machine.machine.title
     }
 
-    /// Opens the moved chat's tab on `machine`, then closes the tab it left (on this Mac or a Cloud machine), whose chat closed with the move.
-    func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
+    /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
+    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
         do {
             try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
         } catch {
@@ -261,7 +259,7 @@ struct CloudMove {
         }
         // Reopen Closed never offers it.
         do {
-            try await services.machines.daemon(forTab: tab).connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
+            try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
         } catch {
             services.cloud.logger.error("cloud move: closing the moved tab failed: \(String(describing: error), privacy: .public)")
         }

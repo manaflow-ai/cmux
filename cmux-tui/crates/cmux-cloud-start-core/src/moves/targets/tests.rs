@@ -55,23 +55,3 @@ fn nothing_moves_unstarted_chief_unloaded_or_elsewhere() {
         assert!(targets(&chat).is_empty(), "{chat:?}");
     }
 }
-
-#[test]
-fn the_folder_is_the_moved_root_else_the_chat() {
-    assert_eq!(
-        folder(Some("/work/repo"), Some("/work/repo/app"), Some("/x")),
-        Some(Folder { root: "/work/repo".into(), chat: "/work/repo/app".into() })
-    );
-    assert_eq!(
-        folder(None, None, Some("/srv/x/")),
-        Some(Folder { root: "/srv/x".into(), chat: "/srv/x".into() })
-    );
-    assert_eq!(folder(None, None, Some("relative")), None);
-    assert_eq!(folder(None, None, None), None);
-    assert_eq!(
-        folder(Some("/work/repo"), Some("/work/repository"), None),
-        None,
-        "a sibling is not inside"
-    );
-    assert_eq!(folder(None, None, Some("/")), None, "the whole disk never goes");
-}

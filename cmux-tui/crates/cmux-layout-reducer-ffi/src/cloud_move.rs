@@ -385,29 +385,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "reusable": wait::run_reusable(request.age_ms) })
         }
-        // Move to…: where a started chat can go, and the folder a machine-to-machine move takes.
+        // Move to…: where a started chat can go.
         b"cloud_move_targets" => {
             let chat: targets::Chat = read(request)?;
             json!({ "targets": targets::targets(&chat) })
-        }
-        b"cloud_move_relocate_folder" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(default)]
-                remote_folder: Option<String>,
-                #[serde(default)]
-                remote_chat: Option<String>,
-                #[serde(default)]
-                cwd: Option<String>,
-            }
-            let request: Request = read(request)?;
-            let folder = targets::folder(
-                request.remote_folder.as_deref(),
-                request.remote_chat.as_deref(),
-                request.cwd.as_deref(),
-            );
-            json!({ "folder": folder })
         }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]
