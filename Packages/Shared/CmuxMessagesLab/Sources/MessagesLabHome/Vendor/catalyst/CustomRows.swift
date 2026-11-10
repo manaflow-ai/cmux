@@ -244,9 +244,11 @@ enum CustomRows {
     /// Outgoing bubbles take the window gradient layer (RowDraw.needsFill).
     static func needsFill(_ c: CustomPart, outgoing: Bool) -> Bool { outgoing && layout(c, outgoing: outgoing) != .fullWidth }
 
-    static func maxWidth(_ c: CustomPart, width: CGFloat) -> CGFloat {
+    /// cmux: `indent`: how far the row's frame sits right of the leading edge (a group's avatar column); a full width
+    /// row runs from there to the trailing edge (`HomeChatColumn.wideWidth`).
+    static func maxWidth(_ c: CustomPart, width: CGFloat, indent: CGFloat = 0) -> CGFloat {
         let m = Metrics(width: width)
-        if let p = live(c), p.layout(for: c) == .fullWidth { return m.rightEdge - Fixture.leftEdge }
+        if let p = live(c), p.layout(for: c) == .fullWidth { return HomeChatColumn(width: width, indent: indent).wideWidth }
         return m.maxTextWidth + 2 * Fixture.bubblePadX
     }
 
@@ -254,16 +256,16 @@ enum CustomRows {
 
     /// (size, text layout of the fallback bubble, estimated). Thread safe.
     /// `id` nil: not cached (a part outside a message).
-    static func measure(_ c: CustomPart, message id: ID?, part pi: Int, width: CGFloat) -> (CGSize, TextLayout?, Bool) {
+    static func measure(_ c: CustomPart, message id: ID?, part pi: Int, width: CGFloat, indent: CGFloat = 0) -> (CGSize, TextLayout?, Bool) {
         guard let p = live(c) else {
             // The stub: a text bubble with the plain text (no live view here).
             let (s, tl) = Sizing.size(of: .text(plainText(c), runs: []), width: width)
             return (s, tl, false)
         }
-        let maxW = maxWidth(c, width: width)
+        let maxW = maxWidth(c, width: width, indent: indent)
         let full = p.layout(for: c) == .fullWidth
         func fit(_ s: CGSize) -> CGSize { CGSize(width: full ? maxW : min(maxW, max(1, s.width.rounded())), height: max(1, s.height.rounded())) }
-        let k = id.map { MeasureKey(id: $0, part: pi, version: c.version, width: width, generation: cache.generation($0)) }
+        let k = id.map { MeasureKey(id: $0, part: pi, version: c.version, width: width, indent: indent, generation: cache.generation($0)) }
         if let k, let s = cache.get(k) { return (s, nil, false) }
         if !p.measuresOffMain && !Thread.isMainThread { mayEstimate = true; return (fit(p.estimate(c, maxWidth: maxW)), nil, true) }
         let s = fit(p.measure(c, maxWidth: maxW))
@@ -276,7 +278,7 @@ enum CustomRows {
     /// The next measure of `id`'s custom parts runs again (heightDidChange).
     static func invalidate(_ id: ID) { cache.bump(id) }
 
-    struct MeasureKey: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var generation: Int }
+    struct MeasureKey: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var indent: CGFloat = 0; var generation: Int }
     static let cache = MeasureStore()
     final class MeasureStore: @unchecked Sendable {
         private let lock = NSLock()
