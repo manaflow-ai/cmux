@@ -8,6 +8,8 @@
   dot, a key, the wheel, the palette and the CLI alike (`SidebarView.showSpace`). Only the trackpad swipe moves
   pages, with the fingers. The space's blocks (Home, its pinned workspaces) come in the same list layout as its
   rows. Kept: the current-space chip's glide in the bar, the menus and Option-click on the release, right-click.
+  A dot torn off the window still opens its space in a new window with the space's workspaces: the window that
+  the press switched goes back to the space it showed before the press (`ProfileBarView.pressOrigin`).
   Regression: `SpaceBarMouseDownSwitchTests`, `SidebarSpaceSwitchAtRestTests`, `SidebarSpaceSwitchBlocksTests`,
   `SpaceSwitchSameTurnTests`.
 - 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
