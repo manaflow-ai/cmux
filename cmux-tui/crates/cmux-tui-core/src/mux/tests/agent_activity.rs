@@ -180,7 +180,7 @@ fn a_long_turn_stays_current_in_history(workspaces: usize) {
     while now_ms + REPORT_GAP_MS <= end_ms {
         now_ms += REPORT_GAP_MS;
         mux.set_agent_activity_clock_for_test(now_ms);
-        let event = if round % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
+        let event = if round.is_multiple_of(2) { "PreToolUse" } else { "PostToolUse" };
         for (index, agent) in agents.iter().enumerate() {
             let tool = json!({ "tool_name": "Read", "tool_input": { "file_path": "/a.rs" } });
             let answer = send_at(&mux, agent, event, tool, now_ms);

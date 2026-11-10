@@ -226,6 +226,7 @@ pub(crate) const ACTIVITY_NATIVE_EVENT: &str = "AgentActivityObserved";
 const ACTIVITY_ROW_STAMPS: usize = 2000;
 
 /// The newest report at rest of one terminal's agent session.
+#[derive(Debug)]
 struct ActivityStamp {
     provider: String,
     session: String,
@@ -244,7 +245,7 @@ struct SavedStamp {
 
 /// Each terminal's newest agent report time, and when the journal last got
 /// them.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct AgentActivity {
     stamps: HashMap<TerminalPublicId, ActivityStamp>,
     /// The daemon's time of the last activity row; before the first row, of
