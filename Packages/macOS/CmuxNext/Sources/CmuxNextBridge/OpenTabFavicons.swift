@@ -1,13 +1,17 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
+import Observation
 
 /// The favicon address an open browser tab shows, by the tab's site origin: the first tab per origin in workspace
 /// order, without the origins whose first tab shows the site's own `/favicon.ico` (a link draws that one without
 /// storing it). What the sidebar's link items store (``SidebarDocMachines/followFavicons(_:revision:byOrigin:faviconKey:)``).
 ///
-/// ``byOrigin`` reads every tab of every workspace each time it is read (the app's walk, moved here unchanged): an
-/// observer of it is woken by a change in any tab of the store.
-@MainActor public final class OpenTabFavicons {
+/// One observation per workspace (main-thread-scheduling.md section 3, O4): the workspace list is observed without
+/// reading any workspace's fields, each workspace's open tab favicons are their own observation, and ``byOrigin`` is
+/// written only when it changed. A navigation or a favicon change in one tab reads its workspace's tabs again, never
+/// every tab of the store.
+@Observable @MainActor public final class OpenTabFavicons {
     /// One open tab's favicon: its site origin and the favicon address it shows.
     nonisolated public struct Favicon: Equatable, Sendable {
         public var origin: String
@@ -18,24 +22,29 @@ public import Foundation
         }
     }
 
-    private var workspaces: (@MainActor @Sendable () -> [WorkspaceModel])?
-    private var favicon: (@MainActor @Sendable (TabModel) -> Favicon?)?
+    /// The joined table (read by an observer: written only when it changed).
+    public private(set) var byOrigin: [String: String] = [:]
+    @ObservationIgnored private var observed: ObservedItems<WorkspaceModel, [Favicon]>?
+    @ObservationIgnored private var listed: [WorkspaceModel] = []
+    @ObservationIgnored private var listTask: Task<Void, Never>?
 
     public init() {}
 
-    /// The joined table: one walk of every tab of the listed workspaces, now.
-    public var byOrigin: [String: String] {
-        guard let workspaces, let favicon else { return [:] }
-        return Self.table(workspaces().map { Self.favicons(of: $0, favicon: favicon) })
-    }
-
-    /// Follows `workspaces` and each workspace's tabs through `favicon` (nil: the tab gives none, as a terminal or an
-    /// incognito page) from now on. Once; a second call does nothing.
+    /// Follows `workspaces` (the list only) and each workspace's tabs through `favicon` (nil: the tab gives none, as a
+    /// terminal or an incognito page) from now on. Once; a second call does nothing.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
                       favicon: @escaping @MainActor @Sendable (TabModel) -> Favicon?) {
-        guard self.workspaces == nil else { return }
-        self.workspaces = workspaces
-        self.favicon = favicon
+        guard listTask == nil else { return }
+        observed = ObservedItems(item: { workspace in Self.favicons(of: workspace, favicon: favicon) }, same: { $0 == $1 },
+                                 changed: { [weak self] in self?.settle() })
+        // task-owner: the app's services (live for the app); event-driven (Observation)
+        listTask = Task { [weak self] in
+            for await models in ObservationStream({ workspaces() }) {
+                guard let self else { return }
+                listed = models
+                settle()
+            }
+        }
     }
 
     /// One workspace's open tab favicons, in model order.
@@ -58,5 +67,13 @@ public import Foundation
             byOrigin[favicon.origin] = favicon.address
         }
         return byOrigin.filter { $0.value != $0.key + "/favicon.ico" }
+    }
+
+    /// The listed workspaces' favicons now: only workspaces new to the list are read (their own observations keep the
+    /// rest); the table is written only when it changed.
+    private func settle() {
+        guard let observed else { return }
+        let table = Self.table(observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }))
+        if byOrigin != table { byOrigin = table }
     }
 }
