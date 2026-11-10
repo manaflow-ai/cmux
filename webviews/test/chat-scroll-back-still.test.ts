@@ -54,85 +54,97 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
   /// How long after the scroll back down a held follow motion played out on base (its spring home).
   const SLIDE_MS = 250;
 
-  test("wheeling back down to the latest row after reading moves no row the reader sees", async () => {
-    const { port } = vite!.httpServer!.address() as { port: number };
-    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}`, {
-      clock: "frames",
-    });
-    let out: Sample[];
-    try {
-      await frames.page.waitForFunction(() => "__sendStream" in window);
-      await frames.page.getByText(`History answer ${HISTORY - 1}.`).waitFor();
-      frames.start();
-      out = (await frames.page.evaluate(
-        (backMs) =>
-          (window as unknown as { __sendStream: { run(options: object): Promise<Sample[]> } }).__sendStream.run({
-            scenario: "arrive-tool",
-            settleMs: backMs + 600,
-            wheel: { at: "land", afterMs: 16, px: 60, backMs },
-          }),
-        READ_MS,
-      )) as Sample[];
-      await frames.stop();
-    } finally {
-      await frames.close();
-    }
-    const wheeled = out.find((sample) => sample.wheeledAt !== undefined)?.wheeledAt;
-    const back = out.find((sample) => sample.backAt !== undefined)?.backAt;
-    expect(wheeled).toBeDefined();
-    expect(back).toBeDefined();
-    // The wheel came while the follow motion was in flight: the thread was drawn away from its layout.
-    const held = out.filter((sample) => sample.t >= wheeled! && sample.t < wheeled! + 4 * FRAME_MS);
-    expect(Math.max(...held.map((sample) => Math.abs(sample.lag)))).toBeGreaterThan(1);
-    // While the reader reads, across their input going quiet (USER_SCROLL_INTENT_MS), every row holds
-    // its place: its screen top less the thread's translate, plus the offset, never changes. A held
-    // chase folded into the offset keeps that; a row's own glide cut short would not.
-    const reading = out.filter((sample) => sample.t > wheeled! + 2 * FRAME_MS && sample.t < back!);
-    expect(reading.some((sample) => sample.t > wheeled! + 1100)).toBe(true);
-    let drift = 0;
-    let drifted: string | undefined;
-    for (let index = 1; index < reading.length; index += 1) {
-      const was = reading[index - 1]!;
-      const now = reading[index]!;
-      const before = new Map((was.rows ?? []).map((row) => [row.id, row.top + was.scrollTop - was.lag]));
-      for (const row of now.rows ?? []) {
-        const at = before.get(row.id);
-        // What the reader sees: a row in the view, over the composer (a row under the glass composer
-        // is the reply's live end, which streams on under it).
-        if (at === undefined || !row.inView || row.top >= (now.composer ?? Number.POSITIVE_INFINITY)) continue;
-        const shift = Math.abs(row.top + now.scrollTop - now.lag - at);
-        if (shift > drift) {
-          drift = shift;
-          drifted = row.id;
+  // 60 px: the rows under the landing call stay in view while the reader reads. 600 px: they leave it,
+  // so their held glides end unseen (tailGlide.ts dropUnseen) and nothing of them plays on the return.
+  test.each([60, 600])(
+    "wheeling up %i px and back down to the latest row after reading moves no row the reader sees",
+    async (px) => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}`, {
+        clock: "frames",
+      });
+      let out: Sample[];
+      try {
+        await frames.page.waitForFunction(() => "__sendStream" in window);
+        await frames.page.getByText(`History answer ${HISTORY - 1}.`).waitFor();
+        frames.start();
+        out = (await frames.page.evaluate(
+          ({ backMs, px }) =>
+            (window as unknown as { __sendStream: { run(options: object): Promise<Sample[]> } }).__sendStream.run({
+              scenario: "arrive-tool",
+              settleMs: backMs + 600,
+              wheel: { at: "land", afterMs: 16, px, backMs },
+            }),
+          { backMs: READ_MS, px },
+        )) as Sample[];
+        await frames.stop();
+      } finally {
+        await frames.close();
+      }
+      const wheeled = out.find((sample) => sample.wheeledAt !== undefined)?.wheeledAt;
+      const back = out.find((sample) => sample.backAt !== undefined)?.backAt;
+      expect(wheeled).toBeDefined();
+      expect(back).toBeDefined();
+      // The wheel came while the follow motion was in flight: the thread was drawn away from its layout.
+      const held = out.filter((sample) => sample.t >= wheeled! && sample.t < wheeled! + 4 * FRAME_MS);
+      expect(Math.max(...held.map((sample) => Math.abs(sample.lag)))).toBeGreaterThan(1);
+      // While the reader reads, across their input going quiet (USER_SCROLL_INTENT_MS), every row holds
+      // its place: its screen top less the thread's translate, plus the offset, never changes. A held
+      // chase folded into the offset keeps that; a row's own glide cut short would not.
+      const reading = out.filter((sample) => sample.t > wheeled! + 2 * FRAME_MS && sample.t < back!);
+      expect(reading.some((sample) => sample.t > wheeled! + 1100)).toBe(true);
+      let drift = 0;
+      let drifted: string | undefined;
+      for (let index = 1; index < reading.length; index += 1) {
+        const was = reading[index - 1]!;
+        const now = reading[index]!;
+        const before = new Map((was.rows ?? []).map((row) => [row.id, row.top + was.scrollTop - was.lag]));
+        for (const row of now.rows ?? []) {
+          const at = before.get(row.id);
+          // What the reader sees: a row in the view, over the composer (a row under the glass composer
+          // is the reply's live end, which streams on under it).
+          if (at === undefined || !row.inView || row.top >= (now.composer ?? Number.POSITIVE_INFINITY)) continue;
+          const shift = Math.abs(row.top + now.scrollTop - now.lag - at);
+          if (shift > drift) {
+            drift = shift;
+            drifted = row.id;
+          }
         }
       }
-    }
-    console.log(`chat-scroll-back-still: while reading, rows ${drift.toFixed(1)} px (${drifted ?? "none"})`);
-    expect({ drift: Math.round(drift * 10) / 10, drifted }).toEqual({
-      drift: Math.min(Math.round(drift * 10) / 10, 0.5),
-      drifted,
-    });
-    // Every frame after the one the reader's scroll back down drew in, for as long as a held follow
-    // motion took to play out (about a dozen frames on base): the thread is drawn at its layout, so
-    // nothing slides home under the view.
-    const after = out.filter((sample) => sample.t > back! + FRAME_MS && sample.t <= back! + SLIDE_MS);
-    expect(after.length).toBeGreaterThan(20);
-    let most = 0;
-    let moved: string | undefined;
-    for (let index = 1; index < after.length; index += 1) {
-      const before = new Map((after[index - 1]!.rows ?? []).map((row) => [row.id, row]));
-      for (const row of after[index]!.rows ?? []) {
-        const was = before.get(row.id);
-        if (!was) continue;
-        const shift = Math.abs(row.top - was.top);
-        if (shift > most) {
-          most = shift;
-          moved = row.id;
+      console.log(`chat-scroll-back-still: while reading, rows ${drift.toFixed(1)} px (${drifted ?? "none"})`);
+      expect({ drift: Math.round(drift * 10) / 10, drifted }).toEqual({
+        drift: Math.min(Math.round(drift * 10) / 10, 0.5),
+        drifted,
+      });
+      // Every frame after the one the reader's scroll back down drew in, for as long as a held follow
+      // motion took to play out (about a dozen frames on base): the thread is drawn at its layout, so
+      // nothing slides home under the view.
+      const after = out.filter((sample) => sample.t > back! + FRAME_MS && sample.t <= back! + SLIDE_MS);
+      expect(after.length).toBeGreaterThan(20);
+      let most = 0;
+      let moved: string | undefined;
+      for (let index = 1; index < after.length; index += 1) {
+        const before = new Map((after[index - 1]!.rows ?? []).map((row) => [row.id, row]));
+        for (const row of after[index]!.rows ?? []) {
+          const was = before.get(row.id);
+          // On screen, over the composer: what the reader sees.
+          if (!was || !row.inView || row.top >= (after[index]!.composer ?? Number.POSITIVE_INFINITY)) continue;
+          const shift = Math.abs(row.top - was.top);
+          if (shift > most) {
+            most = shift;
+            moved = row.id;
+          }
         }
       }
-    }
-    const lag = Math.max(...after.map((sample) => Math.abs(sample.lag)));
-    console.log(`chat-scroll-back-still: lag ${lag.toFixed(1)} px, rows ${most.toFixed(1)} px (${moved ?? "none"})`);
-    expect(Math.round(lag * 10) / 10).toBeLessThanOrEqual(0.5);
-  });
+      const lag = Math.max(...after.map((sample) => Math.abs(sample.lag)));
+      console.log(
+        `chat-scroll-back-still ${px}: lag ${lag.toFixed(1)} px, rows ${most.toFixed(1)} px (${moved ?? "none"})`,
+      );
+      expect(Math.round(lag * 10) / 10).toBeLessThanOrEqual(0.5);
+      expect({ most: Math.round(most * 10) / 10, moved }).toEqual({
+        most: Math.min(Math.round(most * 10) / 10, 0.5),
+        moved,
+      });
+    },
+  );
 });

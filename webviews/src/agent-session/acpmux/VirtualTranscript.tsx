@@ -4202,6 +4202,9 @@ function TranscriptView({
   const checkOlderNow = useRef<() => void>(() => {});
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     pacing.scrolled();
+    // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
+    // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
+    if (!followingRef.current) tailGlide.current?.dropUnseen(node.getBoundingClientRect());
     // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
     if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
@@ -4463,10 +4466,12 @@ function TranscriptView({
     // played the moment the reader scrolled back down to the latest row: the rows moved under a view
     // the reader had just put where they wanted it (Leo, 2026-11-09: "when i scroll down now there's
     // a little readjustment sometimes that shold never happen"). Nothing on screen moves here. The rows'
-    // own glides (tailGlide.ts) stay paused where they are drawn: each is a different move, so no
-    // offset takes it back, and cutting it short snapped the row. O(1); runs once per quiet input.
+    // own glides (tailGlide.ts) are each a different move, so no offset takes them back: one whose row
+    // is out of view ends here and as the reader scrolls (`dropUnseen`), unseen; one still in view stays
+    // paused where it is drawn (cutting it short snapped the row). O(1); runs once per quiet input.
     const settleHeldFollowMotion = () => {
       if (followingRef.current || jumpTarget.current !== undefined) return;
+      tailGlide.current?.dropUnseen(node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
       // rounds the write (WebKit drew a fractional fold 0.7 px off). Under a pixel stays drawn.
