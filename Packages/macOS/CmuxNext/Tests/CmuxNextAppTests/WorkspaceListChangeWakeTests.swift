@@ -223,8 +223,10 @@ import Testing
     /// KNOWN ISSUE (SIDEBAR ROW CHANGE): stage 1 took the scroll rule's two reads of every row away (`viewport_rows`,
     /// `oneChangedRowReadsTheScrollsRowsInView`). The model set and the list's splice compare still read every row
     /// once each (about 2 x 826 at `real`), so the total is over the bound at each size above `large` until the
-    /// model takes the one-row change itself (stage 2). Not intermittent in fact: the issue is there at `real` and
-    /// not at `large`, which is the only size a run without `CMUX_TEST_SESSION_SIZES` has.
+    /// model takes the one-row change itself (stage 2). The issue is there at each size above `large` and not at
+    /// `large` (the only size a run without `CMUX_TEST_SESSION_SIZES` has), so it is a known issue only there: a
+    /// count over the bound at `large` fails, and so does a count inside the bound at `real` (stage 2 takes the
+    /// known issue away in the commit that lowers the count).
     @Test(.timeLimit(.minutes(10)))
     func oneChangedRowWalksNoOtherRowOfTheSidebar() async throws {
         let small = try await Self.counts(.large)
@@ -235,11 +237,13 @@ import Testing
             for (name, change, atLarge) in [("closed", counts.closed, small.closed), ("closed at the press", counts.pressed, small.pressed)] {
                 let walked = change.sidebar["rows_walked"] ?? 0, sets = change.sidebar["section_sets"] ?? 0
                 #expect(sets > 0, "fixture: one workspace \(name) at \(size.rawValue) set no sidebar sections (the pass did not run)")
-                withKnownIssue("SIDEBAR ROW CHANGE stage 2: the model set and the splice compare read every listed row", isIntermittent: true) {
+                withKnownIssue("SIDEBAR ROW CHANGE stage 2: the model set and the splice compare read every listed row") {
                     #expect(walked <= Self.rowWalkBound,
                             "one workspace \(name) in a session of \(size.workspaces) made the sidebar read \(walked) rows (bound \(Self.rowWalkBound))")
                     #expect(walked <= max(atLarge.sidebar["rows_walked"] ?? 0, 16),
                             "one workspace \(name) makes the sidebar read \(walked) rows at \(size.rawValue), \(atLarge.sidebar["rows_walked"] ?? 0) at large")
+                } when: {
+                    size.workspaces > SessionFixtureSize.large.workspaces
                 }
             }
         }
@@ -256,6 +260,7 @@ import Testing
             for (name, change, atLarge) in [("closed", counts.closed, small.closed), ("closed at the press", counts.pressed, small.pressed)] {
                 let read = change.sidebar["viewport_rows"] ?? 0, reloads = change.sidebar["list_reloads"] ?? 0
                 #expect(reloads > 0, "fixture: one workspace \(name) at \(size.rawValue) reloaded no list")
+                #expect(read > 0, "fixture: one workspace \(name) at \(size.rawValue): the scroll rule read no row (the counter is not on its path)")
                 #expect(read <= 200 * max(reloads, 1),
                         "one workspace \(name) in a session of \(size.workspaces): the scroll rule read \(read) rows in \(reloads) reloads")
                 #expect(read <= max(atLarge.sidebar["viewport_rows"] ?? 0, 16) + 8,

@@ -124,4 +124,85 @@ import Testing
         // The cases are not all the same one: each part of the rule ran many times.
         #expect(anchors > 500 && shifts > 100 && reveals > 100, "the cases do not cover the rule: \(anchors) anchors, \(shifts) shifts, \(reveals) reveals")
     }
+
+    /// A group drag's layout (`SidebarGroupDragPlan.layout`) is the one layout whose rows are not in order of place:
+    /// the carried rows stand in the gap, each row past the card's cut at the card's bottom, so a tall row there
+    /// starts above the short row before it. The list gives that layout to the scroll rule in the first reload after
+    /// a drop or a cancel. The rule must find the rows in view of it, and give the offsets of the rule that reads
+    /// every row, to the dropped list, to the list without the group, and from the dropped list back.
+    @Test func aGroupDragsLayoutGivesTheRuleOfEveryRow() {
+        var compared = 0, outOfOrder = 0
+        let spacing: CGFloat = 4
+        for seed in UInt64(1)...300 {
+            var random = ClosingPanesRandom(seed: seed)
+            // The base (the list without the dragged group): loose rows of three heights.
+            var baseRows: [SidebarRow] = []
+            var y: CGFloat = 0
+            for index in 0..<Int(random.int(3...60)) {
+                let height = CGFloat(random.pick([20, 28, 44]))
+                baseRows.append(SidebarGroupDragPlanTests.row(.workspace(WorkspaceID("d\(seed)-w\(index)")), y, height: height, index: index))
+                y += height + spacing
+            }
+            let base = SidebarLayout(rows: baseRows, totalHeight: y, gapY: nil, gapHeight: 0, gapShift: 0)
+            // The dragged group: its header and 2 to 8 members, y from the group's top.
+            let group = GroupID("d\(seed)-g")
+            var carried = [SidebarGroupDragPlanTests.row(.group(group), 0, height: 24, group: group)]
+            var full: CGFloat = 24 + spacing
+            for index in 0..<Int(random.int(2...8)) {
+                let height = CGFloat(random.pick([20, 28, 44]))
+                carried.append(SidebarGroupDragPlanTests.row(.workspace(WorkspaceID("d\(seed)-m\(index)")), full, height: height, group: group))
+                full += height + spacing
+            }
+            let card = min(full - spacing, CGFloat(random.int(40...120)))
+            let blocks = SidebarGroupDragPlan.blocks(of: base.rows)
+            let plan = SidebarGroupDragPlan(blocks: blocks, groupTop: 0, card: card, lead: spacing, trail: spacing, carried: carried)
+            let slot = Int(random.int(0...UInt64(blocks.count)))
+            let drag = plan.layout(base, slot: slot)
+            if zip(drag.rows, drag.rows.dropFirst()).contains(where: { $0.y > $1.y }) { outOfOrder += 1 }
+            // The dropped list: the whole group at the slot, the rows at and below the slot under it.
+            let slotTop = plan.top(of: slot)
+            let cut = base.rows.firstIndex { $0.y >= slotTop - 0.5 } ?? base.rows.count
+            var droppedRows = Array(base.rows[..<cut])
+            for var row in carried {
+                row.y += slotTop
+                droppedRows.append(row)
+            }
+            for var row in base.rows[cut...] {
+                row.y += full
+                droppedRows.append(row)
+            }
+            let dropped = SidebarLayout(rows: droppedRows, totalHeight: base.totalHeight + full, gapY: nil, gapHeight: 0, gapShift: 0)
+            for (name, old, new) in [("drag to dropped", drag, dropped), ("drag to cancelled", drag, base), ("dropped to drag", dropped, drag)] {
+                for _ in 0..<4 {
+                    let height = CGFloat(random.int(60...900))
+                    let before = Self.reference(old, height: height), after = Self.reference(new, height: height)
+                    let rule = old.viewportChange(to: new, height: height)
+                    let top = max(0, old.totalHeight - height)
+                    let offset = random.chance(0.2) ? (random.chance(0.5) ? 0 : top) : (CGFloat(random.int(0...1_000)) / 1_000 * top).rounded()
+                    let label = "seed \(seed), \(name), slot \(slot), card \(card), \(old.rows.count) -> \(new.rows.count) rows, viewport \(height), offset \(offset)"
+                    let lower = offset + 0.01, upper = offset + height - 0.01
+                    #expect(SidebarLayoutViewportRows(layout: old).viewportPositions(endingAfter: lower, startingBefore: upper)
+                        == old.rows.indices.filter { old.rows[$0].maxY > lower && old.rows[$0].y < upper }, "rows in view: \(label)")
+                    #expect(rule.anchor(at: offset) == before.anchor(at: offset, next: after), "anchor: \(label)")
+                    let anchored = after.anchored(from: before, offset: offset)
+                    #expect(rule.anchored(offset: offset) == anchored, "anchored: \(label)")
+                    let keys = old.rows.map(\.key), newKeys = new.rows.map(\.key)
+                    let focused = random.chance(0.1) ? nil : random.pick(keys)
+                    let newFocus = random.chance(0.5) ? focused : (random.chance(0.1) ? nil : random.pick(newKeys))
+                    let userMoved = random.chance(0.2)
+                    let settled = after.settle(from: before, offset: offset, focused: focused, newFocus: newFocus, padding: SidebarLayout.revealPadding,
+                                               userMoved: userMoved, extent: nil)
+                    #expect(rule.settle(offset: offset, anchored: anchored, focused: focused, newFocus: newFocus, padding: SidebarLayout.revealPadding,
+                                        userMoved: userMoved, extent: nil) == settled, "settle: \(label), focus \(String(describing: focused)) -> \(String(describing: newFocus))")
+                    for key in [focused, newFocus].compactMap({ $0 }) {
+                        #expect(rule.movedByItself(key) == before.movedByItself(key, in: after), "moved by itself \(key): \(label)")
+                    }
+                    compared += 1
+                }
+            }
+        }
+        print("SidebarViewportRuleEquality group drag: \(compared) cases, \(outOfOrder) of 300 drag layouts not in order of place")
+        // The case the search cannot take is there: many drag layouts have a row that starts above the row before it.
+        #expect(outOfOrder > 30, "the drag layouts do not cover rows out of order: \(outOfOrder) of 300")
+    }
 }
