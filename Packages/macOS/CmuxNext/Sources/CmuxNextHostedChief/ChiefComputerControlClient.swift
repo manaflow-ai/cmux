@@ -99,6 +99,13 @@ public struct ChiefComputerControlClient: Sendable {
         }
     }
 
+    /// Deletes the computer of a Chief of this Mac (`local:<id>`) for good, which frees its slot of the owner's
+    /// local-Chief computers at once: its Chief is deleted. A Cloud Chief's computer goes with its `chief.delete`.
+    @MainActor
+    public func delete(agent: String) async throws {
+        _ = try await request("POST", agent, "computer/control", body: ["action": "delete"])
+    }
+
     /// One of a Chief of this Mac's own verbs on its computer (`cloud_computer` through `cloud.chiefComputer`):
     /// `{op, …}` as `chief-vm computer` takes it; answers the route's value (done, image, windows, control).
     @MainActor

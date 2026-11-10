@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 
 /// Delete Chief (next to Archive Chief on a Chief's Home row): the Chief goes for good. A cloud
@@ -63,10 +64,12 @@ extension HomeService {
     private func deleteLocalChief(_ id: String) async -> String? {
         guard let connection else { return HomeStrings.deleteFailed }
         let params: [String: JSONValue] = ["chief": .string(id), "machine": .string("current"), "session": .string("current")]
+        let computer = directory.chiefs.first { $0.id == id }?.mainConversation.flatMap(HomeChiefComputerRoute.localKey)
         do {
             _ = try await ResourceRelayClient(connection: connection).send(
                 operation: "chief.profile.delete", params: params, idempotencyKey: "home-chief-delete-" + id)
             directory.deletedLocalChiefs.insert(id)
+            if let computer { try? await ChiefComputerControlClient(send: hostedChief.brainRoute).delete(agent: computer) }  // its computer and slot go too
             return nil
         } catch DaemonError.command(_, let message, _, let details, _) {
             // The owner's refusal names its reason in the details (`operation.failed`).
