@@ -131,8 +131,10 @@ fn the_child_that_sends_the_report_leads_its_own_process_session() {
     let socket = socket_path("session");
     let listener = UnixListener::bind(&socket).unwrap();
     let child = spawn_hook(&socket, "Stop");
+    // The hook is this test's child and starts no session: it is in this test's process
+    // session. Read from this process, because the hook may have exited already.
     // SAFETY: getsid only reads kernel process metadata.
-    let hook_session = unsafe { libc::getsid(libc::pid_t::try_from(child.id()).unwrap()) };
+    let hook_session = unsafe { libc::getsid(0) };
     let (stream, _) = listener.accept().unwrap();
     let sender = peer_pid(&stream);
     // SAFETY: as above.
