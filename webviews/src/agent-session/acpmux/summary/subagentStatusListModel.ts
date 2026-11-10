@@ -86,7 +86,7 @@ export function pendingToolCalls(
 }
 const NO_IDS: readonly string[] = [];
 const pendingAsks = new PrefixFlatCache<AcpmuxRow, string>((row) =>
-  row.kind === "permission" && row.permission?.pending ? [row.permission.toolCallId] : NO_IDS,
+  row.kind === "permission" && row.permission?.pending && row.permission.toolCallId ? [row.permission.toolCallId] : NO_IDS,
 );
 
 /// The subagents that wait on the user: an open ask about one of their own tool calls (their

@@ -159,6 +159,33 @@ export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, pr
   return { source: rows, grouped: out !== rows, rows: out };
 }
 
+/// A group row as drawn, open or closed, by the row's object: a group an update did not change is
+/// not read again, and keeps the objects it was drawn as, so the passes after this one keep them too.
+const drawnGroups = new WeakMap<AcpmuxRow, { id: string; open: boolean; drawn: readonly AcpmuxRow[] }>();
+function drawnGroup(row: AcpmuxRow, expanded: Folds): readonly AcpmuxRow[] {
+  const kept = drawnGroups.get(row);
+  const open = expanded.has(kept?.id ?? row.id);
+  if (kept?.open === open) return kept.drawn;
+  const drawn: AcpmuxRow[] = [{ ...row, version: row.version * 2 + (open ? 1 : 0) }];
+  if (open) {
+    const agents = row.subagents ?? [];
+    agents.forEach((agent, index) => {
+      const edge =
+        agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle";
+      drawn.push({
+        id: `${row.id}:${agent.id}`,
+        version: row.version,
+        at: row.at,
+        kind: SUBAGENT_ROW,
+        subagents: [agent],
+        status: edge,
+      });
+    });
+  }
+  drawnGroups.set(row, { id: row.id, open, drawn });
+  return drawn;
+}
+
 /// An open group's subagents as rows below it, one line each, so every line keeps a fixed
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
@@ -173,23 +200,7 @@ export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): A
   for (const index of listed) {
     for (; next < index; next += 1) out.push(rows[next]!);
     next = index + 1;
-    const row = rows[index]!;
-    const open = expanded.has(row.id);
-    out.push({ ...row, version: row.version * 2 + (open ? 1 : 0) });
-    if (!open) continue;
-    const agents = row.subagents ?? [];
-    agents.forEach((agent, index) => {
-      const edge =
-        agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle";
-      out.push({
-        id: `${row.id}:${agent.id}`,
-        version: row.version,
-        at: row.at,
-        kind: SUBAGENT_ROW,
-        subagents: [agent],
-        status: edge,
-      });
-    });
+    for (const each of drawnGroup(rows[index]!, expanded)) out.push(each);
   }
   for (; next < rows.length; next += 1) out.push(rows[next]!);
   return out;

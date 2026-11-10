@@ -310,13 +310,13 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   readsOnlyTheTail("earlierTurnPlan", earlierTurnPlan, 0, (plan) => plan?.id);
   readsOnlyTheTail("flattenInboxRows", flattenInboxRows, 0, ids);
   readsOnlyTheTail("searchablePendingRows", (rows) => searchablePendingRows(rows, []), 0, ids);
-  // Up to the second ended turn: the history's first rows.
-  readsOnlyTheTail("firstReplyCompleted", firstReplyCompleted, 40);
-  // The groups and reports are found from the tail alone; each ended subagent's line still reads
-  // its own group and the row after it (a few fields per group, 333 groups here), never the rows
-  // between groups (a whole pass reads 4,000 rows' fields three times).
+  // Up to the second ended turn, the history's first 22 rows, whatever the chat's length.
+  readsOnlyTheTail("firstReplyCompleted", firstReplyCompleted, 3 * 22);
+  // The groups and reports are found from the tail alone; each ended subagent's line is still
+  // placed again per update (its group, its agent and the rows right after it: about a dozen
+  // fields per group, 333 groups here), never the rows between groups. Grows with groups, not rows.
   const lines = new Map();
-  readsOnlyTheTail("withSubagentLines", (rows) => withSubagentLines(rows, lines), 333 * 3 * 12, (rows) =>
+  readsOnlyTheTail("withSubagentLines", (rows) => withSubagentLines(rows, lines), 333 * 3 * 13, (rows) =>
     rows.map((each) => [each.id, each.kind]),
   );
 });
