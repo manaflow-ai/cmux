@@ -23,6 +23,7 @@ pub mod run;
 pub mod secrets;
 #[cfg(unix)]
 pub mod sync_barrier;
+pub mod worktree;
 pub mod worktree_root;
 pub mod write_run;
 

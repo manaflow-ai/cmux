@@ -1,11 +1,17 @@
-//! `acpmux worktree list|clean|restore|archives`: the machine's worktrees,
-//! cleaned up after the agents that made them (`cmux-worktree-care`).
+//! `acpmux worktree list|clean|remove|restore|archives`: the machine's
+//! worktrees, cleaned up after the agents that made them
+//! (`cmux-worktree-care`).
 //!
 //! - `list`: every linked worktree of the repositories under the roots and
 //!   what a cleanup would do with it, and why.
 //! - `clean`: does it. A worktree whose work lives only there is archived
 //!   into git first (`refs/cmux/archive/<id>` and a bundle); a pushed one
 //!   just goes; one still in use is never touched. `--dry-run` is `list`.
+//! - `remove`: one worktree, now (`worktree_remove.rs`): refused with work
+//!   only there unless `--discard`, never while a session runs in it.
+//!
+//! Paths follow the rule in `cmux_git::worktree`: a worktree prints under the
+//! `~/.cmux/worktrees` link, and `--only` takes either spelling of a folder.
 //! - `restore`: puts a reclaimed worktree back, by its folder, branch or
 //!   archive id.
 //! - `archives`: the manifests of reclaimed worktrees.
@@ -38,6 +44,19 @@ pub enum WorktreeCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Remove one worktree now, with the branch cmux made for it: refused while
+    /// it has uncommitted changes or unpushed commits (unless --discard) or a
+    /// running session works in it.
+    #[command(after_help = worktree_remove_help())]
+    Remove {
+        /// The worktree's folder, a session's name (the worktree it works in),
+        /// or a worktree's name (`~/.cmux/worktrees/<project>/<name>`).
+        target: String,
+        /// Remove it even with uncommitted changes or commits found nowhere
+        /// else: that work is lost.
+        #[arg(long)]
+        discard: bool,
+    },
     /// Put a reclaimed worktree back: by its folder, branch or archive id.
     Restore {
         key: String,
@@ -63,7 +82,7 @@ pub struct Scope {
     /// Decide as if the disk were this full.
     #[arg(long, value_enum)]
     pressure: Option<PressureArg>,
-    /// Only this worktree (repeatable).
+    /// Only this worktree (repeatable; either spelling of a linked folder).
     #[arg(long = "only")]
     only: Vec<PathBuf>,
     /// Show the kept worktrees too.
@@ -84,6 +103,9 @@ pub fn run(cmd: WorktreeCmd, json_out: bool) -> Result<()> {
     match cmd {
         WorktreeCmd::List(scope) => sweep(&scope, false, &store, json_out),
         WorktreeCmd::Clean { scope, dry_run } => sweep(&scope, !dry_run, &store, json_out),
+        WorktreeCmd::Remove { target, discard } => {
+            crate::cli::worktree_remove::run(&target, discard, json_out)
+        }
         WorktreeCmd::Restore { key, path } => {
             let manifest =
                 store.find(&key).ok_or_else(|| anyhow!("no reclaimed worktree matches {key}"))?;
@@ -168,7 +190,11 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
     {
         eprintln!("acpmux: could not record the cleanup pass: {error}");
     }
-    let report = report.map_err(|e| anyhow!(e))?;
+    let mut report = report.map_err(|e| anyhow!(e))?;
+    // Printed under the `~/.cmux/worktrees` link, as cmux made them.
+    for item in &mut report.items {
+        item.path = cmux_git::worktree::shown(&home, &item.path);
+    }
     if json_out {
         print_json(&json!(report));
     } else {
@@ -218,6 +244,39 @@ fn print_report(report: &Report, all: bool) {
         mib(if report.applied { report.freed } else { report.reclaimable })
     );
 }
+
+/// `acpmux worktree remove --help`'s closing text, in the locale's language
+/// (LC_ALL, LC_MESSAGES, LANG; English unless it starts with `ja`).
+fn worktree_remove_help() -> &'static str {
+    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_default();
+    if locale.to_ascii_lowercase().starts_with("ja") { REMOVE_HELP_JA } else { REMOVE_HELP_EN }
+}
+
+const REMOVE_HELP_EN: &str = "\
+The worktree, its branch when cmux made it (acpmux new --worktree [--branch], cmux workspace create
+--worktree), and the project folder in ~/.cmux/worktrees once it is empty. A branch that was there
+before stays, and so does one that got commits found nowhere else. It is refused, changing nothing,
+while a running session works in the worktree (stop it first: acpmux session stop NAME) and while
+it has uncommitted changes or commits on no other branch or remote; the refusal names --discard,
+which removes it anyway and loses that work. The main checkout is never removed.
+
+Paths: a worktree prints as ~/.cmux/worktrees/<project>/<name> (on macOS a link to
+~/.cmux/worktrees.noindex); either spelling, like /tmp and /private/tmp, names the same folder.";
+
+const REMOVE_HELP_JA: &str = "\
+ワークツリーと、cmux が作ったブランチ (acpmux new --worktree [--branch]、cmux workspace create
+--worktree)、空になった ~/.cmux/worktrees のプロジェクトフォルダーを削除します。前からあったブランチと、
+ほかのどこにもないコミットができたブランチは残ります。実行中のセッションがそのワークツリーで作業している
+とき (先に acpmux session stop NAME で止めてください)、またはコミットされていない変更や、ほかのどの
+ブランチにもリモートにもないコミットがあるときは、何も変えずに拒否します。そのメッセージは --discard を
+示します。--discard はその作業を失って削除します。メインのチェックアウトは削除しません。
+
+パス: ワークツリーは ~/.cmux/worktrees/<project>/<name> と表示されます (macOS では
+~/.cmux/worktrees.noindex へのリンクです)。どちらの書き方も、/tmp と /private/tmp と同じように、
+同じフォルダーを指します。";
 
 fn mib(bytes: u64) -> String {
     format!("{} MiB", bytes >> 20)

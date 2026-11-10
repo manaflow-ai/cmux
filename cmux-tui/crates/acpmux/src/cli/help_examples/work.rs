@@ -162,7 +162,21 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),
             ("See what a cleanup would do without doing it", "acpmux worktree clean --dry-run"),
+            ("Remove one agent's worktree and its branch now", "acpmux worktree remove fix-27310"),
             ("Put a reclaimed worktree back", "acpmux worktree restore lane/fix-27310"),
+        ],
+    ),
+    (
+        "worktree remove",
+        &[
+            (
+                "Remove the worktree named fix-27310 and its branch",
+                "acpmux worktree remove fix-27310",
+            ),
+            (
+                "Remove a worktree by its folder, losing its unsaved work",
+                "acpmux worktree remove ~/.cmux/worktrees/cmux/fix-27310 --discard",
+            ),
         ],
     ),
     (

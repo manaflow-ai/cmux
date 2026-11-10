@@ -1,8 +1,9 @@
 //! A git worktree and the workspace that works in it, in one command:
 //!
-//! - `cmux workspace create --worktree <name> [--repo <path>] [--base <rev>]
-//!   [workspace create options]`: `git worktree create` (a new branch
-//!   `cmux/<name>` in `~/.cmux/worktrees/<project>/<name>`), then a workspace
+//! - `cmux workspace create --worktree <name> [--repo <path>] [--branch <branch>]
+//!   [--base <rev>] [workspace create options]`: `git worktree create` (a new
+//!   branch `cmux/<name>`, or the `--branch` one, in
+//!   `~/.cmux/worktrees/<project>/<name>`), then a workspace
 //!   whose first terminal starts in it, named `<name>` unless `--name`. The
 //!   workspace also records the folder as its agent folder
 //!   (`workspace.agent_folder.set`, which only an app connection may do), so
@@ -77,6 +78,9 @@ pub(in crate::cli) struct CreateRequest {
     pub name: String,
     /// A path in the repository; `None` is the current directory.
     pub repo: Option<String>,
+    /// The worktree's branch (`git worktree create --branch`); `None` is
+    /// `cmux/<name>`.
+    pub branch: Option<String>,
     pub base: Option<String>,
     /// The `workspace create` words, without the worktree options and
     /// before `--cwd <root>` is added.
@@ -89,6 +93,7 @@ pub(in crate::cli) fn parse_create(words: &[String]) -> Result<CreateRequest, Us
     let (options, argv) = words.split_at(split);
     let mut name = None;
     let mut repo = None;
+    let mut branch = None;
     let mut base = None;
     let mut rest = Vec::new();
     let mut named = false;
@@ -101,6 +106,7 @@ pub(in crate::cli) fn parse_create(words: &[String]) -> Result<CreateRequest, Us
         let slot = match flag {
             "--worktree" => &mut name,
             "--repo" => &mut repo,
+            "--branch" => &mut branch,
             "--base" => &mut base,
             "--cwd" => {
                 return Err(UsageError(
@@ -136,7 +142,7 @@ pub(in crate::cli) fn parse_create(words: &[String]) -> Result<CreateRequest, Us
     }
     workspace_words.extend(rest);
     workspace_words.extend(argv.iter().cloned());
-    Ok(CreateRequest { name, repo, base, workspace_words })
+    Ok(CreateRequest { name, repo, branch, base, workspace_words })
 }
 
 /// `workspace <ws> close --remove-worktree`, parsed.
@@ -271,6 +277,9 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
     let repo = std::fs::canonicalize(&repo).unwrap_or(repo);
     let mut create = words(&["git", "worktree", "create", "--name", &request.name, "--path"]);
     create.push(repo.to_string_lossy().into_owned());
+    if let Some(branch) = &request.branch {
+        create.extend(["--branch".to_owned(), branch.clone()]);
+    }
     if let Some(base) = &request.base {
         create.extend(["--base".to_owned(), base.clone()]);
     }

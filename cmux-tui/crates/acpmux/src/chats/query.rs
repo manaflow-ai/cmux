@@ -11,6 +11,11 @@ pub struct ChatQuery {
     pub harness: Option<AdapterKind>,
     /// The folder or a folder inside it.
     pub folder: Option<String>,
+    /// Every spelling of `folder` a chat may be recorded under
+    /// (`cmux_git::worktree::folder_spellings`: as given, links resolved,
+    /// `/tmp` and `/private/tmp`, `~/.cmux/worktrees` and its `.noindex`
+    /// folder); empty without `folder`.
+    pub folder_spellings: Vec<String>,
     pub account: Option<String>,
     pub limit: usize,
     /// Where the page starts (the `nextCursor` of the last page).
@@ -95,6 +100,7 @@ impl Default for ChatQuery {
             text: None,
             harness: None,
             folder: None,
+            folder_spellings: Vec::new(),
             account: None,
             limit: Self::DEFAULT_LIMIT,
             cursor: ChatCursor::Start,
@@ -138,6 +144,9 @@ impl ChatQuery {
         Ok(Self {
             text: text_of("query")?.map(|q| q.to_lowercase()),
             harness,
+            folder_spellings: text_of("folder")?
+                .map(|f| spellings(f.trim_end_matches('/')))
+                .unwrap_or_default(),
             folder: text_of("folder")?.map(|f| f.trim_end_matches('/').to_owned()),
             account: text_of("account")?,
             limit,
@@ -158,7 +167,9 @@ impl ChatQuery {
         if let Some(folder) = &self.folder {
             let Some(cwd) = entry.cwd.as_deref() else { return false };
             let cwd = cwd.trim_end_matches('/');
-            if cwd != folder && !cwd.starts_with(&format!("{folder}/")) {
+            let inside = |folder: &str| cwd == folder || cwd.starts_with(&format!("{folder}/"));
+            if !inside(folder.as_str()) && !self.folder_spellings.iter().any(|f| inside(f.as_str()))
+            {
                 return false;
             }
         }
@@ -170,4 +181,14 @@ impl ChatQuery {
         }
         true
     }
+}
+
+/// The spellings of `folder` a chat may be recorded under, without a trailing `/`.
+fn spellings(folder: &str) -> Vec<String> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    cmux_git::worktree::folder_spellings(std::path::Path::new(folder), home.as_deref())
+        .into_iter()
+        .map(|path| path.to_string_lossy().trim_end_matches('/').to_owned())
+        .filter(|spelling| !spelling.is_empty())
+        .collect()
 }

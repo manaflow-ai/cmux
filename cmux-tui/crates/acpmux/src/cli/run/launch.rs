@@ -76,7 +76,12 @@ impl Launch {
                     );
                 };
                 let (repo, base) = split_worktree(spec);
-                Some((json!({"name": name, "base": base}), absolute(repo)?))
+                if let Some(branch) = &args.branch {
+                    cmux_git::worktree::check_branch_name(branch)
+                        .map_err(|e| anyhow::anyhow!("--branch: {e}"))?;
+                }
+                let meta = json!({"name": name, "base": base, "branch": args.branch});
+                Some((meta, absolute(repo)?))
             }
         };
         if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {

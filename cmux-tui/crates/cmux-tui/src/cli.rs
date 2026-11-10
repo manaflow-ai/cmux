@@ -196,6 +196,7 @@ mod topology_help;
 mod wire;
 #[cfg(unix)]
 mod workflow;
+mod worktree_help;
 #[cfg(unix)]
 mod worktree_workspace;
 use surface::MACHINE_CATALOG_HELP;
@@ -1511,7 +1512,7 @@ fn scope_help_with_keys(
         "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
-        "workspace" => Cow::Borrowed(WORKSPACE_HELP),
+        "workspace" => worktree_help::localized(WORKSPACE_HELP, catalog.is_japanese()),
         "screen" => Cow::Borrowed(SCREEN_HELP),
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
@@ -1531,7 +1532,7 @@ fn scope_help_with_keys(
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
-        "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "git" => worktree_help::localized(scope_help::GIT_HELP, catalog.is_japanese()),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),

@@ -743,7 +743,7 @@ client <selector> cell pixels set
 
 workspace list [--order session|personal] [--name <name>] [--cwd <path>]
 workspace create
-workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
+workspace create --worktree <name> [--repo <path>] [--branch <branch>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> close --remove-worktree [--discard]
 workspace <selector> layout apply
@@ -824,7 +824,7 @@ git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-
   [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
-git worktree create [TARGET] [--name <name>] [--base <revision>]
+git worktree create [TARGET] [--name <name>] [--branch <branch>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
@@ -964,7 +964,7 @@ destination's too (ids, unique id prefixes, bare ids, `name:` and exact names,
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
-`--base`, then `workspace create` with the remaining options, `--cwd` set to
+`--branch` and `--base`, then `workspace create` with the remaining options, `--cwd` set to
 the worktree and `--name <name>` unless given (`--cwd` and `--empty` are
 refused), then `workspace.agent_folder.set` to the worktree's canonical
 folder (only an app connection may set it; an agent's CLI is refused, and the
@@ -1180,15 +1180,23 @@ makes a chat's own worktree, in the user's environment like `commit`, and
 only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`
 (`<project>` is the main checkout's folder name) on a new branch
 `cmux/<name>` from `--base` (default: the current branch, else HEAD's
-commit), and the base is recorded as `branch.cmux/<name>.cmuxBase` (a branch by
-name, any other revision as its commit). The name
+commit), and the base is recorded as `branch.<branch>.cmuxBase` (a branch by
+name, any other revision as its commit). `--branch <branch>` names the branch
+instead (any name git takes for a branch, checked by
+`cmux_git::worktree::check_branch_name`, the rule `acpmux new --worktree
+--branch` follows too): a new one is made from `--base`, and one that exists
+is checked out as it is (`--base` is refused then) and keeps its recorded
+base. A branch the create made is marked `branch.<branch>.cmuxCreated`, so
+`git worktree remove` deletes it; one that existed stays. The name
 is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
-`chat-` and six random hex digits; a name taken by a folder or a branch gets
-the next free suffix (`-2` to `-99`). The user's checkout, its index and its
-uncommitted changes are untouched. The result is the worktree's `root`,
-`branch`, `base`, `base_commit` and, unless the repository is bare,
-`main_root`. It refuses with `base_not_found`, `name_taken`, `path_exists`,
-`no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
+`chat-` and six random hex digits; a name taken by a folder (or, without
+`--branch`, by a branch) gets the next free suffix (`-2` to `-99`). The user's
+checkout, its index and its uncommitted changes are untouched. The result is
+the worktree's `root` (under the `~/.cmux/worktrees` link, see the path rule
+below), `branch`, `new_branch` (false for a branch that existed), `base`,
+`base_commit` and, unless the repository is bare, `main_root`. It refuses with
+`base_not_found`, `name_taken`, `path_exists`, `no_home` or `git_failed`, and
+a bad `--branch` with `validation.invalid`; a retry after a lost reply or a timeout finds the
 worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
 
@@ -1211,9 +1219,13 @@ as `interrupted`, as the main checkout may hold part of it.
 `git worktree remove` (`git.worktree.remove`, capability `git-worktree-remove-v1`),
 run in a linked worktree, removes it with `git worktree remove` from the main
 checkout, in the user's environment and only on this machine; the folder goes
-with its ignored files. Its branch goes too, with its settings, when `git
-worktree create` made it (`cmux/<name>` with a recorded base); any other branch
-stays. Without `--discard` it refuses, changing nothing, with
+with its ignored files, and the project folder in `~/.cmux/worktrees` goes
+once its last worktree is gone (never the root, never a folder that holds
+anything). Its branch goes too, with its settings, when `git worktree create`
+made it (marked `branch.<branch>.cmuxCreated`, or `cmux/<name>` with a
+recorded base); any other branch stays. Without `--discard` it refuses,
+changing nothing, with `extra.message` saying what keeps it and naming
+`--discard`, with
 `uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,
 `extra.count` all) or `unpushed_commits` (commits on no other branch and no
 remote, on a detached HEAD or on the branch that goes; `extra.count`), checked
@@ -1223,6 +1235,16 @@ refused as `not_a_worktree`, and other worktrees are never touched. The result
 is the removed `root`, `main_root`, the `branch` and whether it was deleted
 (`branch_deleted`). A retry after a timeout finishes what the first attempt
 started; once the folder is gone, a request naming it finds no repository.
+The check and the branch rule are `cmux_git::worktree`, which `acpmux
+worktree remove` uses too.
+
+Path rule (cmux-tui and acpmux): a worktree is printed as
+`~/.cmux/worktrees/<project>/<name>`, the link cmux made (on macOS it points at
+`~/.cmux/worktrees.noindex`, which Spotlight skips), never as the folder it
+resolves to; any other folder is printed as it was given. Folders are compared
+with links resolved, so a command takes either spelling (`/tmp/x` or
+`/private/tmp/x`, `worktrees` or `worktrees.noindex`) as the same folder.
+
 Before the folder goes, a setup still running there is stopped and the project's
 teardown runs in it, once, for at most a minute; the result carries its `state`,
 `exit_code` and `output` as `teardown`. A failed teardown does not keep the

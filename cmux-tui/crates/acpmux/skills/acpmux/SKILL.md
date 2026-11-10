@@ -251,6 +251,12 @@ it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
 
+The worktree is `~/.cmux/worktrees/<project>/NAME` on branch `cmux/NAME`; `--branch B`
+names the branch (a new one starts at BASE, one that exists is checked out as it is). When
+the lane is done, stop its session, then `acpmux worktree remove NAME`: it removes the
+worktree, the branch cmux made and the empty project folder, and refuses uncommitted or
+unpushed work with a message that names `--discard`.
+
 Name a session after its task: a short readable title in 2-5 words
 (`-n session-info-drag-handles`), never an id or a
 counter (`cloud-item-14`, `optchat-sub-6b68ac4a-a26`). People read it in the cmux

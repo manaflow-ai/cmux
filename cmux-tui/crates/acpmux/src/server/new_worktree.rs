@@ -1,7 +1,10 @@
-//! `session/new` with `_meta.acpmux.worktree: {"name": NAME, "base"?: REF}`:
-//! the session starts in the named git worktree of `cwd`'s repository,
-//! made when missing and reused when there (`subsession_worktree.rs`
-//! `ensure_worktree`). `acpmux new --worktree` sends it. Only over the
+//! `session/new` with `_meta.acpmux.worktree: {"name": NAME, "base"?: REF,
+//! "branch"?: BRANCH}`: the session starts in the named git worktree of
+//! `cwd`'s repository, made when missing and reused when there
+//! (`subsession_worktree.rs` `ensure_worktree`), on `cmux/<name>` or the
+//! named branch (`cmux_git::worktree::branch_for`, the rule cmux-tui's
+//! `git worktree create --branch` follows too). `acpmux new --worktree
+//! [--branch]` sends it. Only over the
 //! local unix socket, like a session env or route: a WebSocket client or
 //! peer is held to its folder roots, and the worktree folder is outside
 //! them; another machine runs `acpmux new` on this one over ssh. The answer's
@@ -41,11 +44,26 @@ pub(super) async fn ensure(
         Some(Value::String(b)) => Some(b.clone()),
         Some(_) => return Err(RpcError::invalid_params("worktree.base must be a string")),
     };
+    let branch = match asked.get("branch") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(b)) => {
+            cmux_git::worktree::check_branch_name(b)
+                .map_err(|e| RpcError::invalid_params(format!("worktree.branch: {e}")))?;
+            Some(b.clone())
+        }
+        Some(_) => return Err(RpcError::invalid_params("worktree.branch must be a string")),
+    };
     let folder = cwd.clone().filter(|c| c.is_absolute() && c.is_dir()).ok_or_else(|| {
         RpcError::invalid_params("a worktree needs cwd: an absolute folder of the repository")
     })?;
-    let ensured = tokio::task::spawn_blocking(move || {
-        crate::subsession_worktree::ensure_worktree(&folder, &name, base.as_deref())
+    let ensured = tokio::task::spawn_blocking(move || match &branch {
+        Some(branch) => crate::subsession_worktree::ensure_worktree_with_branch(
+            &folder,
+            &name,
+            base.as_deref(),
+            branch,
+        ),
+        None => crate::subsession_worktree::ensure_worktree(&folder, &name, base.as_deref()),
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?

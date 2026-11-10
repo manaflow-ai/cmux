@@ -10633,7 +10633,15 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The worktree's new branch, cmux/<name>."
+          "description": "The worktree's branch: the branch field as given, else cmux/<name>."
+        },
+        "new_branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The branch was made with the worktree (marked branch.<branch>.cmuxCreated, so git.worktree.remove deletes it with the worktree); false for a named branch that already existed, which stays."
         },
         "base": {
           "required": true,
@@ -26906,7 +26914,17 @@
               "min_length": 1,
               "max_length": 256
             },
-            "description": "The revision the new branch starts at. Default: the current branch, else HEAD's commit."
+            "description": "The revision the new branch starts at. Default: the current branch, else HEAD's commit. Refused with a branch that already exists."
+          },
+          "branch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "The worktree's branch, as given (any name git accepts for a branch, not starting with -). A new one is made from base; one that exists is checked out as it is. Default: cmux/<name>."
           }
         },
         "extra": false
@@ -26931,7 +26949,7 @@
         "validation.invalid"
       ],
       "constraints": [
-        "The worktree is ~/.cmux/worktrees/<project>/<name> on the session host, on a new branch cmux/<name>; <project> is the main checkout's folder name. A name taken by a folder or a branch gets the next free suffix (-2 to -99).",
+        "The worktree is ~/.cmux/worktrees/<project>/<name> on the session host (root names it under that link, never the worktrees.noindex folder it resolves to on macOS), on a new branch cmux/<name> or on the branch the branch field names; <project> is the main checkout's folder name. A name taken by a folder (or, without branch, by a branch) gets the next free suffix (-2 to -99). A branch it makes is marked branch.<branch>.cmuxCreated.",
         "The user's checkout, index and uncommitted changes are untouched. git worktree add runs in the user's environment, so their post-checkout hook and filters run; it never prompts and is stopped after 120 s.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the worktree the first attempt made; a failing post-checkout hook does not undo the worktree, so it is reported as made.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, base_not_found, name_taken, path_exists, no_home, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
@@ -26996,8 +27014,8 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Run it in a linked worktree; the main checkout and other worktrees are never touched. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The folder goes with its ignored files. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
-        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files) or commits on no other branch and no remote, on a detached HEAD or on the branch that goes. It is checked again right before the folder and the branch go; a branch that got new commits meanwhile stays (branch_deleted false). With discard that work is lost.",
+        "Run it in a linked worktree; the main checkout and other worktrees are never touched. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The folder goes with its ignored files, and so does the project folder in ~/.cmux/worktrees once its last worktree went; root names the worktree as git.worktree.create did. The branch goes too when git.worktree.create made it (marked branch.<branch>.cmuxCreated, or cmux/<name> with a recorded base), with its settings; any other branch stays.",
+        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files) or commits on no other branch and no remote, on a detached HEAD or on the branch that goes; extra.message says what keeps it and names --discard. It is checked again right before the folder and the branch go; a branch that got new commits meanwhile stays (branch_deleted false). With discard that work is lost.",
         "A replayed key returns the first result with replayed true while the request still names the same repository; once the folder is gone, a request naming it finds no repository. The same key with other arguments is idempotency.conflict. A retry after a timeout finishes what the first attempt started.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, absent for a detached HEAD, and extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]

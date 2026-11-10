@@ -850,8 +850,17 @@ fn fill(
     let filled = check_out_without_config(&layout.objects, &layout.format, at, commit, None)
         .and_then(|()| git(at, &["read-tree", commit]).map(drop))
         .and_then(|()| {
-            let key = format!("branch.{}.cmuxBase", made.branch);
+            let key = cmux_git::worktree::base_key(&made.branch);
             git_repo_write(folder, &["config", &key, &made.base]).map(drop)
+        })
+        .and_then(|()| {
+            // A branch made here goes with its worktree (`acpmux worktree remove`, the app's
+            // `git.worktree.remove`); one that was there before stays.
+            if kept_branch {
+                return Ok(());
+            }
+            let key = cmux_git::worktree::created_key(&made.branch);
+            git_repo_write(folder, &["config", &key, "true"]).map(drop)
         });
     if let Err(e) = filled {
         if kept_branch {
@@ -1135,16 +1144,18 @@ pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<
     ensure_worktree_under(folder, name, base, &home()?, None)
 }
 
-/// Ensure a worktree while preserving a caller-provided branch name.
+/// [`ensure_worktree`] on the branch the caller names instead of `cmux/<name>`
+/// (`acpmux new --worktree --branch`, a fix from a link): checked with
+/// `cmux_git::worktree::check_branch_name`, made from `base` when new and
+/// marked as made here; one that exists is checked out as it is (a `base`
+/// is refused then) and stays when the worktree is removed.
 pub fn ensure_worktree_with_branch(
     folder: &Path,
     name: &str,
     base: Option<&str>,
     branch: &str,
 ) -> Result<Ensured, String> {
-    if branch.is_empty() || branch.starts_with('-') || branch.ends_with('/') {
-        return Err("the branch must be a non-empty git branch name".into());
-    }
+    cmux_git::worktree::check_branch_name(branch)?;
     ensure_worktree_under(folder, name, base, &home()?, Some(branch))
 }
 
@@ -1211,6 +1222,12 @@ fn ensure_worktree_under(
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
         let path = root.to_string_lossy().into_owned();
         let (added, commit, base, reused) = if has_branch_ref(folder.into(), &branch) {
+            if let (Some(requested), Some(_)) = (explicit_branch, base) {
+                return Err(format!(
+                    "the branch {requested} exists, so it starts where it is: give a base only \
+                     with a new branch"
+                ));
+            }
             let commit = git(
                 folder,
                 &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}^{{commit}}")],

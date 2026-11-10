@@ -27,10 +27,24 @@ every flag and ends with examples.
 | Move a Claude Code chat's running commands to the background | `acpmux process background coord` |
 | Worktrees a cleanup would touch | `acpmux worktree list` |
 | What a cleanup would do, without doing it | `acpmux worktree clean --dry-run` |
+| Remove one agent's worktree and the branch cmux made for it, now | `acpmux worktree remove fix-27310` |
+| The same, losing its uncommitted or unpushed work | `acpmux worktree remove fix-27310 --discard` |
 | Bring back a cleaned-up worktree | `acpmux worktree restore lane/fix-27310` |
 | Reclaimed worktrees, newest first | `acpmux worktree archives` |
 
 A cleanup archives work that exists only in a worktree before removing it.
+
+`worktree remove` takes the worktree's folder, a session's name or a worktree's name
+(`~/.cmux/worktrees/<project>/<name>`). It refuses, changing nothing, while a running session
+works there (`acpmux session stop NAME` first) and while the worktree has uncommitted changes or
+commits on no other branch or remote; the refusal names `--discard`. It removes the branch when
+cmux made it (`acpmux new --worktree [--branch]`, `cmux workspace create --worktree`), never a
+branch that was there before, and the project folder once its last worktree is gone. The app's
+`cmux git worktree remove` follows the same rules (`cmux_git::worktree`).
+
+Paths: a worktree prints as `~/.cmux/worktrees/<project>/<name>` (on macOS a link to
+`~/.cmux/worktrees.noindex`); `--only`, `worktree remove` and `chats list --folder` take either
+spelling, and `/tmp/x` or `/private/tmp/x`, as the same folder.
 
 ## Chats, messages and rules
 

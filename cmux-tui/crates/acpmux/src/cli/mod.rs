@@ -82,3 +82,4 @@ pub(crate) mod unknown_flag;
 pub mod watch;
 pub mod who_else;
 pub mod worktree;
+pub mod worktree_remove;
