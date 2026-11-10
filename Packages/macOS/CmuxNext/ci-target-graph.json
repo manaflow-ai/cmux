@@ -140,6 +140,7 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
@@ -303,7 +304,7 @@
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFavicons",
-        "CmuxNextFeed",
+        "CmuxNextFeedClient",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
         "CmuxNextFloating",
@@ -427,7 +428,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
-        "CmuxNextFeed",
+        "CmuxNextFeedClient",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
@@ -1080,6 +1081,10 @@
         "CmuxTheme"
       ],
       "reads": [
+        "Packages/Shared/CmuxMessagesLab/Sources/",
+        "Packages/Shared/CmuxScreenKit/Sources/",
+        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/",
+        "Packages/macOS/CmuxNext/Sources/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "schemas/theme/orange-accent-allowlist.json",
@@ -1165,13 +1170,12 @@
       ],
       "packages": []
     },
-    "CmuxNextFeed": {
+    "CmuxNextFeedClient": {
       "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextDesign",
-        "CmuxNextIcons",
+        "CmuxNextDaemon",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1319,6 +1323,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextWakeups"
@@ -1648,7 +1653,6 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
-        "CmuxNextFeed",
         "CmuxNextMobileHost",
         "CmuxNextSettings"
       ],

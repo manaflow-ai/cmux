@@ -116,6 +116,8 @@ public actor AgentSessionAttachClient {
         var content = false
         /// `agent-session-context-v1`.
         var context = false
+        /// `agent-session-btw-v1`.
+        var btw = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -207,7 +209,22 @@ public actor AgentSessionAttachClient {
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
         }
+        if let timings = Self.machineTimings(object["timings_ms"]) { Self.startLogger.info("cloud start machine: \(timings, privacy: .public)") }
         return session
+    }
+
+    /// The `cloud` category the Cloud probe's log stream reads (cmuxterm-hq cloud_chat_app_probe.py APP_LOG_PREDICATE).
+    private static let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
+
+    /// The start's machine-side phases (`timings_ms`, cmux-tui-core agent_session_start.rs `StartTimings`) as one
+    /// line, `session_new 1800 ms, ...`, in the daemon's phase order; nil when the daemon sent none. Durations only.
+    static func machineTimings(_ value: Any?) -> String? {
+        guard let timings = value as? [String: Any] else { return nil }
+        let phases = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
+        var parts = phases.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
+        guard !parts.isEmpty else { return nil }
+        if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
+        return parts.joined(separator: ", ")
     }
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
@@ -542,10 +559,37 @@ public actor AgentSessionAttachClient {
                               timeout: Self.loginTimeout(op) ?? requestTimeout)
     }
 
+    /// The code ``btw(_:)`` throws for a daemon without `agent-session-btw-v1`.
+    public static let btwUnsupported = "agent_session.btw_unsupported"
+
+    /// `agent-session-btw` (`agent-session-btw-v1`): the composer's `/btw <question>`, as acpmux's
+    /// inline `_acpmux/btw` on the tab's own session: `{text}`, or `{refused: {reason}}`. acpmux
+    /// gives it 110 seconds.
+    public func btw(_ question: String) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.btwUnsupported, message: "a read-only agent session asks no side question")
+        }
+        _ = try await liveTransport()
+        guard served.btw else {
+            throw AgentSessionAttachError(code: Self.btwUnsupported, message: "Update cmux on that machine to ask a side question here.")
+        }
+        return try await call("agent-session-btw", ["question": question], timeout: .seconds(125))
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
         return try await call("agent-session-media", ["path": path])
+    }
+
+    /// Reads one byte range of a video of the attached session's host (`agent-session-media` with
+    /// an `offset`): `{offset, size, identity, data, mimeType?, handle?}`, base64 bytes. `handle`,
+    /// from the previous answer, reads the same open file; nil opens it again.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        _ = try await liveTransport()
+        var params: [String: any Sendable] = ["path": path, "offset": offset, "length": length]
+        if let handle { params["handle"] = handle }
+        return try await call("agent-session-media", params)
     }
 
     /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
@@ -717,7 +761,8 @@ public actor AgentSessionAttachClient {
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
-                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue))
+                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
+                            btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

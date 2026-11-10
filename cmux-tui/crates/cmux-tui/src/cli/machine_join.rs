@@ -88,7 +88,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Auth {
+pub(crate) struct Auth {
     pub platform: Option<String>,
     pub token_file: Option<PathBuf>,
     pub token_stdin: bool,
@@ -399,7 +399,7 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
 /// The caller's cmux credential: stdin, then the file, then the environment.
 /// `None` when no way names one. Errors name neither the file's path nor its
 /// contents (a pasted secret could be in either).
-pub(super) fn read_credential(
+pub(crate) fn read_credential(
     auth: &Auth,
     env: &dyn Fn(&str) -> Option<String>,
     stdin: &mut dyn BufRead,
@@ -703,7 +703,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 46] = [
+const KNOWN_CODES: [&str; 48] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -735,6 +735,7 @@ const KNOWN_CODES: [&str; 46] = [
     "vault.too_large",
     "vault.no_entry",
     "vault.invalid_hosts",
+    "vault.model_key_proxy_only",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -745,6 +746,9 @@ const KNOWN_CODES: [&str; 46] = [
     "workspace_machine.not_admitted",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
+    // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
+    // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
+    "cloud.plan.required",
     "bad_request",
     "unauthorized",
     "not_found",

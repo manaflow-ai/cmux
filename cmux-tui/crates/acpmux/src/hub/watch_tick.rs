@@ -6,9 +6,11 @@
 //! [`QUIET_AFTER`] (or a watch just started), and every [`SLOW`] after that. Each wake reads the
 //! length of every watched transcript in one blocking call and wakes only the watches whose
 //! transcript's length moved, or whose chat closed or stopped watching (they end). A watch reads
-//! its transcript only then. A watch whose last read or start failed is woken at the next check
-//! while its transcript exists ([`Registration::retry`]). The task ends when no watch is left (a
-//! new watch starts it again) or the hub drops.
+//! its transcript only then. A watch that starts cuts the current wait short: the check runs at
+//! once and then at [`FAST`], so its next line shows within [`FAST`] even when every other watch
+//! was quiet (review F1 of #39357). A watch whose last read or start failed is woken at the next
+//! check while its transcript exists ([`Registration::retry`]). The task ends when no watch is left
+//! (a new watch starts it again) or the hub drops.
 
 use super::super::{Session, SessionStatus};
 use std::collections::HashMap;
@@ -37,9 +39,11 @@ pub(crate) struct WatchTicker {
 #[derive(Default)]
 struct State {
     watches: Mutex<Watches>,
-    /// Set when the hub drops; `stopped` wakes the task to see it.
+    /// Set when the hub drops; `kick` wakes the task to see it.
     stop: AtomicBool,
-    stopped: Notify,
+    /// A watch started, or the hub dropped: the task stops waiting. Kicks coalesce, so a burst of
+    /// starts is one early check.
+    kick: Notify,
 }
 
 #[derive(Default)]
@@ -64,7 +68,7 @@ struct Entry {
 impl Drop for WatchTicker {
     fn drop(&mut self) {
         self.state.stop.store(true, Ordering::SeqCst);
-        self.state.stopped.notify_one();
+        self.state.kick.notify_one();
     }
 }
 
@@ -119,6 +123,8 @@ impl WatchTicker {
             watches.running = true;
             tokio::spawn(run(self.state.clone()));
         }
+        drop(watches);
+        self.state.kick.notify_one();
         Registration { state: self.state.clone(), key, wake }
     }
 }
@@ -148,7 +154,11 @@ async fn run(state: Arc<State>) {
         let every = if lively.is_some_and(|at| at.elapsed() < QUIET_AFTER) { FAST } else { SLOW };
         tokio::select! {
             _ = tokio::time::sleep(every) => {}
-            _ = state.stopped.notified() => continue,
+            _ = state.kick.notified() => {
+                if state.stop.load(Ordering::SeqCst) {
+                    continue;
+                }
+            }
         }
         #[cfg(test)]
         super::idle_cost::wakeup();

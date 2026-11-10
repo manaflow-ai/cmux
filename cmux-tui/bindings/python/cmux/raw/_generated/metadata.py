@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6'
+IR_SHA256 = '1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e'
 
 
 @dataclass(frozen=True)
@@ -3413,6 +3413,19 @@ COMMANDS = {
             'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
+    'set-terminal-tail-pin': CommandMetadata(
+        'set-terminal-tail-pin',
+        'control',
+        12,
+        'terminal-tail-pin-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pinned': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-viewport-pane-width': CommandMetadata(
         'set-viewport-pane-width',
         'control',
@@ -3456,6 +3469,44 @@ COMMANDS = {
             'pinned': CommandFieldMetadata(12, 'workspace-pin-v1'),
             'title': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-read': CommandMetadata(
+        'shell-read',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'after': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'wait_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-run': CommandMetadata(
+        'shell-run',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'command': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-stop': CommandMetadata(
+        'shell-stop',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'run': CommandFieldMetadata(None, None),
         },
     ),
     'shutdown-daemon': CommandMetadata(
@@ -4025,6 +4076,8 @@ EVENTS = {
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
+    'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
+    'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),

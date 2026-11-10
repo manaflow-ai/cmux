@@ -6,7 +6,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
-import { rememberFullAccess } from "./startMode";
+import { rememberFullAccess, rememberStartMode } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -16,7 +16,16 @@ const galleryAccounts: ChatAccounts = {
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
 /** `managed`: acpmux answered `"fullAccess": "managed"` (MDM keeps full access off, #23322). */
-type Props = { claude?: boolean; accounts?: boolean; managed?: boolean };
+/** `unlisted`: acpmux has not answered with its harnesses yet; the bundled catalog is the menu. */
+type Props = {
+  claude?: boolean;
+  accounts?: boolean;
+  managed?: boolean;
+  unlisted?: boolean;
+  /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
+  /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
+  newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
+};
 
 const directAccounts: ChatAccounts = {
   list: async () =>
@@ -187,7 +196,51 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts, managed }: Props) {
+function GalleryComposerPickers(props: Props) {
+  return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
+}
+
+const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
+
+/// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
+/// start it in, or, with Cloud picked, no mode (the Cloud machine decides it; cloud-ergo-start-chat).
+function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    rememberStartMode("claude-sr2", NEW_CHAT_FOLDER, start);
+    setAnswered(true);
+  }, [start]);
+  const snapshot: AcpmuxSnapshot = {
+    ...claudeSnapshot,
+    origin: "local",
+    summary: { sessionId: "", harness: "claude-sr2", turnCount: 0, cwd: NEW_CHAT_FOLDER },
+    ...(cloud ? { startsOnCloud: true as const } : {}),
+  };
+  return (
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
+          <span>
+            {cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}
+          </span>
+        </div>
+        {answered && (
+          <ComposerPickers
+            snapshot={snapshot}
+            harnessesListed
+            onModel={() => undefined}
+            onMode={() => undefined}
+            onEffort={() => undefined}
+            showPlan
+          />
+        )}
+      </div>
+    </ChatAccountsContext.Provider>
+  );
+}
+
+function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
@@ -216,10 +269,11 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
   // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
   const pickerCatalog = useMemo(
     () =>
-      claude
+      claude || unlisted
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
-            acpmux: snapshot.catalog,
+            acpmux: unlisted ? [] : snapshot.catalog,
+            provisional: unlisted,
             session: {
               harness: "claude-sr2",
               model: snapshot.summary?.model,
@@ -227,7 +281,18 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
             },
           })
         : undefined,
-    [claude, snapshot],
+    [claude, snapshot, unlisted],
+  );
+  const pickers = (
+    <ComposerPickers
+      snapshot={unlisted ? { ...snapshot, catalog: [], summary: undefined } : snapshot}
+      harnessesListed={!unlisted}
+      {...(pickerCatalog ? { pickerCatalog } : {})}
+      onModel={setModel}
+      onMode={setMode}
+      onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+      showPlan
+    />
   );
   return (
     <ChatAccountsContext.Provider value={accounts ? directAccounts : galleryAccounts}>
@@ -236,14 +301,7 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        <ComposerPickers
-          snapshot={snapshot}
-          {...(pickerCatalog ? { pickerCatalog } : {})}
-          onModel={setModel}
-          onMode={setMode}
-          onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-          showPlan
-        />
+        {pickers}
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -312,6 +370,16 @@ const modelPressDragRelease: Play = async (ctx) => {
   await ctx.waitFor(
     () => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === ctx.find(MODEL),
   );
+};
+
+// Before acpmux answers (the first open after launch): the bundled models, never an empty menu and
+// never Not installed (Leo 2026-11-08: "we know what the models are").
+const openUnlisted: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  // An unlocked composer's model menu is the columns menu (QuickModelColumns).
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols [role="option"]') !== null);
+  if (ctx.document.querySelector(".acpmux-cols")?.textContent?.includes("Not installed"))
+    throw new Error("a bundled harness reads Not installed before acpmux answers");
 };
 
 // The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
@@ -473,6 +541,22 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "new-chat-here": {
+      note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
+    },
+    "new-chat-cloud": {
+      note: "The same new chat with Cloud picked: the Cloud machine starts it in an asking mode, so the chip promises no Bypass permissions and names no mode until the chat reports one.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
+    },
+    "new-chat-here-manual": {
+      note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" } } },
+    },
+    "new-chat-cloud-manual": {
+      note: "Cloud picked with that setting: still no mode named, the Cloud machine decides.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" }, cloud: true } },
+    },
     "pill-rail": {
       note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
@@ -558,5 +642,10 @@ export default componentEntry<Props>({
       play: modeFocus,
     },
     plan: { props: {}, play: planToggle },
+    "model-menu-before-acpmux": {
+      note: "The first open after launch, before acpmux lists its harnesses: the bundled catalog's models, pickable at once, with no Not installed rows.",
+      props: { unlisted: true },
+      play: openUnlisted,
+    },
   },
 });

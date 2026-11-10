@@ -36,6 +36,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
     @State private var unreadOnly = false
+    @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -73,6 +74,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
+
+    /// Home's "Couldn't load" row with its Retry: shown while the read failed or the
+    /// Mac is offline, and kept for as long as a retry from it runs.
+    private var showsHomeProblem: Bool { feed.problem != nil || homeIsOffline || homeRetries > 0 }
 
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
@@ -241,12 +246,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if !searching, feed.problem != nil || homeIsOffline {
+            if !searching, showsHomeProblem {
                 VStack(spacing: 6) {
                     Text(RecoveryMessage.home.text)
                         .font(.footnote)
                         .foregroundStyle(theme.colors.label2.color)
                     RetryButton {
+                        // The row stays (its spinner turning) until the retry answers: reconnecting
+                        // clears the offline state first, and the row leaving then would swap in
+                        // "Connecting…" and cancel the button's own retry mid-flight.
+                        homeRetries += 1
+                        defer { homeRetries -= 1 }
                         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
                     }
                     .accessibilityIdentifier("home.retry")
@@ -367,6 +377,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
+        // A retry's outcome (the rows in, or the note back) settles in place instead of jumping.
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: showsHomeProblem)
     }
 
     private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
@@ -821,7 +833,17 @@ struct MacConversationScreen: View {
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
         .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
                              hasRows: feed.rows != nil, homeProblem: feed.problem)) {
-            await loader.load { try await feed.session(for: route) }
+            // A dropped link keeps the open conversation on screen with its bar's Try Again
+            // (CMUX-30), never a full-screen error over the transcript and the composer.
+            await loader.load({ try await feed.session(for: route) }, tryAgain: { [loader, feed, macID, reconnect] in
+                Task { @MainActor in
+                    await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
+                }
+            })
+        }
+        .onChange(of: loader.isStale) { _, stale in
+            guard stale else { return }
+            AccessibilityNotification.Announcement(MacConversationLoader.staleTitle).post()
         }
     }
 }

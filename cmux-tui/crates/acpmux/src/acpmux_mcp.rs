@@ -20,7 +20,9 @@
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
 //! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
 //! with this server's environment, which the agent gave it.
-//! A remote-origin session gets no tools at all (`agent_tools::left_out`).
+//! A remote-origin session gets no tools at all (`agent_tools::left_out`). An app outside
+//! acpmux (Claude desktop, Claude Code, Codex) linked with `acpmux desktop link` runs it in guest
+//! mode (`acpmux_mcp_guest.rs`): the tools that need no session, plus `machines` and `new`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -69,8 +71,12 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_bridge.rs"]
+pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
 mod goal;
+#[path = "acpmux_mcp_guest.rs"]
+mod guest;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
@@ -273,6 +279,14 @@ fn instructions(tools: &Value) -> Option<String> {
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
     let artifacts = artifacts::from_config();
+    // An app outside acpmux that `acpmux desktop link` gave this server (`acpmux_mcp_guest.rs`).
+    if let Some(app) = std::env::var(crate::desktop_link::GUEST_ENV)
+        .ok()
+        .map(|a| a.trim().to_owned())
+        .filter(|a| !a.is_empty())
+    {
+        return guest::run(app, artifacts).await;
+    }
     let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
@@ -311,8 +325,16 @@ pub async fn run() -> Result<()> {
                 }
                 // The Claude Code subagent whose tool call this is, by its tool use id
                 // (`subagent_call.rs`): a `send` names it, a `bg_start` or `run_wait` task runs as
-                // it and brings its end to it.
-                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params);
+                // it and brings its end to it. Else the subagent this server runs as: a workflow
+                // runner a subagent started marks it (`cli::sender::SUBAGENT_ENV`, set by the
+                // daemon in `hub/workflow_runs.rs`), as the Bash hook marks its commands. An
+                // agent's own server never has it: the daemon removes every `ACPMUX_*` variable
+                // of its own env from a harness's, and the mark from the harness profile's env
+                // too (`agent/command.rs`), so only the runner's server can.
+                let sub = crate::subagent_call::of_call(&crate::config::home(), &session, &params)
+                    .or_else(|| {
+                        crate::cli::sender::subagent_of_this_process().map(|s| s.to_value())
+                    });
                 if bg::TOOLS.contains(&name) {
                     let mut args = args;
                     if matches!(name, "bg_start" | "run_wait")

@@ -84,6 +84,32 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
         .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
 }
 
+/// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
+pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+    activity_parent(m)
+}
+
+/// When the first of `m`'s tags that has not expired by `now` expires.
+pub(super) fn next_tag_expiry(m: &SessionMeta, now: u64) -> Option<u64> {
+    m.tags.values().filter_map(|tag| tag.expires_at).filter(|at| *at > now).min()
+}
+
+/// What another session's summary reads of `m`, hashed: whether it is a listed parent
+/// ([`Hub::spawned_by`]: its lineage, sub-session link and `spawnedBy` and `archived` tags, with
+/// their expiry) and the lineage root walk's step through it ([`Hub::lineage_of`]). A metadata
+/// commit that changes it marks every cached closed row stale (`meta_save.rs`); any other commit
+/// marks only its own.
+pub(super) fn parent_print_of(m: &SessionMeta) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    m.lineage.as_ref().map(|l| (&l.parent, &l.root)).hash(&mut hash);
+    m.subsession.as_ref().map(|l| &l.started_by).hash(&mut hash);
+    for key in [SPAWNED_BY_TAG, "archived"] {
+        m.tags.get(key).map(|tag| (&tag.value, tag.expires_at)).hash(&mut hash);
+    }
+    hash.finish()
+}
+
 fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
     let tag = m.tags.get(key)?;
     tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
@@ -551,6 +577,8 @@ impl Hub {
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
+            person_hold: self.person_hold(session),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -696,6 +724,10 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
+        if let Some(cold) = &m.cold {
+            summary.set("coldArchive", json!(cold));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }

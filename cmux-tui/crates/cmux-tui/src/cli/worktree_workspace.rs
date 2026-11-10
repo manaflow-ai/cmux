@@ -406,12 +406,12 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
 /// Each close has its own step key, so a retry replays its answer.
 fn end_unplaced<B: Daemon + ?Sized>(backend: &B, command_key: &str, terminal: &str) -> bool {
     let close = |step: &str, guarded: bool| {
-        let mut end =
-            plan(&words(&["terminal", terminal, "close"]), Some(step_key(command_key, step)))
-                .ok()?;
-        if guarded {
-            end.params.as_object_mut()?.insert("if_unplaced".into(), Value::Bool(true));
-        }
+        let args: &[&str] = if guarded {
+            &["terminal", terminal, "close", "--if-unplaced"]
+        } else {
+            &["terminal", terminal, "close"]
+        };
+        let end = plan(&words(args), Some(step_key(command_key, step))).ok()?;
         Some(backend.request(None, end))
     };
     match close(&format!("end-{terminal}"), true) {
@@ -447,7 +447,7 @@ fn text(record: &Value, key: &str) -> Option<String> {
 fn running_terminals(snapshot: &Value) -> impl Iterator<Item = (String, Vec<String>)> + '_ {
     records(snapshot, "terminals")
         .iter()
-        .filter(|terminal| text(terminal, "lifecycle").as_deref() != Some("exited"))
+        .filter(|terminal| super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| {
             let tabs = match terminal.get("tab_ids").and_then(Value::as_array) {
                 Some(all) => all.iter().filter_map(Value::as_str).map(str::to_owned).collect(),

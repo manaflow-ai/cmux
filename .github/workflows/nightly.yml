@@ -234,7 +234,9 @@ env:
 
 jobs:
   decide:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: read
       checks: read # Read authenticated controller receipts; no App or secret expansion.
@@ -1884,7 +1886,9 @@ jobs:
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 133 || 13 }}
     permissions:
       actions: read
@@ -2352,6 +2356,8 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
+          # ghostty-next's Zig for an in-tree acpmux build (app-build-in-tree-acpmux.sh), as refresh-compilation-cache
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
@@ -3112,6 +3118,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
         env:
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-tree-pending.sh
 
       - name: Resolve cmux-tui client commit
@@ -3599,7 +3606,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # Room for every step budget in turn (the read token mint 1, the owned pick's token mints 1 + 1, the verify picker 2,
     # the signing picker 2 and the overtaken check 1) plus checkout, so the job is never cut off before its outputs.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 137 || 17 }}
@@ -4838,7 +4847,9 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-sign-runner does.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: read
       contents: read
@@ -5194,7 +5205,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       contents: read
       issues: read # the report week of the auto flip
@@ -6916,20 +6929,29 @@ jobs:
   # (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run
   # and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in
   # the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited
-  # behind a newer one is never signed. One try, no loop: a failed dispatch fails this job, retry-nightly-next
-  # retries the build and report-nightly-failure lists it.
+  # behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries
+  # again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's
+  # dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other
+  # failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
   dispatch-nightly-next-sign:
     needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon]
     if: "!cancelled() && needs.decide.outputs.pipeline == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.build-nightly-app.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-remote-daemon.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 130 || 10 }}
+    # Room for gh_budget_wait.sh's wait through a rate limit (a reset is up to an hour away).
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
+      contents: read
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       RUN_ID: ${{ github.run_id }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Ask for this build's sign run
         run: |
           set -euo pipefail
@@ -6947,7 +6969,8 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github]
     if: "!cancelled() && needs.publish-nightly.result == 'success' && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
+    # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
       contents: read
       actions: write
@@ -6962,6 +6985,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Record the published build
         env:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
@@ -6990,7 +7014,8 @@ jobs:
           overwrite: true
       - name: Ask for this build's post-publication run
         # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
-        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail.
+        # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail. Only a
+        # refusal for the rate limit, which did nothing, waits and goes again (gh_budget_wait.sh).
         run: |
           set -euo pipefail
           gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
@@ -7251,7 +7276,8 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly, resolve-nightly-cmux-tui-client, dispatch-nightly-next-sign]
     if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '' || inputs.nightly_next_sign_stage != '') && needs.dispatch-nightly-next-sign.result != 'success' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 10
+    # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
       contents: read
       actions: write
@@ -7262,6 +7288,11 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - *wait-through-github-api-rate-l
       - name: Ask the push group for the newest head
         run: |
           set -euo pipefail

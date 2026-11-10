@@ -2,32 +2,32 @@
   "files": [
     {
       "path": "commands.rs",
-      "sha256": "5f0758a3d1532c2cc84fab5f9e190e32aace2f3223101386b932069e4030070a",
-      "size": 222090
+      "sha256": "a72b9e6691fa0bee0e0b96669489b9681aefa0696b7bfb0f9c0179d09ed94887",
+      "size": 224199
     },
     {
       "path": "events.rs",
-      "sha256": "5c110761f9e4340c8a212dfc834147d302cd4ffa9ea219736c4addf858fe25d8",
-      "size": 84300
+      "sha256": "277eee5af7c1697fc70303cb75090604133b1cf4c14223c233f2c88bf60b3bb9",
+      "size": 85698
     },
     {
       "path": "metadata.rs",
-      "sha256": "676dee2e74494fb99b7620b62e4fd10aeee98f8bb0ef7a53421fd2ac10fd6818",
-      "size": 101367
+      "sha256": "0493a54ef6485dd836fc0a330136cacaba053b47113f94c8686eaf49b8f5b5a5",
+      "size": 102879
     },
     {
       "path": "mod.rs",
-      "sha256": "96f82ea82ddcf9331896d268610a84684272454b955e7db14aa279a01b653265",
+      "sha256": "d4165ca8d642a01a9aac06b6f0a0e6e276f948d11762c1cc8cc82c54d30b003b",
       "size": 365
     },
     {
       "path": "types.rs",
-      "sha256": "326f3e1ee46795960778fe7eef64e0bd323932d86adc6e01d6f24566d898907c",
-      "size": 100216
+      "sha256": "fb33e96d7258568e8390a9e2a4c91803b3b96af465406bfdacd04fea6cdc6d4c",
+      "size": 107571
     }
   ],
   "format": 1,
-  "ir_sha256": "62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6",
+  "ir_sha256": "1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e",
   "language": "rust",
   "mux_protocol": 12,
   "schema_version": 2

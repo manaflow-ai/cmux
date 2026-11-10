@@ -23,7 +23,10 @@ public final class PaneZoomIndicatorView: NSView {
     static let padding: CGFloat = 2
 
     let button = TitlebarBandButton(symbol: PaneZoomIndicatorView.symbol)
-    private let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.controlCornerRadius + PaneZoomIndicatorView.padding)
+    /// The glass, made when the indicator first shows: every pane holds a hidden indicator, and a
+    /// hidden zero-size `NSGlassEffectView` still lays out its SwiftUI host on every frame of a pane
+    /// motion on macOS 27 (`KeyResizeLayoutsPerFrameTests`).
+    private var surface: OverlaySurfaceView?
     private weak var model: TabStripModel?
 
     /// - Parameter model: The pane's strip model: its zoom shows the indicator, its selection is
@@ -31,9 +34,6 @@ public final class PaneZoomIndicatorView: NSView {
     public init(model: TabStripModel) {
         self.model = model
         super.init(frame: .zero)
-        surface.translatesAutoresizingMaskIntoConstraints = true
-        surface.autoresizingMask = [.width, .height]
-        addSubview(surface)
         button.target = self
         button.action = #selector(pressed)
         button.refusesFirstResponder = true
@@ -63,6 +63,13 @@ public final class PaneZoomIndicatorView: NSView {
     public func place(in content: NSRect, top: CGFloat) -> CGFloat {
         isHidden = model?.zoomsSelected != true
         guard !isHidden else { return 0 }
+        if surface == nil {
+            let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.controlCornerRadius + Self.padding)
+            glass.translatesAutoresizingMaskIntoConstraints = true
+            glass.autoresizingMask = [.width, .height]
+            addSubview(glass, positioned: .below, relativeTo: button)
+            surface = glass
+        }
         let inset = Metrics.space2
         let size = Self.size
         frame = NSRect(x: content.maxX - inset - size.width, y: top + inset, width: size.width, height: size.height)
@@ -77,7 +84,7 @@ public final class PaneZoomIndicatorView: NSView {
 
     override public func layout() {
         super.layout()
-        surface.frame = bounds
+        surface?.frame = bounds
         button.frame = bounds.insetBy(dx: Self.padding, dy: Self.padding)
         button.layer?.cornerRadius = Metrics.controlCornerRadius
         button.contentTintColor = performWithTheme { Palette.litGlyph }

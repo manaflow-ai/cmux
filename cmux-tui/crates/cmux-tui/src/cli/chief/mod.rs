@@ -129,6 +129,28 @@ pub(super) fn run_avatar_if_requested(args: &[String]) -> Option<i32> {
     (scope == "avatar").then(|| avatar::run(&global, rest))
 }
 
+/// A `cmux chief` usage error: the `--json` envelope under `--json`, else
+/// the usage and then the error, so the last line says what was wrong and
+/// what to run (docs/cli-conventions.md in cmuxterm-hq). Exit 2.
+pub(super) fn usage_failure(global: &GlobalArgs, error: &str, usage: &str) -> i32 {
+    match global.output {
+        OutputMode::Json | OutputMode::JsonLines => super::wire::print_local_error(
+            &serde_json::json!({
+                "code": "usage.invalid",
+                "message": format!("{error}; run `cmux chief --help` for its usage"),
+                "details": {},
+                "retryable": false,
+            }),
+            global.output,
+            2,
+        ),
+        OutputMode::Human | OutputMode::Quiet => {
+            eprintln!("{usage}\n\ncmux: {error}; run `cmux chief --help` for its usage");
+            2
+        }
+    }
+}
+
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut parsed =
         Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
@@ -254,10 +276,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     let args = match parse_args(args) {
         Ok(args) => args,
-        Err(error) => {
-            eprintln!("cmux: {error}\n\n{}", m.usage);
-            return 2;
-        }
+        Err(error) => return usage_failure(&global, &error, m.usage),
     };
     if args.help {
         println!("{}", m.usage);

@@ -17,7 +17,8 @@
 //! one call that reads the harness and both probes' output; `cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
 //! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
-//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask; and
+//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
+//! `cloud_sequence_*`: the start's one sequencer, its step order and times; and
 //! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
 //! kept for an app pinned before `cloud_harness_login` read them itself),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
@@ -65,6 +66,7 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_machine;
 mod cloud_move;
+mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
@@ -273,12 +275,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 struct Request {
                     cloud_disabled: bool,
                     signed_in: bool,
+                    #[serde(default)]
+                    requested_team: Option<String>,
+                    #[serde(default)]
+                    active_team: Option<String>,
                 }
                 let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 let refusal = cmux_cloud_start_core::start::refusal(
                     request.cloud_disabled,
                     request.signed_in,
-                );
+                )
+                .or_else(|| {
+                    cmux_cloud_start_core::start::team_refusal(
+                        request.requested_team.as_deref(),
+                        request.active_team.as_deref(),
+                    )
+                });
                 serde_json::to_vec(&serde_json::json!({ "refusal": refusal }))
                     .map_err(|_| ERR_INVALID)?
             }
@@ -449,6 +461,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_handler::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if cloud_sequence::handles(operation) => {
+                cloud_sequence::respond(operation, request)?
+            }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {

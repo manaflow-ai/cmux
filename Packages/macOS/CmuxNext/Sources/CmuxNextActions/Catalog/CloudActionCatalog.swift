@@ -25,7 +25,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.cloud.fork",
                 title: String(localized: "action.palette.cloud.fork", defaultValue: "Fork Cloud Machine", bundle: .module),
-                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.triangle.branch", surfaces: [.palette],
+                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.branch", surfaces: [.palette],
                 requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud fork-machine"
             ),
             ActionDescriptor(
@@ -89,6 +89,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud", "move", "back", "local", "chat", "agent", "sync"], category: .cloud,
                 symbol: "icloud.and.arrow.down", surfaces: [.palette, .contextMenu], targets: [.tab],
                 cliName: "cloud bring-back"
+            ),
+            // Move to Another Machine: a chat a move from this Mac put on a Cloud machine goes on to another one.
+            ActionDescriptor(
+                id: "cloudMoveToMachine",
+                title: String(localized: "action.cloudMoveToMachine", defaultValue: "Move to Another Machine", bundle: .module),
+                keywords: ["vm", "cloud", "move", "machine", "other", "another", "remote", "chat", "agent", "sync"], category: .cloud,
+                symbol: "arrow.left.arrow.right", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalMachine], targets: [.tab], cliName: "cloud move-to-machine"
             ),
             ActionDescriptor(
                 id: "cloudSSH",
@@ -162,9 +170,9 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], targets: [.machine],
                 cliName: "cloud prepare-scp"
             ),
-            ActionDescriptor(id: "cloudTunnelAttach", title: String(localized: "action.cloudTunnelAttach", defaultValue: "Attach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
-            ActionDescriptor(id: "cloudTunnelDetach", title: String(localized: "action.cloudTunnelDetach", defaultValue: "Detach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "scissors", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
-            ActionDescriptor(id: "cloudTunnelRotateKey", title: String(localized: "action.cloudTunnelRotateKey", defaultValue: "Rotate Cloud Tunnel Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
+            ActionDescriptor(id: "cloudTunnelAttach", title: String(localized: "action.cloudTunnelAttach", defaultValue: "Attach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.optionalPathString], cliName: "cloud tunnel-attach"),
+            ActionDescriptor(id: "cloudTunnelDetach", title: String(localized: "action.cloudTunnelDetach", defaultValue: "Detach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "scissors", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.optionalPathString], cliName: "cloud tunnel-detach"),
+            ActionDescriptor(id: "cloudTunnelRotateKey", title: String(localized: "action.cloudTunnelRotateKey", defaultValue: "Rotate Cloud Tunnel Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], cliName: "cloud tunnel-rotate-key"),
             ActionDescriptor(id: "cloudNetworkList", title: String(localized: "action.cloudNetworkList", defaultValue: "List Cloud Networks", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "network", "vpc"], category: .cloud, symbol: "network", surfaces: [.palette, .contextMenu], cliName: "cloud network-list"),
             ActionDescriptor(id: "cloudFirewallList", title: String(localized: "action.cloudFirewallList", defaultValue: "List Cloud Firewall Rules", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
             ActionDescriptor(id: "cloudFirewallGet", title: String(localized: "action.cloudFirewallGet", defaultValue: "Get Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.checkered", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),

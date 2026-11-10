@@ -336,6 +336,9 @@ pub mod method {
     /// Replace the folders a chat sees beside its own (`hub/additional_dirs.rs`):
     /// `{sessionId, additionalDirectories}`; its agent restarts on them.
     pub const MUX_SET_DIRECTORIES: &str = "_acpmux/set_directories";
+    /// Make a new project folder with an empty git repository for a chat to start in
+    /// (`server/project_new.rs`): `{name}` -> `{cwd, name, git}`.
+    pub const MUX_PROJECT_NEW: &str = "_acpmux/project_new";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
@@ -538,12 +541,18 @@ pub mod method {
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
+    /// The team's agent spend from cmux-platform's `GET /v1/usage/audit`, read with this daemon's
+    /// cmux sign-in (`server/chats/team_audit.rs`); the local unix socket and the local app only.
+    pub const MUX_TEAM_AUDIT: &str = "_acpmux/team_audit";
     /// Stop and delete every chat of one cmux workspace, an incognito one when its window
     /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
     pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
     /// Every ask waiting on the person and the pull requests without a review verdict, here and
     /// on each peer (`hub/review_queue.rs`); the local socket and the app, a peer its own only.
     pub const MUX_REVIEW_QUEUE: &str = "_acpmux/review_queue";
+    /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
+    /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
+    pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";
@@ -644,6 +653,9 @@ pub mod method {
     /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
     /// session, tools, MCP, hooks or session file. The unix socket only.
     pub const MUX_COMPLETE: &str = "_acpmux/complete";
+    /// One plain sentence for one diff hunk (`crate::hunk_summary`), kept by the hunk's content
+    /// hash; a `_acpmux/complete` run on a miss. The unix socket only.
+    pub const MUX_HUNK_SUMMARY: &str = "_acpmux/hunk_summary";
     /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
     /// no-sudo updater of the named outdated harnesses. The unix socket only.
     pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
@@ -752,6 +764,9 @@ pub mod method {
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
+    /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
+    /// with `coldArchive` while archived. `archived: false` brings its log back.
+    pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
@@ -760,6 +775,13 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
+    // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
+    // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
+    // answer; `rekey {token}` -> `{machineId, wgPublicKey, restarted}`.
+    pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
+    pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
+    pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).

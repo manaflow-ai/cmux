@@ -42,12 +42,30 @@ public actor CmuxConfigFile {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) throws -> URL {
+        try prepareLaunchFile(home: home, environment: environment, fileManager: fileManager).url
+    }
+
+    /// The settings file at launch and whether this launch made it from nothing: no cmux-next.json and
+    /// no classic cmux.json, on this Mac account. Every channel shares the file, so that is the one
+    /// install-wide sign of a fresh install (a new channel on an existing install finds the file).
+    public nonisolated struct LaunchFile: Sendable {
+        public let url: URL
+        public let createdEmpty: Bool
+    }
+
+    /// ``prepareDefaultURL(home:environment:fileManager:)``, saying whether it wrote a new empty file.
+    public static func prepareLaunchFile(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) throws -> LaunchFile {
         if let override = environment[overrideKey], !override.isEmpty {
-            return defaultURL(home: home, environment: environment)
+            return LaunchFile(url: defaultURL(home: home, environment: environment), createdEmpty: false)
         }
 
         let next = defaultURL(home: home, environment: environment)
-        guard !fileManager.fileExists(atPath: next.path) else { return next }
+        guard !fileManager.fileExists(atPath: next.path) else { return LaunchFile(url: next, createdEmpty: false) }
+        var createdEmpty = false
 
         let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
         try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -61,22 +79,26 @@ public actor CmuxConfigFile {
                 try text.write(to: next, options: .withoutOverwriting)
             } else {
                 try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
+                createdEmpty = true
             }
         } catch CocoaError.fileWriteFileExists {
             // Another cmux-next launch won the first-launch race. Keep its file.
         }
-        return next
+        return LaunchFile(url: next, createdEmpty: createdEmpty)
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
     /// when that fails, the reason in the log and ``defaultURL(home:environment:)``.
-    public static func launchURL() -> URL {
+    public static func launchURL() -> URL { launchFile().url }
+
+    /// ``launchURL()`` and whether this launch made the file from nothing (``LaunchFile``).
+    public static func launchFile() -> LaunchFile {
         do {
-            return try prepareDefaultURL()
+            return try prepareLaunchFile()
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "app")
                 .error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            return defaultURL()
+            return LaunchFile(url: defaultURL(), createdEmpty: false)
         }
     }
 
@@ -113,7 +135,8 @@ public actor CmuxConfigFile {
     }
 
     /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
-    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    /// of what it changed, so the person can see and undo it). Read back only to undo a change a
+    /// later build no longer makes (``readBeside(suffix:)``).
     @discardableResult
     public func writeBeside(suffix: String, text: String) throws -> URL {
         let url = self.url.resolvingSymlinksInPath()
@@ -129,6 +152,27 @@ public actor CmuxConfigFile {
         let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
         var isDirectory: ObjCBool = false
         return FileManager.checked.fileExists(atPath: record.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
+    /// The text of the record named `suffix` beside the file, or nil when there is none.
+    public func readBeside(suffix: String) -> String? {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        return try? String(blockingContentsOf: record, encoding: .utf8)
+    }
+
+    /// Sets each path the file leaves unset to its value, in one atomic publish; a path set since
+    /// the caller read it keeps its value. Read and write share one actor turn. Returns the paths set.
+    public func setUnset(_ values: [(path: [String], value: JSONValue)]) throws -> [[String]] {
+        guard values.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let current = try source()
+        let root = try validated(current)
+        let unset = values.filter { root.value(at: $0.path) == nil }
+        for entry in unset { try managedGuard.checkSet(entry.value, at: entry.path) }
+        var updated = current
+        for entry in unset { updated = try JSONC.setting(entry.value, at: entry.path, in: updated) }
+        if updated != current { try publish(updated) }
+        return unset.map(\.path)
     }
 
     /// The parsed document. A missing file is an empty object.

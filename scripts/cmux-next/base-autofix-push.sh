@@ -92,6 +92,13 @@ output_areas() {
       schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
+      # The docs reference pages (base-autofix.sh 1e1): the settings reference from the settings export,
+      # the others from the action export. Unclaimed, they never landed on a moved tip while the schema
+      # did, and the docs test stayed red on feat-cmux-next (dee3e635, #39914). All of them are also
+      # built by web/scripts/export-next-docs.ts, which the shortcuts area holds: a new generator on the
+      # tip holds what the old one wrote.
+      web/data/next-docs/settings-reference.generated.json) echo settings; echo shortcuts ;;
+      web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
@@ -116,7 +123,8 @@ built_from() {
   case "$1" in
     web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
       | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo actions ;;
-    */generated/strings.json) echo settings ;;
+    */generated/strings.json | web/data/next-docs/settings-reference.generated.json) echo settings ;;
+    web/data/next-docs/*.generated.json) echo actions ;;
   esac
 }
 

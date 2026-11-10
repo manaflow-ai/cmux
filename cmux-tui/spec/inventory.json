@@ -169,6 +169,7 @@
     "pane.focus_direction",
     "pane.get",
     "pane.list",
+    "pane.move",
     "pane.neighbor.get",
     "pane.rename",
     "pane.run",
@@ -521,17 +522,21 @@
       "set-tab-pinned",
       "set-terminal-idle-policy",
       "set-terminal-keep",
+      "set-terminal-tail-pin",
       "set-viewport-pane-width",
       "set-window-title",
       "set-workspace-metadata",
+      "shell-read",
+      "shell-run",
+      "shell-stop",
       "split",
       "swap-pane",
       "terminal-events",
       "terminal-history",
+      "terminal-last-command",
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
-      "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
@@ -1178,6 +1183,18 @@
     },
     {
       "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
       "streams": [
         "subscribe"
       ]

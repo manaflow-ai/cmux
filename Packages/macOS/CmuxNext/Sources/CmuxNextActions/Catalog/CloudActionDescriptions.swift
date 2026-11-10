@@ -77,6 +77,13 @@ nonisolated enum CloudActionDescriptions {
             folder, moves the chat back, opens it here and closes the machine's tab. Only a person runs it: \
             an agent's run (MCP, or the CLI from an agent's chat) is refused.
             """,
+        "cloudMoveToMachine": """
+            Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine \
+            machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it \
+            to that machine, moves the chat there with the old machine's last changes, opens it there and closes \
+            the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is \
+            refused.
+            """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
             paused machine first, and returns machine_id, workspace_id and the tab's surface_id (terminal_id \
@@ -125,15 +132,18 @@ nonisolated enum CloudActionDescriptions {
             for scp or sftp.
             """,
         "cloudTunnelAttach": """
-            Attaches this Mac's Cloud tunnel to a private network. The network id (from \
-            `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.
+            Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path \
+            argument is optional: none means the joined team; a network id (--arg path=<team id>) must \
+            be that team's. Returns no fields.
             """,
         "cloudTunnelDetach": """
-            Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path \
-            argument: --arg path=<network id>. Returns no fields.
+            Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: \
+            none means the joined team; a network id (--arg path=<team id>) must be that team's. \
+            Returns no fields.
             """,
         "cloudTunnelRotateKey": """
-            Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.
+            Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, \
+            then uses it. Returns no fields.
             """,
         "cloudNetworkList": """
             Lists the account's Cloud networks and returns count and text with one line per network: its \

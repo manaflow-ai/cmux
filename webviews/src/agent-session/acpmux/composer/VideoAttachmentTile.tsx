@@ -9,7 +9,9 @@
 // one the host could not read keeps that square with the play glyph and no poster, never a file
 // chip's long strip (Leo, 2026-10-26: "not for screen recordings. Don't do it for screen
 // recordings. We know it's a video. ... Just do the square. Why do we have these long-ass
-// rectangles anyway?").
+// rectangles anyway?"). One nothing can play (`unplayable`: the host and Quick Look both refused it)
+// says so in its tile instead of its play glyph (Leo, 2026-11-04: "i can neither preview a vid in
+// place nor have it pop up anymore :(").
 import { type ReactNode } from "react";
 
 import { formatDuration } from "../chips/replyMediaModel";
@@ -24,6 +26,7 @@ export function VideoAttachmentTile({
   reading = !video,
   remove,
   onPlay,
+  unplayable = false,
 }: {
   name: string;
   /// The poster's tooltip: its name, with the line naming where it came from (SourceBadge.tsx).
@@ -34,6 +37,8 @@ export function VideoAttachmentTile({
   reading?: boolean;
   remove: ReactNode;
   onPlay(): void;
+  /// Nothing could play it: the tile says so.
+  unplayable?: boolean;
 }) {
   const t = useT();
   if (!video && reading)
@@ -60,9 +65,13 @@ export function VideoAttachmentTile({
         onClick={onPlay}
       >
         {video && <img alt="" src={video.poster} width={video.width} height={video.height} />}
-        <span className="ui-glass acpmux-attachment-video-play" aria-hidden="true">
-          <PlayTriangle size={12} style={{ color: "inherit" }} />
-        </span>
+        {unplayable ? (
+          <output className="acpmux-attachment-video-unplayable">{t("media.cantPlayHere")}</output>
+        ) : (
+          <span className="ui-glass acpmux-attachment-video-play" aria-hidden="true">
+            <PlayTriangle size={12} style={{ color: "inherit" }} />
+          </span>
+        )}
         {length && (
           <span className="acpmux-attachment-video-length" aria-hidden="true">
             {length}

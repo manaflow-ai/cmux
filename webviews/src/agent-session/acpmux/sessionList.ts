@@ -58,6 +58,9 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** Its log is in acpmux's cold archive (`coldArchive`, hub/cold_archive.rs): the row draws this
+   *  preview only, and opening the chat brings the log back. */
+  coldArchive?: ColdArchive;
   /** The latest message text from acpmux's summary, when present. */
   lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
@@ -121,6 +124,37 @@ export type AcpmuxSessionEntry = {
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
 };
+
+/** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
+export type ColdArchive = {
+  archivedAt: number;
+  /** The prompts and replies its log held. */
+  messages: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  /** Its last few messages, oldest first, each cut short. */
+  last: { role: string; text: string; at: number }[];
+};
+
+const coldCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** acpmux's `coldArchive`, else undefined. */
+export function coldArchive(value: unknown): ColdArchive | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const cold = value as Record<string, unknown>;
+  const last = (Array.isArray(cold.last) ? cold.last : []).flatMap((item) => {
+    const message = item as Record<string, unknown> | null;
+    const body = text(message?.text);
+    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: coldCount(message?.at) }] : [];
+  });
+  return {
+    archivedAt: coldCount(cold.archivedAt),
+    messages: coldCount(cold.messages),
+    bytesBefore: coldCount(cold.bytesBefore),
+    bytesAfter: coldCount(cold.bytesAfter),
+    last,
+  };
+}
 
 export type LifecycleReceipt = {
   id: string;
@@ -268,6 +302,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
+  const cold = coldArchive(session.coldArchive);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -302,6 +337,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // a list's preview reads the message.
     preview: shown(session.preview),
     lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
+    ...(cold && { coldArchive: cold }),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
@@ -522,8 +558,13 @@ export class SessionsBy {
     // starts again, so a session no longer listed leaves nothing behind.
     if (moved) this.seen = new Map();
     const positions = replaced ?? sessions.keys();
+    // A full pass also counts the ids listed: one listed twice changes what the list holds without
+    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
+    const listedIds = replaced ? undefined : new Set<string>();
     for (const at of positions) {
       const entry = sessions[at]!;
+      if (listedIds?.has(entry.sessionId)) moved = true;
+      listedIds?.add(entry.sessionId);
       const before = this.seen.get(entry.sessionId);
       if (before?.entry === entry) {
         if (before.at !== at) {
@@ -540,11 +581,12 @@ export class SessionsBy {
         before.at = at;
       } else this.seen.set(entry.sessionId, { entry, key, at });
     }
-    // A session that left while another came keeps the same length: drop what it left behind.
-    if (this.seen.size > sessions.length) {
-      const listedIds = new Set(sessions.map((entry) => entry.sessionId));
-      for (const id of this.seen.keys()) if (!listedIds.has(id)) this.seen.delete(id);
-    }
+    // A session that left while another came, or another listed twice, keeps the same length: drop
+    // what it left behind, so it is new again when it comes back.
+    const listed =
+      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
+    if (listed && this.seen.size !== listed.size)
+      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
     this.count = sessions.length;
     if (moved) this.kept = sessions;
     return this.kept!;
