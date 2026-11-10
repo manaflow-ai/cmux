@@ -48,8 +48,8 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
    * total must not change. Any net shift at a page boundary breaks one of the two, and the whole list is read again
    * (LIST_TRIES times, then 503). A rule seen is real whatever moved after, so `first` returns at once.
    *
-   * That catches every rule that was there for the whole read; a rule added during it, at a place already read, can
-   * still be missed (an add and a delete before the boundary leave no shift). `confirmOff` closes that.
+   * That catches every rule that was there for the whole read. A rule added during it, at a place already read, can
+   * still be missed (an add and a delete before the boundary leave no shift): see `confirmOff`.
    */
   const egressRules = (operation: string, id: string, first: boolean) => Effect.gen(function* () {
     const invalid = () => new UpstreamError({ operation, status: null });
@@ -97,8 +97,11 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
   });
   const read = (operation: string, id: string) => egressRules(operation, id, true).pipe(Effect.map(({ found }) => found.length > 0));
   /**
-   * Whether the VM is off for sure: two whole reads in a row find no egress rule and list the same rules in the same
-   * order. A rule added during the first read sits in the second; one added during the second changes the list.
+   * Whether the VM reads as off: two whole reads in a row find no egress rule and list the same rules in the same
+   * order. Every rule that was there all through the second read is in it, and none allows the Internet; a rule added
+   * during the first read is in the second. What no read can rule out is an allow that lands during the last read, at a
+   * place already read: an allow racing the revoke, which needs the same vm:network scope and could equally land a
+   * moment after this call answers. Keeping those two from overlapping at all needs a per-VM lock; reads cannot.
    */
   const confirmOff = (operation: string, id: string) => Effect.gen(function* () {
     const one = yield* egressRules(operation, id, false);
