@@ -3,6 +3,7 @@
 //! rewrite from the first prompt and the corrections only. A chat that went fine logs neither.
 
 use super::*;
+use acpmux::server::{Origin, serve_connection_with};
 
 /// The `mux` records of `kind` in chat `id`, waiting up to 5 s for `want` of them.
 async fn records(hub: &Arc<Hub>, id: &str, kind: &str, want: usize) -> Vec<Value> {
@@ -160,4 +161,38 @@ async fn an_offer_logged_before_a_restart_still_gets_its_rewrite() {
         .await
         .unwrap();
     assert_eq!(again["made"], false);
+}
+
+/// The owner's plain terminal: a unix connection that claims no sender and never proved the person
+/// (`requests.rs` `owner_terminal`). Its prompt is drawn as theirs, but it proves nobody.
+async fn terminal(hub: &Arc<Hub>) -> TestClient {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client
+        .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "shell"}}))
+        .await
+        .unwrap();
+    client
+}
+
+/// Corrections count only from a connection that proved the person (cmux#38893 review,
+/// `requests.rs:2092`): a send no proof attributes, the owner's terminal included, could be any
+/// process of the user, so three of them and the person's go-ahead make no offer.
+#[tokio::test]
+async fn corrections_no_connection_proved_make_no_offer() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "unproven").await;
+    say(&mut c, &id, "add a dark mode toggle").await;
+    let mut shell = terminal(&hub).await;
+    for text in [
+        "no, it goes under Appearance",
+        "actually it should follow the system theme",
+        "that's not what I meant, keep ThemeContext",
+    ] {
+        say(&mut shell, &id, text).await;
+    }
+    say(&mut c, &id, "great, now add a test").await;
+    assert!(records(&hub, &id, "coach_offer", 1).await.is_empty(), "no proven correction");
 }
