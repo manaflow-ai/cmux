@@ -14,6 +14,9 @@ use cmux_json::JsonSet as _;
 /// Queued messages one hook asks the daemon for, oldest first.
 const PAGE: u64 = 50;
 const DEADLINE: Duration = Duration::from_millis(1500);
+/// The part of the shared deadline kept for the "delivered" mark: the
+/// roster read between the list and the mark ends this long before it.
+const MARK_RESERVE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Delivery {
@@ -86,19 +89,24 @@ fn print_output(value: &Value) {
 }
 
 /// Hands `terminal`'s queued messages to its agent. `nested` is asked once,
-/// only when messages wait: a Claude that is not the terminal's agent gets
-/// none, and they stay queued.
+/// only when messages wait, with the time its read must end by: a Claude
+/// that is not the terminal's agent gets none, and they stay queued.
+///
+/// The list, that read and the "delivered" mark share one deadline, cut to
+/// `budget_end` (the end of the hook's time budget, when it has one), and
+/// the read ends [`MARK_RESERVE`] before it, so the mark is still sent.
 pub(super) fn deliver(
     delivery: Delivery,
     socket: &Path,
     terminal: Option<&str>,
-    nested: impl FnOnce() -> bool,
+    budget_end: Option<Instant>,
+    nested: impl FnOnce(Instant) -> bool,
 ) {
     let Some(terminal) = terminal.filter(|terminal| terminal.starts_with("term_")) else {
         print_nothing(Some(delivery));
         return;
     };
-    let deadline = Instant::now() + DEADLINE;
+    let deadline = shared_deadline(Instant::now(), budget_end);
     if delivery == Delivery::ContinueTurn {
         let _ = acknowledge_delivered(socket, terminal, deadline);
     }
@@ -110,7 +118,7 @@ pub(super) fn deliver(
         }
     };
     let batch = cmux_tui_core::agent_message_prompt::batch(messages);
-    if batch.is_empty() || nested() {
+    if batch.is_empty() || nested(deadline.checked_sub(MARK_RESERVE).unwrap_or(deadline)) {
         print_nothing(Some(delivery));
         return;
     }
@@ -124,6 +132,13 @@ pub(super) fn deliver(
         true,
         deadline,
     );
+}
+
+/// The deadline that one delivery's requests made from `now` share: their
+/// own bound, cut to `budget_end`.
+fn shared_deadline(now: Instant, budget_end: Option<Instant>) -> Instant {
+    let own = now + DEADLINE;
+    budget_end.map_or(own, |end| own.min(end))
 }
 
 /// claude `SessionStart` in a cmux terminal: the startup line for how this

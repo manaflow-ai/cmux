@@ -170,7 +170,11 @@ Claude Code 2.1 reads under any config directory and beside any
   kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s and
   never past 4.5 s after the hook started, and the read ends no later than 4.5 s after
   the hook started. With no time left the hook makes no read and acts as
-  when the read fails.
+  when the read fails. A `UserPromptSubmit` hook keeps the same 4.5 s
+  budget: the hand-off, the message list, the read and the "delivered"
+  mark all end inside it, and the read ends 0.5 s before the list's
+  deadline, so a read that does not answer still leaves time for the
+  mark (without it the next prompt shows the same messages again).
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then
   counts as another agent's and gets no messages, banner or context until

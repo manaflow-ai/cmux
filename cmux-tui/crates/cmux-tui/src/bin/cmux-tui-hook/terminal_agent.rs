@@ -64,6 +64,12 @@ impl Run<'_> {
         self.check(false, || self.read_roster())
     }
 
+    /// [`Self::is_nested`] with a read that ends by `read_end` (a prompt
+    /// hook keeps the rest of its deadline for the "delivered" mark).
+    pub(super) fn is_nested_by(&self, read_end: Instant) -> bool {
+        self.check(false, || self.read_roster_by(read_end))
+    }
+
     /// [`Self::is_nested`] for the journal hook's `SessionStart`: a read that
     /// shows no other live session records this process too, and a start
     /// beside a row that a crash may have left is counted. The
@@ -91,9 +97,14 @@ impl Run<'_> {
     }
 
     fn read_roster(&self) -> anyhow::Result<Value> {
+        self.read_roster_by(self.budget_end.unwrap_or_else(|| Instant::now() + DEADLINE))
+    }
+
+    /// One `agent.list` read of the terminal, ending by `budget_end` (and
+    /// within [`DEADLINE`]); none when no time is left.
+    fn read_roster_by(&self, budget_end: Instant) -> anyhow::Result<Value> {
         let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
         let now = Instant::now();
-        let budget_end = self.budget_end.unwrap_or(now + DEADLINE);
         let deadline = read_deadline(budget_end, now).context("no time left to read")?;
         inbox::request(self.socket, "agent.list", params, false, deadline)
     }

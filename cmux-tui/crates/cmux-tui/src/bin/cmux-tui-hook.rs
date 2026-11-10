@@ -211,11 +211,13 @@ fn run_after_ready(
     let (request_id, encoded) = encode_request(event, live)?;
     let claude = args.source == "claude";
     let banner = inbox == Some(inbox::Delivery::SessionBanner);
-    // Claude Code kills the hook at 5 s: the `SessionStart` handoff and the
-    // claim's read both end inside `CLAUDE_HOOK_BUDGET` from the hook's start.
-    let budget_end = (claude && banner).then_some(started + CLAUDE_HOOK_BUDGET);
+    let prompt = matches!(inbox, Some(inbox::Delivery::PromptContext { .. }));
+    // Claude Code kills the hook at 5 s: a `SessionStart` (handoff, claim
+    // read) and a `UserPromptSubmit` (handoff, message list, read, mark) end
+    // inside `CLAUDE_HOOK_BUDGET` from the hook's start.
+    let budget_end = (claude && (banner || prompt)).then_some(started + CLAUDE_HOOK_BUDGET);
     let handoff = match budget_end {
-        Some(end) => claude_start_handoff_wait(end, Instant::now()),
+        Some(end) => claude_handoff_wait(end, Instant::now()),
         None => handoff_wait(&args.source, &args.native_event),
     };
     let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
@@ -268,7 +270,9 @@ fn run_after_ready(
             session_context::print(&socket, terminal.as_deref());
         }
         Some(inbox) => {
-            inbox::deliver(inbox, &socket, terminal.as_deref(), || claude && agent.is_nested());
+            inbox::deliver(inbox, &socket, terminal.as_deref(), budget_end, |read_end| {
+                claude && agent.is_nested_by(read_end)
+            });
         }
         None => {}
     }
@@ -491,11 +495,12 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
-/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
-/// whose time budget ends at `budget_end`: at most 4.25 s and never past the
-/// budget, so the claim's read still fits. The child keeps the event queued
+/// The wait for a Claude `SessionStart` or `UserPromptSubmit` handoff made
+/// at `now`, for a hook whose time budget ends at `budget_end`: at most
+/// 4.25 s and never past the budget, so the claim's read (or the message
+/// delivery) still fits. The child keeps the event queued
 /// and sends it anyway (journal_append.rs).
-fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+fn claude_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
     Duration::from_millis(4250).min(budget_end.saturating_duration_since(now))
 }
 
@@ -992,15 +997,15 @@ mod tests {
     }
 
     #[test]
-    fn any_launcher_w5n3_claim_start_handoff_ends_inside_the_hook_budget() {
+    fn any_launcher_w5n3_claim_handoff_ends_inside_the_hook_budget() {
         let now = Instant::now();
         // A fresh hook: past the child's own 4 s deadline, inside the budget.
-        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        let fresh = claude_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
         assert_eq!(fresh, Duration::from_millis(4250));
         // A slow start (payload, repository wait): the wait ends with the budget.
-        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        let late = claude_handoff_wait(now + Duration::from_secs(1), now);
         assert_eq!(late, Duration::from_secs(1));
-        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
+        assert_eq!(claude_handoff_wait(now, now), Duration::ZERO);
     }
 
     #[test]
