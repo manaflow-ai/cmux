@@ -326,10 +326,16 @@ try:
         host_name = acpmux_machine_name()
         json.dump({"contact": f"{host_name}/synthetic-coord", "trace": {"full": True}},
                   open(os.path.join(MUX, "optchat", "settings.json"), "w"))
+    if opts.scenario == "mcp":
+        # Full trace text, so the hub's wake notes ("[mcp task tN] ...") show.
+        os.makedirs(os.path.join(MUX, "optchat"), exist_ok=True)
+        json.dump({"trace": {"full": True}}, open(os.path.join(MUX, "optchat", "settings.json"), "w"))
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")
     daemon_env = dict(base_env, CMUX_TUI_STATE_DIR=os.path.join(BRAIN, "daemon", "state"),
                       CMUX_TUI_CHIEF_TOOLS_SOCKET=TOOLS, ACPMUX_HOME=ACPMUX_HOME)
-    if opts.scenario == "coordinator":
+    if opts.scenario in ("coordinator", "mcp"):
+        # The daemon starts acpmux, whose Claude sessions run the Chief's
+        # turns: without the route they have no model and end empty.
         daemon_env.update(dict(kv.split("=", 1) for kv in opts.env))
     d = subprocess.Popen([os.path.join(BINS, "cmux-tui"), "--headless", "--socket", SOCK], stdout=daemon_log, stderr=subprocess.STDOUT,
                          env=daemon_env)
@@ -796,6 +802,27 @@ try:
         log(f"MCP tool calls: {json.dumps(mcp_calls)[:800]}")
         for k, v in proof.items():
             log(f"MCP-PROOF {k}={'PASS' if v else 'FAIL'}")
+        if not all(proof.values()):
+            # What the step log needs to say why: turn ends, tool errors, the
+            # hub's saved state and the host's last error lines.
+            ends = [{k: e.get(k) for k in ("ts", "outcome", "error", "stop_reason", "usage") if k in e}
+                    for e in trace_events() if e.get("ev") == "turn.end"]
+            log(f"MCP diag turn.end: {json.dumps(ends)[:1500]}")
+            errs = [{"name": e.get("name"), "error": e.get("error")} for e in trace_events()
+                    if e.get("ev") == "tool" and not e.get("ok", True)]
+            log(f"MCP diag tool errors: {json.dumps(errs)[:1500]}")
+            try:
+                log(f"MCP diag servers.json: {open(servers_json).read()[:1500]!r}")
+            except OSError as e:
+                log(f"MCP diag servers.json: {e}")
+            for name in ("host.log", "daemon.log"):
+                try:
+                    lines = open(os.path.join(OUT, name), errors="replace").read().splitlines()
+                except OSError:
+                    continue
+                bad = [l for l in lines if any(w in l.lower() for w in ("error", "fail", "refus", "401", "403", "502", "panic"))]
+                for l in (bad or lines)[-12:]:
+                    log(f"MCP diag {name}: {l[:300]}")
         run["mcp"] = dict(proof, replies=[r1[:2000], r2[:2000], r3[:2000]], tool_calls=mcp_calls)
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)

@@ -126,7 +126,7 @@
   font: inherit;
   outline: none;
 }
-.ce-input:focus {
+.ce-input:focus-visible {
   border-color: var(--ce-line-strong);
 }
 .ce-input:disabled {

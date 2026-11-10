@@ -148,6 +148,11 @@ export class RunBook {
       .map((entry) => entry.run);
   }
 
+  /** The conversation's runs, for the composer hat's tasks (chiefTasks.ts reads the newest). */
+  entriesOf(conversation: string): RunEntry[] {
+    return [...this.runs.values()].filter((entry) => entry.run.conversation === conversation);
+  }
+
   /** Runs that can project the conversation's current goal strip. */
   goalEntries(conversation: string): RunEntry[] {
     return [...this.runs.values()]

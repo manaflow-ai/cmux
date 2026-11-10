@@ -172,3 +172,23 @@ test("a held start stops once another chat is selected, so the prompt never goes
   closed.isClosed = true;
   expect(stop()).toBe(true);
 });
+
+test("a wait whose timer fires past the deadline starts no further try", async () => {
+  let at = 0;
+  let tries = 0;
+  const error = await untilHostAnswers(
+    async () => {
+      tries += 1;
+      throw notConnected();
+    },
+    {
+      now: () => at,
+      // The Mac slept through the first wait.
+      sleep: async () => {
+        at += 60_000;
+      },
+    },
+  ).catch((caught: unknown) => caught);
+  expect(tries).toBe(1);
+  expect((error as { code?: string }).code).toBe("native.not_connected");
+});

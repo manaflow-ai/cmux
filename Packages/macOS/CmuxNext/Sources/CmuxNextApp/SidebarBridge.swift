@@ -256,7 +256,7 @@ final class SidebarBridge {
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
-        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed))
+        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed, unloaded: Set(services.machines.daemons.lazy.filter { !$0.store.isLoaded }.map { MachineID($0.machineID) })))
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state?.id, windows: services.windows.connectingRowWindows(making: state?.id)) }
         let hadDocDrag = model.docDrag != nil

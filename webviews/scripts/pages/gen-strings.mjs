@@ -48,6 +48,35 @@ export const LOCALES = [
   "zh-Hant",
 ];
 
+/** The agent pane's keys the channels Home's rows read (tool calls, shell blocks, diffs, Markdown). */
+const channelsPaneKey = (key) =>
+  /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
+  [
+    "changes.noLineChanges",
+    "link.openPath",
+    "turn.copy",
+    "turn.copied",
+    "message.label",
+    "message.less",
+    "message.more",
+    "message.noText",
+    "message.self",
+    "message.unknown",
+    // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+    "message.sentTo",
+    "message.sendingTo",
+    "message.sending",
+    "message.sent",
+    "message.delivered",
+    "message.deliveredShort",
+    "message.queued",
+    "message.notDelivered",
+    "message.notDeliveredStopped",
+    "message.notDeliveredNoAgent",
+    // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+    "message.recipientId",
+  ].includes(key);
+
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
 /** Every key a settings schema export names (titles, help, summaries, groups, default labels, choices, page layout). */
@@ -171,6 +200,12 @@ export const PAGES = {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
+  // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
+  // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
+  feed: {
+    out: "webviews/src/pages/feed/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/feed/Localizable.xcstrings" }],
+  },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.
   apps: {
@@ -211,6 +246,16 @@ export const PAGES = {
   bookmarks: {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
+  // The bookmarks bar (cmux-page://cmux.bookmarks-bar/): the bar's words from the same catalog.
+  "bookmarks-bar": {
+    out: "webviews/src/pages/bookmarks-bar/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
+        keys: () => ["root.bar", "root.other", "bar.more", "bar.emptyHint", "folder.empty", "verb.openAll"],
+      },
+    ],
   },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
@@ -358,34 +403,31 @@ export const PAGES = {
     catalogs: [
       {
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter(channelsPaneKey),
+      },
+    ],
+  },
+  // The Messages page installs the Channels rows' keys plus what its own parts read from the pane's
+  // table: the composer's mic (dictation) and the link chips' hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx).
+  "home-messages-pane": {
+    out: "webviews/src/pages/home-messages/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
+              channelsPaneKey(key) ||
+              /^(dictation|prCard|header\.prBadge|header\.prReview)\./.test(key) ||
               [
-                "changes.noLineChanges",
-                "link.openPath",
-                "turn.copy",
-                "turn.copied",
-                "message.label",
-                "message.less",
-                "message.more",
-                "message.noText",
-                "message.self",
-                "message.unknown",
-                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
-                "message.sentTo",
-                "message.sendingTo",
-                "message.sending",
-                "message.sent",
-                "message.delivered",
-                "message.deliveredShort",
-                "message.queued",
-                "message.notDelivered",
-                "message.notDeliveredStopped",
-                "message.notDeliveredNoAgent",
-                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
-                "message.recipientId",
+                "browser.openIn",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "sessionInfo.changes.failingOnBase",
+                "message.fileElsewhere",
+                "message.fileOnHost",
+                "message.foreignFile",
               ].includes(key),
           ),
       },

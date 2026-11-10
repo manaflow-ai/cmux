@@ -31,6 +31,11 @@ public final class SidebarView: NSView {
     /// False when the traffic lights are not over this header (a right
     /// sidebar, R109): the accessory then starts at the reserve alone.
     public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { titlebarReserveChanged() } } }
+    /// The window x the titlebar row's controls keep right of: the toolbar band's trailing edge on
+    /// screen, which closes up with the sidebar's slide (`keepTitlebarControlsClearOfBand`).
+    public var titlebarControlsFloor: CGFloat? { didSet { if oldValue != titlebarControlsFloor { keepTitlebarControlsClearOfBand() } } }
+    /// How far the floor moves the row's controls right of where `layout()` placed them.
+    var titlebarRowShift: CGFloat = 0
     /// Where the titlebar row's own controls may start: past the traffic lights and the toolbar
     /// band over a left sidebar, at the reserve alone otherwise.
     var titlebarLeadingX: CGFloat {
@@ -411,6 +416,9 @@ public final class SidebarView: NSView {
                                                           button: button, buttonY: buttonY, rowMidY: rowMidY)
             accessory.isHidden = accessory.frame.isEmpty
         }
+        // The frames above are the row at rest; the band's edge on screen may hold it further right.
+        titlebarRowShift = 0
+        keepTitlebarControlsClearOfBand()
 
         // Footer slots.
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in

@@ -200,7 +200,9 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;
@@ -323,6 +325,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod shell_wire;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -1134,6 +1137,11 @@ enum Command {
         #[serde(alias = "timeout_ms")]
         timeout_ms: u64,
     },
+    /// Shell mode's command on this machine (`shell-runs-v1`, `shell_wire.rs`).
+    ShellRun(shell_wire::RunParams),
+    /// Its output, a long poll answered off the dispatcher (`shell_wire::read`).
+    ShellRead(shell_wire::ReadParams),
+    ShellStop(shell_wire::StopParams),
     Run {
         #[serde(default)]
         argv: Option<Vec<String>>,

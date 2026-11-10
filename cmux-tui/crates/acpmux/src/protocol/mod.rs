@@ -215,6 +215,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_REGISTER, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         keyed::<params::OfferRespondParams>(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
@@ -247,6 +248,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
         untyped(method::MUX_LEDGER, Request),
+        untyped(method::MUX_TEAM_AUDIT, Request),
         untyped(method::MUX_WORKSPACE_PURGE, Request),
         untyped(method::MUX_REVIEW_QUEUE, Request),
         untyped(method::MUX_REVIEW_BRIEF, Request),
@@ -287,6 +289,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_KEEP, Request),

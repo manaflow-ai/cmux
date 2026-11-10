@@ -25,7 +25,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.cloud.fork",
                 title: String(localized: "action.palette.cloud.fork", defaultValue: "Fork Cloud Machine", bundle: .module),
-                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.triangle.branch", surfaces: [.palette],
+                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.branch", surfaces: [.palette],
                 requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud fork-machine"
             ),
             ActionDescriptor(
@@ -89,6 +89,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud", "move", "back", "local", "chat", "agent", "sync"], category: .cloud,
                 symbol: "icloud.and.arrow.down", surfaces: [.palette, .contextMenu], targets: [.tab],
                 cliName: "cloud bring-back"
+            ),
+            // Move to Another Machine: a chat a move from this Mac put on a Cloud machine goes on to another one.
+            ActionDescriptor(
+                id: "cloudMoveToMachine",
+                title: String(localized: "action.cloudMoveToMachine", defaultValue: "Move to Another Machine", bundle: .module),
+                keywords: ["vm", "cloud", "move", "machine", "other", "another", "remote", "chat", "agent", "sync"], category: .cloud,
+                symbol: "arrow.left.arrow.right", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalMachine], targets: [.tab], cliName: "cloud move-to-machine"
             ),
             ActionDescriptor(
                 id: "cloudSSH",
