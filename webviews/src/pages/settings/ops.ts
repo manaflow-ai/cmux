@@ -1284,8 +1284,12 @@ export type SettingsOps = {
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
-  /** Native: show `value` live while a gesture runs; never written. */
-  "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
+  /** Native: show `value` live while a gesture runs; never written. `also` previews more keys
+   * with it as one preview (the whole-app theme preview). */
+  "cmux.settings.preview": [
+    { key: string; value: unknown; also?: readonly { key: string; value: unknown }[] },
+    unknown,
+  ];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
   /** Native: play a notification sound. */
