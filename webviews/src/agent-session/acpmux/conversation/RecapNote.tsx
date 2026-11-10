@@ -18,30 +18,41 @@ export function RecapNote({
   recap,
   onDismiss,
   look = "card",
+  lead = true,
 }: {
   recap: AcpmuxRecap;
-  onDismiss: () => void;
+  /// The ×. Without it (a read-only or replayed transcript) the recap draws no ×.
+  onDismiss?: () => void;
   look?: RecapLook;
+  /// "While you were away" before the text; off under "New since you looked" (SinceDivider.tsx),
+  /// which says it already.
+  lead?: boolean;
 }) {
   const t = useT();
   return (
     <div className="cv-recap" data-look={look} role="note">
       <p className="cv-recap__text">
-        <span className="cv-recap__label">{t("awayRecap.label")}</span>
-        <span className="cv-recap__sep" aria-hidden="true">
-          {" · "}
-        </span>
+        {lead && (
+          <>
+            <span className="cv-recap__label">{t("awayRecap.label")}</span>
+            <span className="cv-recap__sep" aria-hidden="true">
+              {" · "}
+            </span>
+          </>
+        )}
         {recap.text}
       </p>
-      <button
-        type="button"
-        className="cv-recap__close"
-        aria-label={t("awayRecap.dismiss")}
-        title={t("awayRecap.dismiss")}
-        onClick={onDismiss}
-      >
-        <Close />
-      </button>
+      {onDismiss && (
+        <button
+          type="button"
+          className="cv-recap__close"
+          aria-label={t("awayRecap.dismiss")}
+          title={t("awayRecap.dismiss")}
+          onClick={onDismiss}
+        >
+          <Close />
+        </button>
+      )}
     </div>
   );
 }

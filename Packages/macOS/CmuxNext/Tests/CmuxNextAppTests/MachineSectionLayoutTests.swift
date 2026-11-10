@@ -160,6 +160,74 @@ import Testing
         #expect(titles == ["joined:joined:m_1"])
     }
 
+    /// Remove runs only on the person's click, on a joined row the section shows: never page script
+    /// alone, a fleet daemon the rows leave out, or a machine that is not joined. On a joined row it
+    /// runs the store's Remove on that row's machine.
+    @Test func removeRunsOnlyOnAShownJoinedRowWithAClick() async throws {
+        let box = Box()
+        box.rows.append(.joined(JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil), health: nil))
+        let fake = JoinedMachineRowsTests.Fake()
+        let store = fake.store()
+        await store.refresh()
+        let provider = Self.provider(box, joined: store)
+        // A hidden section removes nothing, even on a click.
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: Self.context)
+        }
+        provider.setShown(true)
+        let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: scripted)
+        }
+        for row in ["local", "fleet-lane-7", "m_1", ""] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": .string(row)], context: Self.context)
+            }
+        }
+        #expect(fake.removed.isEmpty)
+        let answer = try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: Self.context)
+        #expect(answer["removed"]?.boolValue == true)
+        #expect(fake.removed == ["m_1"])
+    }
+
+    /// A joined machine with no workspace link of its own has no New Workspace: its row menu is refused.
+    @Test func aJoinedOnlyRowHasNoRowMenu() async throws {
+        let box = Box()
+        box.rows.append(.joined(JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil), health: nil))
+        let provider = Self.provider(box)
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "joined:m_1", "menu": "row"], context: Self.context)
+        }
+        #expect(box.presented.isEmpty)
+    }
+
+    /// While the section is hidden its stream reads no row at all; showing it reads them again.
+    @Test func aHiddenSectionReadsNoRows() async throws {
+        let box = Box()
+        final class Reads { var count = 0 }
+        let reads = Reads()
+        let store = JoinedMachineStore(service: { nil })
+        let provider = MachineSectionPageProvider(dependencies: .init(
+            rows: { reads.count += 1; return box.rows }, style: { .grouped }, joined: { store },
+            newWorkspace: { _ in true }, addMachine: { true }, present: { _, _ in }, menu: { _, _ in nil }))
+        let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
+                                                        context: Self.context) { _ in }
+        defer { subscription.cancel() }
+        for _ in 0..<20 { await Task.yield() }
+        let hidden = reads.count
+        provider.setShown(true)
+        for _ in 0..<20 { await Task.yield() }
+        provider.setShown(false)
+        for _ in 0..<20 { await Task.yield() }
+        let afterHide = reads.count
+        // A change the shown section would show (the joined store is observed) wakes nothing while hidden.
+        store.openMenu = "m_7"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(reads.count == afterHide, "hidden: a change reads no rows")
+        #expect(afterHide > hidden, "shown: the stream reads them")
+        #expect(hidden == 1, "only the subscribe's own snapshot read the rows while hidden")
+    }
+
     /// Add Machine takes no target: it opens the app's own Add Machine card, and only on the person's click.
     @Test func addMachineTakesNoTargetFromThePage() async throws {
         let box = Box()

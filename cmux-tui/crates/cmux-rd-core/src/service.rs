@@ -27,8 +27,11 @@ pub mod caps {
     pub const STREAM_OPEN: &str = "stream.open";
     /// Session clock offset (C8).
     pub const CLOCK: &str = "clock";
+    /// A UDP media link (cmux-rd-link) next to a stream carrier: `link_offer`,
+    /// `link_answer`, `link_candidate` and `link_state` on the control stream.
+    pub const LINK_UDP: &str = "link.udp";
     /// Every named cap.
-    pub const ALL: [&str; 6] = [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK];
+    pub const ALL: [&str; 7] = [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP];
 }
 
 /// Why a hello is refused.

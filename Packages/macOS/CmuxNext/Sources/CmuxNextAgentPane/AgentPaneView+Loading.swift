@@ -286,7 +286,8 @@ extension AgentPaneView {
         guard let page else { return model.hasPainted ? .page : .pageEmpty }
         // A spare adopted for this chat (``adoptSession(_:revealTurn:moved:)``) painted its first frame
         // as New Tab, before this trace began: its chat's frame is the pane's paint report.
-        return ChatOpenTrace.shared.has(.pagePainted) || (page.hasPainted && model.hasPainted) ? .page : .pageEmpty
+        return .shownPage(probed: ChatOpenTrace.shared.has(.pagePainted) || (page.hasPainted && model.hasPainted),
+                          pageReported: model.pageReportedPaint, contentfulPaint: ChatOpenTrace.shared.has(.firstContentfulPaint))
     }
 }
 #endif

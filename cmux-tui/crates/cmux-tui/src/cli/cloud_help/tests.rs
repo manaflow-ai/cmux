@@ -280,7 +280,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
     for japanese in [false, true] {
         assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
     }
-    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat [--prompt TEXT]"));
     // The start matrix runs its no-name row only on a build whose help names new_machine (cmuxterm-hq#7406).
     assert!(START_CHAT_USAGE.contains("new_machine: true"));
     let examples = START_CHAT_USAGE
@@ -288,7 +288,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 2, "{examples:?}");
+    assert_eq!(examples.len(), 3, "{examples:?}");
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
@@ -300,4 +300,74 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
             "{example}"
         );
     }
+}
+
+/// Each flag a verb's usage shows is an argument its catalog action takes, and
+/// each argument the action takes is in its usage. `--target`,
+/// `--focus` and `--arg` are the CLI's own, on every action.
+#[test]
+fn every_usage_flag_is_a_catalog_argument_and_back() {
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../plans/cmux-next/action-surfaces.json"
+    ))
+    .expect("action-surfaces.json is valid JSON");
+    let camel = |flag: &str| {
+        let mut parts = flag.split('-');
+        let mut name = parts.next().unwrap_or_default().to_owned();
+        for part in parts {
+            let mut chars = part.chars();
+            if let Some(first) = chars.next() {
+                name.extend(first.to_uppercase());
+                name.push_str(chars.as_str());
+            }
+        }
+        name
+    };
+    for verb in GROUPS.iter().flat_map(|group| group.verbs) {
+        let action = catalog["actions"]
+            .as_array()
+            .expect("actions array")
+            .iter()
+            .find(|action| action["cli_name"] == format!("cloud {}", verb.name))
+            .unwrap_or_else(|| panic!("{} has no catalog action", verb.name));
+        let args = action["args"]
+            .as_array()
+            .map(|args| {
+                args.iter().filter_map(|arg| arg["name"].as_str().map(str::to_owned)).collect()
+            })
+            .unwrap_or_else(BTreeSet::new);
+        let flags = verb
+            .usage
+            .split(|c: char| c.is_whitespace() || "[]()|'".contains(c))
+            .filter_map(|word| {
+                if word.starts_with("path=") {
+                    return Some("path".to_owned());
+                }
+                let flag = word.strip_prefix("--")?;
+                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);
+    }
+}
+
+#[test]
+fn verbs_cloud_refuses_are_marked_in_the_list_and_their_help() {
+    for name in NOT_ON_CLOUD_YET {
+        assert!(find(name).is_some(), "{name} is not a verb");
+    }
+    for japanese in [false, true] {
+        let text = overview(japanese);
+        for verb in GROUPS.iter().flat_map(|group| group.verbs) {
+            let row = text.lines().find(|line| line.starts_with(&format!("  {} ", verb.name)));
+            let Some(row) = row else { continue };
+            let marked =
+                row.contains(if japanese { "Cloud では未対応" } else { "not on Cloud yet" });
+            assert_eq!(marked, NOT_ON_CLOUD_YET.contains(&verb.name), "{row}");
+        }
+    }
+    let help = verb_help("firewall-delete", false).unwrap();
+    assert!(help.starts_with("Cloud does not offer this yet"), "{help}");
+    assert!(help.contains("--confirm"), "{help}");
+    assert!(!verb_help("kill-machine", false).unwrap().contains("does not offer"));
 }

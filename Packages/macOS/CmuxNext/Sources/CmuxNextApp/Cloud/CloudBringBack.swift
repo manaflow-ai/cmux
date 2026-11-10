@@ -50,7 +50,7 @@ struct CloudBringBack {
             return perform(tab: tab) { try await reshow(shown, tab: tab) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
-              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.resolve(tab.id)],
+              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
               let entry = services.cloud.movedChats.entry(host: record.host, session: session) else {
             throw ActionFailure(message: CloudBringBackStrings.notFromMove)
         }

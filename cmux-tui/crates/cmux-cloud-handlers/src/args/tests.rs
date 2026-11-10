@@ -269,10 +269,6 @@ fn the_needed_text_arguments() {
         ),
         Err(Said::with("portFailed", ["box", "vm-1", "3000", "linkId is required"]))
     );
-    assert_eq!(
-        needed(&args(json!({})), "tunnelKey", &PortNames::default()),
-        Err(Said::key("tunnelKeyRequired"))
-    );
 }
 
 #[test]

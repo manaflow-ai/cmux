@@ -78,6 +78,13 @@ impl Hub {
                     record.set("fullAccess", json!(mode));
                 }
                 self.append(session, "mux", "permission_auto", record);
+                // Allowed by the switch, not by a person (`audit_entries.rs`).
+                let via = if mode.is_some() { "mode" } else { "policy" };
+                self.review_index.mark_settled(
+                    &session.id,
+                    &id,
+                    super::super::review_queue::Settled::Auto(via),
+                );
                 replies.push((pending.reply, outcome));
             }
             replies

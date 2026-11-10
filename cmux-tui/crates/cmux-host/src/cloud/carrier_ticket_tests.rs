@@ -85,3 +85,51 @@ fn a_refusal_prints_its_code_and_message() {
         Err("vm.unbound: this machine is not bound to cmux Cloud yet".to_owned())
     );
 }
+
+#[test]
+fn every_refusal_leads_with_a_dotted_code() {
+    let mut replies: Vec<Value> = [
+        Answer::Transport,
+        Answer::Http { status: 401, body: json!({}) },
+        Answer::Http { status: 404, body: json!({}) },
+        Answer::Http { status: 429, body: json!({}) },
+        Answer::Http { status: 503, body: json!({}) },
+        platform(json!({})),
+    ]
+    .iter()
+    .map(reply_for)
+    .collect();
+    replies.push(refusal("busy", "too many asks are waiting; retry"));
+    replies.push(refusal("vm.agent_stopping", "the Cloud agent is stopping; retry"));
+    replies.push(json!({"ok": false}));
+    replies.push(refusal("Not A Code!", "odd"));
+    let mut printed = Vec::new();
+    for reply in &replies {
+        let why = ticket_of(reply).unwrap_err();
+        let (code, _) = why.split_once(": ").unwrap();
+        assert!(
+            code.contains('.')
+                && code.split('.').all(|part| {
+                    !part.is_empty()
+                        && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                }),
+            "{why}"
+        );
+        printed.push(code.to_owned());
+    }
+    assert_eq!(
+        printed,
+        [
+            "carrier.unreachable",
+            "auth.refused",
+            "carrier.unavailable",
+            "carrier.rate_limited",
+            "carrier.unavailable",
+            "carrier.bad_answer",
+            "carrier.busy",
+            "vm.agent_stopping",
+            "carrier.bad_answer",
+            "carrier.bad_answer",
+        ]
+    );
+}

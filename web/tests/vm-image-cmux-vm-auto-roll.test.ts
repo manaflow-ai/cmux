@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   AUTO_PREFIX,
   KEEP_AUTO,
+  MAX_BYTES,
   ROLLBACK_DEPLOYS,
   approve,
   locate,
@@ -19,8 +20,12 @@ import {
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
-// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
-const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file with its
+// auto-rolled entries taken out, since the live roll keeps adding them and the counts below assume none.
+const checkedIn = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+const handOnly = (text: string, env: "staging" | "production") =>
+  replaceList(text, env, locate(text, env).images.filter((i) => !i.id.startsWith(AUTO_PREFIX)));
+const wrangler = handOnly(handOnly(checkedIn, "staging"), "production");
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
@@ -73,9 +78,28 @@ describe("auto-roll approve", () => {
 
   test("refuses a list the Worker would reject (more than 32 entries)", () => {
     const prod = locate(wrangler, "production").images;
-    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `hand-${i}` }));
+    // Short entries, so 32 of them stay under MAX_BYTES and the entry cap is what refuses the 33rd.
+    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `h-${i}`, displayName: "h", services: ["s"] }));
     const big = wrangler.replace(/("production": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
     expect(() => approve(big, entry("8"))).toThrow(/at most 32/);
+  });
+
+  test("refuses a list over Cloudflare's text binding limit, which fails the whole deploy", () => {
+    const staging = locate(wrangler, "staging").images;
+    // Long hand-approved names push staging past MAX_BYTES while it stays under 32 entries.
+    const name = "x".repeat(100);
+    const many = Array.from({ length: 24 }, (_, i) => ({ ...staging[0]!, id: `hand-${i}`, displayName: name }));
+    expect(Buffer.byteLength(JSON.stringify(many))).toBeGreaterThan(MAX_BYTES);
+    const big = wrangler.replace(/("staging": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
+    expect(() => approve(big, entry("8"))).toThrow(/bytes, at most 5120/);
+    // A list deployed before a trim still reads, so settle can roll that deploy back.
+    expect(locate(big, "staging").images).toHaveLength(24);
+  });
+
+  test("the checked-in lists, plus one more roll, stay under the text binding limit", () => {
+    const { text } = approve(checkedIn, entry("9000"));
+    for (const env of ["staging", "production"] as const)
+      expect(Buffer.byteLength(JSON.stringify(locate(text, env).images))).toBeLessThanOrEqual(MAX_BYTES);
   });
 });
 
@@ -263,6 +287,14 @@ describe("auto-roll workflows", () => {
     const product = stepOf(smoke, "product");
     expect(product.env!["CMUX_VM_SMOKE_IMAGE"]).toContain("!startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == ''");
     expect((smoke as unknown as { outputs: Record<string, string> }).outputs["boot_image"]).toBe("${{ steps.product.outputs.boot_image }}");
+  });
+
+  test("the roll bakes the plain image and hands back its channel-dev.json record", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: { bake: { with: Record<string, unknown> } } };
+    expect(roll.jobs.bake.with).toMatchObject({ mode: "bake", keep_snapshot: true, agent_tools: true, roll: true });
+    expect(roll.jobs.bake.with).not.toHaveProperty("native_receiver");
+    const bake = load("cloud-vm-image-bake.yml");
+    expect(stepOf(bake.jobs["bake"]!, "roll_candidate").run).toContain('"$OUT_DIR/channel-dev.json"');
   });
 
   test("a roll's image id carries the run attempt", () => {

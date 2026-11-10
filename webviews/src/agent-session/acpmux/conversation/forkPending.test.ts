@@ -141,3 +141,53 @@ test("a cancelled fork that fails adds no failure notice", async () => {
     client.close();
   }
 });
+
+// "where did the forked chat even go??? what does it even have???" (Leo, 2026-11-06): the fork's
+// transcript says where the chat's history ends and its own begins, and which chat that was.
+test("a fork's transcript names the chat its history above came from", async () => {
+  const { client, shown } = await forkingClient();
+  const internals = client as unknown as {
+    sessions: Record<string, unknown>[];
+    reduce(event: Record<string, unknown>): void;
+    snapshot(): void;
+  };
+  try {
+    internals.sessions = [{ sessionId: "chat-0", name: "release-fix", title: "Release asset step" }];
+    const forked = (parentId: string, seq: number) => ({
+      seq,
+      at: seq,
+      dir: "mux",
+      kind: "forked",
+      msg: { parentId, forkSeq: seq - 1 },
+    });
+    internals.reduce(forked("chat-0", 40));
+    internals.reduce(forked("gone", 41));
+    internals.snapshot();
+    const lines = shown.rows.filter((row) => row.id.startsWith("forked-from-")).map((row) => row.text);
+    expect(lines).toEqual([
+      "Forked from release-fix. Everything above is from that chat.",
+      "Forked from another chat. Everything above is from that chat.",
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+// A fork acpmux refuses is feedback on the click: a toast in the pane (toastSink), never a
+// transcript row (review of #37629, F1).
+test("a failed fork says so in a toast, not a transcript row", async () => {
+  const { client, shown, answers } = await forkingClient();
+  const toasts: string[] = [];
+  client.toastSink = (text) => toasts.push(text);
+  try {
+    const forked = client.fork("live", undefined, true);
+    await Promise.resolve();
+    answers[0]!.reject(new Error("the chat has no finished turn"));
+    expect(await forked).toBeUndefined();
+    expect(shown.rows.some((row) => row.kind === "notice")).toBe(false);
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toContain("the chat has no finished turn");
+  } finally {
+    client.close();
+  }
+});

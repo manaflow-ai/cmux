@@ -55,6 +55,7 @@ const subagent: Subagent = {
 export const LONE_LINE: Record<string, string> = {
   "background-update": backgroundTurnRowId("lone-bg"),
   "background-update-running": backgroundTurnRowId("lone-bg-running"),
+  "scheduled-check-running": backgroundTurnRowId("lone-check-running"),
   "background-task": "lone-task",
   "background-tasks-run": backgroundRunRowId(backgroundTurnRowId("lone-run-a")),
   "subagent-finished": "subagentDone:lone-agent",
@@ -76,12 +77,22 @@ export default agentPaneEntry({
       snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
     },
     "background-update-running": {
-      note: "The same line while its turn runs, a spinner and no chevron, at the chat's end: 8 under the footer, so it does not move when it ends.",
+      note: "The same line while its turn runs, a spinner, its words shimmering as a running tool row's, and no chevron, at the chat's end: 8 under the footer, so it does not move when it ends.",
       snapshot: chat([
         ...opening,
         row(BACKGROUND_TURN, 8, {
           id: backgroundTurnRowId("lone-bg-running"),
           background: { id: "lone-bg-running", trigger: "system", running: true },
+        }),
+      ]),
+    },
+    "scheduled-check-running": {
+      note: 'Leo, 2026-11-09: "this scheduled check thing isn\'t highlighted all the way through like other tool calls are". A running "Scheduled check": the shimmer crosses the whole label, as on a running tool row (before: a spinner and still words).',
+      snapshot: chat([
+        ...opening,
+        row(BACKGROUND_TURN, 8, {
+          id: backgroundTurnRowId("lone-check-running"),
+          background: { id: "lone-check-running", trigger: "scheduled", running: true },
         }),
       ]),
     },
@@ -119,6 +130,37 @@ export default agentPaneEntry({
         },
         next,
       ]),
+    },
+    "background-update-hover": {
+      note: '"Background update" under the pointer: its words light all the way through, as a tool row\'s do; its clock stays (Leo, 2026-11-09).',
+      snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
+    "background-tasks-run-hover": {
+      note: '"3 background tasks finished" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
+      snapshot: chat([
+        ...opening,
+        ...quiet("lone-run-a", 9, "task_notification"),
+        ...quiet("lone-run-b", 8, "task_notification"),
+        ...quiet("lone-run-c", 7, "task_notification"),
+        next,
+      ]),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
+    "subagent-finished-hover": {
+      note: '"Subagent finished" with the pointer on its name: only the name chip lights, the line opens nothing (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line click").',
+      snapshot: chat([
+        ...opening,
+        {
+          id: "subagentDone:lone-agent",
+          version: 1,
+          kind: "subagentDone",
+          at: subagent.endedAt!,
+          subagents: [subagent],
+        },
+        next,
+      ]),
+      play: async (ctx) => ctx.hover({ selector: ".cv-subagent-done button.cv-agent-tag.is-open" }),
     },
     "received-message": {
       note: "Another agent's message after the turn ended keeps the block gap under the footer (footer-to-received, 51 centre to centre): it is another speaker, not this turn's tail.",
