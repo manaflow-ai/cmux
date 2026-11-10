@@ -223,6 +223,9 @@ describe("gallery play settle budget", () => {
         disconnect() {}
       },
     });
+    // The runner reads the viewport both bare and from the window: size both.
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 600 });
     try {
       const report = await runPlay((ctx) => ctx.focus({ selector: "#slow" }), {
         checks: { settleMaxMs: { value: 20, reason: "A focus should settle within a frame here." } },
@@ -233,6 +236,8 @@ describe("gallery play settle budget", () => {
         if (had) scope[key] = value;
         else delete scope[key];
       }
+      delete (dom.window as unknown as Record<string, unknown>).innerWidth;
+      delete (dom.window as unknown as Record<string, unknown>).innerHeight;
     }
   };
 

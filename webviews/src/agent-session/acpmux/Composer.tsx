@@ -15,7 +15,7 @@ import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind, OffloadKind } from "./environments";
+import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -177,6 +177,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -416,6 +417,8 @@ type Props = {
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (see ComposerContext).
+  offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
@@ -533,6 +536,7 @@ function ComposerFrame({
   onConnect,
   onOffload,
   offloads,
+  offloadReasons,
   onRefreshMachines,
   folderNote,
   runMode,
@@ -696,7 +700,8 @@ function ComposerFrame({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
+    useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2330,6 +2335,11 @@ function ComposerFrame({
       separatorBefore: true,
       onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
     },
+    // Where every attachment shows, one place for every kind (`agentPane.attachmentView`, also in
+    // Settings): in the text where it was added, the default, or in one row at the top as common
+    // chat apps do (Leo, 2026-11-09: "In the right-click menu for the composer ... all attachments
+    // in line, or all attachments at the top like normal"). Only the look: the draft is the same.
+    ...attachmentViewMenu(attachmentView, t),
   ];
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
@@ -2367,6 +2377,7 @@ function ComposerFrame({
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
       {...(offloads ? { offloads } : {})}
+      {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
@@ -2374,6 +2385,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}
