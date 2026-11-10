@@ -636,6 +636,8 @@ impl Mux {
                         "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
+                // A report at rest of this terminal runs the retry.
+                self.note_agent_hook_projection_pending(ingress);
             }
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
