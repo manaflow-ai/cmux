@@ -41,6 +41,9 @@ import Darwin
 /// frame, never later. The app builds one at its composition root and hands it to the one
 /// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
 ///
+/// Every task it runs, of any class, adds its own time to its owner's record (``ownerTimes``: count, p50 / p95 / p99,
+/// max; `debug.main_budget`'s `owners`), always on, with no allocation on the task's path.
+///
 /// ```swift
 /// // A budgeted batch drains its queued work one task at a time:
 /// while let work = queue.first, budget.mayRun(.visible) {
@@ -53,6 +56,8 @@ public final class MainFrameBudget {
     public let board: MainTaskBoard
     public let budgets: Budgets
     public private(set) var stats = Stats()
+    /// Every task's own time by owner, always on (``ownerTimes``, plans/cmux-next/main-thread-scheduling.md G3).
+    let taskTimes = MainTaskTimes(capacity: MainFrameBudget.ownerTimesCapacity)
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
@@ -276,6 +281,8 @@ public final class MainFrameBudget {
         let elapsed = end &- task.start
         let own = elapsed > task.childNanos ? elapsed - task.childNanos : 0
         if !open.isEmpty { open[open.count - 1].childNanos &+= elapsed }
+        // Every class, the unbudgeted frame and input tasks too: the store drain is one (G4).
+        taskTimes.record(owner: task.owner.index, nanos: own)
         var over = false
         if let index {
             spent[index] &+= own
@@ -333,6 +340,7 @@ public final class MainFrameBudget {
     /// Clears the counters (`debug.main_budget reset`).
     public func resetStats() {
         stats = Stats()
+        taskTimes.reset()
     }
 
     private func inputPending(_ now: UInt64) -> Bool {
