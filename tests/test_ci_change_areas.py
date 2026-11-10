@@ -4933,6 +4933,19 @@ def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
     assert "summary red: Web status:" in result.stdout, result.stdout
 
 
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
+
+
 def test_web_status_allows_unrouted_skips() -> None:
     result = run_web_status(
         inputs={"web": "false", "macos": "false", "agent_session_web": "false"},
