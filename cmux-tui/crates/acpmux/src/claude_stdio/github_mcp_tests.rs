@@ -1,6 +1,7 @@
 //! The `acpmux-github` SDK MCP server (`github_mcp.rs`): a remote chain's Claude Code reaches the
 //! GitHub broker over its own stdio, and only a chat the hub turned it on for has it.
 
+use super::github_mcp::{SERVER, action_of};
 use super::*;
 
 fn mcp(rid: &str, server: &str, message: Value) -> Value {

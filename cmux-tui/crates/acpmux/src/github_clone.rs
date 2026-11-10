@@ -161,31 +161,27 @@ pub async fn run(
 ) -> Result<Value, RpcError> {
     let target = check_target(cwd, r)?;
     let name = dir_name(r);
-    #[cfg(unix)]
-    {
-        let cloned = clone_into(&target, &r.repo, lent.as_ref().map(|t| t.as_str())).await;
-        if let Err(e) = cloned {
-            // Only the folder this clone made: one the agent swapped in stays.
-            if e.data.as_ref().and_then(|d| d.get("reason")) != Some(&json!("github.clone_exists"))
-            {
-                let _ = std::fs::remove_dir_all(&target);
-            }
-            return Err(e);
+    let cloned = clone_into(&target, &r.repo, lent.as_ref().map(|t| t.as_str())).await;
+    if let Err(e) = cloned {
+        // Only the folder this clone made: one the agent swapped in stays.
+        if e.data.as_ref().and_then(|d| d.get("reason")) != Some(&json!("github.clone_exists")) {
+            let _ = std::fs::remove_dir_all(&target);
         }
-        return Ok(json!({
-            "action": GithubAction::Clone,
-            "repo": r.repo,
-            "dir": name,
-            "path": target,
-            "output": format!("Cloned {} into {}\n", r.repo, name),
-            "source": source,
-        }));
+        return Err(e);
     }
-    #[cfg(not(unix))]
-    {
-        let _ = (target, name, lent, source);
-        Err(RpcError::internal("repo clone runs on macOS and Linux only"))
-    }
+    Ok(json!({
+        "action": GithubAction::Clone,
+        "repo": r.repo,
+        "dir": name,
+        "path": target,
+        "output": format!("Cloned {} into {}\n", r.repo, name),
+        "source": source,
+    }))
+}
+
+#[cfg(not(unix))]
+async fn clone_into(_: &Path, _: &str, _: Option<&str>) -> Result<(), RpcError> {
+    Err(RpcError::internal("repo clone runs on macOS and Linux only"))
 }
 
 /// The env git runs with: none of the daemon's own but what reaching GitHub needs, and nothing
