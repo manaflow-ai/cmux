@@ -66,8 +66,19 @@ export const carryGrantOnDelete = async (d: GrantCarryDeps, stackTeam: string): 
   if (!stackUser) return record("owner_unknown", owner)
   const current = await d.stack.getUserVmPlan(stackUser)
   if ("gone" in current) return record("owner_gone", owner)
-  // The higher grant stands; an operator restriction on the person stays theirs to lift.
-  if (current.vm_plan !== null && (grantRank(current.vm_plan) === 0 || grantRank(current.vm_plan) >= grantRank(vmPlan))) return record("kept_existing", owner)
+  // An operator restriction on the person stays theirs to lift.
+  if (current.vm_plan !== null && grantRank(current.vm_plan) === 0) return record("kept_existing", owner)
+  const paid = await d.stack.getUserPlan(stackUser)
+  if (paid === "user_gone") return record("owner_gone", owner)
+  // The person's effective plan is their paid cmuxPlan or their override, whichever is higher (review F1): an override
+  // below a paid plan would lower them (domains/cloud-plan.ts cloudPlanId lets cmuxVmPlan win), so the team's grant
+  // is written only when it is higher than both.
+  const own = Math.max(paid === null ? 0 : grantRank(paid), current.vm_plan === null ? 0 : grantRank(current.vm_plan))
+  if (own >= grantRank(vmPlan)) return record("kept_existing", owner)
   if ((await d.stack.setUserVmPlan(stackUser, vmPlan)) === "user_gone") return record("owner_gone", owner)
+  // Done only when a read-back shows the grant (review F2); otherwise the delete waits and this decides again.
+  const back = await d.stack.getUserVmPlan(stackUser)
+  if ("gone" in back) return record("owner_gone", owner)
+  if (back.vm_plan !== vmPlan) throw new Error("cloud grant carry: read-back shows another cmuxVmPlan; retrying")
   return record("moved", owner)
 }

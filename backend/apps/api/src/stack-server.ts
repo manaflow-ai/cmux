@@ -35,7 +35,8 @@ export interface StackServer {
   getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
    * Sets a user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan), keeping the record's other
-   * read-only metadata; `user_gone` for USER_NOT_FOUND. Only a deleted team's grant carry writes it (team-grant-carry.ts).
+   * read-only metadata and never overwriting a concurrent change; "set" only after a read-back shows it, else it
+   * throws. `user_gone` for USER_NOT_FOUND. Only a deleted team's grant carry writes it (team-grant-carry.ts).
    */
   setUserVmPlan(userId: string, vmPlan: string): Promise<"set" | "user_gone">
   /**
@@ -102,6 +103,8 @@ export const readVmPlanOverride = (metadata: unknown): string | null => {
  * check included); a 429 means Stack did not do the work, so a retried POST makes nothing twice.
  */
 export const RETRY_429_MAX_MS = 2000
+/** setUserVmPlan's read-compare-write rounds before it gives up (the caller retries later). */
+export const SET_VM_PLAN_TRIES = 5
 export const retryAfterMs = (res: Response): number | null => {
   const raw = res.headers.get("retry-after")
   const seconds = raw === null ? 1 : Number(raw)
@@ -191,14 +194,31 @@ export const stackServer = (
       return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
     },
     setUserVmPlan: async (userId, vmPlan) => {
+      // The service replaces client_read_only_metadata whole (no per-key update), so a write carries every other
+      // key as read. To never overwrite a concurrent billing or operator write: read twice and write only when
+      // nothing changed between them (else start over, at most SET_VM_PLAN_TRIES times), then read back and
+      // report "set" only when the record shows the grant. A read-back that shows another value throws: someone
+      // else wrote it, and the caller decides again from the new record.
       const path = `/users/${encodeURIComponent(userId)}`
-      const r = await lookup<{ client_read_only_metadata?: unknown }>(path, "user", ["USER_NOT_FOUND"])
-      if (isGone(r)) return "user_gone"
-      // The service replaces the whole object, so the other keys (cmuxPlan among them) are written back as read.
-      const meta = r.client_read_only_metadata
-      const kept = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {}
-      await call("PATCH", path, { client_read_only_metadata: { ...kept, cmuxVmPlan: vmPlan } })
-      return "set"
+      const read = async () => {
+        const r = await lookup<{ client_read_only_metadata?: unknown }>(path, "user", ["USER_NOT_FOUND"])
+        if (isGone(r)) return "user_gone" as const
+        const meta = r.client_read_only_metadata
+        return meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {}
+      }
+      for (let attempt = 0; attempt < SET_VM_PLAN_TRIES; attempt++) {
+        const first = await read()
+        if (first === "user_gone") return "user_gone"
+        const again = await read()
+        if (again === "user_gone") return "user_gone"
+        if (JSON.stringify(first) !== JSON.stringify(again)) continue
+        await call("PATCH", path, { client_read_only_metadata: { ...again, cmuxVmPlan: vmPlan } })
+        const after = await read()
+        if (after === "user_gone") return "user_gone"
+        if (after.cmuxVmPlan !== vmPlan) throw new Error("stack PATCH user: read-back shows another cmuxVmPlan")
+        return "set"
+      }
+      throw new Error("stack PATCH user: the record kept changing; not written")
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []
