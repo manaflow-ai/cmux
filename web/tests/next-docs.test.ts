@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { sitemapEntries } from "../app/sitemap";
 import {
@@ -16,7 +16,12 @@ import {
   mcpToolName,
 } from "../scripts/export-next-docs";
 import { docsChannelUrl, docsPathAvailableInChannel } from "../app/lib/docs-channel";
-import { docsContentLang, flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
+import {
+  docsContentLang,
+  docsContentLangAttributes,
+  flatNavItems,
+  navItemsForLocale,
+} from "../app/[locale]/components/docs-nav-items";
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
@@ -59,6 +64,21 @@ describe("cmux-next docs", () => {
     const broken = nextDocPages.flatMap((page) => (page.links ?? []).filter((slug) => !nextDocPage(slug)).map((slug) => `${page.slug} -> ${slug}`));
     expect(broken).toEqual([]);
     expect(nextDocHref("getting-started")).toBe("/docs/next");
+  });
+
+  // The architecture page points at folders and files; a move or rename must not leave it
+  // linking to nothing, and a file links under blob, a folder under tree.
+  test("every repository path a page links to exists and is the kind it says", () => {
+    const wrong = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files : []))
+        .filter((file) => {
+          const full = join(repo, file.path);
+          return !existsSync(full) || statSync(full).isDirectory() !== (file.kind === "folder");
+        })
+        .map((file) => `${page.slug}: ${file.path} (${file.kind})`));
+    expect(wrong).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs", "folder")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
   test("the settings reference is fresh against the settings schema", () => {
@@ -198,7 +218,19 @@ describe("cmux-next docs", () => {
     }
     expect(docsContentLang("/docs/getting-started", "ja")).toBe("ja");
     const layout = readFileSync(join(repo, "web/app/[locale]/(landing)/docs/docs-nav.tsx"), "utf8");
-    expect(layout).toMatch(/className="docs-content[^"]*"\s+lang=\{/);
+    expect(layout).toMatch(/className="docs-content[^"]*"\s+\{\.\.\.docsContentLangAttributes\(contentLang, locale\)\}/);
+  });
+
+  // Under Arabic the root is dir="rtl" and lang="en" does not change direction, so the English
+  // body of a cmux-next page laid out its text and tables right to left.
+  test("an English body under a right-to-left locale is marked left to right", () => {
+    const attributes = (path: string, locale: string) =>
+      docsContentLangAttributes(docsContentLang(path, locale), locale);
+    expect(attributes("/docs/next/own-keys", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/base", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/next/own-keys", "ja")).toEqual({ lang: "en" });
+    expect(attributes("/docs/next/own-keys", "en")).toEqual({});
+    expect(attributes("/docs/getting-started", "ar")).toEqual({});
   });
 
   test("release docs fall back to Getting Started for a next page", () => {

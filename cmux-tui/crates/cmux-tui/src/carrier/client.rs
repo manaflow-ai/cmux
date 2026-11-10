@@ -99,6 +99,9 @@ pub(super) struct DialPlan {
     pub phases: Arc<dyn Fn(String) + Send + Sync>,
     /// The dial's fresh sessions, shared with the caller's own retries.
     pub fresh_sessions: FreshSessions,
+    /// The dial's progress lines, when its caller asked for them
+    /// ([`super::progress`]): each attempt's marks say its stage.
+    pub progress: Option<Arc<super::progress::Reporter>>,
     /// Where the ssh backup carrier's pieces are ([`super::ssh`]).
     pub ssh: Arc<SshSetup>,
     /// The platform's refusal of the ssh carrier for good, once one came:
@@ -796,6 +799,9 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                     attempts.current = Some((step.clone(), started));
                     attempts.count
                 };
+                if let Some(progress) = &plan.progress {
+                    progress.attempt(step.clone());
+                }
                 let result = match tokio::time::timeout_at(
                     plan.deadline,
                     attempt(plan, &step, resume, current),
@@ -807,6 +813,9 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                 };
                 lock().current = None;
                 log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
+                if let (Err(_), Some(progress)) = (&result, &plan.progress) {
+                    progress.retrying();
+                }
                 match result {
                     Ok(dialed) => DialOutcome::Ready(dialed),
                     Err(failure) if !failure.retryable => {

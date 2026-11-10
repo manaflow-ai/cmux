@@ -255,6 +255,15 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   accounts: accounts(),
   ...extra,
 });
+/** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
+const showEndpoint =
+  (ready = "[data-agents-endpoint]") =>
+  async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+    await ctx.waitFor(() => ctx.document.querySelector(ready));
+    const form = ctx.find({ selector: "[data-agents-endpoint]" });
+    form.setAttribute("data-gallery-capture", "");
+    form.scrollIntoView({ block: "center" });
+  };
 const variants: Record<string, SettingsPageVariant> = {
   "model-picker-placement-inherited": variant("agents", {
     focus: "agentPane.display.harnessPlacement",
@@ -1379,6 +1388,74 @@ Object.assign(variants, {
     focus: "agents.registry",
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  // Settings > Agents > Add > Endpoint (plan api-and-open-models gaps 3 and 6): an open-weight model
+  // or your own endpoint, picked from a preset.
+  "agents-endpoint-empty": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [wait("[data-agents-endpoint]")],
+    play: showEndpoint(),
+    note: "Endpoint tab as it opens: the model server on this Mac preset, its URL filled, no key field, no models yet (Check and Add waits for one).",
+  }),
+  "agents-endpoint-gateway-filled": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "gateway" },
+      input('[data-endpoint-field="baseUrl"] input', "https://gateway.example.com"),
+      input('[data-endpoint-field="models"] input', "model-large, model-medium, model-small"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+    ],
+    play: showEndpoint(),
+    note: "The Anthropic-compatible gateway preset filled in: it runs Claude Code, three models fill its Opus, Sonnet and Haiku slots, and the key field says where the key goes.",
+  }),
+  "agents-endpoint-fetched": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      click('[data-endpoint-field="models"] button'),
+      wait("[data-endpoint-fetched]"),
+    ],
+    play: showEndpoint("[data-endpoint-fetched]"),
+    note: "Fetch Models on the local model server: the endpoint's three models fill the list and the line under it says how many it found.",
+  }),
+  "agents-endpoint-doctor-failed": variant("agents", {
+    focus: "agents.endpoint",
+    endpoint: {
+      doctor: {
+        ok: false,
+        steps: [
+          { name: "launch", ok: true },
+          {
+            name: "prompt",
+            ok: false,
+            detail: "401 Unauthorized",
+            fix: "check the key: the endpoint refused it. Store it again with `cmux harness secret set hosted-models CMUX_BYO_API_KEY`",
+          },
+        ],
+      },
+    },
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "hosted" },
+      input('[data-endpoint-field="baseUrl"] input', "https://api.example.com/v1"),
+      input('[data-endpoint-field="models"] input', "model-large"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+      click("[data-endpoint-add]"),
+      wait('[data-endpoint-status="failed"]'),
+    ],
+    play: showEndpoint('[data-endpoint-status="failed"]'),
+    note: "Check and Add on a hosted provider whose key is refused: the failing step, its detail and fix; the form stays open and the key field is empty again.",
+  }),
+  "agents-endpoint-insecure": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "team-server" },
+      input('[data-endpoint-field="baseUrl"] input', "http://inference.example.com/v1"),
+    ],
+    play: showEndpoint(),
+    note: "Your team's server over plain http to another machine: the line under the URL asks for https, and Check and Add waits.",
   }),
   "agents-stable-check-idle": variant("agents", {
     note: "Check actions at rest, reserving their translated Checking label width.",

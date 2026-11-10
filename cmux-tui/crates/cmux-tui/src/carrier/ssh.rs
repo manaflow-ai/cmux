@@ -15,7 +15,10 @@
 //! The route exists only when the answer has an `ssh` candidate, this
 //! device has a carrier key, and the tunnel's hub answers on its socket
 //! ([`ssh_route`]); otherwise it is left out, and [`Absent::code`] says why
-//! in the connect log. The platform authorizes the key for 15 minutes
+//! in the connect log. `carrier capabilities` reports the device's half of
+//! that check ([`ssh_ready`]), so the two never disagree.
+//!
+//! The platform authorizes the key for 15 minutes
 //! (`ssh-endpoint`, `purpose: "carrier"`): a link authorizes it before it
 //! opens when the last authorization is near its end, and writes the pin
 //! from that answer's host key. One authorization is made ahead
@@ -124,7 +127,7 @@ impl SshRefusal {
 
 /// Why an answer's dial has no ssh route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Absent {
+pub(crate) enum Absent {
     /// The answer has no (well-formed) `ssh`: not the owner, not a mesh
     /// member yet, or a platform without the field.
     Candidate,
@@ -156,6 +159,43 @@ fn hub_up(socket: &Path) -> bool {
     std::os::unix::net::UnixStream::connect(socket).is_ok()
 }
 
+/// What [`ssh_device`] found.
+struct SshDevice<'a> {
+    hub: &'a Path,
+    exe: &'a Path,
+    state: &'a Path,
+    key: CarrierKey,
+}
+
+/// This device's half of the ssh route, or why there is none: no refusal
+/// this dial, the tunnel hub up, this binary for the ProxyCommand, paths ssh
+/// can take, and the carrier key (read, or made the first time). [`ssh_route`] asks it for
+/// every answer, and `carrier capabilities` reports it as ssh's
+/// availability ([`super::fault::this_build`]), so the two cannot disagree.
+fn ssh_device<'a>(setup: &'a SshSetup, refusal: &SshRefusal) -> Result<SshDevice<'a>, Absent> {
+    if refusal.get().is_some() {
+        return Err(Absent::Refused);
+    }
+    let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
+    let exe = setup.exe.as_deref().ok_or(Absent::Tunnel)?;
+    let state = setup.state.as_deref().ok_or(Absent::Key)?;
+    // Every path the route hands ssh must be one ssh can take, checked
+    // here with the same words the route's arguments use: the pin's own
+    // directory is a machine id, which adds no character ssh refuses.
+    ssh_arguments(&CarrierKey::path_in(state), &state.join("known_hosts"), exe, hub)
+        .ok_or(Absent::Key)?;
+    let key = CarrierKey::load_or_create(state).map_err(|_| Absent::Key)?;
+    Ok(SshDevice { hub, exe, state, key })
+}
+
+/// Whether this device can carry the ssh route ([`ssh_device`]), for
+/// `carrier capabilities`, which has no answer and no dial: the answer's
+/// `ssh` candidate and the platform's refusal are per dial, in the connect
+/// log's `ssh=`.
+pub(super) fn ssh_ready(setup: &SshSetup) -> Result<(), Absent> {
+    ssh_device(setup, &SshRefusal::default()).map(|_| ())
+}
+
 /// The ssh route of `answer`, or why there is none. Nothing here asks the
 /// network: the key is authorized when a link opens, by the dial's
 /// `deadline` while it runs (see [`SshRoute::authorize`]).
@@ -168,13 +208,7 @@ pub(super) fn ssh_route(
     refusal: &SshRefusal,
 ) -> Result<Arc<SshRoute>, Absent> {
     let candidate = answer.ssh.clone().ok_or(Absent::Candidate)?;
-    if refusal.get().is_some() {
-        return Err(Absent::Refused);
-    }
-    let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
-    let exe = setup.exe.as_deref().ok_or(Absent::Tunnel)?;
-    let state = setup.state.as_deref().ok_or(Absent::Key)?;
-    let key = CarrierKey::load_or_create(state).map_err(|_| Absent::Key)?;
+    let SshDevice { hub, exe, state, key } = ssh_device(setup, refusal)?;
     let pin = state.join(machine).join("known_hosts");
     let args = ssh_arguments(&key.path, &pin, exe, hub).ok_or(Absent::Key)?;
     let config = SshProviderConfig {
@@ -214,11 +248,14 @@ fn route_url(candidate: &SshCandidate) -> Option<Url> {
     Url::parse(&format!("ssh://{}@{host}:{}", candidate.user, candidate.port)).ok()
 }
 
-/// A path as one ssh config word: `%` doubled (ssh expands `%` tokens in
-/// these options), no `"` or control character.
+/// A path as one ssh config word, for options ssh expands: `%` doubled
+/// (`IdentityFile`, `UserKnownHostsFile` and `ProxyCommand` expand `%`
+/// tokens), and `None` for a `"`, a control character, or `${` (the first
+/// two also expand `${VAR}`, and nothing escapes it).
 fn ssh_path(path: &Path) -> Option<String> {
     let text = path.to_str()?;
-    (!text.chars().any(|c| c == '"' || c.is_control())).then(|| text.replace('%', "%%"))
+    let unsafe_char = text.chars().any(|c| c == '"' || c.is_control());
+    (!unsafe_char && !text.contains("${")).then(|| text.replace('%', "%%"))
 }
 
 /// A path as one `/bin/sh` word inside the ProxyCommand: single-quoted,
@@ -231,11 +268,16 @@ fn shell_path(path: &Path) -> Option<String> {
 /// The ssh options of the carrier: only the carrier key, the pin, and the
 /// tunnel's `wg dial` as the ProxyCommand, with no person's config, agent,
 /// known hosts, prompt or shared master. `None` for a path ssh cannot take.
+///
+/// The key goes as `-o IdentityFile`, not `-i`: ssh `stat`s an `-i` path
+/// as given, before it expands `%%` back to `%`, so a key whose path holds
+/// a `%` would be dropped with a warning (and a single `%` is a token).
 pub(super) fn ssh_arguments(key: &Path, pin: &Path, exe: &Path, hub: &Path) -> Option<Vec<String>> {
     let proxy =
         format!("ProxyCommand={} wg dial --hub {} %h %p", shell_path(exe)?, shell_path(hub)?);
-    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned(), "-i".to_owned(), ssh_path(key)?];
+    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned()];
     for option in [
+        format!("IdentityFile=\"{}\"", ssh_path(key)?),
         "IdentitiesOnly=yes".to_owned(),
         "IdentityAgent=none".to_owned(),
         "StrictHostKeyChecking=yes".to_owned(),
@@ -434,10 +476,15 @@ pub(super) fn public_line_of(text: &str) -> Option<String> {
 }
 
 impl CarrierKey {
+    /// Where the key lives in `state`.
+    fn path_in(state: &Path) -> PathBuf {
+        state.join("id_ed25519")
+    }
+
     /// `<state>/id_ed25519`, made (0600, never through a symlink) when
     /// there is none. Two processes making it at once keep the first.
     pub(super) fn load_or_create(state: &Path) -> std::io::Result<Self> {
-        let path = state.join("id_ed25519");
+        let path = Self::path_in(state);
         let invalid = || std::io::Error::from(std::io::ErrorKind::InvalidData);
         let read = || -> std::io::Result<Self> {
             let file = OpenOptions::new()
@@ -565,6 +612,11 @@ impl SshRoute {
 
     async fn authorize_now(&self) -> Result<(), SourceError> {
         let _one = self.authorizing.lock().await;
+        // The authorization this one waited for may have been refused for
+        // good: then nothing asks again.
+        if let Some(reason) = self.refused() {
+            return Err(SourceError { retryable: false, detail: reason.to_owned() });
+        }
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
