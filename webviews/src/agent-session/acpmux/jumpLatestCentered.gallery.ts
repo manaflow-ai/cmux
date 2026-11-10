@@ -54,7 +54,9 @@ const park =
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
     if (anchor)
-      ctx.document.querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")?.style.setProperty("left", ANCHORS[anchor]);
+      ctx.document
+        .querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")
+        ?.style.setProperty("left", ANCHORS[anchor]);
   };
 
 export default agentPaneEntry({
