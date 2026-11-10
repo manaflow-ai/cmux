@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CmuxNextWakeups
 public import Foundation
 
 /// Where the Channels page reaches this build's Chief conversations: the
@@ -84,30 +85,18 @@ public struct OwnerStartWait {
         self.clock = clock
     }
 
-    /// Whether `condition` holds within ``limit``.
+    /// Whether `condition` holds within ``limit``: the observation ends at the first `true`, or is
+    /// cancelled by the deadline (a ``DemandTimer`` on the injected clock, as ``PageCallDeadline``'s) or the caller.
     public func holds(until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
-        return await Self.race(limit, clock, condition)
-    }
-
-    /// The observation against one deadline on `clock` (the injected clock, opened to its type).
-    private static func race<C: Clock>(_ limit: Duration, _ clock: C,
-                                       _ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool where C.Duration == Duration {
-        // concurrency-allow: both children end with the group (the observation exits on cancellation); this bounds a page's credential call
-        await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await observe(condition) }
-            group.addTask {
-                // wakeup-allow: one-shot deadline for an owner that never connects; the page's retries take over after it
-                try? await clock.sleep(for: limit)
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
+        let timer = DemandTimer(owner: "OwnerStartWait", clock: clock)
+        defer { timer.cancel() }
+        // task-owner: the observation; ends at the first true, or cancelled by the deadline or the caller below
+        let watch = Task { @MainActor () -> Bool in
+            for await ready in ObservationStream({ condition() }) where ready { return true }
+            return false
         }
-    }
-
-    private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        for await ready in ObservationStream({ condition() }) where ready { return true }
-        return false
+        timer.schedule(after: limit) { @MainActor in watch.cancel() }
+        return await withTaskCancellationHandler { await watch.value } onCancel: { watch.cancel() }
     }
 }
