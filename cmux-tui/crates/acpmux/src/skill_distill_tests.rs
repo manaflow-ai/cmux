@@ -165,6 +165,22 @@ fn a_pattern_whose_draft_never_finished_blocks_nothing() {
 #[test]
 fn keys_in_prompts_and_drafts_are_cut_out() {
     assert!(secretish("curl -u admin:hunter2@example.com https://x"));
+    assert!(secretish("curl --user demo:TEST_ONLY https://example.invalid"));
+    assert!(secretish("curl -u demo:TEST_ONLY https://example.invalid"));
+    assert!(secretish("curl --user=demo:TEST_ONLY https://example.invalid"));
+    assert!(secretish("git clone https://demo:TEST_ONLY@example.invalid/r.git"));
+    assert!(secretish("mysql --password hunter2 db"));
+    // Not credentials: an ssh remote, a flag without a pair, a plain URL.
+    assert!(!secretish("git push git@github.com:org/repo.git main"));
+    assert!(!secretish("git add -u"));
+    assert!(!secretish("curl https://example.invalid/a:b"));
+    assert_eq!(
+        redact("run curl --user demo:TEST_ONLY https://example.invalid"),
+        "run curl --user … https://example.invalid"
+    );
+    // A prompt's credentials never reach the draft prompt.
+    let chats = [Shape { prompt: redact("deploy with -u demo:TEST_ONLY"), ..Shape::default() }];
+    assert!(!draft_prompt(&chats).contains("TEST_ONLY"));
     assert!(secretish("export X=ghp_abcdefghijklmnop1234"));
     assert_eq!(redact("deploy with sk-live1234567890abcdef please"), "deploy with … please");
     assert_eq!(redact("bump to 0.5.0 and tag it"), "bump to 0.5.0 and tag it");

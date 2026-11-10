@@ -251,7 +251,7 @@ fn secretish(command: &str) -> bool {
     ]
     .iter()
     .any(|w| lower.contains(w))
-        || command.split_whitespace().any(|w| keyish(w) || (w.contains(':') && w.contains('@')))
+        || credential_words(command).next().is_some()
 }
 
 /// A word that looks like a key or token itself: a known prefix (`ghp_`, `sk-`, `xoxb-`) or a
@@ -272,9 +272,47 @@ fn keyish(word: &str) -> bool {
         && word.chars().any(|c| c.is_ascii_alphabetic())
 }
 
-/// `text` with every key-like word ([`keyish`]) cut out.
+/// Flags whose value is a credential: `curl --user name:pass`, `-u name:pass`, `--password x`.
+const CREDENTIAL_FLAGS: &[&str] =
+    &["-u", "--user", "--proxy-user", "--password", "--pass", "--passwd", "-p", "--auth"];
+
+/// Whether a word holds a credential itself: a key ([`keyish`]), a URL with a user and password
+/// (`https://name:pass@host`), or a flag with its value in it (`--user=name:pass`).
+fn credential_word(word: &str) -> bool {
+    let userinfo = word
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split(['/', '?', '#']).next())
+        .is_some_and(|authority| authority.split_once('@').is_some_and(|(u, _)| u.contains(':')));
+    let flagged = word
+        .split_once('=')
+        .is_some_and(|(flag, value)| CREDENTIAL_FLAGS.contains(&flag) && !value.is_empty());
+    keyish(word) || userinfo || flagged
+}
+
+/// The indexes of the words of `text` that are credentials ([`credential_word`]), and of every
+/// word right after a [`CREDENTIAL_FLAGS`] flag that takes `name:pass` (`-u`, `--user`) or any
+/// value (`--password`).
+fn credential_words(text: &str) -> impl Iterator<Item = usize> + '_ {
+    let words: Vec<&str> = text.split(' ').collect();
+    (0..words.len()).filter(move |&i| {
+        let word = words.get(i).copied().unwrap_or("");
+        let after = i.checked_sub(1).and_then(|p| words.get(p)).copied().unwrap_or("");
+        let value_of_flag = CREDENTIAL_FLAGS.contains(&after)
+            && !word.is_empty()
+            && !word.starts_with('-')
+            && (word.contains(':') || !matches!(after, "-u" | "-p"));
+        credential_word(word) || value_of_flag
+    })
+}
+
+/// `text` with every credential ([`credential_words`]) cut out.
 fn redact(text: &str) -> String {
-    text.split(' ').map(|w| if keyish(w) { "…" } else { w }).collect::<Vec<_>>().join(" ")
+    let cut: HashSet<usize> = credential_words(text).collect();
+    text.split(' ')
+        .enumerate()
+        .map(|(i, w)| if cut.contains(&i) { "…" } else { w })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A chat's live turn: its person prompt and its tool runs since the last turn end.

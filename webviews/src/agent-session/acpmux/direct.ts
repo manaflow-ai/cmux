@@ -659,6 +659,10 @@ const ELEVATION_KINDS = ["elevation_request", "elevation_decision"];
 /// whose agent tried to start a chat on another machine gets them, on this machine's acpmux, so
 /// only a local attach asks for them as for the sudo card.
 const PRESET_APPROVAL_KINDS = ["preset_approval_request", "preset_approval_decision"];
+/// The memory inbox's and the skill distiller's cards and their answers (acpmux hub/memory_inbox.rs,
+/// hub/skill_distill.rs): not transcript in acpmux (paging.rs), and only the person answers them
+/// on this machine, so a local attach asks for them by kind as for the preset approval card.
+const OFFER_CARD_KINDS = ["memory_offer", "memory_resolved", "skill_offer", "skill_resolved"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -5706,7 +5710,9 @@ export class AcpmuxDirectClient {
         ...SECRET_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
-        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
+        ...(this.localOrigin
+          ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS, ...OFFER_CARD_KINDS]
+          : []),
       ],
       eventStream: true,
       visible,
@@ -11471,7 +11477,7 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
-        ...(this.localOrigin ? PRESET_APPROVAL_KINDS : []),
+        ...(this.localOrigin ? [...PRESET_APPROVAL_KINDS, ...OFFER_CARD_KINDS] : []),
       ],
     });
     // The chat was opened meanwhile: its attach holds the newer read.
@@ -12684,7 +12690,7 @@ export class AcpmuxDirectClient {
         // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
         // than the attach's page comes with the older page that holds it, on a local acpmux as at
         // attach (three kinds, within a remote cmux-tui's eight either way).
-        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+        kinds: ["transcript", ...(this.localOrigin ? [...PRESET_APPROVAL_KINDS, ...OFFER_CARD_KINDS] : [])],
       });
       if (
         !this.canPageOlder(pagingEpoch) ||
