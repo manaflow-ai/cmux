@@ -53,6 +53,7 @@ mod resource_effects;
 mod resource_restore;
 mod resource_selectors;
 mod respawn_gate_jump;
+mod respawn_gate_pause;
 mod restart;
 mod rows;
 mod signaled_mutex;

@@ -226,6 +226,15 @@ impl StartupAdoptionGate {
         self.changed.notify_all();
     }
 
+    /// Stops the line (`paused`) or lets it go on: while it is stopped, no
+    /// ticket of the line gets a turn, and the turns that run go on to
+    /// their end. A waiter that goes first ([`Self::turn_first_if`]) is not
+    /// stopped. The respawn gate stops its line while the memory pressure of
+    /// the Mac is above normal (`terminal_respawn/line_pause.rs`).
+    pub(super) fn set_line_paused(&self, paused: bool) {
+        let _ = paused;
+    }
+
     /// [`Self::wake_all`] when a thread waits; otherwise one atomic load and
     /// no lock (it runs on every tree change).
     pub(super) fn wake_waiters(&self) {
