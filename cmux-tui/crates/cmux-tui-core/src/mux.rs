@@ -1432,6 +1432,10 @@ struct HookFence {
     session_id: String,
     sequence: u64,
     ended: bool,
+    /// When the hook of the last applied event started (`observed_at_ms`),
+    /// if it said. In memory only: a restart orders by journal sequence until
+    /// the next stamped event.
+    observed_at_ms: Option<u64>,
 }
 
 enum DirectHookTransition {
@@ -1500,6 +1504,17 @@ impl HookFence {
         }
         Ok(DirectHookTransition::Continue)
     }
+}
+
+/// When the hook that sent `ingress` started (`normalized.observed_at_ms`,
+/// a decimal string of ms since the epoch), if it said.
+fn hook_observed_at_ms(ingress: &crate::JournalIngress) -> Option<u64> {
+    ingress
+        .payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("observed_at_ms"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse().ok())
 }
 
 /// Longest hook session id published for resume. Claude session ids are
@@ -6662,6 +6677,17 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        // One agent's hooks run one after another, but each sends on its own
+        // connection and each connection has its own thread, so the journal
+        // can take them out of order. The hook's start time orders what the
+        // agent did; the journal sequence orders transport.
+        let observed_at_ms = hook_observed_at_ms(ingress);
+        if previous_fence.as_ref().is_some_and(|fence| {
+            fence.session_id == agent_session_id
+                && observed_at_ms.zip(fence.observed_at_ms).is_some_and(|(seen, last)| seen < last)
+        }) {
+            return Ok(());
+        }
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
@@ -6703,7 +6729,17 @@ impl Mux {
         )?;
         fences.insert(
             terminal_id.clone(),
-            HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
+            HookFence {
+                observed_at_ms: observed_at_ms.or_else(|| {
+                    previous_fence
+                        .as_ref()
+                        .filter(|fence| fence.session_id == agent_session_id)
+                        .and_then(|fence| fence.observed_at_ms)
+                }),
+                session_id: agent_session_id,
+                sequence,
+                ended: state == AgentState::Done,
+            },
         );
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
@@ -11987,6 +12023,7 @@ impl Mux {
                     session_id: direct_state.agent_session_id.clone(),
                     sequence: direct_state.applied_sequence,
                     ended: false,
+                    observed_at_ms: None,
                 },
             );
         }

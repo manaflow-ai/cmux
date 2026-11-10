@@ -67,6 +67,7 @@ pub mod wait_pattern;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
+    stamp_agent_hook_observed_at,
 };
 pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};

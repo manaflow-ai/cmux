@@ -25,6 +25,17 @@ the agent's own idle prompt (a dismissal faster than its scan). Claude Code
 sends no hook when a permission dialog is dismissed with Esc, so the screen is
 the only evidence that the agent stopped waiting.
 
+One agent's hooks run one after another, but each hands its event to the
+session on its own connection, and the session serves each connection on its
+own thread, so the journal can take a `Stop` before the prompt that came
+first. Each event carries when its hook started (`observed_at_ms`, ms since
+the epoch). The terminal's state follows the latest-started event of its
+session: an event of the same session that started earlier than the last
+applied one is kept in the journal but does not change the state. Limits:
+two events that start in the same millisecond keep journal order; a clock
+stepped back by more than the gap between two hooks drops the later one's
+state; after a session restart, journal order applies until the next event.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

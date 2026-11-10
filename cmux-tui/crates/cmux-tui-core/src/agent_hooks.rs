@@ -124,6 +124,16 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
+/// Records in `ingress` when the hook that saw the event started
+/// (`normalized.observed_at_ms`, ms since the epoch). One agent's hooks run
+/// one after another but reach the journal on separate connections; the
+/// daemon orders the agent's state by this time, not by journal sequence.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
+}
+
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
     if semantic_key(native_event) == "input" {
         return json!({"redacted":true,"reason":"raw_input"});
