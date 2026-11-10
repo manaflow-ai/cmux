@@ -401,7 +401,7 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
         indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
         for screen in &workspace.screens {
-            split_ids::collect_screen_split_ids(screen, &mut splits);
+            collect_screen_split_ids(screen, &mut splits);
             indexes.screens.insert(screen.public_id.clone(), screen.id);
             indexes.screen_ids.insert(screen.id, screen.public_id.clone());
             indexes.screen_workspace.insert(screen.id, workspace.id);
