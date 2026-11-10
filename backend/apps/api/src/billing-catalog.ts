@@ -77,8 +77,25 @@ export const markupPriceVersion = (markupBp: number): string => {
   const set = (Object.keys(USAGE_PRICE_SETS) as UsagePriceSet[]).find((s) => Math.round(overageModelMarkup(s) * 10_000) === markupBp && overageModelMarkup(s) !== 1)
   return set ? usagePriceVersion(set) : `ai-overage-models${Math.round(markupBp / 100)}`
 }
-/** The team spending cap an admin did not set (margins.md section 4): this many times the pool, v2 Team (per seat) only; null elsewhere. */
+/**
+ * The spending cap an admin did not set (margins.md section 4): this many times the pool, under v2 only; null elsewhere.
+ * Every billed account gets it, a personal one (per team) as well as a Team (per seat): paid plans have no machine-count
+ * cap (Leo 2026-11-10, "you can have arbitrarily many VMs and we just build based off of that"), so the spending cap
+ * is the stop, and a new account starts with one.
+ */
 export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (set === "v2" ? 2 : null)
+/**
+ * The raise lock: until the account's first paid renewal invoice (usage-billing-store.ts hasPaidInvoice), an admin's
+ * cap counts up to this many times the pool and no further (team-cap.ts teamCapState). An account that has paid one
+ * renewal raises its cap freely. TEAM_CAP_UNPAID_MAX_POOLS (env), an integer from defaultTeamCapPools (2) to 1000;
+ * anything else is the default.
+ */
+export const DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS = 4
+export const MAX_TEAM_CAP_UNPAID_MAX_POOLS = 1000
+export const teamCapUnpaidMaxPools = (raw: string | undefined): number => {
+  const n = raw !== undefined && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  return Number.isSafeInteger(n) && n >= 2 && n <= MAX_TEAM_CAP_UNPAID_MAX_POOLS ? n : DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS
+}
 /**
  * Whether the model router refuses at the team spending cap (UsageMeterDO.teamCap, billed prices over the billing
  * period) besides the hard cap (A18, summarize): v2 only, so production's v1 keeps today's check until Leo's go.

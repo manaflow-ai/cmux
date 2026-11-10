@@ -616,6 +616,19 @@ GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
     r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
 )
+# A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
+# says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red
+# so it never reads as a pass, but it is never the pull request's own red and never a base red: it gets re-run.
+# 2026-11-09: #39791's `rust workspaces` summary read `plan: abandoned` as a red, compared it with a green base and
+# refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
+# script, which spells the same words).
+SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
+# The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
+# shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
+# match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
+# was excused by a base failing crate-b). A summary red is refused with "compare its failed children" unless its
+# children are compared one by one, as Guard status's are (validate_guard_routes).
+SUMMARY_RED = re.compile(r"^##\[error\]\s*summary red: ")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -914,7 +927,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     errors: set[str] = set()
     skip = test_reds.echoed(test_reds.log_lines(log))
     for n, text in enumerate(lines_of(log)):
-        if n in skip or text.startswith(test_reds.TAP_MARKER):
+        if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
             continue
         if ((ERROR.search(text)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
@@ -930,6 +943,16 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
+
+
+def summary_red(log: str) -> str | None:
+    """The line where a summary gate names its failed needs (SUMMARY_RED), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_RED.match(text)), None)
+
+
+def summary_no_verdict(log: str) -> str | None:
+    """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -1146,6 +1169,11 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
+    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
+    # red line (SUMMARY_RED) is no error here (signature drops it): the route reports below are the evidence.
+    if (said := summary_no_verdict(text)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
     if errors:
         raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     report = test_reds.read(text)
@@ -3375,6 +3403,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
             raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                           "re-run its prerequisite and this dependent job together")
+        if (said := summary_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                          "neither a pass nor this PR's own red; re-run it")
+        if (said := summary_red(head_log)) is not None:
+            raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
+                          "summary shares, never a red the base can share; compare its failed children, each as itself")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:
