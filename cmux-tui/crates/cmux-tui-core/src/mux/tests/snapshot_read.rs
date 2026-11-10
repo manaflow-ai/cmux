@@ -593,3 +593,117 @@ fn a_snapshot_read_settles_a_late_answer_while_another_thread_holds_the_list() {
         "a snapshot read that started while another thread held the list of late answers did not settle the late answer"
     );
 }
+
+/// A mutator that changes a route table and commits in one hold of the
+/// pinned state publishes its routes only when its state guard drops, after
+/// its COMMIT (a terminal respawn, `mux/terminal_respawn.rs`
+/// `install_respawned_runtime`; an adoption at daemon start,
+/// `mux/terminal_adoption.rs`). A snapshot read that starts between the
+/// COMMIT and the drop must not show the rows of that commit with the routes
+/// of before it: a client that starts at that cursor never gets the delta of
+/// the commit, so it would keep the size of the runtime that was replaced.
+///
+/// The mutator here is a model with the same lock structure, built in the
+/// test: registry lock, pinned state, replace the catalog runtime of a
+/// terminal by one of another size, COMMIT a status row, then drop the guard.
+#[cfg(unix)]
+#[test]
+fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_the_commit() {
+    let root = temp_root("window");
+    let mux = session_at_rest("snapshot-window", &root);
+    let workspace_key = mux.create_empty_workspace(Some("window".into()), None, None).unwrap().key;
+    let host = crate::terminal_host_runtime::TerminalHostIdentity {
+        terminal_id: format!("00000000000040008000{:012x}", 7),
+        incarnation: format!("10000000000040008000{:012x}", 7),
+    };
+    let placed = mux
+        .seed_running_terminal_for_test(&host.terminal_id, &host.incarnation, &workspace_key)
+        .unwrap();
+    let terminal = mux.surface(placed).unwrap().terminal_public_id().unwrap().clone();
+    let size_of = |snapshot: &Value| {
+        let shown = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|shown| shown["id"].as_str() == Some(terminal.as_str()))
+            .unwrap_or_else(|| panic!("setup: the snapshot shows the terminal: {snapshot}"));
+        (shown["cols"].as_u64().unwrap(), shown["rows"].as_u64().unwrap())
+    };
+    let (before, _, _, commits_before) = read_cut(&mux);
+    assert_ne!(size_of(&before), (132, 43), "setup: the first runtime has another size");
+    let workspace = before["workspaces"][0]["id"].as_str().unwrap().to_string();
+    let replacement = Surface::exited_terminal_placeholder_with_terminal_public_id(
+        mux.next_surface_id_for_test(),
+        SurfaceOptions { cols: 132, rows: 43, ..SurfaceOptions::default() },
+        Arc::downgrade(&mux),
+        host,
+        terminal.clone(),
+    )
+    .unwrap();
+
+    let (committed, committed_receiver) = sync_channel::<()>(1);
+    let (release, release_receiver) = sync_channel::<()>(1);
+    let mutator = {
+        let mux = mux.clone();
+        let terminal = terminal.clone();
+        std::thread::spawn(move || {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let mut state = mux.lock_state_pinned(&registry).unwrap();
+            state.remove_catalog_terminal(&terminal);
+            state.insert_catalog_terminal(&terminal, &replacement).unwrap();
+            {
+                let db = registry.connection.get();
+                let transaction = db.unchecked_transaction().unwrap();
+                crate::state::workspace_status_store::set_status(
+                    &transaction,
+                    &workspace,
+                    "window",
+                    "window-commit-text",
+                    None,
+                    None,
+                    1,
+                )
+                .unwrap();
+                transaction.commit().unwrap();
+            }
+            committed.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            drop(state);
+            drop(registry);
+        })
+    };
+    committed_receiver
+        .recv_timeout(Duration::from_secs(20))
+        .expect("setup: the mutator committed under the pinned state");
+
+    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    let reader = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            let cut = read_cut(&mux);
+            let _ = answered.send(());
+            cut
+        })
+    };
+    // A read that proves the routes of its rows waits for the mutator here. A
+    // read that answers here answered in the window.
+    let in_window = answered_receiver.recv_timeout(Duration::from_millis(500)).is_ok();
+    release.send(()).unwrap();
+    mutator.join().unwrap();
+    let (snapshot, _, _, commits) = reader.join().unwrap();
+    let size = size_of(&snapshot);
+    let status = snapshot["extra"]["state"]["workspace_status"].to_string();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(commits > commits_before, "setup: the commit of the mutator moved the commit count");
+    assert!(
+        status.contains("window-commit-text"),
+        "setup: the read shows the commit of the mutator: {status}"
+    );
+    assert_eq!(
+        size,
+        (132, 43),
+        "a snapshot read that started between a commit and the publish of its routes (it answered in the window: {in_window}) shows the rows of the commit with the size of the runtime that the commit replaced"
+    );
+}
