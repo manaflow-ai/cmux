@@ -67,8 +67,8 @@ import PackageDescription
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
-//   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Pages, Server, Settings, Wakeups (app health's
-//     feeds and repairs around Control's AppHealth, and its popover card; the App makes and starts it)
+//   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
+//     feeds and repairs around Control's AppHealth, its popover card and footer line; the App makes and starts it)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
@@ -84,6 +84,8 @@ import PackageDescription
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
+//   CmuxNextTaskManagerPage -> Pages, Resources, Settings (the React Task Manager page's model lifetime, kill
+//     rule and snapshot stream; the App opens the tabs and runs the kill action)
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
@@ -186,8 +188,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-32f5ff1e833ada43c3825b5cc2d30bc609cccd6c/CCmuxAppFFI.xcframework.zip",
-    checksum: "44914f6fa214d991a784a5066335f17398694118f66b8359d1d32cdb6ae5fbb5"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-c8a297c89687f215efd296a80a26301e668ee562/CCmuxAppFFI.xcframework.zip",
+    checksum: "4ceaf559efee70b57167c6c3b00808f311f13575a248c05e8bc820d2719adcdc"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -368,6 +370,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
+                "CmuxNextTaskManagerPage",
                 "CmuxNextTerminal",
                 "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
@@ -1746,6 +1749,18 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // The React Task Manager page's host side (webviews/src/pages/task-manager): its descriptor,
+        // the one sampling model's lifetime, Kill Process's rule over it, and the pages' snapshot
+        // stream, select and gesture-only kill. The App opens the tabs and runs the kill action.
+        .target(
+            name: "CmuxNextTaskManagerPage",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextPages",
+                "CmuxNextResources",
+                "CmuxNextSettings",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Sparkle updates: channel/feed resolution, a read-only appcast probe
         // (dev builds and `updates.check`), and the update sheet.
         .target(
@@ -1794,6 +1809,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
+                "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextServer",
                 "CmuxNextSettings",
@@ -2512,6 +2528,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextApp",
                 "CmuxNextAppCore",
+                "CmuxNextAppHealth",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
@@ -2550,6 +2567,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
+                "CmuxNextKeepAwake",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextMobile",
@@ -2571,6 +2589,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
+                "CmuxNextTaskManagerPage",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
                 "CmuxNextTestSupport",

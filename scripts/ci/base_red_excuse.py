@@ -940,6 +940,52 @@ def lines_of(log: str) -> list[str]:
     return found
 
 
+def _stamp_time(value) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def failed_steps_log(job: dict, log: str) -> str:
+    """LOG without the lines of JOB's passing steps. A job runs many steps, and a passing one may print error-looking
+    stderr on purpose: test_ghostty_licenses.py's negative cases print "pinned license manifest digest changed" and
+    pass. 2026-11-10: cmux#40369's static checks failed only in "Every page's strings generate with no missing
+    translation" (feat-cmux-next runs 42820823641, 42820590433), and the excuse quoted that digest line, sending an
+    agent after the wrong cause.
+
+    A step passed when the jobs API says success and its section has no live `##[error]` line: a continue-on-error
+    step that failed also reads as a success there, but the runner still ends its section with `##[error]Process
+    completed with exit code N.`, and the job's rollup step names it. Only such passing steps' lines are dropped;
+    any line that cannot be placed in one is kept. `gh run view --log` names each line's step in a column. The job-log
+    endpoint (GitHub.log) has only timestamps: a line is a step's when its stamp is in that step's [started_at,
+    completed_at + 1s) window (the metadata rounds to seconds), and it is dropped only when every window it is in is
+    a passing step's. With a step that has no timestamps the whole log is read, as before."""
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    lines = log.splitlines()
+    live = [text.startswith("##[error]") for text in lines_of(log)]
+    columns = [line.split("\t", 2) for line in lines]
+    if any(len(parts) == 3 and STAMP.match(parts[2].lstrip("\ufeff")) for parts in columns):
+        owners = [{parts[1]} if len(parts) == 3 else set() for parts in columns]
+    else:
+        windows = []
+        for step in metadata:
+            start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
+            if start is None or end is None or end < start:
+                return log
+            windows.append((step.get("name"), start, end + timedelta(seconds=1)))
+        owners, at = [], None
+        for line in lines:
+            stamp = STAMP.match(line.lstrip("\ufeff"))
+            # A line with no stamp of its own continues the line before it.
+            at = _stamp_time(stamp.group()) if stamp else at
+            owners.append({name for name, start, end in windows if at is not None and start <= at < end})
+    passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
+    passed -= {name for names, error in zip(owners, live) if error for name in names}
+    return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
+
+
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
@@ -948,8 +994,11 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
              if step.get("conclusion") not in (None, "success", "skipped")}
     tests = test_reds.failed_names(test_reds.lines_of(log))
     errors: set[str] = set()
-    skip = test_reds.echoed(test_reds.log_lines(log))
-    for n, text in enumerate(lines_of(log)):
+    # Error lines come from the failed steps' own sections only (failed_steps_log), on the head and the base alike, so
+    # what is quoted and what is compared is the red itself, never a passing step's expected stderr.
+    scope = failed_steps_log(job, log)
+    skip = test_reds.echoed(test_reds.log_lines(scope))
+    for n, text in enumerate(lines_of(scope)):
         if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
             continue
         if ((ERROR.search(text)

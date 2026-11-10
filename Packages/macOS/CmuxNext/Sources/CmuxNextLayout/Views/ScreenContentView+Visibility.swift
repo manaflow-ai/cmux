@@ -60,8 +60,7 @@ extension ScreenContentView {
 
     /// Panes whose displayed frame intersects the viewport.
     func visiblePanes() -> Set<PaneID> {
-        // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`).
-        var result = Set(frameInput.snapDeparted)
+        var result = Set<PaneID>()
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.

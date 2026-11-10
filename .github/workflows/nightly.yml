@@ -1293,6 +1293,21 @@ jobs:
         name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # One macOS SDK for the whole job: the SDK of the Xcode "Select Xcode" chose. A tool that runs cc
+      # or c++ with no SDK (a cargo build script, npm's node-gyp) otherwise takes xcrun's default SDK. On
+      # a macOS 27 Mac with Command Line Tools 27 that is MacOSX27.0.sdk, which the Xcode 26.6 linker
+      # cannot read ("unknown architecture arm64e.x1-macos", runs 42775849251 and 42804411758). The
+      # script is here, not in a file: a sign stage runs this workflow on an older build tree. Zig:
+      # scripts/build-ghostty-cli-helper.sh removes SDKROOT for its own zig build. The step runs
+      # right after the Xcode selection, with its `if:`; tests/test_nightly_job_sdkroot.py runs it.
+      - &select-xcode-sdk
+        name: Select the SDK of the selected Xcode
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
@@ -1430,6 +1445,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/refresh-test-admission-paths.sh
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
@@ -1621,6 +1637,17 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # *select-xcode-sdk with the `if:` of this job's build steps (a resumed run builds nothing).
+      # Zig only: no Xcode is selected here, so this is the SDK of the host's default Xcode.
+      - &select-xcode-sdk-unless-resumed
+        name: Select the SDK of the selected Xcode
+        if: inputs.nightly_next_unsigned_run == ''
+        shell: bash
+        run: |
+          SDKROOT="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)" || SDKROOT=""
+          [ -d "$SDKROOT" ] || { echo "::error title=No macOS SDK::xcrun named no macOS SDK for DEVELOPER_DIR=${DEVELOPER_DIR:-unset} (got '$SDKROOT')"; exit 1; }
+          echo "SDKROOT=$SDKROOT" | tee -a "$GITHUB_ENV"
 
       # The helper and the classic ghostty tree take the default Zig (PATH,
       # CMUX_ZIG); the source archive's libghostty-vt tree (ghostty-next,
@@ -2268,6 +2295,7 @@ jobs:
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
         run: ./scripts/select-ci-xcode.sh
+      - *select-xcode-sdk-unless-resumed
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
       # clean drops untracked output; remove the daemon handoff here too.
@@ -3895,6 +3923,7 @@ jobs:
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -4664,6 +4693,7 @@ jobs:
       # nightly-next's license check reads ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4772,6 +4802,7 @@ jobs:
       # ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
       # A parallel-range read: one download-artifact stream took a p50 of 89 s
       # and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
       # when it fails.
@@ -4984,6 +5015,7 @@ jobs:
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
       - *select-xcode
+      - *select-xcode-sdk
       - *set-up-node
 
       - name: Install create-dmg
@@ -5063,6 +5095,7 @@ jobs:
 
       - *legacy-route-shared-5
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5294,6 +5327,7 @@ jobs:
           submodules: recursive
 
       - *select-xcode
+      - *select-xcode-sdk
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -6441,6 +6475,7 @@ jobs:
       # its own checkout (cone mode keeps the root files).
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6560,6 +6595,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *select-xcode
+      - *select-xcode-sdk
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

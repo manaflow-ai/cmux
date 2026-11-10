@@ -1,6 +1,7 @@
-// `chat.thinkingIndicator` / `counting-dots`: three dots after the word light one after another with a
-// rest beat; once the turn has thought for LONG_THINK_MS a fourth dot grows into the rest beat, so a
-// long think reads as longer. CSS only (thinkingIndicator.css): opacity beats on `--cmux-spinner-period`
+// `chat.thinkingIndicator` / `counting-dots`: three dim dots after the word and a lit dot stepping from
+// one to the next; once the turn has thought for LONG_THINK_MS a fourth dot grows in and the lit dot
+// counts four, so a long think reads as longer. CSS only (thinkingIndicator.css): one transform loop in
+// `steps()` on `--cmux-spinner-period`, never a fade (no dot breathes: test/no-breathing-dots.test.ts),
 // and one transform as the fourth dot arrives. The count comes from `elapsedMs`, which the line's
 // existing one-second clock updates; this component starts no timer.
 import { ReservedLabel, type ThinkingIndicatorProps } from "./slot";
@@ -24,6 +25,7 @@ export function CountingDots({ label, verbs, elapsedMs }: ThinkingIndicatorProps
         {DOTS.map((dot) => (
           <span key={dot} className="slot-thinking__dot" data-dot={dot} />
         ))}
+        <span className="slot-thinking__lit-dot" />
       </span>
     </span>
   );

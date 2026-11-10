@@ -151,6 +151,9 @@ import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
+import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
+import { panelId } from "../../../apps/scene/panelsClient";
+import type { PageClient } from "../../../pages/shared/pageClient";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
@@ -373,6 +376,9 @@ type Props = NewTabScreenActions & {
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
   fixError?: string;
+  /// Where installed apps' New Tab widgets come from (ExtensionWidgets.tsx): the gallery's and tests'
+  /// mock; the page host's when unset, `null` for none.
+  widgetClient?: PageClient | null;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -414,6 +420,8 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
+  // Installed apps' widgets in the widget row: mounted only while this page shows and placed.
+  const appWidgets = useNewTabExtensionWidgets(props.widgetClient);
   const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
@@ -2405,7 +2413,29 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
-  const extras = <NewTabExtras widgets={widgets} now={at} />;
+  const extras = (
+    <NewTabExtras
+      widgets={widgets}
+      now={at}
+      extensions={appWidgets}
+      editing={editing}
+      {...(onEditWidgets ? { onEdit: onEditWidgets } : {})}
+    />
+  );
+  // Add Widgets places an app's widget at the row's end, keeping the row's order as the person sees it.
+  const placedAppWidgets = new Set(appWidgets.mounted.map((widget) => panelId(widget.panel)));
+  const addableAppWidgets = !appWidgets.editable
+    ? []
+    : appWidgets.available
+        .filter((panel) => !placedAppWidgets.has(panelId(panel)))
+        .map((panel) => ({ id: panelId(panel), title: panel.title }));
+  const addAppWidget = (id: string) => {
+    const row = gridOrder(
+      [...GRID_BUILTINS.filter((widget) => widgets.has(widget)), ...placedAppWidgets],
+      appWidgets.layout,
+    );
+    appWidgets.setLayout([...row, id]);
+  };
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
   const pickStarter = (prompt: string) => {
@@ -2517,7 +2547,9 @@ export function NewTabScreen(props: Props) {
         data-layout={stage ? "stage" : undefined}
         data-minimal={minimal || undefined}
       >
-        {onEditWidgets && <WidgetEditBar editing={editing} onEdit={onEditWidgets} />}
+        {onEditWidgets && (
+          <WidgetEditBar editing={editing} onEdit={onEditWidgets} apps={addableAppWidgets} onAddApp={addAppWidget} />
+        )}
         {stage ? (
           <>
             {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
