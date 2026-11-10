@@ -119,6 +119,8 @@ extension DaemonStore {
     /// the memo's order, no identity twice, and the confirmed list is the one the memo holds (no write since: the same
     /// buffer); else nil. O(touched): the snapshot of an untouched or event-only workspace is the memo's.
     private func unmovedWorkspaces(_ touched: Set<String>, diff: SnapshotDiff, count: Int) -> [(WorkspaceModel, WorkspaceSnapshot)]? {
+        // TEMP MUTATION (not for merge): the pre-#39291 path, the whole list rebuilt on main.
+        return nil
         guard diff.sameOrder, diff.revision == snapshotMemo.revision, snapshotMemo.applied.count == count, workspaceList.count == count,
               workspaceList.sharesStorage(with: snapshotMemo.list)
         else { return nil }
