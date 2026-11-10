@@ -9,9 +9,9 @@ name: cmux-next quality report
 #   - the metrics JSON: crash-free session rate (Sentry release health), the perf cron's newest interaction
 #     p95 per row (the perf-cron-state artifact), and the god-vs-small and animation token coverage slots
 #     (filled once those checks write their JSON; the report says "no input given" until then).
-# The JSON is this run's artifact `cmux-next-quality-metrics` (kept 90 days). The full report, signature names
-# included, goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night so
-# the numbers read over time; this public repository's step summary gets the numbers only. Nothing here
+# The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
+# report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
+# is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
 # gates a build: every source that cannot be read leaves its metric null with the reason.
 #
 # A push to nightly-next runs this from nightly-next's own copy of the file, which follows feat-cmux-next, so
@@ -30,11 +30,9 @@ concurrency:
 jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
-    # GitHub-hosted, like nightly.yml's sentry-dsyms-nightly: the Sentry token stays off the shared minis.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
     steps:
       - name: Name tonight's marker
@@ -65,16 +63,10 @@ jobs:
         if: steps.done.outputs.cache-hit != 'true'
         run: python3 -I scripts/cmux-next/tests/test_quality_report.py
 
-      - name: Fetch the perf cron's state
-        if: steps.done.outputs.cache-hit != 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
-
-      # Issues read on cmuxterm-hq only, for the hang-watch issues (the fallback crash source). No App or a failed
-      # mint leaves the token empty: Sentry alone.
-      - name: Mint the cmuxterm-hq issues read token
+      # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
+      # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). No App or a failed
+      # mint leaves the token empty: no perf rows and Sentry alone, each said in the report.
+      - name: Mint the read token
         id: hq-read
         if: steps.done.outputs.cache-hit != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
@@ -84,8 +76,16 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: cmuxterm-hq
+          repositories: ${{ github.event.repository.name }},cmuxterm-hq
+          permission-actions: read
           permission-issues: read
+
+      - name: Fetch the perf cron's state
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
@@ -109,7 +109,7 @@ jobs:
         with:
           name: cmux-next-quality-metrics
           path: ${{ runner.temp }}/quality/quality-metrics.json
-          retention-days: 90
+          retention-days: 3
 
       # Issues write on cmuxterm-hq only, for the sticky report.
       - name: Mint the cmuxterm-hq issues write token

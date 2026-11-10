@@ -223,7 +223,8 @@ def gh_hang_watch_issues(since: dt.datetime, repo: str = HQ_REPO, run: Callable 
 
 def gh_comments_since(repo: str, number: int, since: dt.datetime, run: Callable) -> List[Dict[str, Any]]:
     path = f"repos/{repo}/issues/{number}/comments?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100"
-    cmd = ["gh", "api", "--paginate", path, "--jq", ".[] | {createdAt: .created_at, body: .body}"]
+    # One bounded page: hang-watch comments at most once a tick (15 min), so a day's window is under 100.
+    cmd = ["gh", "api", path, "--jq", ".[] | {createdAt: .created_at, body: .body}"]
     try:
         done = run(cmd, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
