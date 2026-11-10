@@ -101,6 +101,7 @@ extension LayoutRootView {
 
     override public func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        context.liveResizeEnded()
         runStillWork()
     }
 

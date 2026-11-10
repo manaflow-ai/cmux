@@ -103,7 +103,8 @@ final class LayoutViewContext {
     /// person holds the mouse button on the window's own edge and AppKit's resize loop has the pointer, so no window
     /// comes or goes under it. Each step moves the handles and the catcher panels under the pointer, and each of
     /// those asked again: a window server round trip two or three times in every step of the drag (WINDOW RESIZE 2).
-    /// The same holds for the short time of a full screen transition (`Motion.isLiveResizing` counts it).
+    /// A full screen transition counts as a live resize (`Motion.isLiveResizing`): the answer is held for that short
+    /// time too, and the first ask after it goes to the window server again.
     func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool {
         guard !Motion.isLiveResizing(window) else {
             if let heldInResize, heldInResize.window == window.windowNumber { return heldInResize.reaches }
@@ -123,6 +124,9 @@ final class LayoutViewContext {
 
     /// The windows over the pointer may have changed (a key change, a panel shown or moved, a tracking event).
     func invalidateHoverTopmost() { topmost = nil }
+
+    /// The window's live resize ended: the answer held for it ends too, also when no ask came between two resizes.
+    func liveResizeEnded() { heldInResize = nil }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
