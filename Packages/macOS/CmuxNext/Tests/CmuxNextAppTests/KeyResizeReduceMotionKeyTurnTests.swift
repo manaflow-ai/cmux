@@ -13,11 +13,10 @@ import Testing
 /// press moved nothing (base de82e16a37a: passes, step 7487a3eaf2de6c92df4831e4; head b89a454f689: fails, step
 /// 371efb4af257d839a96202ef).
 ///
-/// RESIZE P0 13 (KEY SNAP GRID) made such a press wait for the next frame tick, so its key's turn could draw each resized
-/// terminal's size ahead with its grid. GI RENDERER SYNC (#40174) deleted that draw-ahead: Ghostty's renderer now holds a
-/// frame of the old size until the program's redraw at the new one (`GHOSTTY_HOST_PRESENT_RENDERER_SYNCED`, design
-/// `ghostty-integration.md` 4.1 and 4.3: "Reduce Motion and 'no animation' snap in one frame"). The tick wait had nothing
-/// left to wait for, so a press that starts no spring presents in the key's own turn again (GI RENDERER SYNC 2, item 2).
+/// RESIZE P0 13 (KEY SNAP GRID): such a press now shows at the next frame tick, as a snapped structural change does
+/// (CLOSE MOTION 3, `ScreenContentView+SnapFrame`): its key's turn gives each resized terminal its size ahead with its grid,
+/// so the program redraws before the tick shows the press (``ReduceMotionKeyResizeGridTests``). It still never waits for
+/// a spring: the next tick shows it, and it asks for that tick.
 ///
 /// The rig's driver is manual: the test steps the one frame tick.
 @MainActor
@@ -25,10 +24,10 @@ import Testing
 struct KeyResizeReduceMotionKeyTurnTests {
     typealias Ground = PaneGroundCoversPaneTests
 
-    /// Reduce Motion, then pane animations off: each press moves p2's host in the key's own turn, and nothing is left
-    /// waiting for a frame tick. The next tick moves it no further.
+    /// Reduce Motion, then pane animations off: each press moves p2's host at the next frame tick (not in the key's turn,
+    /// where its terminal gets its size ahead with its grid), and that one tick shows it all: nothing is left waiting.
     @Test(arguments: [true, false])
-    func aPressWithNoSpringMovesThePaneInTheKeysOwnTurn(reduceMotion: Bool) throws {
+    func aPressWithNoSpringMovesThePaneAtTheNextFrameTick(reduceMotion: Bool) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
         rig.root.context.reduceMotionOverride = reduceMotion ? true : nil
@@ -41,11 +40,11 @@ struct KeyResizeReduceMotionKeyTurnTests {
         for direction in [LayoutDirection.left, .right, .left] {
             let before = host.frame
             #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
-            let moved = host.frame
-            #expect(moved != before, "a \(direction) press with no spring did not move p2 in the key's own turn (\(before))")
-            #expect(!(try rig.screen.frameInput.presentationWaiting), "a \(direction) press with no spring left its presentation waiting for a frame tick")
+            #expect(host.frame == before, "a \(direction) press with no spring moved p2 in the key's turn, before its terminal had its grid")
+            #expect(try rig.screen.frameInput.presentationWaiting, "a \(direction) press with no spring did not wait for the next frame tick")
             _ = rig.frame()
-            #expect(host.frame == moved, "a \(direction) press with no spring moved p2 again at the next frame tick (\(moved) -> \(host.frame))")
+            #expect(host.frame != before, "a \(direction) press with no spring did not move p2 at the next frame tick (\(before))")
+            #expect(!(try rig.screen.frameInput.presentationWaiting), "a \(direction) press with no spring left its presentation waiting after the tick")
         }
     }
 }
