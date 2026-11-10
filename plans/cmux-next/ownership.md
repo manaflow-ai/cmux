@@ -231,8 +231,8 @@ ran an agent session) are the restore: they wait in the gate's line. A terminal 
 (the daemon's active workspace) and each other restart (Restart Shell Here, the first show of a
 parked tab, in a hidden workspace too) is the person's: it does not wait for the line or for a
 turn of the line to end (`StartupAdoptionGate::turn_first_if`), and the slots bound such starts
-among themselves. The request does not say who sent it: a script's `cmux tab restart` of a dead tab
-goes first too, and a kept agent tab that the person restarts by hand, or that a frontend starts at
+among themselves. The request does not say who sent it: a script's `cmux tab restart` of a dead tab that is
+not such a kept tab goes first too, and a kept agent tab that the person restarts by hand, or that a frontend starts at
 the first show of its workspace (a protected folder), waits in the line unless its workspace is the
 active one. A failed launch is tried again
 (`terminal_respawn/retry.rs`); a next try that waits a backoff takes its turn when the wait is over. The turn ends when the new shell is in the tabs: the wait for its

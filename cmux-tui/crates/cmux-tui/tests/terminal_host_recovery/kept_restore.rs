@@ -138,6 +138,29 @@ fn run_agent_sessions(harness: &RecoveryHarness, tabs: &[serde_json::Value]) {
     }
 }
 
+/// The daemon of the next start types no resume command into a restarted
+/// agent terminal (`sessions.resumeAgents` off, in a settings file of its
+/// own). The tests that restart kept agent tabs judge their place in the
+/// respawn gate: with the default the daemon types `claude --resume kept-N`
+/// and Return in the host's own shell, which runs the real program on a host
+/// that has one.
+fn no_agent_resume(harness: &mut RecoveryHarness) {
+    let config = harness.dir.join("cmux-next.json");
+    fs::write(&config, r#"{"sessions": {"resumeAgents": false}}"#).expect("write the settings");
+    harness.extra_env.push(("CMUX_NEXT_CONFIG_FILE".into(), config.display().to_string()));
+}
+
+/// Each tab of `kept` is one a frontend restarts at its connect (kept with
+/// no `on_show`): the restarts that wait in the respawn gate's line.
+fn assert_kept_for_connect(kept: &[serde_json::Value]) {
+    for tab in kept {
+        assert!(
+            tab["relaunch"].is_object() && tab["relaunch"]["on_show"] != true,
+            "a tab is not kept for a start at connect, so its restart is the person's: {tab}"
+        );
+    }
+}
+
 /// When each terminal restarted, oldest first, from the loss log (one line
 /// per restart), once `count` terminals restarted: (time in ms, terminal id).
 fn restarts(harness: &RecoveryHarness, count: usize) -> Vec<(u64, String)> {
@@ -181,6 +204,11 @@ fn hidden_tabs(harness: &RecoveryHarness) -> Vec<serde_json::Value> {
 /// pass (what a refused PTY master open is): N terminals are alive at the
 /// end, counted from the daemon, with one `restart-tab` per tab and nothing
 /// else. The K terminals stayed dead (`restart_failed`).
+///
+/// The tabs are plain shell tabs (kept for their first show), so each
+/// restart is one the person asked for: the slots bound them, and they do
+/// not wait in the line of a restore. The count and the second try are what
+/// this test judges, not the order.
 #[test]
 fn every_kept_terminal_is_alive_after_a_restore_whose_launches_failed_one_time() {
     let _exclusive = exclusive_process_test();
@@ -268,6 +296,7 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
 
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), SLOTS.to_string()));
+    no_agent_resume(&mut harness);
     harness.restart();
     let tree = request(&harness.socket, serde_json::json!({"id": 302, "cmd": "list-workspaces"}));
     assert_eq!(
@@ -276,6 +305,7 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
     );
     let kept = all_tabs(&harness);
     assert_eq!(kept.len(), TABS, "the restart did not keep every tab");
+    assert_kept_for_connect(&kept);
     restart_kept_tabs(&harness, &kept);
 
     // When each terminal restarted, from the loss log (one line per restart).
@@ -309,9 +339,10 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
         "{hidden_in_first_wave} of {TABS} hidden kept terminals restarted at the same moment; \
          the respawn gate allows {SLOTS}"
     );
-    // The app asks in tree order, so the slots are taken when the shown
-    // tab's request arrives: it does not wait for one of them, so only the
-    // hidden terminals that hold them can restart before it.
+    // The requests go 8 at a time and the shown tab is number 7 in tree
+    // order, so in most runs hidden terminals hold the slots when its
+    // request arrives. It does not wait for one of them: only the hidden
+    // terminals that hold the slots can restart before it.
     let mut order = restarted_at.iter().collect::<Vec<_>>();
     order.sort_by_key(|(_, at)| **at);
     let place = order.iter().position(|(terminal, _)| **terminal == shown).unwrap();
@@ -342,7 +373,8 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
 ///
 /// 3 kept tabs, each with a resume command, a shell that writes for 12 s and
 /// shows no prompt (the longest wait), and 1 slot: the 3 terminals restart
-/// with no prompt wait between them.
+/// with no prompt wait between them. (Plain shell tabs: their restarts are
+/// the person's kind of turn, which the 1 slot bounds in the same way.)
 #[test]
 fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
     use std::os::unix::fs::PermissionsExt;
@@ -450,6 +482,7 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS".into(), (TABS + 1).to_string()));
     // A restart's tries: at once, at once, then after 7.5 s.
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_BACKOFF_MS".into(), "0,7500,7500,7500".into()));
+    no_agent_resume(&mut harness);
     harness.restart();
     let tree = request(&harness.socket, serde_json::json!({"id": 310, "cmd": "list-workspaces"}));
     let hidden = tree["workspaces"]
@@ -463,6 +496,7 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
         .cloned()
         .collect::<Vec<_>>();
     assert_eq!(hidden.len(), TABS, "the restart did not keep one shown and {TABS} hidden tabs");
+    assert_kept_for_connect(&hidden);
     restart_kept_tabs(&harness, &hidden);
 
     let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
@@ -521,6 +555,7 @@ fn a_restart_the_person_asks_for_goes_before_the_restore_starts_that_have_not_be
     end_sessions_keep_layout(&mut harness);
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    no_agent_resume(&mut harness);
     harness.restart();
     // What a frontend restarts at its connect: the tabs kept with an agent.
     let (restore, person): (Vec<_>, Vec<_>) =

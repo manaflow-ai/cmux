@@ -71,9 +71,10 @@ fn shown_waiters_go_first_but_still_take_the_slots() {
 }
 
 /// A waiter that becomes shown while it waits (the person selects its
-/// workspace) is woken and goes before the ticket in line ahead of it, with
-/// no wait for the turn that holds the slot; its place is stepped over, so
-/// the line keeps moving after it.
+/// workspace) is woken and goes before the ticket in line ahead of it; its
+/// place is stepped over, so the line keeps moving after it. (The order is
+/// what this test judges; that such a waiter does not wait for a turn of the
+/// line to end is `a_waiter_of_the_person_does_not_wait_for_a_slot_of_the_line`.)
 #[test]
 fn a_waiter_shown_while_it_waits_takes_the_next_slot_before_the_line() {
     let gate = Arc::new(StartupAdoptionGate::with_slots(1));
