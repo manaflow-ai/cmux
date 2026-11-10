@@ -61,6 +61,8 @@ main-thread scheduling step 0 and the Chrome parity bench reuse it, so keep this
   * LARGE_WORKSPACES (60) workspaces x 6 tabs = 360 tabs, one pane each: 3 terminals, 1 agent chat, 1 Chromium page,
     1 WebKit page (LARGE_MIX). Every tab is made live: its workspace is shown while its tabs open, as a person's
     new tabs (a page opened in a hidden workspace opens offscreen). The window shows the last workspace at the end.
+    The 60 are the workspaces with a pane. Home (what an app with a clean HOME starts on) has no pane and is not one
+    of them: the sidebar then has 61 rows, and the summary says `workspaces_without_pane: 1`.
   * The typed terminal: the last workspace's first terminal (the bench turns it into `cat`).
   * TITLE_STREAMS (5) title streams: the first terminal of 5 hidden workspaces (TITLE_STREAM_WORKSPACES) runs a shell
     loop that prints `ESC ] 0 ; <spinner glyph> agent task <n> BEL` every TITLE_FRAME_S (80 ms, 12.5 Hz, the Claude
@@ -403,9 +405,10 @@ class Stress:
         """`workspace` shown, then its one pane filled to LARGE_MIX: the tabs it lacks by kind (a new workspace has its
         first terminal). Returns the pane id."""
         self.show(workspace)
-        pane = (self.panes(self.workspace(workspace)) or [{}])[0].get("id")
+        # The pane of a new workspace can come with a later delta than its id: wait for it, do not read it once.
+        pane = wait(lambda: (self.panes(self.workspace(workspace)) or [{}])[0].get("id"), 30, step=0.05)
         if not pane:
-            raise StressShapeError(f"workspace {workspace} has no pane")
+            raise StressShapeError(f"workspace {workspace} has no pane after 30 s")
         self.record_first(workspace, pane)
         have = {}
         for kind, _, _ in self.made.get(pane, []):
@@ -422,7 +425,9 @@ class Stress:
         shown with its first terminal focused. Returns the summary (`summary_large`); raises StressShapeError on another
         shape unless `check` is false. The title streams are not started (`start_title_streams`)."""
         start = time.monotonic()
-        existing = [w["id"] for w in self.workspaces()]
+        # A workspace the app starts with counts only when it has a pane. An app with a clean HOME starts on Home,
+        # which a window draws as the Home page: it has no pane and can hold no tab, so it is not one of the 60.
+        existing = [w["id"] for w in self.workspaces() if self.panes(w)]
         if len(existing) > LARGE_WORKSPACES:
             raise StressShapeError(f"the app already has {len(existing)} workspaces; LARGE has {LARGE_WORKSPACES} in all")
         order = list(existing)
@@ -496,7 +501,9 @@ class Stress:
         shown = self.window_showing(getattr(self, "measured", None), topology)
         stream_workspaces = [workspace for workspace in getattr(self, "large", [])
                              if self.first_terminal_in(by_id.get(workspace)) in set(getattr(self, "streams", []))]
-        return {"session": "large", "workspaces": len(workspaces), "tabs": tabs, "measured": getattr(self, "measured", None),
+        with_pane = [w for w in workspaces if self.panes(w)]
+        return {"session": "large", "workspaces": len(with_pane), "workspaces_without_pane": len(workspaces) - len(with_pane),
+                "tabs": tabs, "measured": getattr(self, "measured", None),
                 "measured_shown": shown is not None, "streams": [t for t in getattr(self, "streams", []) if t],
                 "stream_workspaces": stream_workspaces, "chat_fallbacks": self.chat_fallbacks,
                 "chat_fallback_ok": self.allow_chat_fallback, "workspace_problems": problems[:6],
