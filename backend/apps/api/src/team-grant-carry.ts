@@ -1,4 +1,4 @@
-import { grantRank, storedVmPlan, vmPlanCopyCurrent } from "./cloud-vm-plan.ts"
+import { grantRank, storedVmPlan, teamFactsCurrent } from "./cloud-vm-plan.ts"
 import { listMembers, type RowsWithScan } from "./domains/team-members.ts"
 import type { TeamState } from "./domains/team.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -59,11 +59,12 @@ export const planCarryOnDelete = (d: Omit<GrantCarryDeps, "carryTo">, stackTeam:
   if (vmPlan === undefined) console.warn(JSON.stringify({ msg: "deleted team's cloud grant was never read here; nothing to carry", team: team.id }))
   // A team-level restriction ("free", blank) or a value with no paid limits restricted only that team: nothing to carry.
   if (vmPlan == null || grantRank(vmPlan) === 0) return null
-  // A team event arrived that no read has followed (it waits, or came out of order): the team's grant may have changed
-  // since the copy (a revocation included), and the record is gone now. Nothing is carried; an operator decides.
-  if (!vmPlanCopyCurrent(d.sql)) {
+  // The owner and the grant must both be confirmed by reads after the latest team event (cloud-vm-plan.ts tickets): an
+  // event not reconciled yet may be a revocation, a downgrade or an ownership change, and the record is gone now, so
+  // nothing can confirm it any more. Nothing is carried; an operator decides. The delete itself proceeds as always.
+  if (!teamFactsCurrent(d.sql)) {
     d.sql.exec(`INSERT OR IGNORE INTO cloud_vm_plan_carried (id, stack_team, vm_plan, outcome, owner, to_team, at, due_at, fails) VALUES (1, ?, ?, 'unverified', NULL, NULL, ?, ?, 0)`, stackTeam, vmPlan, d.now, d.now)
-    console.error(JSON.stringify({ msg: "cloud grant of a deleted team not carried: a newer team event was never read; an operator must assign it", team: team.id, vm_plan: vmPlan, outcome: "unverified" }))
+    console.error(JSON.stringify({ msg: "cloud grant of a deleted team not carried: its owner or grant was not confirmed after the latest team event; an operator must assign it", team: team.id, vm_plan: vmPlan, outcome: "unverified" }))
     return "unverified"
   }
   const owners: Array<string> = []

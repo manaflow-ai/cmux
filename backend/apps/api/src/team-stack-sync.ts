@@ -6,7 +6,7 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
-import { noteTeamEvent, storeVmPlan, teamEventCount } from "./cloud-vm-plan.ts"
+import { confirmTeamFacts, nextReadTicket, noteTeamEvent, storeVmPlan } from "./cloud-vm-plan.ts"
 import { deliverPendingCarry, pendingCarryAt, planCarryOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
@@ -174,9 +174,11 @@ export class StackTeamSync {
           ...(row.stack_user ? { stack_user: row.stack_user } : {})
         }
     deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ?`, at() + SYNC_LEASE_MS, k)
+    // This run's read ticket (cloud-vm-plan.ts): every fact it reads is as new as this, never as a clock says.
+    const ticket = nextReadTicket(deps.sql)
     let out: string
     try {
-      out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts)
+      out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts, ticket)
     } catch (e) {
       // A Stack failure (never its body, never a user id): the row waits and tries again.
       console.error(JSON.stringify({ msg: "stack webhook lookup failed", team: deps.team, type: row.type, error: String(e).slice(0, 200) }))
@@ -189,6 +191,10 @@ export class StackTeamSync {
     // Done: remove the row unless something changed it meanwhile (a merged delivery or a re-check that
     // reconcile scheduled bumps gen). A merged delivery's row runs again at once, as a full sync.
     const changed = deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND gen = ?`, k, row.gen).rowsWritten === 0
+    // Every event up to this read is reconciled only when this run read and committed the team and its member(s), no
+    // delivery merged in meanwhile, and no other event's sync waits (a backoff or a re-check). Then the local owner
+    // and the grant copy are confirmed as of this read (the grant carry needs both, team-grant-carry.ts).
+    if (!changed && CONFIRMING.has(out) && deps.sql.exec(`SELECT 1 FROM stack_team_recheck WHERE type != 'team.deleted' LIMIT 1`).toArray().length === 0) confirmTeamFacts(deps.sql, ticket)
     if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, at(), k)
     // A confirmed delete is final: a team.deleted that merged meanwhile has nothing left to do (review P3).
     if (changed && out === "team_deleted") deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND type = 'team.deleted'`, k)
@@ -265,13 +271,13 @@ export class StackTeamSync {
   }
 
   /** Stack's current answer committed, then the owner count of an older head set once; `attempt` is the re-check number (-1 for a delivery). */
-  private async reconcile(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
-    const out = await this.reconcileOnce(deps, stack, ev, attempt)
+  private async reconcile(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, ticket: number): Promise<string> {
+    const out = await this.reconcileOnce(deps, stack, ev, attempt, ticket)
     if (!out.startsWith("reject:")) this.ensureOwnerCount(deps, ev.svix_id)
     return out
   }
 
-  private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
+  private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, ticket: number): Promise<string> {
     const commit = (op: string, params: Record<string, unknown>) => {
       const before = noOwnerOf(deps.state())
       // Idempotency keys are at most 128 characters (owner-preflight.ts): a retried team.deleted's synthetic id made
@@ -285,11 +291,10 @@ export class StackTeamSync {
     }
     // The plan copy is dated before the read (review P3): a slower read never looks newer than it is.
     const readAt = Date.now()
-    const seen = teamEventCount(deps.sql)
     const team = await stack.getTeam(ev.stack_team)
     // Every grant observed is kept at once, before any early return (review F1 at e9544f44): a delete that waits for
     // its confirmation, or a sync that stops early, must never leave an older (since revoked) grant as the copy.
-    if (team !== null && team.vm_personal_tenant !== true && team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt, seen)
+    if (team !== null && team.vm_personal_tenant !== true && team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt, ticket)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
     if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
@@ -384,6 +389,9 @@ export class StackTeamSync {
     return undefined
   }
 }
+
+/** Outcomes of a run that read the team and committed its member(s) as Stack has them now. */
+const CONFIRMING: ReadonlySet<string> = new Set(["team_mirrored", "member_present", "member_absent", "member_anonymous", "member_anonymous_removed"])
 
 const logNoOwner = (team: string) => console.error(JSON.stringify({ msg: "stack team has no owner; a Stack team admin must promote one", team }))
 

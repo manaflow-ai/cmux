@@ -47,7 +47,7 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   // pay the extra reads; the cached copy stays the answer when the service fails.
   const carrying = stackUser !== undefined && carriedVmPlan(sql) !== null
   if (row && !carrying && now - Number(row.checked_at) < VM_PLAN_FRESH_MS) return { ok: true, vm_plan: row.vm_plan }
-  const seen = stackUser === undefined ? teamEventCount(sql) : undefined
+  const seen = stackUser === undefined ? nextReadTicket(sql) : undefined
   try {
     if (!stack) throw new Error("stack server not configured")
     const vm_plan = await read(stack)
@@ -62,41 +62,71 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   }
 }
 
-const ensure = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan (id INTEGER PRIMARY KEY CHECK (id = 1), vm_plan TEXT, checked_at INTEGER NOT NULL)`)
+const tableReady = new WeakSet<SqlStorage>()
+const ensure = (sql: SqlStorage) => {
+  sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan (id INTEGER PRIMARY KEY CHECK (id = 1), vm_plan TEXT, checked_at INTEGER NOT NULL)`)
+  if (tableReady.has(sql)) return
+  // The read ticket (grantTicket) of the read the copy came from; 0 for a copy from before tickets.
+  if (!sql.exec<{ name: string }>(`PRAGMA table_info(cloud_vm_plan)`).toArray().some((c) => c.name === "ticket")) sql.exec(`ALTER TABLE cloud_vm_plan ADD COLUMN ticket INTEGER NOT NULL DEFAULT 0`)
+  tableReady.add(sql)
+}
 
-const ensureSeq = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan_seq (id INTEGER PRIMARY KEY CHECK (id = 1), events INTEGER NOT NULL, observed INTEGER NOT NULL)`)
-const seqRow = (sql: SqlStorage) => {
+/**
+ * One strictly increasing counter per team (durable, never a clock), shared by the two things the grant carry
+ * orders (team-grant-carry.ts): a team event's arrival, and the start of a read of the team. `last_event` is the
+ * ticket of the latest event; `confirmed` is the ticket of the latest read after which every event was reconciled
+ * successfully (the owner and the grant both read and committed: team-stack-sync.ts runRow). A fact is only as new
+ * as the ticket of the read that saw it, so two reads in the same millisecond still order.
+ */
+const ensureSeq = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan_ticket (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL, last_event INTEGER NOT NULL, confirmed INTEGER NOT NULL)`)
+const ticketRow = (sql: SqlStorage) => {
   ensureSeq(sql)
-  return sql.exec<{ events: number; observed: number }>(`SELECT events, observed FROM cloud_vm_plan_seq WHERE id = 1`).toArray()[0] ?? { events: 0, observed: 0 }
+  return sql.exec<{ seq: number; last_event: number; confirmed: number }>(`SELECT seq, last_event, confirmed FROM cloud_vm_plan_ticket WHERE id = 1`).toArray()[0] ?? { seq: 0, last_event: 0, confirmed: 0 }
+}
+const writeTickets = (sql: SqlStorage, r: { seq: number; last_event: number; confirmed: number }) =>
+  sql.exec(`INSERT INTO cloud_vm_plan_ticket (id, seq, last_event, confirmed) VALUES (1, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, last_event = excluded.last_event, confirmed = excluded.confirmed`, r.seq, r.last_event, r.confirmed)
+
+/** A read of the team starts: its ticket, greater than every event and read before it. */
+export const nextReadTicket = (sql: SqlStorage): number => {
+  const r = ticketRow(sql)
+  writeTickets(sql, { ...r, seq: r.seq + 1 })
+  return r.seq + 1
+}
+/** A team event (not a delete) arrived: the team's grant, owner or members may have changed since every earlier read. */
+export const noteTeamEvent = (sql: SqlStorage): number => {
+  const r = ticketRow(sql)
+  writeTickets(sql, { ...r, seq: r.seq + 1, last_event: r.seq + 1 })
+  return r.seq + 1
+}
+/** Every event up to the read `ticket` started was reconciled successfully by that read's run (team-stack-sync.ts). */
+export const confirmTeamFacts = (sql: SqlStorage, ticket: number) => {
+  const r = ticketRow(sql)
+  if (ticket > r.confirmed) writeTickets(sql, { ...r, confirmed: ticket })
 }
 /**
- * A team event (not a delete) arrived: its team record may carry a newer grant than the copy (team-stack-sync.ts
- * deliver). Numbered, never timed, so two events in the same millisecond still order. Returns the new count.
+ * The local owner and the grant copy both come from reads that started after the latest event: a fully reconciled
+ * read confirmed the owner, and the grant copy is from that read or a later one. Otherwise a carry would be decided
+ * from a fact that may be stale (a revocation, a downgrade or an ownership change not read yet).
  */
-export const noteTeamEvent = (sql: SqlStorage): number => {
-  const r = seqRow(sql)
-  sql.exec(`INSERT INTO cloud_vm_plan_seq (id, events, observed) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET events = excluded.events`, r.events + 1, r.observed)
-  return r.events + 1
-}
-/** The team events arrived so far; a read that starts now has seen every one of them once it stores its answer. */
-export const teamEventCount = (sql: SqlStorage): number => seqRow(sql).events
-/** Every team event that arrived has been followed by a read of the team whose answer is the copy (no newer grant unseen). */
-export const vmPlanCopyCurrent = (sql: SqlStorage): boolean => {
-  const r = seqRow(sql)
-  return r.observed >= r.events
+export const teamFactsCurrent = (sql: SqlStorage): boolean => {
+  const r = ticketRow(sql)
+  ensure(sql)
+  const grant = sql.exec<{ ticket: number }>(`SELECT ticket FROM cloud_vm_plan WHERE id = 1`).toArray()[0]?.ticket ?? 0
+  return r.confirmed > r.last_event && grant > r.last_event && grant >= r.confirmed
 }
 
 /**
- * Stores what the sign-in service answered at `at` (null = no grant); a read that started before a newer one never
- * overwrites it. `seen` is teamEventCount when the read started: the copy then reflects every event up to it.
+ * Stores what the sign-in service answered (null = no grant). With `ticket` (a shared team's read, nextReadTicket),
+ * the answer applies only when its read started after the read of the current copy: strictly greater, so an older
+ * read finishing last never restores what a newer read replaced. Without one (a personal team's cache), the time rule.
  */
-export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number, seen?: number) => {
-  if (seen !== undefined) {
-    const r = seqRow(sql)
-    if (seen > r.observed) sql.exec(`INSERT INTO cloud_vm_plan_seq (id, events, observed) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET observed = MAX(observed, excluded.observed)`, Math.max(r.events, seen), seen)
-  }
+export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number, ticket?: number) => {
   ensure(sql)
-  sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_vm_plan.checked_at`, vmPlan, at)
+  if (ticket === undefined) {
+    sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_vm_plan.checked_at`, vmPlan, at)
+    return
+  }
+  sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at, ticket) VALUES (1, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at, ticket = excluded.ticket WHERE excluded.ticket > cloud_vm_plan.ticket`, vmPlan, at, ticket)
 }
 
 /** TeamDO's last copy of the team's grant: the grant (null = none), or undefined when it was never read here. */
