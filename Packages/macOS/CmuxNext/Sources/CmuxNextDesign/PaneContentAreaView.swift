@@ -246,10 +246,15 @@ public extension NSView {
         return layer?.backgroundColor
     }
 
-    /// How far from this pane content's leading edge its ground (``paneGroundColor``) starts: the width of what it shows
-    /// beside its content area (a vertical tab list); 0 with nothing there. It does not change with the content's size.
-    var paneGroundLeadingInset: CGFloat {
-        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return 0 }
-        return max(0, area.frame.minX - bounds.minX)
+    /// How far from this pane content's top and leading edges its ground (``paneGroundColor``) starts: where its content
+    /// area is laid out now, below a tab strip at its top edge and after a vertical tab list. Zeros for an area at
+    /// those edges: a chat with no strip, or one that shares the tab row, paints from its top edge, whatever header
+    /// its pane reports for its ring. Nil: it has no content area of its own (it is one, or it shows none). The area's
+    /// origin does not change with the content's size, so the answer is right before the content lays out again.
+    /// Read in each frame of a spring that holds the content: O(its direct subviews), no layout.
+    var paneGroundInsets: (top: CGFloat, leading: CGFloat)? {
+        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return nil }
+        let top = isFlipped ? area.frame.minY - bounds.minY : bounds.maxY - area.frame.maxY
+        return (top: max(0, top), leading: max(0, area.frame.minX - bounds.minX))
     }
 }
