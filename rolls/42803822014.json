@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42803822014",
+  "recorded_at": "2026-11-10T11:07:19Z",
+  "reason": "cmux-tui abd12ce1a7d0 changes the image's cmux-tui (pinned 536cd5dd8b66)",
+  "dry_run": false,
+  "cmux_tui": "abd12ce1a7d0eae7afa09025b0945545ceec2bd0",
+  "fixes": [
+    {
+      "sha": "abd12ce1a7d0eae7afa09025b0945545ceec2bd0",
+      "mergedAt": "2026-11-10T02:43:54-08:00",
+      "subject": "cmux NEXT: the action catalog comes from Rust; the Swift catalog data is deleted (step B) (#37469)"
+    },
+    {
+      "sha": "87400d9f9e493c3cd6f68e2ae03182d204734d1b",
+      "mergedAt": "2026-11-10T02:42:29-08:00",
+      "subject": "base red: the resource API boundary scan reads terminal identity env names from terminal_env.rs (#40361)"
+    },
+    {
+      "sha": "91caaf25e60f3952acc6c19e87fa08b7d72ec466",
+      "mergedAt": "2026-11-10T02:41:04-08:00",
+      "subject": "Cloud page: a paused machine says what its pause costs a month (#40336)"
+    },
+    {
+      "sha": "18620aaba5c38796145c715f9047bf8a8c2a2adb",
+      "mergedAt": "2026-11-10T10:36:33Z",
+      "subject": "chore(next): base autofix at 6fe33a71a462"
+    },
+    {
+      "sha": "6fe33a71a462957dfad22655e60a82f7ee9f26bc",
+      "mergedAt": "2026-11-10T02:33:39-08:00",
+      "subject": "CLI app reconnects: a quit app fails in about 1 s, MCP calls keep their own deadline (fix forward #40147) (#40281)"
+    },
+    {
+      "sha": "d802d6d92ce27487cc7feee656548748fd5e9556",
+      "mergedAt": "2026-11-10T02:32:24-08:00",
+      "subject": "cmux ext: scaffold an extension and watch it reload in cmux as you edit (ext new, ext dev, ext dev --once --json) (#40242)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T11:07:19Z",
+    "snapshot_id": "sh-3fceff76c1b749f4970af96941c146ba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42803822014): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f3d6230cc4b3ffdc12287e13d5f0bf45640e9674",
+    "image": "cloud-native-auto-abd12ce1-42803822014-1",
+    "revision": "ci-42803822014-1",
+    "at": "2026-11-10T11:07:19Z"
+  },
+  "rolled_back": false
+}
