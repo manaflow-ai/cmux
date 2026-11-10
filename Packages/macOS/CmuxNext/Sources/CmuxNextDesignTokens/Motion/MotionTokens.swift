@@ -48,7 +48,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// notch, trackpad fling snap. Response 0.2 s (stiffness about 990;
     /// 0.222 s until Leo 2026-10-20's shorter scale).
     case scroll
-    /// Screen switch slide.
+    /// No consumer: it drove the screen switch slide, removed 2026-11-10 (a change of screen has no
+    /// animation). The case stays because its position is the cmux-motion C ABI's spring index
+    /// (`cmux_motion_spring_base`, cmux-tui/crates/cmux-motion/src/tokens.rs); it goes when that table does.
     case screen
     /// An overlay that tracks the pointer between targets: drop zones, the
     /// drag ghost's jump between card and inline slot.

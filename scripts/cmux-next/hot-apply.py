@@ -572,7 +572,9 @@ def process_env(pid: int) -> dict[str, str] | None:
         key, sep, value = entry.decode(errors="replace").partition("=")
         if sep:
             env[key] = value
-    return env
+    # A process always starts with some environment (HOME, PATH): none read means it is hidden from us (another
+    # user's process, or a kernel that withholds it), never that it had none (#40219 review P2).
+    return env or None
 
 
 def keeps_its_chats(status: dict) -> bool:
@@ -600,29 +602,51 @@ def running_acpmux(app: Path) -> list[dict]:
         for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
             status = acpmux_status(app, socket=name)
             if str(status.get("pid")) == pid and status.get("home"):
-                found.append({"pid": int(pid), "home": str(status["home"]), "build": str(status.get("build", "")),
-                              "keeps_chats": keeps_its_chats(status),
+                found.append({"pid": int(pid), "home": str(status["home"]), "socket": name,
+                              "build": str(status.get("build", "")), "keeps_chats": keeps_its_chats(status),
                               "env_readable": process_env(int(pid)) is not None})
                 break
+        else:
+            # Its `daemon status` timed out, was malformed or named another pid: it is still a daemon on the old
+            # build, so the receipt names it rather than dropping it (#40219 Codex F2).
+            found.append({"pid": int(pid), "home": None, "build": "", "keeps_chats": False, "env_readable": False,
+                          "status_unreadable": True})
     return found
 
 
-def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None) -> list[dict]:
+def outside_login_session() -> bool:
+    """Whether this run is an ssh session on macOS. There `acpmux daemon restart` starts a daemon of the person's
+    own home (under ~/.acpmux) as a launchd job in the login session, and launchd drops the environment the
+    restart passes (#40219 Codex F1); any other home's daemon (a Chief's) starts in the ssh security session,
+    where its agents cannot read the login keychain (acpmux daemon/login_session.rs, login_placement.rs). So no
+    daemon found running is restarted from ssh; a home named by --acpmux-home still is, as before. The test is
+    the ssh variables, not the security session acpmux asks: a shell that strips them is not caught."""
+    return sys.platform == "darwin" and bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"))
+
+
+def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
+                   sockets: dict[str, str] | None = None) -> list[dict]:
     """`acpmux daemon restart` in each home; hosted sessions are kept and resume. The new daemon starts from
     the CLI that runs the restart, so the restart runs with the running daemon's own launch environment
     (its Chief home, Computer Use socket, agent launch policy: everything its owner started it with), read
     from the process, never written down. With BEFORE (home -> the pid that ran), each must answer again
     from another pid, else it raises; a home given by --acpmux-home whose daemon's environment cannot be
-    read restarts with this process's, as before."""
+    read restarts with this process's, as before. SOCKETS (home -> the socket the daemon was found serving) finds
+    a daemon started on a socket of its own, which answers there and not at its home's default."""
     done = []
     for home in homes:
-        running = acpmux_status(app, home=home)
+        where = {"socket": sockets[home]} if sockets and sockets.get(home) else {"home": home}
+        running = acpmux_status(app, **where)
         own = process_env(int(running["pid"])) if running.get("pid") else None
         if own is None and before and home in before:
             raise RuntimeError(f"cannot read the launch environment of the acpmux daemon in {home}: not restarted")
         env = dict(own if own is not None else os.environ)
-        # ACPMUX_SOCKET wins over ACPMUX_HOME: an inherited one would restart another home's daemon.
-        env.pop("ACPMUX_SOCKET", None)
+        # ACPMUX_SOCKET wins over ACPMUX_HOME: one this process inherited, or one the daemon inherited but does not
+        # serve, would restart another home's daemon. The daemon's own, when it answers there, is kept: the new
+        # daemon must serve the socket its clients use (#40219 review P2).
+        sock = env.get("ACPMUX_SOCKET")
+        if own is None or not sock or acpmux_status(app, socket=sock).get("pid") != running.get("pid"):
+            env.pop("ACPMUX_SOCKET", None)
         env["ACPMUX_HOME"] = home
         t0 = time.monotonic()
         result = subprocess.run([str(app / BIN / "acpmux"), "daemon", "restart"], capture_output=True, text=True,
@@ -631,7 +655,7 @@ def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = 
             raise RuntimeError(f"acpmux daemon restart ({home}): {(result.stderr or result.stdout).strip()[:300]}")
         step = {"home": home, "restarted": True, "own_environment": own is not None}
         if before and home in before:
-            now = acpmux_status(app, home=home)
+            now = acpmux_status(app, **where)
             step.update(old_pid=before[home], new_pid=now.get("pid"), build=now.get("build"),
                         seconds=round(time.monotonic() - t0, 3))
             if not now.get("pid") or now.get("pid") == before[home]:
@@ -760,14 +784,22 @@ def command_apply(args) -> int:
             daemons = running_acpmux(app) if args.restart_acpmux or not args.acpmux_home else []
             # A daemon whose chats a restart would lose (a memory store without agent hosts), or whose launch
             # environment cannot be read, keeps its build: the receipt names it and why.
-            safe = [d for d in daemons if d["keeps_chats"] and d["env_readable"]] if args.restart_acpmux else []
+            ssh = outside_login_session()
+            safe = ([d for d in daemons if d["keeps_chats"] and d["env_readable"]]
+                    if args.restart_acpmux and not ssh else [])
             left = [dict(d, why="not asked (--restart-acpmux)" if not args.restart_acpmux else
+                         "its daemon status did not answer" if d.get("status_unreadable") else
+                         "this run is an ssh session: the restarted daemon would lose its launch environment or the "
+                         "login keychain; run hot-apply in the Mac's own terminal" if ssh else
                          "its chats would be lost: a memory store without agent hosts" if not d["keeps_chats"] else
                          "its launch environment is unreadable") for d in daemons if d not in safe]
             homes = list(dict.fromkeys(args.acpmux_home + [d["home"] for d in safe]))
             if homes:
                 undo["rust"]["acpmux_homes"] = homes
-                receipt["steps"]["acpmux"] = restart_acpmux(app, homes, {d["home"]: d["pid"] for d in safe})
+                undo["rust"]["acpmux_own_env"] = [d["home"] for d in safe]
+                undo["rust"]["acpmux_sockets"] = {d["home"]: d["socket"] for d in safe}
+                receipt["steps"]["acpmux"] = restart_acpmux(app, homes, {d["home"]: d["pid"] for d in safe},
+                                                            undo["rust"]["acpmux_sockets"])
             if left:  # they keep the build they mapped
                 receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
@@ -808,7 +840,18 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
                 out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
             # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
             if undo["rust"].get("acpmux_homes"):
-                out["rust"]["acpmux"] = restart_acpmux(app, undo["rust"]["acpmux_homes"])
+                # The ones restarted with their own environment go back with it, or not at all (#40219 review P2).
+                # One that no longer answers is skipped with a note, so the cmux swap-back still counts.
+                own = set(undo["rust"].get("acpmux_own_env") or [])
+                sockets = undo["rust"].get("acpmux_sockets") or {}
+                where = {h: ({"socket": sockets[h]} if sockets.get(h) else {"home": h}) for h in own}
+                before = {h: int(acpmux_status(app, **where[h]).get("pid") or 0) for h in own}
+                gone = [h for h in own if not before[h]]
+                homes = [h for h in undo["rust"]["acpmux_homes"] if h not in gone]
+                out["rust"]["acpmux"] = restart_acpmux(app, homes, {h: p for h, p in before.items() if p} or None,
+                                                       sockets)
+                if gone:
+                    out["rust"]["acpmux_not_answering"] = gone
         except Exception as error:  # noqa: BLE001
             out["rust"] = {"ok": False, "error": str(error)}
     return out

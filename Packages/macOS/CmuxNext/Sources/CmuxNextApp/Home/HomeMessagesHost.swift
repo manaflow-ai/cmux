@@ -196,7 +196,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
             previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreview.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
             guard let text = fields["url"]?.stringValue,
