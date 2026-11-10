@@ -87,6 +87,36 @@ pub(super) struct LocalSet {
     /// Skips named with why.
     pub skips: Skips,
     pub git: bool,
+    /// The copy's limits, counted as files are added ([`super::size_cap`]); none for a share.
+    pub cap: Option<super::size_cap::Cap>,
+}
+
+impl LocalSet {
+    fn new(skips: Skips) -> Self {
+        Self {
+            files: BTreeMap::new(),
+            links: BTreeMap::new(),
+            skipped: 0,
+            skips,
+            git: false,
+            cap: None,
+        }
+    }
+
+    /// Adds `file` as `relative`, `bytes` long, counted against the copy's limits: a
+    /// [`super::size_cap::TooLarge`] error once one is passed, and nothing more is listed.
+    pub(super) fn add(
+        &mut self,
+        relative: String,
+        file: LocalFile,
+        bytes: u64,
+    ) -> anyhow::Result<()> {
+        if let Some(cap) = self.cap.as_mut() {
+            cap.charge(&relative, bytes)?;
+        }
+        self.files.insert(relative, file);
+        Ok(())
+    }
 }
 
 /// What [`collect`] leaves out beyond what every push does.
@@ -175,10 +205,16 @@ const PER_WORKTREE: &[&str] = &[
 const MAX_NAME_BYTES: usize = 255;
 const MAX_PATH_BYTES: usize = 4000;
 
-pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
-    let skips = Skips::new(folder);
-    let mut set =
-        LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
+/// The files a push of `folder` sends, by `rules`, counted against `cap` (a chat's copy, see
+/// [`super::size_cap`]) as they are listed: it stops with a [`super::size_cap::TooLarge`] error the
+/// moment a limit is passed; `None` counts nothing.
+pub(super) fn collect(
+    folder: &Path,
+    rules: Rules,
+    cap: Option<super::size_cap::Cap>,
+) -> anyhow::Result<LocalSet> {
+    let mut set = LocalSet::new(Skips::new(folder));
+    set.cap = cap;
     let Some(git) = GitDirs::of(folder)? else {
         walk_plain(&mut set, rules, &|_| true, folder, folder)?;
         return Ok(set);
@@ -325,9 +361,7 @@ fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
 }
 
 fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<LocalSet> {
-    let skips = Skips::new(folder);
-    let mut set =
-        LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
+    let mut set = LocalSet::new(Skips::new(folder));
     let Some(top) = work_tree_top(folder)? else {
         walk_plain(&mut set, Rules::Share, enter, folder, folder)?;
         return Ok(set);
@@ -611,18 +645,19 @@ fn add_git(
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
         let Some(bytes) = read()? else { return Ok(()) };
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        let source = Source::Bytes(clean_config(&text).into_bytes());
-        set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
+        let bytes = clean_config(&text).into_bytes();
+        let size = bytes.len() as u64;
+        let source = Source::Bytes(bytes);
+        set.add(target, LocalFile { source, permissions: 0o644, id: None }, size)?;
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
         let Some(bytes) = read()? else { return Ok(()) };
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
-        set.files.insert(
-            target,
-            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644, id: None },
-        );
+        let size = cleaned.len() as u64;
+        let source = Source::Bytes(cleaned.into_bytes());
+        set.add(target, LocalFile { source, permissions: 0o644, id: None }, size)?;
         return Ok(());
     }
     add_entry(set, target, path, dir, name, entry)
