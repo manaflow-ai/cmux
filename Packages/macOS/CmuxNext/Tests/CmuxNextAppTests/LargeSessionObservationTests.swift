@@ -362,11 +362,6 @@ struct LargeSessionObservationTests {
         await LargeSessionFixture.until { !found.names.isEmpty }
         #expect(found.names == ["home workspace"], "the home wait did not hear workspace 7 indexed again under its id")
     }
-}
-
-/// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
-@MainActor final class WaitHits {
-    var names = Set<String>()
 
     /// O7 `AgentLaneStore.swift:56`: every agent step writes the whole lane map (`lanes`), and the Needs You tray's
     /// approvals (`SidebarApprovals.followLanes`) read that map, so every step of any session re-ran it. It reads the
@@ -403,4 +398,9 @@ struct LargeSessionObservationTests {
         await LargeSessionFixture.until { approvals.answerable["s-7"] != nil }
         #expect(approvals.answerable == ["s-7": "perm-s-7"])
     }
+}
+
+/// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
+@MainActor final class WaitHits {
+    var names = Set<String>()
 }
