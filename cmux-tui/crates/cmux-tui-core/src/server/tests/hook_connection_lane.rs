@@ -98,9 +98,11 @@ fn connect_from_a_terminal_then_from_the_app(own_session: bool) -> Seen {
         ],
         ..SurfaceOptions::default()
     };
-    let mux = Mux::new_for_test("hook-lane", options);
+    // A real PTY and a real process: the accept loop reads the peer's process session.
+    let mux = Mux::new("hook-lane", options);
     serve_paused(mux.clone(), Some(socket.path.clone())).unwrap().mark_ready().unwrap();
     let terminal = mux.new_workspace(None, Some((80, 24))).unwrap();
+    assert!(terminal.process_id().is_some(), "the terminal has no process");
 
     let answered = |suffix: &str| {
         std::fs::read_dir(results.path())
@@ -135,6 +137,7 @@ fn connect_from_a_terminal_then_from_the_app(own_session: bool) -> Seen {
     std::fs::write(results.path().join("stop"), b"").unwrap();
     drop(app);
     let _ = mux.close_surface(terminal.id);
+    mux.shutdown();
     cleanup(&socket.path);
     Seen {
         hooks_admitted,
