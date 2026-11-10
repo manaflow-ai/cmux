@@ -293,7 +293,7 @@ impl Hub {
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Only its sender changes a prompt (`author.rs`), checked under the lock that changes it;
         // `resume` changes no one prompt.

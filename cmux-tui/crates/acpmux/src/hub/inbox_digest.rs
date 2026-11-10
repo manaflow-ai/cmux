@@ -362,7 +362,7 @@ impl Hub {
             return Err(super::super::queue::closing_error());
         }
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());

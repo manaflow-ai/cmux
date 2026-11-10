@@ -640,7 +640,7 @@ impl Hub {
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         self.set_policy_answered(session, policy).await
     }

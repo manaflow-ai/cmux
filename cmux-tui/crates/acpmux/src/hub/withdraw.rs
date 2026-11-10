@@ -266,7 +266,7 @@ impl Hub {
             (None, None) => return Err(RpcError::invalid_params("msgId or promptId is required")),
         };
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         // An inbox message a notice carries that is not written yet: decided once it was written
         // (retracted) or ended (still new, so unsent). Waited for outside the lock every withdraw
