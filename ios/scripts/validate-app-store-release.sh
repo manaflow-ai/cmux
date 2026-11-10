@@ -203,7 +203,9 @@ gate_args=(--app "$APP" gate)
 validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output json)
 [[ "$STRICT" -eq 1 ]] && validate_args+=(--strict)
 note "running canonical App Store readiness validation for $APP $VERSION"
-asc "${validate_args[@]}" > "$REPORT_DIR/version.json" || true
+asc_status=0
+asc "${validate_args[@]}" > "$REPORT_DIR/version.json" || asc_status=$?
+note "asc validate exited $asc_status; the gate below reads its report"
 gate_args+=(--report "$REPORT_DIR/version.json")
 
 if [[ -d "$METADATA_DIR" ]]; then
@@ -226,7 +228,9 @@ fi
 if [[ "$VALIDATE_DIGITAL_GOODS" == "1" ]]; then
   note "validating IAP and subscription readiness"
   asc validate iap --app "$APP" --output table
-  asc validate subscriptions --app "$APP" --output json > "$REPORT_DIR/subscriptions.json" || true
+  asc_status=0
+  asc validate subscriptions --app "$APP" --output json > "$REPORT_DIR/subscriptions.json" || asc_status=$?
+  note "asc validate subscriptions exited $asc_status; the gate below reads its report"
   gate_args+=(--report "$REPORT_DIR/subscriptions.json")
 else
   note "skipping IAP/subscription validation (CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS=0); the App Store build sells StoreKit subscriptions, so only skip for a dry run"

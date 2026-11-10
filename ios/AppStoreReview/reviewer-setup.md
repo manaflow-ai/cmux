@@ -32,6 +32,10 @@ The run fails, naming the field, if one of them is empty. Keep in App Store
 Connect only: the demo account email (no password: the app emails a one-time
 code to the public inbox) and a monitored contact name, email and phone.
 
+The same step sets the Support URL of every locale of the version to the one in
+`metadata/version/<version>/en-US.json` (`https://cmux.com/support`), reads them
+back, and fails on any locale that still differs (`sync-support-url`).
+
 ## Subscriptions in the submission
 
 `ios/AppStoreReview/subscriptions.json` names the subscriptions that go to App

@@ -57,7 +57,9 @@ RUN_42786056399_REPORT = {
 class FakeAsc:
     """A loopback App Store Connect with just the endpoints the package uses."""
 
-    def __init__(self, states=None, notes="", images=None, detail=None):
+    def __init__(self, states=None, notes="", images=None, detail=None, locales=None, sticky=()):
+        self.locales = dict(locales or {"en-US": "https://cmux.com/support"})
+        self.sticky = set(sticky)  # locales whose supportUrl writes do not take
         self.states = dict(states or {p: "READY_TO_SUBMIT" for p in SUBS})
         self.detail = detail if detail is not None else {
             "demoAccountName": "cmux-review@mailinator.com",
@@ -117,6 +119,11 @@ class FakeAsc:
     def get(self, path):
         if path == f"/v1/apps/{APP}/appStoreVersions":
             return 200, {"data": [{"id": "version-1"}]}
+        if path == "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+            return 200, {"data": [
+                {"id": f"loc-{locale}", "attributes": {"locale": locale, "supportUrl": url}}
+                for locale, url in self.locales.items()
+            ]}
         if path == "/v1/appStoreVersions/version-1/appStoreReviewDetail":
             return 200, {"data": {"id": "detail-1", "attributes": self.detail}}
         if path == "/v1/subscriptionGroups/22433557/subscriptions":
@@ -141,6 +148,11 @@ class FakeAsc:
         return 404, {"errors": [{"code": "NOT_FOUND"}]}
 
     def patch(self, path, body):
+        if path.startswith("/v1/appStoreVersionLocalizations/loc-"):
+            locale = path.rsplit("loc-", 1)[1]
+            if locale not in self.sticky:
+                self.locales[locale] = body["data"]["attributes"]["supportUrl"]
+            return 200, {"data": {"id": f"loc-{locale}"}}
         if path == "/v1/appStoreReviewDetails/detail-1":
             self.detail["notes"] = body["data"]["attributes"]["notes"]
             return 200, {"data": {"id": "detail-1"}}
@@ -269,6 +281,38 @@ class NotesTests(FakeAscCase):
         self.assertNotIn("Tailscale", fake.detail["notes"])
         self.assertFalse(pkg.sync_notes(api, APP, "1.0.0", pkg.DEFAULT_NOTES_TEMPLATE, dry_run=False))
         self.assertEqual(len(self.writes(fake, "PATCH")), 1)
+
+
+class SupportUrlTests(FakeAscCase):
+    def test_expected_url_is_the_support_page_from_the_version_metadata(self):
+        self.assertEqual(pkg.expected_support_url("1.0.0"), "https://cmux.com/support")
+
+    def test_every_store_locale_in_git_uses_the_support_page(self):
+        for path in sorted((pkg.IOS_DIR / "fastlane" / "metadata").glob("*/support_url.txt")):
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "https://cmux.com/support", path)
+
+    def test_a_locale_on_the_home_page_is_rewritten_and_read_back(self):
+        fake = self.start(locales={"en-US": "https://cmux.com/support", "ja": "https://cmux.com", "de-DE": None})
+        wrong = pkg.sync_support_url(pkg.Api(), APP, "1.0.0", "https://cmux.com/support", dry_run=False)
+        self.assertEqual(wrong, [])
+        self.assertEqual(set(fake.locales.values()), {"https://cmux.com/support"})
+        self.assertEqual(len(self.writes(fake, "PATCH")), 2)
+
+    def test_matching_locales_make_no_write(self):
+        fake = self.start(locales={"en-US": "https://cmux.com/support", "fr-FR": "https://cmux.com/support"})
+        self.assertEqual(pkg.sync_support_url(pkg.Api(), APP, "1.0.0", "https://cmux.com/support", dry_run=False), [])
+        self.assertEqual(self.writes(fake, "PATCH"), [])
+
+    def test_a_locale_that_keeps_the_wrong_url_fails(self):
+        self.start(locales={"en-US": "https://cmux.com/support", "ko": "https://cmux.com"}, sticky={"ko"})
+        wrong = pkg.sync_support_url(pkg.Api(), APP, "1.0.0", "https://cmux.com/support", dry_run=False)
+        self.assertEqual(len(wrong), 1)
+        self.assertIn("ko", wrong[0])
+
+    def test_dry_run_reports_without_writing(self):
+        fake = self.start(locales={"en-US": "https://cmux.com"})
+        self.assertEqual(len(pkg.sync_support_url(pkg.Api(), APP, "1.0.0", "https://cmux.com/support", dry_run=True)), 1)
+        self.assertEqual(self.writes(fake, "PATCH"), [])
 
 
 class ImageTests(FakeAscCase):

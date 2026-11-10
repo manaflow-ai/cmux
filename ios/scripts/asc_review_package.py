@@ -8,6 +8,11 @@ Subcommands, all through the public App Store Connect API with the CI key
                       live values App Store Connect already holds (demo account,
                       public inbox, contact) and write it to the version's App
                       Review notes. Live values never live in git.
+  sync-support-url    Set every locale of the version to the Support URL in
+                      metadata/version/<version>/en-US.json, then read them
+                      back and fail on any locale that still differs (a
+                      locale left on the home page is a Guideline 1.5
+                      rejection).
   upload-images       Upload subscription-images/<product id>.png as the
                       promotional image of each subscription that has none.
   gate                Read `asc validate --output json` reports and fail on every
@@ -49,6 +54,7 @@ REVIEW_DIR = IOS_DIR / "AppStoreReview"
 DEFAULT_MANIFEST = REVIEW_DIR / "subscriptions.json"
 DEFAULT_NOTES_TEMPLATE = REVIEW_DIR / "review-notes-asc.txt"
 DEFAULT_IMAGES_DIR = REVIEW_DIR / "subscription-images"
+VERSION_METADATA_DIR = REVIEW_DIR / "metadata" / "version"
 NOTES_LIMIT = 4000
 IN_REVIEW_STATES = {"WAITING_FOR_REVIEW", "IN_REVIEW"}
 OPEN_SUBMISSION_STATES = ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "UNRESOLVED_ISSUES")
@@ -203,6 +209,51 @@ def sync_notes(api: Api, app: str, version: str, template_path: Path, dry_run: b
     return True
 
 
+# --- sync-support-url --------------------------------------------------------
+
+
+def expected_support_url(version: str, metadata_dir: Path = VERSION_METADATA_DIR) -> str:
+    path = metadata_dir / version / "en-US.json"
+    try:
+        url = (json.loads(path.read_text(encoding="utf-8")).get("supportUrl") or "").strip()
+    except (OSError, ValueError) as error:
+        raise PackageError(f"{path}: cannot read supportUrl ({error})") from None
+    if not url.startswith("https://"):
+        raise PackageError(f"{path}: supportUrl must be an https URL, got {url!r}")
+    return url
+
+
+def sync_support_url(api: Api, app: str, version: str, expected: str, dry_run: bool) -> list[str]:
+    vid = version_id(api, app, version)
+    path = f"/v1/appStoreVersions/{vid}/appStoreVersionLocalizations?limit=50"
+    localizations = api.get_all(path)
+    if not localizations:
+        raise PackageError(f"version {version} has no localizations")
+    for item in localizations:
+        attrs = item.get("attributes") or {}
+        if (attrs.get("supportUrl") or "").strip() == expected:
+            continue
+        locale = attrs.get("locale") or item["id"]
+        if dry_run:
+            note(f"{locale}: supportUrl is {attrs.get('supportUrl')!r} (dry run, not written)")
+            continue
+        api.request("PATCH", f"/v1/appStoreVersionLocalizations/{item['id']}", {
+            "data": {"type": "appStoreVersionLocalizations", "id": item["id"], "attributes": {"supportUrl": expected}},
+        })
+        note(f"{locale}: supportUrl set to {expected}")
+    wrong = [
+        f"{(item.get('attributes') or {}).get('locale') or item['id']} supportUrl is "
+        f"{(item.get('attributes') or {}).get('supportUrl')!r}, not {expected}"
+        for item in api.get_all(path)
+        if ((item.get("attributes") or {}).get("supportUrl") or "").strip() != expected
+    ]
+    for line in wrong:
+        note("BLOCKING: " + line)
+    if not wrong:
+        note(f"all {len(localizations)} locale(s) of {version} use Support URL {expected}")
+    return wrong
+
+
 # --- upload-images -----------------------------------------------------------
 
 
@@ -336,6 +387,8 @@ def verify_submission(api: Api, app: str, manifest: dict, wait_seconds: int, can
                 problems.append(f"{product} entered review but the app does not offer it in this version")
         if not problems or time.monotonic() >= deadline:
             break
+        # App Store Connect sends no event when a submission's items change
+        # state; re-reading the states until the deadline is the only signal.
         time.sleep(10)
     if not problems:
         note("submission carries exactly: " + ", ".join(sorted(submit)))
@@ -368,6 +421,9 @@ def main(argv: list[str] | None = None) -> int:
     notes_p.add_argument("--version", required=True)
     notes_p.add_argument("--template", type=Path, default=DEFAULT_NOTES_TEMPLATE)
     notes_p.add_argument("--dry-run", action="store_true")
+    support_p = sub.add_parser("sync-support-url")
+    support_p.add_argument("--version", required=True)
+    support_p.add_argument("--dry-run", action="store_true")
     images_p = sub.add_parser("upload-images")
     images_p.add_argument("--dir", type=Path, default=DEFAULT_IMAGES_DIR)
     gate_p = sub.add_parser("gate")
@@ -386,6 +442,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync-notes":
             sync_notes(api, args.app, args.version, args.template, args.dry_run)
             return 0
+        if args.command == "sync-support-url":
+            expected = expected_support_url(args.version)
+            return 1 if sync_support_url(api, args.app, args.version, expected, args.dry_run) else 0
         if args.command == "upload-images":
             upload_images(api, manifest, args.dir)
             return 0
