@@ -24,6 +24,10 @@ public final class WindowRegistryStore {
     /// its own workspace's entry, never `value`, so a workspace made, closed or moved elsewhere maps no other row again
     /// (TYPING UNDER LOAD F6: every row read the whole registry).
     public let incognitoByWorkspace = ObservedMap<String, Bool>()
+    /// The close-selection rule's state for the workspaces of every window: who opened which, and the pick after a
+    /// close (`WindowCloseSelection`). One instance for all windows is safe: a workspace has one owner window
+    /// (`WindowRegistry.owner(of:)`), so no relation of one window can be ended by a selection change of another.
+    @ObservationIgnored public let closeSelection = WindowCloseSelection()
     /// The window that lists each workspace (`WindowRegistry.owner(of:)`), observed one workspace at a time: nil while
     /// no window lists it. An observer of ONE workspace (its link places, its shown name) reads its own entry, never
     /// `value`: a read of `value` there made one workspace made or closed wake one observer per workspace of the

@@ -32,6 +32,7 @@ mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
@@ -54,6 +55,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod session_lists;
 mod signaled_mutex;
 mod snapshot_read;
 mod split_ratio;
@@ -68,6 +70,10 @@ mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
 mod viewport_columns;
+#[cfg(unix)]
+mod workspace_close_cost;
+#[cfg(unix)]
+mod workspace_close_time;
 mod workspace_materialize;
 mod workspaces;
 mod writer_lock_order;
