@@ -331,7 +331,7 @@ export function cloudStartKeys(
       const found = fresh(kept[name], at) ?? fresh(local[name], at);
       const key = found?.key ?? newKey();
       for (const [other, entry] of Object.entries(kept)) if (!fresh(entry, at)) delete kept[other];
-      // The first reservation sent with this key stays its one; a send without one names it now.
+      // The reservation this key was first sent with stays its one; a key first sent without one stays without.
       const reservation =
         typeof found?.reservation === "string" ? found.reservation : (found ? undefined : start.reservationKey);
       kept[name] = { key, at: found?.at ?? at, ...(reservation ? { reservation } : {}) };
@@ -340,8 +340,8 @@ export function cloudStartKeys(
       return key;
     },
     /// `start` again while its key is kept (a retry): the reservation its key went with first, if any,
-    /// which the retry names instead of the composer's own. Undefined: a new start, which takes the
-    /// composer's reservation.
+    /// which the retry names instead of the composer's own (a page that no longer holds it sends the
+    /// retry without one, reservedCloudCall). Undefined: a new start, which takes the composer's.
     retryOf(start: CloudStart): { reservationKey?: string } | undefined {
       const at = now();
       const name = cloudStartFingerprint(start);
