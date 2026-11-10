@@ -77,7 +77,8 @@ test("the ride gives way when it would move the line the reader clicked", () => 
   lower.append(toggle);
   const placed = new Map<HTMLElement, number>(rows.map((row) => [row, 100]));
   const height = new Map(placed);
-  let held: HTMLElement | undefined;
+  toggle.getBoundingClientRect = () => ({ top: 250, bottom: 270, height: 20 }) as DOMRect;
+  let held: { toggle: HTMLElement; top: number } | undefined;
   const ride = new FoldRide({
     placed: (row) => placed.get(row),
     height: (row) => height.get(row),
@@ -87,7 +88,7 @@ test("the ride gives way when it would move the line the reader clicked", () => 
   markHeightFold(upper, 10_000);
   height.set(upper, 140);
   expect(ride.ride([upper])).toBe(true);
-  held = toggle;
+  held = { toggle, top: 250 };
   height.set(upper, 160);
   expect(ride.ride([upper])).toBe(false);
   expect(last.style.translate).toBe("");
@@ -105,4 +106,33 @@ test("the ride gives way when it would move the line the reader clicked", () => 
   expect(fresh.ride([lower])).toBe(true);
   expect(last.style.translate).toBe("0 30px");
   fresh.release();
+});
+
+// Two disclosures in one row (a group's Shell cards): the reader clicks the lower one while the upper
+// one's body still grows. Its row does not shift, but the clicked line moves inside it, so the ride
+// gives way and the transcript holds the line by the offset (review of #39917 at 466bcfb5).
+test("the ride gives way when a fold above the clicked line in its own row moves it", () => {
+  const rows = transcript(4);
+  const [, , row, last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const toggle = row.ownerDocument.createElement("button");
+  row.append(toggle);
+  let toggleTop = 250;
+  toggle.getBoundingClientRect = () => ({ top: toggleTop, bottom: toggleTop + 20, height: 20 }) as DOMRect;
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+    held: () => ({ toggle, top: 250 }),
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(true);
+  expect(last.style.translate).toBe("0 40px");
+  // The upper card's body grows above the clicked line: it moves down 30px.
+  toggleTop = 280;
+  height.set(row, 180);
+  expect(ride.ride([row])).toBe(false);
+  expect(last.style.translate).toBe("");
 });

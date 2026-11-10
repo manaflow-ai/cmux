@@ -2195,7 +2195,7 @@ function TranscriptView({
       return id === undefined ? undefined : drawnRef.current.get(id)?.height;
     },
     height: drawnHeightOf,
-    held: () => (foldHolding(foldAnchor.current) ? foldAnchor.current!.toggle : undefined),
+    held: () => (foldHolding(foldAnchor.current) ? foldAnchor.current : undefined),
     finish: (rows) => {
       for (const row of rows) reportRowRef.current(row);
       if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
