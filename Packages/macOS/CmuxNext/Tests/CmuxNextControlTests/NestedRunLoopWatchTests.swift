@@ -78,6 +78,33 @@ import Testing
         #expect(first.duration >= .milliseconds(200))
         #expect(!first.addresses.isEmpty, "the main thread's stack names the nested run's caller")
     }
+
+    /// End to end on the real main run loop: one busy turn past the hang threshold inside a nested
+    /// default-mode run is one hang, reported once (the heartbeat's), not a second time as a parked run.
+    @MainActor
+    @Test func aBusyHangInsideARealNestedRunIsReportedOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
+                                                                hangThreshold: .milliseconds(200), hangAssertThreshold: nil))
+        let reported = ReportedHangs()
+        watchdog.onHang = { hang in reported.hangs.withLock { $0.append(hang) } }
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            busyOnTheMainThreadForTest(.milliseconds(600))
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        let hangs = reported.hangs.withLock { $0 }
+        #expect(hangs.count == 1, "one report for one busy hang, got \(hangs.count)")
+    }
+}
+
+/// The forced hang under test: keeps the main thread busy in one run-loop turn for `duration`.
+@inline(never)
+private func busyOnTheMainThreadForTest(_ duration: Duration) {
+    let deadline = ContinuousClock.now + duration
+    while ContinuousClock.now < deadline { usleep(5_000) }
 }
 
 /// The nested run under test: sleeps in the main run loop's default mode, as `waitUntilExit()` does.
