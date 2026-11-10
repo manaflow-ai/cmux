@@ -22,7 +22,8 @@ import CmuxNextTabs
 ///   person's pick of it does (a run that only a person may start, such as Share with Guest's link to the
 ///   pasteboard).
 /// - `swatch: 2`: with the workspace or group menu open, a left press and release on that swatch of its header (No Color
-///   is 0), posted to the menu's window at the swatch's center, as a person's click there (#39953).
+///   is 0), posted to the menu's window at the swatch's center, as a person's click there (#39953); `hid: true` posts
+///   real pointer events there instead (a whole capture host).
 /// - `dismiss: true`: Escape for every open level, so the menus close and the window's stills can be taken
 ///   (an open menu's tracking holds the main thread).
 /// Answers what it opened, or `error`.
@@ -87,7 +88,7 @@ enum DebugObjectMenu {
             answer["folderKeys"] = .number(Double(events.count))
         }
         if let swatch = params["swatch"]?.intValue {
-            guard MenuSwatchStrip.postClick(onSwatch: swatch) else { return failure("no open menu with swatch \(swatch)") }
+            guard MenuSwatchStrip.postClick(onSwatch: swatch, hid: params["hid"]?.boolValue == true) else { return failure("no open menu with swatch \(swatch)") }
             answer["swatchClicks"] = .number(2)
         }
         if params["dismiss"]?.boolValue == true {

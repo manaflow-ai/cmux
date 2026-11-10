@@ -307,14 +307,24 @@ public final class MenuSwatchStrip: NSView {
 extension MenuSwatchStrip {
     /// `debug.object_menu {swatch: N}` (#39953): a left press and release on swatch `index` (No Color is 0) of the open
     /// menu's header, posted to the menu's own window at the swatch's center, so the menu's tracking delivers them as a
-    /// person's click there. False when no shown window has a strip with that swatch.
-    public static func postClick(onSwatch index: Int) -> Bool {
+    /// person's click there. `hid`: real pointer events at the swatch's place on screen instead (the pointer moves there
+    /// first, as a person's does), for a capture host whose screen this run owns. False when no shown window has a strip
+    /// with that swatch.
+    public static func postClick(onSwatch index: Int, hid: Bool = false) -> Bool {
         func strip(in view: NSView) -> MenuSwatchStrip? {
             view as? MenuSwatchStrip ?? view.subviews.lazy.compactMap(strip(in:)).first
         }
         for window in NSApp.windows where window.isVisible {
             guard let found = window.contentView.flatMap(strip(in:)), found.swatches.indices.contains(index) else { continue }
             let rect = found.swatches[index], point = found.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            if hid {
+                let screen = window.convertPoint(toScreen: point), top = NSScreen.screens.first?.frame.maxY ?? 0
+                let global = CGPoint(x: screen.x, y: top - screen.y)
+                for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: global, mouseButton: .left)?.post(tap: .cghidEventTap)
+                }
+                return true
+            }
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
