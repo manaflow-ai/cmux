@@ -282,6 +282,31 @@ describe("draft stash", () => {
     expect(daemon.get("new-a")).toBeUndefined();
   });
 
+  test("a new chat's drafts whose move failed wait for its own session, never the next chat the tab opens", async () => {
+    await stashDraft("new-tab:t", "for a", []);
+    let failing = true;
+    setStashTransport({
+      ...fake,
+      move: async (chat, to) => {
+        if (failing) throw new Error("lost the connection");
+        return fake.move(chat, to);
+      },
+    });
+    await moveStash("new-tab:t", "session-a");
+    // The tab opens B, whose stack is full, while A's move still waits.
+    const full = [1, 2, 3, 4, 5].map((n) => ({ id: `b-${n}`, text: `b ${n}`, attachments: [], at: n }));
+    daemon.set("session-b", full);
+    failing = false;
+    await moveStash("new-tab:t", "session-b");
+    expect(daemon.get("session-b")?.map((row) => row.text)).toEqual(full.map((row) => row.text));
+    expect(daemon.get("session-a")?.map((row) => row.text)).toEqual(["for a"]);
+    expect(daemon.get("new-tab:t")).toBeUndefined();
+    // With A's move done, the tab's next new chat follows the session it gets.
+    await stashDraft("new-tab:t", "for c", []);
+    await moveStash("new-tab:t", "session-c");
+    expect(daemon.get("session-c")?.map((row) => row.text)).toEqual(["for c"]);
+  });
+
   test("a page opened on a session brings the tab's leftover drafts, and asks no move when there are none", async () => {
     const calls: string[] = [];
     setStashTransport({ ...fake, move: (...args) => (calls.push("move"), fake.move(...args)) });
