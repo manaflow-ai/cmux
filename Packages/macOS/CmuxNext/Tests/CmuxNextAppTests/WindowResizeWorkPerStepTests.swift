@@ -197,6 +197,12 @@ import Testing
         rig.countDraws()
         bar.setFrameSize(NSSize(width: size.width - 48, height: size.height))
         try #require(bar.frame.size != size, "fixture: the switcher did not take the new size")
+        // Review of #40616 (finding 2): the size change itself makes the slots again, in its own turn. The layout
+        // pass of `show()` below makes them again too (`layout()` compares the slots), so without this read the
+        // test passes with no `setFrameSize` override at all, and a pointer between the two meets the old slots.
+        let tipsAtOnce = TooltipTracker.all(of: bar)
+        #expect(tipsAtOnce.count == tips.count && !zip(tipsAtOnce, tips).contains { $0 === $1 },
+                "the new size kept the tooltips of the old slots until the next layout")
         rig.show()
         let tipsNow = TooltipTracker.all(of: bar)
         let elements = try #require(bar.accessibilityChildren() as? [NSAccessibilityElement])
