@@ -60,11 +60,11 @@ public final class CloudMachineStatePush {
         }
     }
 
-    /// `session` must refuse redirects (``transport`` does): one would carry the bearer elsewhere.
+    /// `session` must refuse redirects (the default, ``noRedirects()``, does): one would carry the bearer elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
                 session: URLSession? = nil) {
         (self.baseURL, self.accessToken, self.teamID) = (baseURL, accessToken, teamID)
-        self.session = session ?? Self.transport
+        self.session = session ?? Self.noRedirects()
     }
 
     /// Whether `machine`'s state is pushed now (its socket is open and its last frame reached the Cloud app server).
@@ -240,14 +240,14 @@ public final class CloudMachineStatePush {
 }
 
 extension CloudMachineStatePush {
-    /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.
-    nonisolated static let transport: URLSession = {
+    /// This push's own session: no cache, no cookies, and redirects refused, so the Stack bearer never follows one.
+    nonisolated static func noRedirects() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
-    }()
+    }
 }
 
 extension CloudAPIClient {
