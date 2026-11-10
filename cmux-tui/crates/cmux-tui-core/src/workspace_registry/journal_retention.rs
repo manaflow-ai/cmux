@@ -107,9 +107,14 @@ pub(crate) fn note_journal_pruned_through(tx: &Transaction<'_>, floor: u64) -> a
         "INSERT INTO journal_pruned_ranges(start_sequence, end_sequence) VALUES(1, ?1)",
         [merged_end.max(floor_sequence)],
     )?;
+    // The floor in `meta` never goes down. The swap at open records the
+    // floor of its cut (output_cleanup/swap.rs) and a segment at or below
+    // that floor can stay: its delete here must not lower the key, or a
+    // cursor between the two values reads a hole with no `cursor.gap`.
     tx.execute(
         "INSERT INTO meta(key, value) VALUES(?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value
+         WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)",
         params![PRUNED_THROUGH_META_KEY, floor.to_string()],
     )?;
     Ok(())
@@ -225,6 +230,30 @@ impl WorkspaceRegistry {
 
     pub(crate) fn journal_pruned_through(&self) -> anyhow::Result<u64> {
         journal_pruned_through(&self.connection.get())
+    }
+
+    /// Keeps the raw saved state of `reducer_id` under a second `meta` key,
+    /// `journal_reducer_kept.<id>`. After retention deleted records, a saved
+    /// reducer state is the only copy of what it folded below the floor. A
+    /// start that cannot load it folds again from the first RETAINED record
+    /// and its next save is smaller: it calls this first. The copy is the
+    /// value as it is (it need not be JSON) and is made one time: a later
+    /// state that does not load never replaces the copy of the first one.
+    /// True when the second key holds a copy after the call (false: there
+    /// is no saved state to keep).
+    pub(crate) fn keep_unloaded_reducer_state(&self, reducer_id: &str) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        let kept_key = format!("journal_reducer_kept.{reducer_id}");
+        db.execute(
+            "INSERT INTO meta(key, value)
+             SELECT ?1, value FROM meta WHERE key = ?2
+             ON CONFLICT(key) DO NOTHING",
+            params![kept_key, format!("journal_reducer.{reducer_id}")],
+        )?;
+        let kept = db
+            .query_row("SELECT 1 FROM meta WHERE key = ?1", [&kept_key], |_| Ok(()))
+            .optional()?;
+        Ok(kept.is_some())
     }
 
     /// Deletes the oldest sealed segment that ends at or below `floor`
