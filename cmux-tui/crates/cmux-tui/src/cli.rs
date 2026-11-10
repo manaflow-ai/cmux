@@ -53,6 +53,8 @@ mod chat_send;
 #[cfg(unix)]
 mod chat_start;
 #[cfg(unix)]
+mod last_chat;
+#[cfg(unix)]
 mod chief;
 mod chief_target;
 #[cfg(unix)]

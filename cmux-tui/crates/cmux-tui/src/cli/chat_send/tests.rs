@@ -62,7 +62,7 @@ fn parse_takes_the_session_the_prompt_and_the_wait() {
     assert_eq!(resumed.on.as_deref(), Some("vm:dev"));
     assert_eq!(sent(&["s-1", "--", "-starts with a dash"], true).text, "-starts with a dash");
     for (words, send_verb) in [
-        (vec!["s-1"], true),
+        (vec!["0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f"], true),
         (vec!["s-1", "two", "words"], true),
         (vec!["s-1", "  "], true),
         (vec!["s-1", "hi", "--timeout", "soon"], true),
@@ -216,4 +216,30 @@ fn send_wait_is_for_a_chat_here_too() {
     assert!(USAGE.contains("cmux chat wait SESSION"), "{USAGE}");
     let send = sent(&["s-1", "next", "--wait"], true);
     assert!(send.wait && send.timeout.is_none());
+}
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're nice to type". A
+/// follow-up names no session: `chat send TEXT` is the last chat this terminal used.
+#[test]
+fn a_send_without_a_session_is_to_the_last_chat() {
+    let last = super::super::last_chat::LAST;
+    let send = sent(&["next step", "-w"], true);
+    assert_eq!((send.session.as_str(), send.text.as_str(), send.wait), (last, "next step", true));
+    assert_eq!(sent(&["--prompt", "go on"], true).session, last);
+    assert_eq!(sent(&["--", "-dash"], true).session, last);
+    assert_eq!(sent(&["last", "go on"], true).session, last);
+    // Two words are still SESSION TEXT; a session with `--prompt` is that session.
+    assert_eq!(sent(&["s-1", "go on"], true).session, "s-1");
+    assert_eq!(sent(&["s-1", "--prompt", "go on"], true).session, "s-1");
+    assert!(parse(&strings(&["a", "b", "c"]), true).is_err());
+    // `chat send TEXT` is this file's, not the Chief's.
+    assert_eq!(command(&["chat", "send", "next step"]), Some(strings(&["next step"])));
+}
+
+#[test]
+fn read_and_wait_take_last() {
+    for verb in ["read", "wait"] {
+        let command = strings(&["chat", verb, "last"]);
+        assert_eq!(session_verb(&command).map(|(found, _)| found), Some(verb));
+    }
 }
