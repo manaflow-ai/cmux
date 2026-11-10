@@ -121,7 +121,7 @@ nonisolated enum AcpmuxPaneMethods {
         // waiting on the person across agents and machines, and the approvals audit trail, all
         // reads acpmux answers to this Mac's app only. `_acpmux/review_verdict` records a pull
         // request item's Accept or Request changes, only on the person's click or key (``gestureRules``).
-        "_acpmux/ledger", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
+        "_acpmux/ledger", "_acpmux/team_audit", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",

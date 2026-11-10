@@ -65,7 +65,7 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
-import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import { CONTEXT_LABELS, emptyFolderLabel, splitForMiddleTruncation } from "./composerContextModel";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -880,18 +880,14 @@ export function ComposerContext({
                       <FolderIcon />
                     )
                   }
+                  // No folder is a settled choice, drawn like a picked folder: the chat starts in its
+                  // own private folder (Leo, 2026-11-09: "this no folder selected should be, like,
+                  // good as well"). Never a dimmed "Choose folder" prompt (emptyFolderLabel).
                   value={
-                    (newProject
-                      ? t(CONTEXT_LABELS.newProject)
-                      : currentName
-                        ? currentName
-                        : noProject
-                          ? t(CONTEXT_LABELS.noProject)
-                          : t(CONTEXT_LABELS.chooseFolder)) + extraCount
+                    (newProject ? t(CONTEXT_LABELS.newProject) : (currentName ?? t(emptyFolderLabel))) + extraCount
                   }
                   chevron
                   middle={currentFolder !== undefined && !newProject}
-                  dim={!currentName && !noProject && !newProject}
                 />
               }
               folders={folders}
@@ -906,7 +902,8 @@ export function ComposerContext({
                   onNoProject();
                 })
               }
-              noProject={noProject && !currentFolder}
+              // Checked whenever the chip reads No folder, so the menu agrees with it.
+              noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
@@ -916,7 +913,7 @@ export function ComposerContext({
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={(currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)) + extraCount}
+              value={(currentFolder ? projectLabel(currentFolder) : t(emptyFolderLabel)) + extraCount}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
@@ -1246,7 +1243,6 @@ function LocationFace({
   middle = false,
   live,
   sleep,
-  dim = false,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1257,8 +1253,6 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
-  /// An empty choice ("Choose project"): dimmed until something is picked.
-  dim?: boolean;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1270,9 +1264,7 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label" data-dim={dim ? "" : undefined}>
-          {value}
-        </span>
+        <span className="acpmux-location-label">{value}</span>
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
