@@ -275,10 +275,9 @@ async fn write_new(dir: &Path, name: &str, body: &[u8], limit: usize) -> Result<
 }
 
 /// The CSV with every cell a spreadsheet would read as a formula made text: a cell starting with
-/// `=`, `+`, `-`, `@` or a tab (a quoted one also with a carriage return) gets a leading `'`, as
-/// OWASP's CSV injection advice says, so a session title or person name like
-/// `=HYPERLINK(...)` opens as text in Excel, Numbers or Sheets. A plain number (`-12.5`) stays a
-/// number. Quoting is RFC 4180's: a quoted cell may hold commas, line breaks and `""`.
+/// `=`, `+`, `-`, `@` or a tab (a quoted one also with a carriage return) gets a leading `'`, the
+/// usual CSV injection defence, so a session title or person name like `=HYPERLINK(...)` opens as
+/// text in a spreadsheet app. A plain number (`-12.5`) stays a number. Quoting is RFC 4180's: a quoted cell may hold commas, line breaks and `""`.
 fn defuse_formulas(body: &[u8]) -> Vec<u8> {
     fn is_number(cell: &[u8]) -> bool {
         let digits = cell.strip_prefix(b"-").or_else(|| cell.strip_prefix(b"+")).unwrap_or(cell);
