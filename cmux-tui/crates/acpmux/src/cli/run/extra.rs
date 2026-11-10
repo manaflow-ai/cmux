@@ -564,10 +564,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 crate::daemon::mark_explicit_start();
             }
             let show_token = match &which {
-                Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
+                Command::Status { show_token, .. } | Command::DaemonStart { show_token, .. } => {
                     *show_token
                 }
                 _ => false,
+            };
+            let wait_adopted = match &which {
+                Command::Status { wait_adopted, .. } => *wait_adopted,
+                _ => None,
             };
             // A keyed start (cx-0q7o, D2): the daemon must be the one this
             // command starts, with the key from the app's own exec.
@@ -581,9 +585,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             match connect(start).await {
                 Ok(client) => {
-                    let v = client.request(method::MUX_STATUS, json!({})).await?;
+                    // `--wait-adopted`: the daemon answers once adoption ends, or at the bound
+                    // (an older daemon answers at once and names no `adopting`).
+                    let params = match wait_adopted {
+                        Some(bound) => {
+                            json!({"waitAdoptedMs": u64::try_from(bound.as_millis()).unwrap_or(u64::MAX)})
+                        }
+                        None => json!({}),
+                    };
+                    let v = client.request(method::MUX_STATUS, params).await?;
+                    let left = v.get("adopting").and_then(Value::as_u64).unwrap_or(0);
+                    let still = wait_adopted
+                        .filter(|_| left > 0)
+                        .map(|bound| crate::cli::daemon_status_help::still_adopting(left, bound));
                     if json_out {
                         print_json(&v);
+                        if let Some(message) = still {
+                            return Err(crate::cli::errors::AppError::new(
+                                crate::cli::errors::Code::Timeout,
+                                "still_adopting",
+                                message,
+                            )
+                            .into());
+                        }
                         return Ok(());
                     }
                     println!(
@@ -607,10 +631,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "store:    {}",
                         v.pointer("/store/mode").and_then(Value::as_str).unwrap_or("")
                     );
+                    let adopting = v.get("adopting").and_then(Value::as_u64).unwrap_or(0);
                     println!(
-                        "sessions: {} ({} live agents)",
+                        "sessions: {} ({} live agents{})",
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
+                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0),
+                        if adopting > 0 {
+                            format!(", adopting {adopting}: the restart is reattaching them")
+                        } else {
+                            String::new()
+                        }
                     );
                     if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");
@@ -643,6 +673,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                             p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                             p.get("url").and_then(Value::as_str).unwrap_or("")
                         );
+                    }
+                    if let Some(message) = still {
+                        return Err(crate::cli::errors::AppError::new(
+                            crate::cli::errors::Code::Timeout,
+                            "still_adopting",
+                            message,
+                        )
+                        .into());
                     }
                 }
                 // `daemon start` promised a running daemon: failing to start

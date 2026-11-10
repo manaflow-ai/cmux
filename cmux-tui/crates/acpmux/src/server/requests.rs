@@ -2264,7 +2264,16 @@ async fn dispatch_request_with_identity(
                     .with_data(json!({"reason": "not_built"})))
             }
         }
-        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_STATUS => {
+            // `waitAdoptedMs` (`daemon status --wait-adopted`): answer once this start has
+            // adopted the agents an earlier daemon left, or at the bound (at most 10 min).
+            if let Some(ms) = params.get("waitAdoptedMs").and_then(Value::as_u64) {
+                let bound = std::time::Duration::from_millis(ms.min(600_000));
+                let mut adopted = hub.adoption_ready.subscribe();
+                let _ = tokio::time::timeout(bound, adopted.wait_for(|ready| *ready)).await;
+            }
+            Ok(hub.status().await)
+        }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // until now first (`hub/usage_view.rs`); else rows carry the last pass's.

@@ -869,6 +869,30 @@ impl Hub {
                 }
             }
         }
+        // While a start adopts the agent hosts an earlier daemon left, they are not live here
+        // yet: status counts them, so a live agent never reads as gone (bench round 5, row 10).
+        let adopting = if *self.adoption_ready.borrow() {
+            0
+        } else {
+            let dir = crate::agent_host::hosts_dir();
+            let hosts = tokio::task::spawn_blocking(move || crate::agent_host::load_records(&dir))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .map(|(good, _)| good)
+                .unwrap_or_default();
+            let mut waiting = 0_usize;
+            for (_, record) in &hosts {
+                let adopted = match self.session_by_id(&record.session_id) {
+                    Some(s) => s.child.lock().await.is_some(),
+                    None => false,
+                };
+                if !adopted {
+                    waiting = waiting.saturating_add(1);
+                }
+            }
+            waiting
+        };
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
@@ -903,6 +927,8 @@ impl Hub {
             // pressure-aware admission would say. Nothing is deferred on it.
             "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
+            // Agent hosts an earlier daemon left that this start still adopts (0 once done).
+            "adopting": adopting,
             // Live agent hosts still on another build than this one (`views/host_build.rs`).
             "hostsOnOtherBuilds": other_build,
             "stuckSessions": stuck,
