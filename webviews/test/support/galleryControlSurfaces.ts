@@ -1,14 +1,39 @@
-// cmux-web-test-timeout: 900
 // l10n-allow-file: browser audit diagnostics, not shipped UI.
+// The control-surface audit over every web gallery entry, split into parts
+// (test/browser/gallery-control-surfaces-N.test.ts): a group of trailing controls paints no plate
+// of its own, and a control's hover lights nothing outside its own 2px inset.
+//
+// Why parts: one file walked every entry under one 900 s limit. Its budget was measured on 372
+// entries (warm-up 269 s, audit 240 s); at 649 entries the audit ran out at its 380 s deadline on
+// every run, retried alone too (2026-11-10, runs 42854083321 and 42859631739), and the warm-up
+// was at its 480 s edge. The cost grows with the gallery, so each part takes every `parts`-th case
+// of the sorted list and warms only its own entries: a part's time is the gallery's size over
+// `parts`, and the next growth adds a part, not a longer deadline.
+//
+// Eight parts, not four: each part starts its own dev server, so the runner runs them in its
+// dev-server pool (CMUX_WEB_TEST_DEV_JOBS at once, each on its own Vite cache). Four parts of 163
+// cases, two at once on an 8 vCPU runner (the per-core load of CI's four at once on 16), both ran
+// out of the 240 s warm-up (2026-11-10, runs 42900294454 and 42911160967), while one alone
+// passed. Eight parts of about 82 cases each warm in about half that time.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
-import { requireBrowserLane } from "../support/requireBrowserLane";
-import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
+import { galleryFrame, warmGalleryFrame } from "./galleryFrame";
 
-await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
+export type GalleryControlPart = {
+  /** One-based. */
+  part: number;
+  parts: number;
+};
+
+/**
+ * Registers one part's tests. Each part file calls it inside its own `requireBrowserLane(...)`: the
+ * runner (scripts/ci/run-webviews-tests.sh, webviews_test_shards.py) finds browser files by that call
+ * in the file itself, and runs them in the browser pool after the shared warm-up.
+ */
+export async function galleryControlSurfaces({ part, parts }: GalleryControlPart): Promise<void> {
   // Every web entry's default variant plus the shared-row cases. Native entries are capture
   // descriptors, not DOM surfaces, so the browser cannot inspect their paint.
   const EXTRA_VARIANTS: Record<string, string[]> = {
@@ -222,13 +247,22 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   // Local red/green reproduction can select the known regressions. CI always walks every entry.
   const filter = process.env.GALLERY_CONTROL_ENTRIES;
   if (process.env.CI && filter) throw new Error("CI cannot filter the gallery control guard");
-  const selected = filter ? cases.filter((c) => filter.split(",").includes(c.id)) : cases;
-  // Both phases share the file's 900 s limit (header). Measured on Linux CI with 372 web entries
-  // (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and 267 s with 8 (Vite's
-  // transforms bound it, not the browser), and the audit 240 s. The old 300 s warm-up budget left
-  // ~10% and went red (run 41597839583); this split keeps ~1.8x on the warm-up and ~1.6x on the audit.
-  const WARM_MS = 480_000;
-  const AUDIT_MS = 380_000;
+  const wanted = filter ? cases.filter((c) => filter.split(",").includes(c.id)) : cases;
+  // This part's share: every `parts`-th case of the list sorted by name, so each part gets a mix.
+  const selected = [...wanted]
+    .sort((a, b) => `${a.id}/${a.variant}`.localeCompare(`${b.id}/${b.variant}`))
+    .filter((_, index) => index % parts === part - 1);
+  // A local filter of a few entries leaves some parts nothing: those skip, with no server started.
+  // Unfiltered (CI), every part holds entries, and an empty one still fails the length check below.
+  if (filter && selected.length === 0) {
+    test.skip(`part ${part}/${parts}: GALLERY_CONTROL_ENTRIES selects none of this part's entries`, () => {});
+    return;
+  }
+  // Both phases share the part's file limit (its header). Measured on Linux CI with 372 web entries
+  // in one file (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and 267 s with
+  // 8 (Vite's transforms bound it, not the browser), and the audit 240 s.
+  const WARM_MS = 240_000;
+  const AUDIT_MS = 200_000;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -253,7 +287,7 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         ),
       ),
     );
-    console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
+    console.log(`Part ${part}/${parts}: warmed ${ids.length} gallery entries; auditing controls.`);
   }, WARM_MS + 20_000);
   afterAll(async () => {
     await browser?.close();
@@ -332,7 +366,7 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         }),
       );
       console.log(
-        `Gallery control audit: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
+        `Gallery control audit, part ${part}/${parts}: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
       );
       expect(failures).toEqual([]);
       expect(groups).toBeGreaterThan(0);
@@ -340,4 +374,4 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
     },
     AUDIT_MS,
   );
-});
+}

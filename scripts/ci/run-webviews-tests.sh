@@ -351,16 +351,17 @@ shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
 # Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
+# same node_modules/.vite, and each loses files the other wrote. webviews_test_shards.py
+# dev-servers names the files that start one, from their own text and the test support modules
+# they import (starts_dev_server): a file that starts its server through a helper holds no mark
+# itself, and once ran in the browser pool beside its siblings on one shared cache (#40720).
 if [ -n "$shard" ] || [ -n "$shard_count" ]; then
   if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
     echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
     exit 2
   fi
   # The split weighs dev-server files by how few run at once, so it needs them before it splits.
-  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" dev-servers "$results/files" > "$results/all-serial"
   python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
     ${split_widths:+"$split_widths"} > "$results/shard-files"
   mv "$results/shard-files" "$results/files"
@@ -370,9 +371,9 @@ if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
 fi
-xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
+python3 "$shards_py" dev-servers "$results/files" > "$results/serial"
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+python3 "$shards_py" dev-servers "$results/files" --rest > "$results/parallel"
 # With recorded durations: plain files start longest first, and each Vite config warms on its
 # shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
 if [ "$durations" != /dev/null ]; then
@@ -431,14 +432,10 @@ else
 fi
 [ ! -s "$results/serial" ] || warm_transforms
 
-# vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
-vite_config() {
-  if grep -q 'vite\.config\.acpmux-pane\.mjs' "$1"; then echo pane
-  elif grep -q 'vite\.config\.gallery-dev\.ts' "$1"; then echo gallery
-  elif grep -q 'vite\.config\.settings-page\.mjs' "$1"; then echo settings
-  else echo default
-  fi
-}
+# Each dev server file's Vite config (the one whose dependency cache its server fills), as
+# `CONFIG\0FILE\0` pairs in the serial order: read from the file and the test support modules it
+# imports, as dev-servers reads them, in one pass rather than a process per file.
+python3 "$shards_py" vite-configs "$results/serial" > "$results/serial-configs"
 # One file per config warms its cache, alone; the others wait for it. A warming file that fails
 # hands warming to the config's next file, on a fresh cache: one red pane file once sent every
 # other pane file one at a time onto a cold cache, 7 minutes of a 13-minute shard (job 118973285057).
@@ -448,8 +445,7 @@ vite="$results/vite"
 : > "$results/warmed"
 : > "$results/warm-tries"
 : > "$results/dev-rest"
-while IFS= read -r -d '' file; do
-  config="$(vite_config "$file")"
+while IFS= read -r -d '' config && IFS= read -r -d '' file; do
   tried="$(grep -cxF "$config" "$results/warm-tries" || true)"
   if grep -q "^$config " "$results/warmed" || [ "$tried" -ge "$warm_attempts" ]; then
     printf '%s\0%s\0' "$config" "$file" >> "$results/dev-rest"
@@ -463,7 +459,7 @@ while IFS= read -r -d '' file; do
   else
     rm -rf "$seed" || true
   fi
-done < "$results/serial"
+done < "$results/serial-configs"
 # The rest copy their config's warm cache and run at once; a config no file warmed has no
 # trustworthy cache, so its files run one at a time, each on a cold cache of its own.
 # A file that loads the machine itself declares `// cmux-web-test-alone` (first 20 lines) and runs
