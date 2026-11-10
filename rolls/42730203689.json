@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42730203689",
+  "recorded_at": "2026-11-10T00:53:43Z",
+  "reason": "cmux-tui b1bc69640088 changes the image's cmux-tui (pinned 87cffbe589b7)",
+  "dry_run": false,
+  "cmux_tui": "b1bc69640088800c3c21047e69dad77ac443897f",
+  "fixes": [
+    {
+      "sha": "b1bc69640088800c3c21047e69dad77ac443897f",
+      "mergedAt": "2026-11-09T16:24:14-08:00",
+      "subject": "cmux cloud --help: mark the verbs Cloud refuses, and every flag is the action's (#39963)"
+    },
+    {
+      "sha": "841744a4f89e8534237fd82e2835fde0c4797e19",
+      "mergedAt": "2026-11-09T16:22:26-08:00",
+      "subject": "acpmux: session resume names a hold for a person, and --open releases it (#39907)"
+    },
+    {
+      "sha": "e094f05856ebb34319333d0df6b966c10219fb76",
+      "mergedAt": "2026-11-10T00:22:09Z",
+      "subject": "synth: a sealed-segment count knob for registry-scale start measurements (#39946)"
+    },
+    {
+      "sha": "1d6130f5c138561773bba16da7d38a95846e0bcd",
+      "mergedAt": "2026-11-09T16:21:41-08:00",
+      "subject": "acpmux: log a preset approval only after its config save succeeds (#39930)"
+    },
+    {
+      "sha": "22f9f5dc6e9b7e2bc3545fc32b01f083eb1e8e51",
+      "mergedAt": "2026-11-10T00:21:26Z",
+      "subject": "Cloud desktop: the connecting card says what it waits on and how long is left (#39495)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T00:53:43Z",
+    "snapshot_id": "sh-9018d25bfcfb43d2bb065c63932a2e61",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42730203689): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "106749677cafeae8acabf76a07ac12135b217880",
+    "image": "cloud-native-auto-b1bc6964-42730203689-1",
+    "revision": "ci-42730203689-1",
+    "at": "2026-11-10T00:53:43Z"
+  },
+  "rolled_back": false
+}
