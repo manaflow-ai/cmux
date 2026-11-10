@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42743605948",
+  "recorded_at": "2026-11-10T02:40:54Z",
+  "reason": "cmux-tui 99bbd985db41 changes the image's cmux-tui (pinned ead197d51e23)",
+  "dry_run": false,
+  "cmux_tui": "99bbd985db419096102f1e6a3e511c291da37d76",
+  "fixes": [
+    {
+      "sha": "c040954330ff06682699a9e9f76a042e4d75f1e6",
+      "mergedAt": "2026-11-09T17:50:45-08:00",
+      "subject": "cmux chat --repo: read @REF as git checkout does; check --attach files before cloning (#40032)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T02:40:54Z",
+    "snapshot_id": "sh-67c4cca8da29489e91b891fe2db4ce83",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42743605948): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5e632924836f4f4dc5f376b6989c9a0c11f6f992",
+    "image": "cloud-native-auto-99bbd985-42743605948-1",
+    "revision": "ci-42743605948-1",
+    "at": "2026-11-10T02:40:54Z"
+  },
+  "rolled_back": false
+}
