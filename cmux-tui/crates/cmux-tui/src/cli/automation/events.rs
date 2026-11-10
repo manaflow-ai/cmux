@@ -188,20 +188,43 @@ pub(super) fn pull_request_line(pr: &Value) -> Value {
     })
 }
 
-/// The pull requests in `now` that `seen` does not hold yet (and marks them seen), oldest first.
-pub(super) fn new_pull_requests(seen: &mut HashSet<String>, now: &[Value]) -> Vec<Value> {
+/// What `pr-opened` has seen: each pull request's url, and the newest
+/// creation time. Only one created at or after that time is new, so an old
+/// pull request that moves into the 30 `gh` lists when a newer one closes
+/// starts nothing.
+#[derive(Default)]
+pub(super) struct SeenPullRequests {
+    urls: HashSet<String>,
+    newest: String,
+}
+
+/// The pull requests in `now` that are new to `seen` (and marks them seen), oldest first.
+pub(super) fn new_pull_requests(seen: &mut SeenPullRequests, now: &[Value]) -> Vec<Value> {
+    let since = seen.newest.clone();
     let mut fresh: Vec<Value> = now
         .iter()
-        .filter(|pr| pr["url"].as_str().is_some_and(|url| seen.insert(url.to_string())))
+        .filter(|pr| {
+            // RFC 3339 times in UTC (`gh` writes `...Z`) order as text.
+            let created = pr["createdAt"].as_str().unwrap_or("");
+            created >= since.as_str()
+                && pr["url"].as_str().is_some_and(|url| seen.urls.insert(url.to_string()))
+        })
         .map(pull_request_line)
         .collect();
+    for pr in now {
+        if let Some(created) = pr["createdAt"].as_str()
+            && created > seen.newest.as_str()
+        {
+            seen.newest = created.to_string();
+        }
+    }
     fresh.reverse();
     fresh
 }
 
 fn pull_requests() -> Result<(), Value> {
     // The first read is what is already open: no event for it.
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen = SeenPullRequests::default();
     new_pull_requests(&mut seen, &read_pull_requests()?);
     loop {
         std::thread::sleep(Duration::from_secs(PR_POLL_SECONDS));
@@ -227,16 +250,19 @@ mod tests {
     fn a_pull_request_is_an_event_once_and_only_after_the_first_read() {
         let pr = |n: u64| {
             json!({"url": format!("https://github.com/o/r/pull/{n}"), "number": n, "title": format!("t{n}"),
-                   "repository": {"nameWithOwner": "o/r"}, "isDraft": false, "createdAt": "2026-11-10T00:00:00Z"})
+                   "repository": {"nameWithOwner": "o/r"}, "isDraft": false,
+                   "createdAt": format!("2026-11-10T00:00:0{n}Z")})
         };
-        let mut seen = HashSet::new();
-        assert_eq!(new_pull_requests(&mut seen, &[pr(2), pr(1)]).len(), 2, "the baseline read");
-        assert!(new_pull_requests(&mut seen, &[pr(2), pr(1)]).is_empty());
-        let fresh = new_pull_requests(&mut seen, &[pr(4), pr(3), pr(2)]);
+        let mut seen = SeenPullRequests::default();
+        assert_eq!(new_pull_requests(&mut seen, &[pr(3), pr(2)]).len(), 2, "the baseline read");
+        assert!(new_pull_requests(&mut seen, &[pr(3), pr(2)]).is_empty());
+        let fresh = new_pull_requests(&mut seen, &[pr(5), pr(4), pr(3)]);
         let numbers: Vec<_> = fresh.iter().map(|l| l["number"].as_u64().unwrap()).collect();
-        assert_eq!(numbers, [3, 4], "oldest first");
+        assert_eq!(numbers, [4, 5], "oldest first");
         assert_eq!(fresh[0]["event"], "pr-opened");
         assert_eq!(fresh[0]["repo"], "o/r");
+        // #5 closes and #1, older than anything seen, moves into the window.
+        assert!(new_pull_requests(&mut seen, &[pr(4), pr(3), pr(1)]).is_empty());
     }
 
     #[test]

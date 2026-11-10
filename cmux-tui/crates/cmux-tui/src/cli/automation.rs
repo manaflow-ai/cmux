@@ -1061,6 +1061,20 @@ fn launchctl(args: &[&str]) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// The runner's `PATH`: launchd gives agents only the system folders, so a
+/// body, condition or event source (`gh`, `jq`) finds what the shell that
+/// installed it finds, and the usual Homebrew folders either way.
+fn runner_path(installer: Option<&str>) -> String {
+    let mut dirs: Vec<&str> =
+        installer.unwrap_or("").split(':').filter(|d| !d.is_empty()).collect();
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs.join(":")
+}
+
 /// A launchd agent that keeps `cmux automation runner` running for this user.
 fn install(out: &Out) -> Outcome {
     let output = out.mode;
@@ -1069,9 +1083,10 @@ fn install(out: &Out) -> Outcome {
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
     let log = store.root().join("runner.log");
     let body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{LAUNCHD_LABEL}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>automation</string><string>runner</string></array>\n<key>EnvironmentVariables</key><dict><key>CMUX_AUTOMATIONS_DIR</key><string>{}</string></dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n<key>StandardOutPath</key><string>{}</string>\n<key>StandardErrorPath</key><string>{}</string>\n</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{LAUNCHD_LABEL}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>automation</string><string>runner</string></array>\n<key>EnvironmentVariables</key><dict><key>CMUX_AUTOMATIONS_DIR</key><string>{}</string><key>PATH</key><string>{}</string></dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n<key>StandardOutPath</key><string>{}</string>\n<key>StandardErrorPath</key><string>{}</string>\n</dict></plist>\n",
         xml_escape(&exe.to_string_lossy()),
         xml_escape(&store.root().to_string_lossy()),
+        xml_escape(&runner_path(std::env::var("PATH").ok().as_deref())),
         xml_escape(&log.to_string_lossy()),
         xml_escape(&log.to_string_lossy()),
     );
@@ -1584,6 +1599,18 @@ mod tests {
         assert_eq!(t(&["--manual"]), Some(Trigger::Manual));
         assert_eq!(t(&["--hourly", "--tz", "UTC"]), Some(Trigger::preset_hourly(Zone::Utc)));
         assert_eq!(t(&[]), None);
+    }
+
+    #[test]
+    fn the_runner_finds_what_the_installing_shell_finds_and_homebrew() {
+        assert_eq!(
+            runner_path(Some("/Users/me/.cargo/bin:/usr/bin:/bin")),
+            "/Users/me/.cargo/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
+        );
+        assert_eq!(
+            runner_path(None),
+            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        );
     }
 
     #[test]

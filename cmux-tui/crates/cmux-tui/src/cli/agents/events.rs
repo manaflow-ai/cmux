@@ -837,6 +837,47 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis() as u64).unwrap_or(0)
 }
 
+/// Every event `cmux agents events --kind KINDS` answers from now on, handed
+/// to `each` in order until it answers false. Each read is one long-poll
+/// (the daemon's pushed journal, and the app's state as `agents events`
+/// reads it), resumed from the last read's cursor, so nothing between two
+/// reads is lost. `cmux automation events agent-idle` is this. A read that
+/// fails ends it with the error object.
+pub(in crate::cli) fn follow(
+    global: &super::super::GlobalArgs,
+    kinds: &str,
+    each: &mut dyn FnMut(&Value) -> bool,
+) -> Result<(), Value> {
+    let backend = mcp::cli_backend(global.clone());
+    let session = global.session.as_deref();
+    let mut after: Option<String> = None;
+    loop {
+        let timeout = MAX_TIMEOUT_SECONDS.to_string();
+        let mut words = vec!["--kind", kinds, "--timeout", timeout.as_str()];
+        if let Some(cursor) = &after {
+            words.extend(["--after", cursor.as_str()]);
+        }
+        let request = parse(&words).map_err(|error| {
+            json!({"code": "usage.invalid", "message": error.0, "details": {}, "retryable": false})
+        })?;
+        let answer = match run(&backend, session, &request) {
+            Ok(answer) => answer,
+            Err(AgentFailure::Usage(message)) => {
+                return Err(
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+                );
+            }
+            Err(AgentFailure::Owner(failure)) => return Err(mcp::agent_failure_value(failure)),
+        };
+        for event in answer["events"].as_array().into_iter().flatten() {
+            if !each(event) {
+                return Ok(());
+            }
+        }
+        after = answer["next_after"].as_str().map(str::to_owned).or(after);
+    }
+}
+
 /// One line per event for `cmux agents events` without `--json`:
 /// `seq kind change id detail`.
 pub(in crate::cli) fn human_lines(answer: &Value) -> String {
