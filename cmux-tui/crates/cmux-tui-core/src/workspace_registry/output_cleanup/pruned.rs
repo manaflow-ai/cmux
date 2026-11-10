@@ -39,6 +39,23 @@ pub(crate) fn pruned_gap(connection: &Connection, after: u64, next: u64) -> anyh
     }
 }
 
+/// The first sequence of the pruned range that ends at `end`, if one does.
+pub(crate) fn range_ending_at(connection: &Connection, end: u64) -> anyhow::Result<Option<u64>> {
+    let start = connection
+        .query_row(
+            "SELECT start_sequence FROM journal_pruned_ranges WHERE end_sequence = ?1
+             ORDER BY start_sequence LIMIT 1",
+            [i64::try_from(end)?],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional();
+    match start {
+        Ok(start) => Ok(start.map(u64::try_from).transpose()?),
+        Err(error) if is_missing_table(&error) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn is_missing_table(error: &rusqlite::Error) -> bool {
     matches!(
         error,

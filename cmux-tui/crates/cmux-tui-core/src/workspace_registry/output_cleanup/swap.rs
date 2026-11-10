@@ -805,6 +805,9 @@ fn build(
     Ok(built)
 }
 
+/// The one copied table that holds a row per journal record.
+const INGRESS_RECEIPTS_TABLE: &str = "journal_ingress_receipts";
+
 fn build_in(
     tx: &Transaction<'_>,
     source: &Connection,
@@ -840,6 +843,16 @@ fn build_in(
         tx.execute_batch(&format!("DROP TABLE IF EXISTS main.{}", quote(table)))?;
         tx.execute_batch(sql)?;
     }
+    // The receipts of the ingress records left out at the floor go with
+    // them: only the rows after it are copied (and counted below).
+    let cut = state(tx, "floor")?.parse::<u64>().unwrap_or(0);
+    let after_cut = |table: &str| -> String {
+        if table == INGRESS_RECEIPTS_TABLE && cut > 0 {
+            format!(" WHERE journal_sequence > {cut}")
+        } else {
+            String::new()
+        }
+    };
     // Rowids are kept: code orders by them (ledger retention, archives,
     // intents, effects, workspace positions).
     for (_, table, _, _) in &copied {
@@ -851,8 +864,9 @@ fn build_in(
         };
         tx.execute(
             &format!(
-                "INSERT INTO main.{0}({insert}) SELECT {select} FROM src.{0}{order}",
-                quote(table)
+                "INSERT INTO main.{0}({insert}) SELECT {select} FROM src.{0}{1}{order}",
+                quote(table),
+                after_cut(table)
             ),
             [],
         )?;
@@ -861,8 +875,9 @@ fn build_in(
     for (_, table, _, _) in &copied {
         let (main_count, src_count): (i64, i64) = tx.query_row(
             &format!(
-                "SELECT (SELECT COUNT(*) FROM main.{0}), (SELECT COUNT(*) FROM src.{0})",
-                quote(table)
+                "SELECT (SELECT COUNT(*) FROM main.{0}), (SELECT COUNT(*) FROM src.{0}{1})",
+                quote(table),
+                after_cut(table)
             ),
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),

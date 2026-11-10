@@ -62,6 +62,11 @@ impl Control {
     }
 }
 
+/// The retention floor the daemon passes to the rebuild: none yet. The
+/// steady-state retention pass owns the floor; until it is wired here, a
+/// daemon rebuilds only for stored output and superseded session puts.
+const REBUILD_FLOOR: u64 = 0;
+
 struct OutputCleanupWorker {
     control: Arc<Control>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -111,7 +116,10 @@ impl Mux {
     pub(super) fn start_output_cleanup(self: &Arc<Self>) -> anyhow::Result<()> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(db_path) = registry.session_journal_database_path() else { return Ok(()) };
-        if registry.output_cleanup_done()? {
+        // The retention floor of this start. A registry the one-time cleanup
+        // is done for is staged again only for a floor.
+        let floor = REBUILD_FLOOR;
+        if floor == 0 && registry.output_cleanup_done()? {
             return Ok(());
         }
         drop(registry);
@@ -141,7 +149,7 @@ impl Mux {
                 if !worker_control.wait(delay) {
                     return;
                 }
-                let not_needed = run_output_cleanup(&db_path, &worker_control, &pending);
+                let not_needed = run_output_cleanup(&db_path, floor, &worker_control, &pending);
                 if not_needed
                     && !worker_control.is_stopped()
                     && let Some(mux) = weak_mux.upgrade()
@@ -174,14 +182,19 @@ impl Mux {
 
 /// Phase A for the registry at `db_path`. True when the registry holds no
 /// stored output, so the caller records that the cleanup is done.
-fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBool) -> bool {
+fn run_output_cleanup(
+    db_path: &Path,
+    floor: u64,
+    control: &Arc<Control>,
+    pending: &AtomicBool,
+) -> bool {
     let pause = env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS");
     let catch_up =
         env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS").unwrap_or(CATCH_UP_INTERVAL);
     let stop_control = control.clone();
     let outcome = stage_registry(
         db_path,
-        0,
+        floor,
         &StageControl {
             on_pending: &|| pending.store(true, Ordering::Release),
             next_segment: &|| match pause {

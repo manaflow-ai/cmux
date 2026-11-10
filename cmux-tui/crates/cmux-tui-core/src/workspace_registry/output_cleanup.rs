@@ -35,6 +35,18 @@
 //! milliseconds left 11.5M of them in one registry. The pack records their
 //! runs in `journal_pruned_ranges` like removed output.
 //!
+//! The same pass rebuilds a registry at a retention floor
+//! (`stage_registry(db_path, floor, ..)`): every sealed segment that ends
+//! at or below the floor is left out without being read, with its subject
+//! and event index rows, its kept reducer records and the ingress receipts
+//! of its records. The floor is rounded down to a segment end, so a segment
+//! goes whole or stays whole and live rows always stay. All that is left
+//! out before the first kept record is one pruned range. The rule: the
+//! segments at or below the floor cover at least
+//! `PUT_RECORDS_WORTH_A_CLEANUP` sequences. After the swap no segment ends
+//! at or below that floor, so the same floor never rebuilds twice. A
+//! staging file built at a higher floor than the caller's is discarded.
+//!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).

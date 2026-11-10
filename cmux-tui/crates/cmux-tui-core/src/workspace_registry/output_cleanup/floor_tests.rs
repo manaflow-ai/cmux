@@ -296,7 +296,7 @@ fn a_rebuild_at_a_floor_leaves_a_small_registry_that_every_reader_reads() {
         )
         .unwrap();
     assert_eq!(start, 1, "the first packed segment starts at the first sequence");
-    let inflated = super::stage::inflated_segment_records(
+    let inflated = stage::inflated_segment_records(
         &read_only(db_path),
         &id,
         1,
