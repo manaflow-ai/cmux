@@ -4091,56 +4091,40 @@ async fn slow_relay(port: u16, rate: u64) -> (u16, Arc<std::sync::atomic::Atomic
 /// moves past what the page passed over, so over a slow link it costs a few KB, once.
 #[tokio::test]
 async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
-    use acpmux::store::EventRecord;
+    use base64::Engine as _;
     use std::sync::atomic::Ordering;
-    let dir = std::env::temp_dir().join(format!("acpmux-watch-bytes-{}", uuid::Uuid::now_v7()));
-    let mut cfg = config(PermissionPolicy::ApproveAll);
-    cfg.store.mode = StoreMode::Local;
-    cfg.store.segment_bytes = 8 * 1024 * 1024;
-
-    let b = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
-    let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shot"}}})).await.unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    let mut seq = b.resolve("shot").unwrap().meta().last_seq;
-    b.shutdown_all().await;
-    drop(cb);
-    drop(b);
-    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
-    // 2 MB of an image no compression shrinks.
-    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
-    let image: String = (0..2_000_000 / 16)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            format!("{x:016x}")
-        })
-        .collect();
-    let mut append = |dir: &str, kind: &str, msg: Value| {
-        seq += 1;
-        store
-            .append(&id, &EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None })
-            .unwrap();
-    };
-    append("mux", "turn_started", json!({}));
-    append(
-        "out",
-        "session/prompt",
-        json!({"jsonrpc": "2.0", "id": 5, "method": "session/prompt", "params": {"sessionId": "agent-1",
-            "prompt": [{"type": "text", "text": "what is this"}, {"type": "image", "mimeType": "image/png", "data": image}]}}),
-    );
-    append(
-        "in",
-        "agent_message_chunk",
-        json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1",
-            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "a sidebar"}}}}),
-    );
-    append("mux", "turn_result", json!({"status": "completed", "turnId": "t1"}));
-    let b = Hub::new(cfg.clone(), store);
+    // B runs a chat whose prompt carried a 1.5 MB image no compression shrinks: the prompt's wire
+    // record holds it inline, as on the live daemon.
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
     let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "shot", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    while bytes.len() < 1_500_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    let image = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "what is this"},
+            {"type": "image", "mimeType": "image/png", "data": image, "name": "shot.png"}]}),
+    )
+    .await
+    .unwrap();
     let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-bytes").await;
-    // 256 KB/s: the 2 MB page takes 8 s, far past the watch's 250 ms read.
+    // 256 KB/s: a page holding the image takes 8 s, far past the watch's 250 ms read.
     let (relay, down) = slow_relay(port, 256 * 1024).await;
 
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
@@ -4148,18 +4132,36 @@ async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
         .await
         .unwrap();
     let mut ca = client(a.clone()).await;
-    let me = ca.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await.unwrap();
-    let me = me["sessionId"].as_str().unwrap().to_owned();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    let before = down.load(Ordering::SeqCst);
-    ca.call(method::MUX_WATCH_ADD, json!({"to": me, "sessions": ["b/shot"], "until": ["done"]}))
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_secs(12)).await;
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/shot").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/shot").is_some(), "A never listed b/shot");
+
+    let before = down.load(Ordering::SeqCst);
+    let added = ca
+        .call(method::MUX_WATCH_ADD, json!({"to": me, "sessions": ["b/shot"], "until": ["closed"]}))
+        .await
+        .unwrap();
+    eprintln!("watch: {added}");
+    // A turn on B's chat wakes the watch, as the live chat's turns did.
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]}),
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_secs(16)).await;
     let read = down.load(Ordering::SeqCst) - before;
-    eprintln!("watch on b/shot: {read} bytes over the link in 12 s");
-    assert!(read < 256 * 1024, "the watch read {read} bytes over the link in 12 s");
+    eprintln!("watch on b/shot: {read} bytes over the link in 16 s");
+    assert!(read < 256 * 1024, "the watch read {read} bytes over the link in 16 s");
     a.shutdown_all().await;
     b.shutdown_all().await;
 }
