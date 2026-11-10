@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -135,6 +136,55 @@ class Owner:
         self.log.close()
 
 
+# history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
+HISTORY_LIST_LIMIT = 5000
+
+
+def served(owner):
+    """What the owner SERVES: the agent sessions of history.entries.list (the list of the app's
+    History, vault and resume), asked over the socket. `pending` = the fold was not at the head."""
+    request = {"protocol": "cmux.protocol/2", "type": "request", "id": "rmp-history",
+               "operation": "history.entries.list",
+               "params": {"machine": "current", "session": "current", "kinds": ["agent"],
+                          "limit": HISTORY_LIST_LIMIT}}
+    for attempt in range(40):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.settimeout(120)
+                conn.connect(owner.socket)
+                conn.sendall(json.dumps(request).encode() + b"\n")
+                data = b""
+                while b"\n" not in data:
+                    chunk = conn.recv(1 << 20)
+                    if not chunk:
+                        break
+                    data += chunk
+            reply = json.loads(data.split(b"\n", 1)[0])
+        except (OSError, ValueError) as error:
+            return {"error": type(error).__name__}
+        if reply.get("ok") is not True:
+            return {"error": str((reply.get("error") or {}).get("code"))}
+        result = reply.get("result") or {}
+        pending = bool(result.get("pending_kinds"))
+        if not pending or attempt == 39:
+            listed = len(result.get("entries") or [])
+            # At the limit the list is one page: the count then proves only "at least".
+            return {"agent_sessions": listed, "pending": pending,
+                    "one_page_only": listed >= HISTORY_LIST_LIMIT}
+        time.sleep(3)
+    return {"error": "no answer"}
+
+
+def served_lost(steps):
+    """The steps whose served agent session count differs from the first step's."""
+    counts = [(step["arm"], (step.get("served") or {}).get("agent_sessions")) for step in steps
+              if "served" in step]
+    if not counts:
+        return {}
+    first = counts[0][1]
+    return {arm: [first, count] for arm, count in counts[1:] if count != first}
+
+
 def registry_of(state):
     return drs.session_dir(str(state)) / REGISTRY
 
@@ -198,6 +248,7 @@ def build(args, state, label):
                  if "output cleanup: " in line and "/" not in line]
         result["error"] = "no build"
         result["cleanup_lines"] = lines[-6:]
+    result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
 
@@ -211,6 +262,8 @@ def start_stop(args, state, label, binary=None):
         lines = owner.log_text().splitlines()
         result["error"] = "not ready"
         result["last_line"] = (lines[-1] if lines else "")[:200]
+    else:
+        result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
 
@@ -245,6 +298,9 @@ def main_arm(args, state, before, report):
     say("RMP-COUNTS", {"at": "final", **final})
     report["steps"].append(step)
     report["final"] = final
+    report["served_lost"] = served_lost(report["steps"])
+    say("RMP", {"arm": "main-served", "differs": report["served_lost"],
+                "served": [[item["arm"], item.get("served")] for item in report["steps"]]})
     return True
 
 
@@ -349,7 +405,9 @@ def table(report):
     steps = {step["arm"]: step for step in report["steps"]}
     gb = lambda value: "-" if value is None else f"{value / 1e9:.3f} GB"  # noqa: E731
     rows = [("registry before", gb(before["registry_bytes"]) + f", {before['records']} records, "
-             f"{before['segments']} segments")]
+             f"{before['segments']} segments, {before['workspaces']} workspaces"),
+            ("a plain start changed", json.dumps(steps.get("plain-start", {})
+                                                 .get("changed_by_a_plain_start")))]
     one = steps.get("main-start1", {})
     rows.append(("start 1: ready / staging starts / built", f"{one.get('ready_s')} s / "
                  f"{one.get('staging_started_s')} s / {one.get('built_s')} s "
@@ -366,12 +424,17 @@ def table(report):
     for key in EQUAL_KEYS:
         rows.append((f"{key} before / after the swap / final",
                      f"{before.get(key)} / {(after or {}).get(key)} / {(final or {}).get(key)}"))
+    rows.append(("agent sessions the owner serves (history.entries.list): start 1 / 2 / 3 / 4",
+                 " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
+                                .get("agent_sessions")) for n in (1, 2, 3, 4))
+                 + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
     for name in ("kill-stage", "kill-swap", "kill-renamed", "space", "old"):
         step = steps.get(name)
         if step is not None:
             keep = {key: value for key, value in step.items()
                     if key in ("point", "point_hit", "at_kill", "lost", "lost_after_second",
-                               "swapped", "refused", "staging_file", "opens", "lost_after_new")}
+                               "swapped", "refused", "staging_file", "opens", "lost_after_new",
+                               "served", "ready_s", "last_line")}
             rows.append((name, json.dumps(keep)))
     print("RMP-TABLE | item | result |")
     print("RMP-TABLE | --- | --- |")
@@ -395,10 +458,20 @@ def main():
     if not args.old_bin and "old" in args.arms:
         args.arms.remove("old")
     scratch = Path(args.scratch)
+    generated = counts(args, args.state)
+    say("RMP-COUNTS", {"at": "generated", **generated})
+    # One plain start and stop first (shorter than the 60 s before any staging): what a start
+    # alone changes in a generated registry (its agents are not real terminals) is not a result
+    # of the migration, so the counts "before" are read after it.
+    plain = start_stop(args, args.state, "plain-start")
     before = counts(args, args.state)
+    plain["changed_by_a_plain_start"] = compare(generated, before)
+    say("RMP", plain)
     say("RMP-COUNTS", {"at": "before", **before})
-    report = {"before": before, "steps": [], "arms": args.arms, "host_load_1m": os.getloadavg()[0],
-              "free_bytes": shutil.disk_usage(scratch).free}
+    report = {"generated": generated, "before": before, "steps": [plain], "arms": args.arms,
+              "host_load_1m": os.getloadavg()[0], "free_bytes": shutil.disk_usage(scratch).free}
+    if before["staging_bytes"] or before["backup_bytes"] or plain["ready_s"] is None:
+        plain["error"] = "the plain start staged, swapped or did not get ready"
     for name in ("kill-stage", "space"):
         if name in args.arms:
             clone(args.state, scratch / name)
@@ -417,6 +490,8 @@ def main():
     lost = [step["arm"] for step in report["steps"]
             if step.get("lost") or step.get("lost_after_second") or step.get("lost_after_new")]
     failed = [step["arm"] for step in report["steps"] if "error" in step]
+    if report.get("served_lost"):
+        lost.append("served")
     say("RMP-VERDICT", {"lost_in": lost, "failed": failed})
     return 1 if lost or failed or not ok else 0
 
