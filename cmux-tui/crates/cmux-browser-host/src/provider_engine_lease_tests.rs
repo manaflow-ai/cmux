@@ -206,3 +206,22 @@ fn a_captures_secret_mask_takes_no_lease_from_the_next_agent() {
     next.call("tab.navigate", &json!({"targetId": "W", "url": "https://c.test/"})).unwrap();
     assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().session, "s2");
 }
+
+/// #39163 review: the gate's host-world focus check runs before every key it
+/// sends. It takes no lease and is not the fresh read a hand back asks for:
+/// after the person hands the tab back, the agent's next key is still refused
+/// until it observes the tab.
+#[test]
+fn a_host_world_check_is_not_the_fresh_read_after_hand_back() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    app.send(Frame::UserInput { target_id: "W".into() });
+    app.send(Frame::LeaseUser { op: "hand_back".into(), target_id: Some("W".into()), actor: None });
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    first
+        .call("frame.evaluate", &json!({"targetId": "W", "world": "host", "source": "() => 1"}))
+        .unwrap();
+    let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+    assert_eq!(stale.error_name.as_deref(), Some("stale_after_hand_back"), "{stale}");
+}
