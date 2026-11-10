@@ -213,7 +213,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."),
                 kind: .toggle,
                 default: .bool(PaneAnimationsSetting.fallback),
                 keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]

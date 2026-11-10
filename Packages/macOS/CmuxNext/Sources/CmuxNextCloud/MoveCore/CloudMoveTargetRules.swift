@@ -40,14 +40,3 @@ public nonisolated struct CloudMoveTargetRules: Sendable {
         return CloudMoveCore().call("relocate_folder", Request(remoteFolder: remoteFolder, remoteChat: remoteChat, cwd: cwd), as: Reply.self)?.folder
     }
 }
-
-extension CloudMovedChats {
-    /// A moved chat that went on to another Cloud machine: its Bring Back Local record follows it,
-    /// back into the same folder on this Mac. Nothing when the chat has no record.
-    public func follow(host: String, session: String, toMachine machineID: String, host newHost: String, session newSession: String) {
-        guard var entry = entry(host: host, session: session) else { return }
-        forget(host: host, session: session)
-        (entry.machineID, entry.host, entry.session) = (machineID, newHost, newSession)
-        record(entry)
-    }
-}

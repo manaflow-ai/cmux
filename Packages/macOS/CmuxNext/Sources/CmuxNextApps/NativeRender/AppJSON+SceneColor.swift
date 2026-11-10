@@ -5,8 +5,7 @@ extension AppJSON {
     /// A scene color prop as the AppKit renderer draws it: a tone (`primary secondary tertiary accent
     /// separator success warning danger hover selected badge clear`, the names `cmux.theme` hands
     /// scripts) or `#RRGGBB[AA]`; nil for anything else. No blue: `accent` is primary text, the
-    /// emphasis cmux chrome uses. Read inside the view's theme scope (`performWithTheme`), as the
-    /// SwiftUI renderer's `AppSceneColors.token` resolves the same names.
+    /// emphasis cmux chrome uses. Read inside the view's theme scope (`performWithTheme`).
     @MainActor
     var sceneColor: NSColor? {
         guard let token = stringValue else { return nil }

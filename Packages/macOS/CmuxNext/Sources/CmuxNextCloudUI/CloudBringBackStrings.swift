@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bring Back Local's text (``CloudBringBack``). Keys live in Resources/Cloud.xcstrings with every app locale.
+/// Bring Back Local's text (the App's `CloudBringBack`). Keys live in Resources/Cloud.xcstrings.
 public struct CloudBringBackStrings {
     public init() {}
     public static var bringing: String {

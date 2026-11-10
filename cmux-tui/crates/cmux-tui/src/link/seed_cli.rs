@@ -75,7 +75,9 @@ mod hop;
 mod pull;
 mod record;
 
-pub(super) use hop::{hop_bulk, hop_frozen, land, started as hop_started};
+pub(super) use hop::{
+    abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
+};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
@@ -222,9 +224,11 @@ pub(super) fn run(args: &[String]) -> i32 {
     {
         let (from, to, local) = (Path::new(from), Path::new(to), Path::new(local));
         let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
-        let moved = hop_bulk(from, from_root, to, to_root, local)
-            .and_then(|()| hop_frozen(from, from_root, to, to_root, local))
-            .and_then(|()| land(local, to_root));
+        // One person's move from a shell: its own owner, apart from any chat's.
+        let owner = "cli";
+        let moved = hop_bulk(from, from_root, to, to_root, local, owner)
+            .and_then(|()| hop_frozen(from, from_root, to, to_root, local, owner))
+            .and_then(|()| land(local, to_root, owner));
         return match moved {
             Ok(_) => {
                 println!("{}", json!({"ok": true, "mode": "seed"}));

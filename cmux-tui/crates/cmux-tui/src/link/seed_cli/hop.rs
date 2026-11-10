@@ -26,7 +26,15 @@
 //! nothing written, everything else merges.
 //!
 //! The second machine's record (R, with that machine) waits under its own key ([`side_key`])
-//! until the move commits ([`land`]), since both machines may hold the folder at one path.
+//! until the move commits ([`land`]), since both machines may hold the folder at one path. The
+//! key names the move that made it (`owner`: the source daemon and the chat's surface), so only
+//! that move's retry deletes what an earlier try of it left; another chat's move to the same path
+//! finds the folder there and is refused (`relay.target_exists`).
+//!
+//! A seed carries `refs/stash` alone, not its older entries, so a folder whose stash holds more
+//! than one goes by the relay instead (`hop.stashes`): the bulk falls back before anything is
+//! seeded, and a frozen pass that finds more since asks the caller ([`many_stashes`]) to delete
+//! what the bulk seeded and relay the folder whole.
 
 use std::io::{Read as _, Seek as _, Write as _};
 use std::path::Path;
@@ -36,26 +44,50 @@ use super::record::{self, Kept, Record};
 use super::sync_cli::{self, SeedBase};
 use super::{LocalBundle, Machine, SeedError, run_seed};
 
-/// Where the second machine's record waits for the commit.
-fn side_key(to_root: &str) -> String {
-    format!("hop-target:{to_root}")
+/// Where the second machine's record waits for the commit: the move's own (module docs).
+fn side_key(to_root: &str, owner: &str) -> String {
+    format!("hop-target:{to_root}#{owner}")
+}
+
+const MANY_STASHES: &str = "hop.stashes";
+
+/// Whether `error` is a hop refused for a stash with older entries (module docs).
+pub(in crate::link) fn many_stashes(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<SeedError>().is_some_and(|error| error.code == MANY_STASHES)
+}
+
+/// Refuses a source folder whose stash has older entries than its tip: one line of
+/// `.git/logs/refs/stash` per entry.
+fn one_stash_at_most(from: &Path, from_root: &str) -> anyhow::Result<()> {
+    let log = sync_cli::remote_read(from, &format!("{from_root}/.git/logs/refs/stash"))?;
+    let entries = log
+        .map_or(0, |log| log.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).count());
+    if entries > 1 {
+        return Err(SeedError::new(
+            MANY_STASHES,
+            format!("the folder's stash has {entries} entries and a seed carries only the newest"),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn no_previous(why: &str) -> anyhow::Error {
     SeedError::new("seed.no_previous", why).into()
 }
 
-/// The bulk (module docs, 1). A waiting record of the same machine is a cut or failed move's:
-/// its folder there is this move's to seed again, so a retry goes on.
+/// The bulk (module docs, 1). A waiting record of this move (`owner`) on the same machine is a
+/// cut or failed try's: its folder there is this move's to seed again, so a retry goes on.
 pub(in crate::link) fn hop_bulk(
     from: &Path,
     from_root: &str,
     to: &Path,
     to_root: &str,
     local: &Path,
+    owner: &str,
 ) -> anyhow::Result<()> {
     let local = std::fs::canonicalize(local)?;
-    bulk(from, from_root, to, to_root, &local)
+    bulk(from, from_root, to, to_root, &local, owner)
 }
 
 /// The frozen pass (module docs, 2), once [`hop_bulk`]'s record waits.
@@ -65,12 +97,26 @@ pub(in crate::link) fn hop_frozen(
     to: &Path,
     to_root: &str,
     local: &Path,
+    owner: &str,
 ) -> anyhow::Result<()> {
     let local = std::fs::canonicalize(local)?;
-    let Some(waiting) = record::load(&local, &side_key(to_root))? else {
+    let Some(waiting) = record::load(&local, &side_key(to_root, owner))? else {
         return Err(no_previous("no bulk pass ran for this move"));
     };
     frozen(from, from_root, to, to_root, &waiting)
+}
+
+/// Undoes a bulk pass whose frozen pass can't follow it as git ([`many_stashes`]): the folder it
+/// seeded on the second machine and its waiting record go, so a relay can copy the folder whole.
+pub(in crate::link) fn abandon(
+    to: &Path,
+    to_root: &str,
+    local: &Path,
+    owner: &str,
+) -> anyhow::Result<()> {
+    let local = std::fs::canonicalize(local)?;
+    sync_cli::delete_remote(to, to_root)?;
+    record::forget(&local, &side_key(to_root, owner))
 }
 
 /// The seed this Mac recorded for the first machine's folder, which that machine started from.
@@ -103,20 +149,22 @@ fn bulk(
     to: &Path,
     to_root: &str,
     local: &Path,
+    owner: &str,
 ) -> anyhow::Result<()> {
     let (kept, previous) = recorded(local, from_root, from)?;
+    one_stash_at_most(from, from_root)?;
     let machine = Machine::read(to)?;
     if !machine.seeds {
         return Err(Machine::outdated().into());
     }
-    let side = side_key(to_root);
+    let side = side_key(to_root, owner);
     match record::load(local, &side)? {
         // This move's own earlier try left the folder: it goes, and the seed starts again.
         Some(waiting) if waiting.machine.is_some() && waiting.machine == machine.id => {
             sync_cli::delete_remote(to, to_root)?;
             record::forget(local, &side)?;
         }
-        // Another machine's, from a move that never committed: not this one's.
+        // This move's try on another machine, which never committed: not this machine's folder.
         Some(_) => record::forget(local, &side)?,
         None => {}
     }
@@ -158,6 +206,7 @@ fn frozen(
         stash: waiting.stash.clone(),
         stash_known: true,
     };
+    one_stash_at_most(from, from_root)?;
     let bundle = LocalBundle::new()?;
     let Some(exported) = sync_cli::export_to(from, from_root, &base, &bundle.file)? else {
         return Ok(());
@@ -236,17 +285,17 @@ fn refuse_theirs(to: &Path, to_root: &str) -> anyhow::Result<()> {
 }
 
 /// Whether a hop's bulk pass already ran for `to_root`: its frozen pass hops too.
-pub(in crate::link) fn started(local: &Path, to_root: &str) -> bool {
+pub(in crate::link) fn started(local: &Path, to_root: &str, owner: &str) -> bool {
     std::fs::canonicalize(local)
         .ok()
-        .and_then(|local| record::load(&local, &side_key(to_root)).ok().flatten())
+        .and_then(|local| record::load(&local, &side_key(to_root, owner)).ok().flatten())
         .is_some()
 }
 
 /// The move committed: the second machine's record is this Mac's record of `to_root` now.
-pub(in crate::link) fn land(local: &Path, to_root: &str) -> anyhow::Result<bool> {
+pub(in crate::link) fn land(local: &Path, to_root: &str, owner: &str) -> anyhow::Result<bool> {
     let local = std::fs::canonicalize(local)?;
-    let side = side_key(to_root);
+    let side = side_key(to_root, owner);
     let Some(kept) = record::load(&local, &side)? else { return Ok(false) };
     record::save(&local, to_root, &kept)?;
     record::forget(&local, &side)?;
