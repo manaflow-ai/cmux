@@ -45,7 +45,8 @@ final class SidebarIconView: NSView {
         wantsLayer = true
         swatch.cornerCurve = .continuous
         layer?.addSublayer(swatch)
-        imageView.imageScaling = .scaleProportionallyDown
+        // The optical size can draw an image with a transparent margin larger than its square (`SidebarOpticalGlyph`).
+        imageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(imageView)
         addSubview(emoji)
         // Decorative: the row it sits in names the workspace, group or machine.
@@ -175,18 +176,15 @@ final class SidebarIconView: NSView {
         needsDisplay = true
     }
 
-    /// The image view's frame that draws the shown symbol or favicon whole (scaled down into a `side` square, never
-    /// up) with its measured ink starting at x 0, centered vertically, on the pixel grid. Nil without a measurable image.
+    /// The image view's frame that draws the shown symbol or favicon at the rows' one optical size
+    /// (`SidebarStyle.rowGlyphOptics`): its measured ink's larger side is that size, its ink starts at x 0 and centers
+    /// vertically, on the pixel grid. A favicon with a transparent margin (an app icon) draws larger than its square so its
+    /// ink matches a full-bleed mark's. Nil without a measurable image.
     private func leadingImageFrame(side: CGFloat) -> CGRect? {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: inkKey) else { return nil }
-        let fit = min(1, side / image.size.width, side / image.size.height)
-        let width = image.size.width * fit, height = image.size.height * fit
-        let drawnInk = CGRect(x: ink.minX * fit, y: ink.minY * fit, width: ink.width * fit, height: ink.height * fit)
-        let scale = window?.backingScaleFactor ?? 2
-        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
-        return CGRect(x: snap(SidebarStyle.iconColumnGlyphX(leading: 0, ink: drawnInk)), y: snap((bounds.height - height) / 2),
-                      width: width, height: height)
+        return SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
+                                                 flipped: isFlipped, scale: window?.backingScaleFactor ?? 2)
     }
 
     // MARK: Favicon (Lawrence msg 19869: legible on light and dark)
@@ -195,8 +193,9 @@ final class SidebarIconView: NSView {
     private var shownFavicon: SidebarFavicon? { if case let .favicon(favicon)? = icon { favicon } else { nil } }
     private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
     private func snap(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
-    /// The favicon's drawn side, on the pixel grid.
-    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.workspaceFaviconSide)) }
+    /// The favicon's drawn side, on the pixel grid: made a third larger than the optical size, so a favicon whose ink
+    /// fills only part of its square (an app icon's margin) is scaled down, never up, to the optical size.
+    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.workspaceFaviconSide * 4 / 3)) }
     /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
     private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
 
@@ -227,11 +226,9 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = faviconSide
-        if leadsWithInk {
-            let frame = imageView.frame
-            imageView.frame = CGRect(x: snap(frame.minX), y: snap(frame.minY), width: side, height: side)
-        } else {
+        let side = SidebarStyle.workspaceFaviconSide
+        // Leading with ink, `leadingImageFrame` already sized it to the optical size.
+        if !leadsWithInk {
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)
         }
     }
