@@ -157,7 +157,7 @@ impl Hub {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
-        if let Some(answer) = self.bridged_prompt(session, &blocks, &mut opts).await {
+        if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
         }
         // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
