@@ -196,3 +196,48 @@ async fn corrections_no_connection_proved_make_no_offer() {
     say(&mut c, &id, "great, now add a test").await;
     assert!(records(&hub, &id, "coach_offer", 1).await.is_empty(), "no proven correction");
 }
+
+/// After a restart, a chat that qualifies again finds the offer an earlier run logged and logs no
+/// second one: it then holds that logged offer, never an id no record has (cmux#38893 review,
+/// `hub/prompt_coach.rs:575`), and the logged offer still gets its rewrite.
+#[tokio::test]
+async fn a_chat_that_qualifies_again_after_a_restart_holds_the_logged_offer() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let asked: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let seen = asked.clone();
+    hub.set_coach_rewriter(Some(Arc::new(move |prompt: String| {
+        seen.lock().unwrap().push(prompt);
+        Some("Rename the type to Account.".into())
+    })));
+    let id = new_session(&mut c, "again").await;
+    let run = [
+        "rename User to Account",
+        "no, keep the table name users",
+        "actually leave the API fields alone",
+        "still wrong, the migration renames the table",
+        "perfect, open a PR",
+    ];
+    for text in run {
+        say(&mut c, &id, text).await;
+    }
+    let offers = records(&hub, &id, "coach_offer", 1).await;
+    assert_eq!(offers.len(), 1, "{offers:?}");
+    let logged = offers[0]["coachId"].as_str().unwrap().to_owned();
+    hub.forget_coach(&id);
+    for text in ["no, the other file", "still wrong", "actually revert it", "fine, thanks"] {
+        say(&mut c, &id, text).await;
+    }
+    assert_eq!(records(&hub, &id, "coach_offer", 2).await.len(), 1, "one offer per chat");
+    assert_eq!(hub.coach_offered(&id).as_deref(), Some(logged.as_str()));
+    let made = c
+        .request(method::MUX_PROMPT_COACH, json!({"sessionId": id, "coachId": logged}))
+        .await
+        .unwrap();
+    assert_eq!(made["made"], true);
+    // Its rewrite reads the corrections the logged offer counted, not the later ones.
+    let asked = asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].contains("the migration renames the table"), "{}", asked[0]);
+    assert!(!asked[0].contains("revert it"), "{}", asked[0]);
+    assert_eq!(records(&hub, &id, "coach", 1).await[0]["corrections"], 3);
+}
