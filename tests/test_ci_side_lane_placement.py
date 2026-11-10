@@ -1299,6 +1299,107 @@ class SpillToCompatiblePool(unittest.TestCase):
         self.assertEqual(placement.side_route(LIGHT_SIDE, None), "")
 
 
+class SchemeCompileRerun(unittest.TestCase):
+    """A re-run of `cmux app scheme compile (Debug)` macos-placement did not place (cmux#38484, 2026-11-10: attempt 3
+    queued on the owned labels while the owned pool was down, so the red could not be re-run) takes the same pick
+    as attempt 1: an idle owned side runner first, else attempt 1's Blacksmith cascade, else its route."""
+
+    SMALL = "blacksmith-6vcpu-macos-26"
+    LARGE = "blacksmith-12vcpu-macos-26"
+    NOW = __import__("datetime").datetime(2026, 11, 10, 9, 0, tzinfo=__import__("datetime").timezone.utc)
+    JOB = "cmux-scheme-compile"
+
+    def seen(self, **pools):
+        shot = {"generated_at": "2026-11-10T08:58:00Z",
+                "pools": {label: {"queued": queued, "running": 0, "oldest_queued_minutes": 0}
+                          for label, queued in {self.SMALL: 0, self.LARGE: 0, **pools}.items()}}
+        return placement.cascade.seen(shot, self.NOW)
+
+    def place(self, runners, attempt="3", actor="github-actions[bot]", live=None, waiting=None, seen=None):
+        values = {"SIDE_LABEL": SIDE, "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_TRIGGERING_ACTOR": actor}
+        live = {self.SMALL: 0, self.LARGE: 0} if live is None else live
+        waiting = {self.SMALL: 0, self.LARGE: 0} if waiting is None else waiting
+        return placement.rerun_scheme(values, runners, live, waiting, self.seen() if seen is None else seen)
+
+    def test_an_owned_pool_that_is_down_sends_the_rerun_to_attempt_1s_blacksmith_pick(self):
+        down = [runner("mini-a-glaeda-1", status="offline"), runner("mini-b-glaeda-1", status="offline")]
+        for attempt, actor in (("3", "github-actions[bot]"), ("2", "teamleaderleo"), ("4", "cmux-bot[bot]")):
+            with self.subTest(attempt=attempt, actor=actor):
+                label, placed, why = self.place(down, attempt, actor)
+                self.assertEqual(label, "")
+                self.assertIn(self.JOB, (*placed.jobs[self.LARGE], *placed.jobs[self.SMALL]), why)
+
+    def test_an_idle_mini_comes_first(self):
+        label, placed, _ = self.place([runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1")])
+        self.assertEqual((label, placed), (SIDE, None))
+
+    def test_busy_minis_take_a_free_blacksmith_slot(self):
+        _, placed, _ = self.place([runner("mini-a-glaeda-1", busy=True)])
+        self.assertEqual(placed.jobs[self.LARGE], (self.JOB,))
+
+    def test_a_full_blacksmith_and_attempt_1_keep_the_route(self):
+        capacity = placement.cascade.CAPACITY
+        full = {self.SMALL: capacity[self.SMALL], self.LARGE: capacity[self.LARGE]}
+        backed = {self.SMALL: placement.cascade.OVERFLOW_BACKLOG + 5, self.LARGE: 0}
+        _, placed, why = self.place([runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)], live=full, waiting=backed,
+                                    seen=self.seen(**{self.SMALL: backed[self.SMALL]}))
+        self.assertEqual((placed.jobs[self.LARGE], placed.jobs[self.SMALL]), ((), ()), why)
+        self.assertEqual(self.place([runner("mini-b-glaeda-1")], attempt="1")[:2], ("", None))
+
+    def test_main_writes_the_pick(self):
+        down = [runner("mini-a-glaeda-1", status="offline")]
+        read = ({self.SMALL: 0, self.LARGE: 0}, {self.SMALL: 0, self.LARGE: 0}, self.seen())
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            values = {"PLACEMENT": "rerun-scheme", "SIDE_LABEL": SIDE, "GITHUB_OUTPUT": str(output),
+                      "GITHUB_RUN_ATTEMPT": "3", "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]",
+                      "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=read) as cascade_read, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = down
+                placement.main(values)
+            # The cascade reads Blacksmith as attempt 1 does (a re-run's own env would skip the read).
+            self.assertEqual(cascade_read.call_args.args[0]["GITHUB_RUN_ATTEMPT"], "1")
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(lines["idle_runner"], "")
+        self.assertEqual(lines["blacksmith_12_jobs"], f" {self.JOB} ")
+
+    def test_the_compile_reads_this_attempts_rerun_placement(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8"))
+        jobs = workflow["jobs"]
+        place, compile_job = jobs["scheme-compile-rerun-placement"], jobs[self.JOB]
+        self.assertIn("scheme-compile-rerun-placement", compile_job["needs"])
+        step = next(s for s in place["steps"] if s.get("id") == "place")
+        self.assertEqual(step["env"]["PLACEMENT"], "rerun-scheme")
+        pools = json.loads(github_context("pull_request")["vars"]["RUNNER_POOLS"])
+        wiring = CmuxNextWiring()
+        # The evaluator has no status functions: nothing is cancelled here.
+        place = {**place, "if": place["if"].replace("!cancelled()", "true")}
+        for attempt, actor in (("3", "github-actions[bot]"), ("2", "teamleaderleo")):
+            context = wiring.context(attempt, runner=SIDE, triggering_actor=actor)
+            context["github"]["event_name"] = "push"
+            context["github"]["ref"] = "refs/heads/topic"
+            # The placement job runs only on an attempt macos-placement did not place.
+            self.assertTrue(evaluate(place["if"], context))
+            for outputs, expected in (
+                    ({"blacksmith_6_jobs": f" {self.JOB} "}, pools["macos_26"]),
+                    ({"blacksmith_12_jobs": f" {self.JOB} "}, pools["macos_26_large"]),
+                    ({"idle_runner": SIDE}, SIDE),
+                    # No pick (or a stale attempt's): the compile keeps its re-run route.
+                    ({}, SIDE),
+                    ({"blacksmith_6_jobs": f" {self.JOB} ", "placed_attempt": "1"}, SIDE)):
+                with self.subTest(attempt=attempt, actor=actor, outputs=outputs):
+                    context["needs"]["scheme-compile-rerun-placement"] = {
+                        "outputs": {"placed_attempt": attempt, **outputs}}
+                    self.assertEqual(evaluate(compile_job["runs-on"], context), expected)
+                    self.assertEqual(evaluate(compile_job["env"]["CMUX_NEXT_RUNNER"], context), expected)
+        first = wiring.context("1", runner=SIDE)
+        self.assertFalse(evaluate(place["if"], first))
+        rescue = wiring.context("2", runner=SIDE, triggering_actor="github-actions[bot]")
+        self.assertFalse(evaluate(place["if"], rescue))
+
+
 class CmuxNextWiring(unittest.TestCase):
     PLACEMENT = "macos-placement"
 
