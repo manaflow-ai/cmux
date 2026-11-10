@@ -2218,7 +2218,10 @@ ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"
 ADVISORY_PICTURES = "What's New pictures"
 ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
-ADVISORY_SECONDS = 240.0  # the whole advisory pass; past it, what is left is reported as stopped, never a failure
+# The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
+# "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
+ADVISORY_SECONDS = 240.0
+ADVISORY_SECONDS_ENV = "CMUX_PREPUSH_ADVISORY_SECONDS"
 ADVISORY_ANNOTATIONS = 50  # GitHub shows at most this many annotations of a job; the summary has every count
 # A site under an arch ratchet refusal: `  path:line: text` (a count row) or `  path: text` (an escape site).
 ARCH_SITE = re.compile(r"^\s+(?P<path>[\w.+@/-]+\.\w+)(?::(?P<line>\d+))?: (?P<text>.*)$")
@@ -2267,10 +2270,17 @@ def _load_script(repo: Path, name: str, filename: str):
     return module
 
 
-def advisory_arch(repo: Path, ranges: list) -> list[AdvisoryFinding]:
-    """The arch ratchet's refusals for RANGES: one finding per named site, or one for a refusal that names none."""
+# An arch ratchet note that says part of the push was not judged (a rule module or the ratchet failed, a row's map did
+# not parse): the layer is incomplete, never clean.
+ARCH_DIAGNOSTIC = re.compile(r"^arch-ratchet: (WARNING: |.*\bnot judged\b)")
+
+
+def advisory_arch(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): the arch ratchet's refusals for RANGES, one finding per named site (or one for a
+    refusal that names none), and its notes that say something was not judged."""
     module = _load_script(repo, "cmux_next_arch_ratchet", "arch-ratchet.py")
-    refusals, _ = module.push_refusals(repo, ranges)
+    refusals, notes = module.push_refusals(repo, ranges)
+    diagnostics = [str(note) for note in notes if ARCH_DIAGNOSTIC.match(str(note))]
     found = []
     for row, text in refusals:
         lines = text.splitlines()
@@ -2282,25 +2292,31 @@ def advisory_arch(repo: Path, ranges: list) -> list[AdvisoryFinding]:
                                          f"{title}: {m.group('text').strip()}"))
         if not sites:
             found.append(AdvisoryFinding(ADVISORY_ARCH, None, None, f"[{row}]", text))
-    return found
+    return found, diagnostics
 
 
-def advisory_guardrails(repo: Path, ranges: list) -> list[AdvisoryFinding]:
-    """guardrails.py's line rules (and its Ghostty pin) for RANGES: one finding per refused line."""
+def advisory_guardrails(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): guardrails.py's line rules (and its Ghostty pin) for RANGES, one finding per refused
+    line, and check_own's own failure warnings (kind "guardrails": a rule that raised and was not applied)."""
     module = load_guardrails(repo, None)
     if module is None:
         raise RuntimeError(f"{SCRIPTS}/guardrails.py is missing")
-    found = []
+    found, diagnostics = [], []
     for own in module.load_push_range().as_own_ranges(repo, ranges):
-        refusals, _ = module.check_own(repo, own.base, own.head, own.before)
+        refusals, warnings = module.check_own(repo, own.base, own.head, own.before)
+        diagnostics += [text for kind, text in warnings if kind == "guardrails" and text not in diagnostics]
         for rule, hits in refusals:
             for hit in hits:
                 found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, hit.path, hit.number or None, f"[{rule.id}]",
                                              f"{rule.title}: {hit.text.strip()[:140]}. Do: {rule.fix}"))
-        pin = module.ghostty_pin_problem(repo, own.base, own.head, own.before)
+        try:
+            pin = module.ghostty_pin_problem(repo, own.base, own.head, own.before)
+        except Exception as error:  # noqa: BLE001 - as run_push: the pin check failing is a diagnostic
+            diagnostics.append(module.check_failure("ghostty-pin", error))
+            pin = None
         if pin:
             found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, None, None, "[ghostty-pin]", pin))
-    return found
+    return found, diagnostics
 
 
 def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]]) -> list[AdvisoryFinding]:
@@ -2317,84 +2333,148 @@ def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]])
     return out
 
 
-def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], str | None]:
+def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str], str | None]:
     """(findings, the reason the layer was skipped or None). Skipped, not installed, when the runner has no binary:
     the rule above forbids an install step."""
     if not any(p.startswith(SWIFT_SCOPE) and p.endswith(".swift")
                for own in ranges for p in changed_files(repo, own.base, own.head)):
-        return [], "no Swift file changed"
+        return [], [], "no Swift file changed"
     lock = repo / SCRIPTS / "lint-tools.lock"
     try:
         binary = ensure_tool(lock, "swiftformat")
         probe = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=30,
                                stdin=subprocess.DEVNULL)
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
-        return [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
+        return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
     if probe.returncode != 0:
-        return [], f"the pinned SwiftFormat does not run on this runner: {(probe.stderr or probe.stdout).strip()[:200]}"
+        return [], [], f"the pinned SwiftFormat does not run on this runner: {(probe.stderr or probe.stdout).strip()[:200]}"
     found = []
     for own in ranges:
         found += gate_own(repo, own, {"swiftformat"}, False, None, swiftformat_layer=True)
-    return _record_findings(ADVISORY_SWIFTFORMAT, repo, found), None
+    return _record_findings(ADVISORY_SWIFTFORMAT, repo, found), [], None
 
 
-def advisory_pictures(repo: Path, ranges: list) -> list[AdvisoryFinding]:
+def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
     found = []
     for own in ranges:
         found += gate_own(repo, own, {"pictures"}, False, None)
-    return _record_findings(ADVISORY_PICTURES, repo, found)
+    return _record_findings(ADVISORY_PICTURES, repo, found), []
 
 
-def advisory(repo: Path, ranges: list, summary: str | None, seconds: float = ADVISORY_SECONDS) -> None:
-    """Run the hook-only layers on RANGES and print each finding as a `::warning` (see ADVISORY_LAYERS' comment).
+def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
+    if not summary:
+        return
+    lines = ["### prepush advisory (hook-only checks, never a gate)", "",
+             "Run on CI only to show what a push that skipped the pre-push hook adds; the step's result is "
+             "unchanged by them.", "", "| check | result |", "| --- | --- |"]
+    lines += [f"| {name} | {result.replace('|', '/')} |" for name, result in rows]
+    try:
+        with open(summary, "a", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n\n")
+    except OSError as error:
+        print(f"prepush-gate: advisory: could not write the step summary ({error})", flush=True)
 
-    Returns nothing on purpose: nothing here can change the gate's exit code. A layer that fails is reported as
-    not run; the whole pass stops after SECONDS (its thread is left; the process ends with the gate)."""
-    import threading
 
-    rows: dict[str, str] = {layer: "not run (the advisory pass ran out of time)" for layer in ADVISORY_LAYERS}
+def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
+    """The advisory child (--advisory-only): run the hook-only layers on RANGES one after the other, print each
+    finding as a `::warning`, each internal failure diagnostic as a `::warning` too, and the summary table.
+
+    A layer whose checker reports it did not judge everything (a rule that raised, a ratchet note that says "not
+    judged") or that raised itself is "incomplete", never "clean"."""
+    rows: list[tuple[str, str]] = []
     findings: list[AdvisoryFinding] = []
-
-    def layer(name: str, fn) -> None:
+    diagnostics: list[tuple[str, str]] = []
+    layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures))
+    for name, fn in layers:
         t0 = time.monotonic()
         try:
-            got = fn()
-            got, skipped = got if isinstance(got, tuple) else (got, None)
+            got = fn(repo, ranges)
         except (Exception, SystemExit) as error:  # noqa: BLE001 - advisory: report it, never fail the gate
-            rows[name] = f"did not run ({type(error).__name__}: {str(error)[:160]})"
-            return
+            text = f"did not run ({type(error).__name__}: {str(error)[:300]})"
+            diagnostics.append((name, text))
+            rows.append((name, f"incomplete: {text}"))
+            continue
+        found, notes, skipped = (got + (None,))[:3]
         if skipped:
-            rows[name] = f"skipped: {skipped}"
-            return
-        findings.extend(got)
-        rows[name] = (f"{len(got)} finding(s)" if got else "clean") + f" ({time.monotonic() - t0:.1f}s)"
-
-    def run_all() -> None:
-        layer(ADVISORY_ARCH, lambda: advisory_arch(repo, ranges))
-        layer(ADVISORY_GUARDRAILS, lambda: advisory_guardrails(repo, ranges))
-        layer(ADVISORY_SWIFTFORMAT, lambda: advisory_swiftformat(repo, ranges))
-        layer(ADVISORY_PICTURES, lambda: advisory_pictures(repo, ranges))
-
-    worker = threading.Thread(target=run_all, name="prepush-advisory", daemon=True)
-    worker.start()
-    worker.join(seconds)
-    shown = list(findings)
+            rows.append((name, f"skipped: {skipped}"))
+            continue
+        findings.extend(found)
+        diagnostics += [(name, note) for note in notes]
+        took = f" ({time.monotonic() - t0:.1f}s)"
+        if notes:
+            rows.append((name, f"incomplete: {len(found)} finding(s), {len(notes)} check(s) did not run{took}"))
+        else:
+            rows.append((name, (f"{len(found)} finding(s)" if found else "clean") + took))
     print("prepush-gate: advisory, hook-only checks on this range (they never fail this step): "
-          + "; ".join(f"{name}: {rows[name]}" for name in ADVISORY_LAYERS), flush=True)
-    for finding in shown[:ADVISORY_ANNOTATIONS]:
+          + "; ".join(f"{name}: {result}" for name, result in rows), flush=True)
+    for name, text in diagnostics:
+        print(f"::warning title={_workflow_property(f'prepush advisory ({name}) incomplete')}::{_workflow_data(text)}",
+              flush=True)
+    for finding in findings[:ADVISORY_ANNOTATIONS]:
         print(advisory_annotation(finding), flush=True)
-    if len(shown) > ADVISORY_ANNOTATIONS:
-        print(f"prepush-gate: advisory: {len(shown) - ADVISORY_ANNOTATIONS} more finding(s) not annotated", flush=True)
-    if summary:
-        lines = ["### prepush advisory (hook-only checks, never a gate)", "",
-                 "Run on CI only to show what a push that skipped the pre-push hook adds; the step's result is "
-                 "unchanged by them.", "", "| check | result |", "| --- | --- |"]
-        lines += [f"| {name} | {rows[name].replace('|', '/')} |" for name in ADVISORY_LAYERS]
+    if len(findings) > ADVISORY_ANNOTATIONS:
+        print(f"prepush-gate: advisory: {len(findings) - ADVISORY_ANNOTATIONS} more finding(s) not annotated", flush=True)
+    _summary(summary, rows)
+
+
+def advisory_seconds() -> float:
+    raw = os.environ.get(ADVISORY_SECONDS_ENV, "").strip()
+    try:
+        return float(raw) if raw else ADVISORY_SECONDS
+    except ValueError:
+        return ADVISORY_SECONDS
+
+
+def advisory_start(repo: Path, base: str | None, head: str):
+    """Start the advisory child (this script, --advisory-only) in its own process group, or None when it cannot
+    start. Its own session, so advisory_finish can kill everything it started (git, the arch checks' workers)."""
+    cmd = [sys.executable, "-I", str(Path(__file__).resolve()), "--advisory-only", "--repo", str(repo), "--head", head]
+    if base:
+        cmd += ["--base", base]
+    sys.stdout.flush()
+    try:
+        return subprocess.Popen(cmd, cwd=repo, start_new_session=True, stdin=subprocess.DEVNULL), time.monotonic()
+    except OSError as error:
+        print(f"::warning title=prepush advisory did not start::{_workflow_data(str(error))}", flush=True)
+        return None
+
+
+def advisory_finish(started, summary: str | None, seconds: float) -> None:
+    """Wait for the advisory child until SECONDS after it started. Past that: SIGTERM then SIGKILL to its whole
+    process group, reap it, and print one "timed out" warning. Returns nothing: the gate's exit code never depends
+    on the child (Codex review of #40811: a stalled child joined at interpreter exit ran into the gate's watchdog)."""
+    if started is None:
+        return
+    process, t0 = started
+    try:
+        code = process.wait(timeout=max(0.0, seconds - (time.monotonic() - t0)))
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                process.wait(timeout=GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
         try:
-            with open(summary, "a", encoding="utf-8") as stream:
-                stream.write("\n".join(lines) + "\n\n")
-        except OSError as error:
-            print(f"prepush-gate: advisory: could not write the step summary ({error})", flush=True)
+            os.killpg(process.pid, signal.SIGKILL)  # members that outlived the leader
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.wait(timeout=GRACE_SECONDS + 5)
+        except subprocess.TimeoutExpired:
+            pass
+        print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+              "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+              flush=True)
+        _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
+        return
+    if code != 0:
+        print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+              "unchanged.", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2414,6 +2494,7 @@ def main(argv: list[str] | None = None) -> int:
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
+    parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
     parser.add_argument("--advisory", action="store_true",
                         help="CI (the fast gates): also run the hook-only layers (arch ratchet, guardrails line rules, "
                              "SwiftFormat, What's New pictures) and print each finding as a ::warning; never changes "
@@ -2490,8 +2571,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"prepush-gate: cannot tell which commits are this push's own: {error}")
         print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
         return 1
+    if args.advisory_only:
+        advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
+        return 0
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
+    # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
+    advised = (advisory_start(repo, args.base, args.head) if args.advisory and only is None and not args.pre_push
+               else None)
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
@@ -2503,8 +2590,7 @@ def main(argv: list[str] | None = None) -> int:
         # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
                               highlights_layer=swiftformat_layer)
-    if args.advisory and only is None and not args.pre_push:
-        advisory(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
+    advisory_finish(advised, os.environ.get("GITHUB_STEP_SUMMARY"), advisory_seconds())
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
