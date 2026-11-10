@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
+import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
@@ -1139,9 +1139,9 @@ describe("clean-room provider key probe", () => {
         "/home/cmux/.local/bin/other: a Google AI key",
       ]);
       expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
-        "/home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch",
+        "/home/cmux/.codex/tmp/arg0/[a name]/apply_patch",
         "/home/cmux/.local/bin/acpmux",
-        "/home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux",
+        "/home/cmux/.local/share/cmux-tui/builds/[a name]/bin/cmux",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1253,7 +1253,7 @@ describe("clean-room provider key probe", () => {
       const { probe, out } = run(root);
       for (const v of [LONG.slice(0, 15), LONG.slice(-40), BIG, MISSED, MISSED.slice(0, 15)]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "file /home/cmux/[a long name]/notes.txt:1: an OpenAI project key",
+        "file /home/cmux/[a name]/notes.txt:1: an OpenAI project key",
         "file /home/cmux/[a piece of a secret]/.codex/auth.json: a Codex login file",
         "file /home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
         "file /home/cmux/token.json:1: an OAuth refresh token",
@@ -1284,10 +1284,43 @@ describe("clean-room provider key probe", () => {
       for (const v of [AT.slice(1), NODIGIT, PLUS, PLUS.slice(3)]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
         "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
-        "/home/cmux/cache/[a long name]/.codex/auth.json: a Codex login file",
-        "/home/cmux/cache/[a long name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a name]/.codex/auth.json: a Codex login file",
         "/home/cmux/project/.env:1: MISTRAL_API_KEY",
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a place prints only names that cannot be a credential, whatever detection saw", () => {
+    const SEP = "c8Jp4k_W9q2Lt-v7X3aM_R6n8Ys"; // an opaque token with separators, under no key's name
+    const root = plant({
+      "proc/5/comm": `${SEP.slice(0, 15)}\n`,
+      "proc/5/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/5/cmdline": "tool\0",
+      "proc/6/comm": "node\n",
+      "proc/6/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/6/cmdline": "node\0",
+      "home/cmux/session.json": `{"access_token":"${SEP}"}\n`,
+      [`home/cmux/${SEP}/.codex/auth.json`]: "{}",
+      [`home/cmux/a.b/${SEP.slice(0, 6)}/${SEP.slice(7, 13)}/.codex/auth.json`]: "{}",
+      // Any casing of a key's name, and a long refresh token in a binary file.
+      "home/cmux/project/.env": "Mistral_Api_Key=Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt\n",
+      "home/cmux/project/blob.bin": `\0{"refresh_token":"${"Aa8k_".repeat(150)}"}`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [SEP, SEP.slice(0, 15), SEP.slice(0, 6), SEP.slice(7, 13), "Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt", "Aa8k_Aa8k_"]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a name] (1 pid): OPENAI_API_KEY (a value)",
+        "env process node (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/a.b/[a name]/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/project/.env:1: MISTRAL_API_KEY",
+        "file /home/cmux/project/blob.bin: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1350,6 +1383,19 @@ describe("clean-room provider key probe", () => {
     const out = scrub(text);
     for (const v of [OAUTH, PROJ, GEMINI_SHAPE, "AIza", "hf_"]) expect(out).not.toContain(v);
     expect(out).toContain("[secret]");
+  });
+
+  test("the machine exec route's HTTP request waits as long as the command may run", async () => {
+    const waits: (number | undefined)[] = [];
+    const api = {
+      raw: async (_m: string, route: string, _b?: unknown, timeoutMs?: number) => {
+        waits.push(timeoutMs);
+        if (route.endsWith("/client-session")) return { status: 501, body: { error: { code: "cloud.provider.unsupported" } } };
+        return { status: 200, body: { value: { ok: true, exitCode: 0, stdout: "x", stderr: "" } } };
+      },
+    } as any;
+    await directExec(api, "m1", { secrets: [] } as any)("true", 290_000);
+    expect(waits[1]).toBeGreaterThanOrEqual(290_000);
   });
 
   test("an answer without the marker line is an error, not a clean machine", () => {

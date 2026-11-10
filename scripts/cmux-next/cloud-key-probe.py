@@ -122,10 +122,9 @@ HIT_SPAN = 512
 
 # Cheap byte prefilter: a line or chunk without one of these holds no finding, so only those get the full checks.
 PREFILTER = re.compile(
-    # Every key name ends in one of these, in upper or lower case (`aws_secret_access_key` in an AWS credentials
-    # file): short words that start with `_` keep the scan fast, where the names in both cases, or a case-blind
-    # pattern, cost the walk 3 to 1000 times over.
-    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_KEY|_key|_TOKEN|_token|_JSON|_json"
+    # Every key name ends in one of these, in any case (`aws_secret_access_key`, `Mistral_Api_Key`), as character
+    # classes: as fast as plain words, where a case-blind group costs the walk 2 to 1000 times over.
+    rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_[Kk][Ee][Yy]|_[Tt][Oo][Kk][Ee][Nn]|_[Jj][Ss][Oo][Nn]"
 )
 # A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
 # in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
@@ -163,14 +162,36 @@ PIECE = 8
 PART = re.compile(r"[^/\s]+")
 
 
-# Whatever detection found or missed, no word of a report string that could be a credential leaves the machine: a word
-# of 12 or more token characters with a letter and a digit (a folder named after a token, a process named after one,
-# cut to 15 bytes) is replaced. Detection only decides what counts as a finding; this decides what may be printed.
-# Any run of 12 or more characters with no `/`, `.`, `_`, `-` or space in it, whatever else it holds (`@`, `+`, case,
-# digits or none): words people name folders and processes with break into shorter runs (`node_modules`,
-# `settings.ini`, `codex-arg0`), and a credential is one long run. A build hash prints as a long name too.
+# Names the machine controls (a path's parts, a process's name) print only when they cannot be a credential, whatever
+# detection found or missed: a part is shown when it is lower-case words joined by `.`, `_` or `-` (no digit, no
+# capital: `node_modules`, `settings.ini`, `.codex`, `apply_patch`), or one of the names below that break that rule.
+# Any other part prints as `[a name]`, keeping a short file extension (`[a name].json`). Detection decides what counts
+# as a finding; this alone decides what may be printed.
+PLAIN = re.compile(r"^\.?[a-z]+(?:[._-][a-z]+)*$")
+KNOWN_NAMES = {"arg0", "python3", "node", "x86_64", "aarch64", "lib64", "Library", "Documents", "Desktop", "Downloads"}
+EXTENSION = re.compile(r"(\.[a-z0-9]{1,5})$")
 LINE_NO = re.compile(r"^(.*?)(:\d+)?$", re.S)
-LONG_RUN = re.compile(r"[^/\s._\-]{12,}")
+# What the probe itself writes in place of a value: kept.
+OWN_MARK = re.compile(r"^\[(?:a secret|a piece of a secret|a name|an? [A-Za-z ]+)\]")
+
+
+def shown_part(part):
+    """One part of a name the machine controls, as it may be printed."""
+    if not part or part in KNOWN_NAMES or OWN_MARK.match(part):
+        return part
+    name, line = LINE_NO.match(part).groups()
+    if PLAIN.match(name) and len(name) <= 64:
+        return part
+    ext = EXTENSION.search(name)
+    return "[a name]" + (ext.group(1) if ext and PLAIN.match(ext.group(1)[1:] or "x") else "") + (line or "")
+
+
+def safe_place(text):
+    """A finding's place (`/a/path:N` or `process NAME (N pids)`) with every part the machine named made safe."""
+    m = re.match(r"^process (.*) \((\d+ pids?)\)$", text, re.S)
+    if m:
+        return f"process {shown_part(m.group(1))} ({m.group(2)})"
+    return "/".join(shown_part(part) for part in text.split("/"))
 
 _PIECES = (0, set())
 
@@ -206,21 +227,19 @@ def redact(text):
         word = m.group(0)
         if any(word[i:i + n] in keys for n in lengths for i in range(len(word) - n + 1)):
             return "[a piece of a secret]"
-        # The `:N` line number the probe adds to a file's name is not part of it.
-        name, line = LINE_NO.match(word).groups()
-        return "[a long name]" + (line or "") if LONG_RUN.search(name) else word
+        return word
 
     return PART.sub(piece_of_key, text)
 
 
-def redacted(value):
-    """Every string in the report, redacted."""
+def redacted(value, place=False):
+    """Every string in the report, redacted; places (`where`, `unreadable`) also cut down to safe names."""
     if isinstance(value, str):
-        return redact(value)
+        return safe_place(redact(value)) if place else redact(value)
     if isinstance(value, list):
-        return [redacted(v) for v in value]
+        return [redacted(v, place) for v in value]
     if isinstance(value, dict):
-        return {redact(k): redacted(v) for k, v in value.items()}
+        return {redact(k): redacted(v, place or k in ("where", "unreadable")) for k, v in value.items()}
     return value
 
 
@@ -378,7 +397,7 @@ LOGIN_QUOTED = re.compile(r'"([^"\\]{1,128})"\s*:\s*"((?:[^"\\]|\\.)*)"')
 def login_values(path):
     """Records the secret fields of a login file for redaction, from the whole file: JSON fields, quoted
     `"name": "value"` pairs (JSON the parser refuses) and `name = value` lines (an AWS credentials file is INI). Never
-    reports them. Paths are redacted by shape too (LONG_RUN), so this is the second guard, not the only one."""
+    reports them. Places print only safe names (safe_place), so this is the second guard, not the only one."""
     try:
         with open(path, "rb") as f:
             raw = f.read()
@@ -427,10 +446,18 @@ def scan_file(path):
                 window = tail + chunk
                 # Every shape starts at a prefilter prefix (a quote before refresh_token, a word boundary before the
                 # rest), so only a short stretch from each hit is checked, not the whole chunk with every shape.
+                tail = window[-OVERLAP:]
                 for hit in PREFILTER.finditer(window):
                     at = hit.start()
-                    seen.update(shape_kinds(window[max(0, at - 2):at + HIT_SPAN].decode("latin-1")))
-                tail = window[-OVERLAP:]
+                    stop = at + HIT_SPAN
+                    # A value left open at the span's end (a long refresh token) is followed to its end, up to
+                    # MAX_VALUE; one still open at the window's end is checked again with the next chunk.
+                    while open_value(window[max(0, at - 2):stop].decode("latin-1")) and stop < len(window) and stop - at < MAX_VALUE:
+                        stop += stop - at
+                    if stop >= len(window) and open_value(window[max(0, at - 2):].decode("latin-1")) and len(window) - at < MAX_VALUE:
+                        tail = window[max(0, at - 2):]
+                        break
+                    seen.update(shape_kinds(window[max(0, at - 2):stop].decode("latin-1")))
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
