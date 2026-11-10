@@ -502,10 +502,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
     assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
     assert!(!retry_before_running(&json!({ "code": "busy" })));
-    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
-    // are asked again too; one that may have started is not.
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon
+    // (`state: not_run`), are asked again too; one that may have started is not, and neither is
+    // an `unavailable` the app decided (`refusal_tests.rs`).
     assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
-    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(retry_before_running(
+        &json!({ "code": "unavailable", "data": { "not_run": true, "state": "not_run" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
     assert!(!retry_before_running(
         &json!({ "code": "timeout", "data": { "state": "in_progress" } })
     ));
@@ -2079,7 +2083,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
 #[test]
 fn a_not_run_refusal_is_retried_inside_the_cli() {
     let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+        "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 1 } } });
     let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
     let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
     let mut stream = connect(&socket).unwrap();
@@ -2116,7 +2120,7 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
             let since = *first.get_or_insert_with(Instant::now);
             let answer = if since.elapsed() < back_after {
                 json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-                    "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 100 } } })
+                    "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 100 } } })
             } else {
                 json!({ "id": 1, "ok": true, "result": { "machines": [] } })
             };
@@ -2163,7 +2167,7 @@ fn a_short_caller_keeps_its_own_deadline() {
             line.clear();
             asked += 1;
             let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-                "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 50 } } });
+                "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 50 } } });
             if writeln!(writer, "{refused}").is_err() {
                 break;
             }
