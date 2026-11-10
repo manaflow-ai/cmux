@@ -30,7 +30,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var cloudHandoffs = false
     /// The prompt rows of session `session` with a turn checkpoint (``AgentPaneHandshake/cloudTurnRewind``);
     /// nil unless `cloud.turnCheckpoints` is on for this signed-in Cloud chat.
-    var cloudTurnRewind: (@Sendable (_ session: String) async -> [String])?
+    var cloudTurnRewind: (@MainActor @Sendable (_ session: String) async -> [String])?
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing

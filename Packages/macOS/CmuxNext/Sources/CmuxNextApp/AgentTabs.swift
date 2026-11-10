@@ -341,8 +341,8 @@ final class AgentTabStore {
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
-    /// A Cloud chat's turn checkpoint or rewind (``runCloudTurnRewind(chat:session:request:services:)``).
-    var cloudTurnRewind: (@MainActor (_ chat: String, _ session: String, _ request: AgentPaneCloudTurnRewind) async throws -> [String: Any])?
+    /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
+    var cloudTurnRewind: AgentPaneCloudTurnRewindHost?
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
@@ -655,8 +655,8 @@ final class AgentTabStore {
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
         }
         model.onCloudTurnRewind = { [weak self] request, session in
-            guard let self, let operation = self.cloudTurnRewind else { throw AgentPaneHostError.daemonStopped }
-            return try await operation(self.resolve(provisional, machine: scoped.machine), session, request)
+            guard let self, let host = self.cloudTurnRewind else { throw AgentPaneHostError.daemonStopped }
+            return try await host.run(chat: self.resolve(provisional, machine: scoped.machine), session: session, request: request)
         }
         unsentDrafts.wire(model, machine: { scoped.machine }) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
         model.onOpenTab = { [weak self] request in

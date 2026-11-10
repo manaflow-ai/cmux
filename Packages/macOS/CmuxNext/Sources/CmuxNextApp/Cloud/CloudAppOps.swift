@@ -5,25 +5,8 @@ import CmuxNextSettings
 import Foundation
 
 extension CloudAppLinks {
-    /// Runs Cloud app ops on `local`'s current connection. A refusal is a
-    /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon
-    /// allows it (the verified app connection), never upgraded here.
-    static func ops(local: DaemonService) -> CloudAppOp {
-        let timeout: Duration = .seconds(120) // a start waits for a paused machine
-        return { op, args, key, origin in
-            guard let connection = await local.connection else {
-                throw CloudAppOpFailure(code: "cmux.cloud.relay_unavailable", message: DaemonError.notConnected.description)
-            }
-            let allowed = await connection.userOriginAllowed
-            let request = AppsRunRequest(app: CloudLinkKey.app, op: op, args: args, idempotencyKey: key,
-                                         origin: origin == .user && allowed ? .user : .script)
-            do {
-                return try await connection.request(request, timeout: timeout).value
-            } catch DaemonError.command(_, let message, let code, let details, _) {
-                throw CloudAppOpFailure(code: code ?? "", message: message, details: details)
-            }
-        }
-    }
+    /// Runs Cloud app ops on `local`'s current connection (``CloudAppOpRunner``).
+    static func ops(local: DaemonService) -> CloudAppOp { CloudAppOpRunner { await local.connection }.op }
 }
 
 /// The child chat opener the transcript fork leaves for the last step: the child machine's pane and
@@ -53,54 +36,22 @@ private func cloudChatPlace(chat: String, session expected: String, services: Ap
     return (workspace.id, workspace.displayName, cloud.machineID, record.harness)
 }
 
-/// Whether Cloud chats offer turn checkpoints: signed in and `cloud.turnCheckpoints` on (off by default).
-@MainActor
-func cloudTurnRewindIsOn(_ services: AppServices) -> Bool {
-    services.cloud.auth.isSignedIn
-        && CloudNewWorkspaceSetting().turnCheckpoints(in: services.settings?.snapshot.root ?? .object([:]))
-}
-
-/// A Cloud chat's turn checkpoint or rewind. Swift only because the person's Cloud token lives in
-/// the app's Keychain: the sequence is cmux-cloud-api's (`owner.turn_checkpoint`, `owner.turn_rewind`).
-@MainActor
-func runCloudTurnRewind(chat key: String, session: String, request: AgentPaneCloudTurnRewind,
-                        services: AppServices) async throws -> [String: Any] {
-    guard cloudTurnRewindIsOn(services), let place = cloudChatPlace(chat: key, session: session, services: services),
-          let connection = services.machines.local.connection else {
-        throw NSError(domain: "cloud.turnRewind", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cloud chat is unavailable"])
+extension AppServices {
+    /// A Cloud chat's turn checkpoints with this app's setting, chats and Cloud token (the token is
+    /// in the app's Keychain, so the app hands it in; the sequence is cmux-cloud-api's).
+    var cloudTurnRewindHost: AgentPaneCloudTurnRewindHost {
+        AgentPaneCloudTurnRewindHost(
+            isOn: { [weak self] in
+                self.map { $0.cloud.auth.isSignedIn && CloudNewWorkspaceSetting().turnCheckpoints(in: $0.settings?.snapshot.root ?? .object([:])) } ?? false
+            },
+            place: { [weak self] chat, session in self.flatMap { cloudChatPlace(chat: chat, session: session, services: $0) }.map { ($0.workspace, $0.machine) } },
+            connection: { [weak self] in self?.machines.local.connection },
+            credential: { [weak self] in
+                guard let cloud = self?.cloud else { throw CancellationError() }
+                let team = (try? await cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
+                return .init(api: FeedService.apiBaseURL(auth: cloud.auth).absoluteString, accessToken: try await cloud.auth.tokens().access, team: team)
+            })
     }
-    let credential = try await cloudTurnCredential(services)
-    let client = CloudTurnRewindClient(connection: connection)
-    // The platform keys a checkpoint by workspace, session and turn, so the turn names its key; a
-    // rewind is a new one each click (the same key would answer the first rewind again).
-    let answer: CmuxNextDaemon.JSONValue
-    switch request {
-    case .checkpoint:
-        answer = try await client.checkpoint(credential, workspace: place.workspace, carrierMachine: place.machine,
-                                             session: session, turnSeq: request.turnSeq, clientKey: "cmux-turn-\(request.turnSeq)")
-    case .rewind:
-        answer = try await client.rewind(credential, workspace: place.workspace, session: session, turnSeq: request.turnSeq,
-                                         clientKey: "cmux-rewind-\(request.turnSeq)-\(UUID().uuidString.prefix(8))")
-    }
-    var reply = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(answer))) as? [String: Any] ?? [:]
-    reply["rowId"] = AgentPaneCloudTurnRewind.rowID(turnSeq: request.turnSeq)
-    return reply
-}
-
-/// The prompt rows of `session` with a checkpoint before them (the ready handshake's `cloudTurnRewind`).
-@MainActor
-func cloudTurnRewindRows(chat key: String, session: String, services: AppServices?) async -> [String] {
-    guard let services, cloudTurnRewindIsOn(services), let place = cloudChatPlace(chat: key, session: session, services: services),
-          let connection = services.machines.local.connection, let credential = try? await cloudTurnCredential(services) else { return [] }
-    let turns = await CloudTurnRewindClient(connection: connection).readyTurns(credential, workspace: place.workspace, session: session)
-    return turns.map(AgentPaneCloudTurnRewind.rowID(turnSeq:))
-}
-
-@MainActor
-private func cloudTurnCredential(_ services: AppServices) async throws -> CloudTurnRewindClient.Credential {
-    let team = (try? await services.cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
-    return .init(api: FeedService.apiBaseURL(auth: services.cloud.auth).absoluteString,
-                 accessToken: try await services.cloud.auth.tokens().access, team: team)
 }
 
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.

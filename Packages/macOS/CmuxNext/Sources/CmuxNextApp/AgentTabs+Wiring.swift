@@ -409,8 +409,8 @@ extension AgentTabStore {
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
-            if host.cloudMachineID != nil, cloudTurnRewindIsOn(services) {
-                host.cloudTurnRewind = { [weak services] session in await cloudTurnRewindRows(chat: key.key, session: session, services: services) }
+            if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {
+                host.cloudTurnRewind = { [weak services] session in await services?.cloudTurnRewindHost.rows(chat: key.key, session: session) ?? [] }
             }
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
@@ -607,14 +607,10 @@ extension AgentTabStore {
                 guard let services else { throw CancellationError() }
                 return try await cloudTryAnotherApproach(chat: chat, session: session, throughSeq: throughSeq, services: services)
             }
-            cloudTurnRewind = { [weak services] (chat: String, session: String, request: AgentPaneCloudTurnRewind) async throws -> [String: Any] in
-                guard let services else { throw CancellationError() }
-                return try await runCloudTurnRewind(chat: chat, session: session, request: request, services: services)
-            }
         } else {
             tryAnotherApproach = nil
-            cloudTurnRewind = nil
         }
+        cloudTurnRewind = services.cloudTurnRewindHost
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
             return
