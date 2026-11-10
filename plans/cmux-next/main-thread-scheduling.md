@@ -1,8 +1,14 @@
 # cmux NEXT: the main thread stays free under load (as Chrome keeps its UI thread free)
 
-Status: DESIGN DRAFT for Lawrence's OK (cmux-ad m90). No implementation before that OK. Owner of this doc: MAIN
-THREAD LIKE CHROME (perf lead task, 2026-11-10). Owners of the code it names: PL-main (scheduler), PL-ghostty
-(terminals), the sidebar and agent-pane owners in [OWNERS.md](OWNERS.md).
+Status: DESIGN, approved 2026-11-10. Lawrence: "i want us to match chrome's smoothness, throughout the entire app,
+don't stop until it's to chrome's quality" (the coordinator relayed this as the OK for this design). Section 6 gives
+the PR and the state of each step. Owner of this doc: MAIN THREAD LIKE CHROME (perf lead task, 2026-11-10). Owners of
+the code it names: PL-main (scheduler), PL-ghostty (terminals), the sidebar and agent-pane owners in
+[OWNERS.md](OWNERS.md).
+
+Code read at feat `9e0c2ce826c`; file and line references checked again at `b7dfd714d4e` (2026-11-10), after #40038
+and #40127 landed. No number in this doc comes from a bench: section 5 says what is measured (two production samples)
+and what is not.
 
 Lawrence (2026-11-10): "when there is high load in cmux, why does everything get laggy? fix it so it follows how
 chrome does it: in chrome when one thing takes all the cpu, the rest of the app is not laggy".
@@ -13,8 +19,8 @@ On NIGHTLY 85b099928a8a (pid 35142, 81-103 % CPU, 2.4 GB, Mac load 175), a 5 s s
 thread busy in 1803 of 1995 samples (90 %). 1678 samples (84 %) were in ONE derived-state walk:
 `AgentPaneLinkPlaces.follow` -> `places(in:)` -> `withObservationTracking` (1546 samples at its main call site). Each tab title change
 anywhere (agent title spinners, many per second) woke one observation that read every workspace and every tab
-again, O(tabs^2) through a no-machine tab-key lookup. Terminals, keys and the sidebar waited behind it. PR #40038 fixes
-this one loop (one observation per workspace). This doc is the general model, so that the NEXT loop of this kind
+again, O(tabs^2) through a no-machine tab-key lookup. Terminals, keys and the sidebar waited behind it. PR #40038
+(merged, `d1bf101b008`) fixed this one loop (one observation per workspace). This doc is the general model, so that the NEXT loop of this kind
 cannot take the app: what may run on the main thread, in what order, how long, and where derived state is computed
 instead.
 
@@ -94,8 +100,9 @@ Gaps this doc closes:
   coalescing stays one re-evaluation per burst. This does not make a long evaluation short: sections 2 and 3 do.
 - **G2. `onChange` closures run inside the writer.** A `withObservationTracking(_:onChange:)` will-set callback runs
   synchronously inside the write (the store drain). Rule: an `onChange` only marks dirty and enqueues; it never reads
-  the model or computes. A guardrail rule (pre-push, added lines only, not a CI gate) refuses an `onChange:` body
-  longer than one enqueue call; escape `// observation-allow: <why>`.
+  the model or computes. The guardrail rule `observation-onchange` (#40127, merged; pre-push, added lines only, not a
+  CI gate) refuses an `onChange:` body that does more than literal dirty marks, `guard let self else { return }` and
+  one call; escape `// onchange-allow: <why this work must run inside the write>`.
 - **G3. A task's cost has no always-on record.** Today an over-budget task is recorded per task only in diagnostics
   mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`), because the per-task record wakes the watchdog. Design: `MainFrameBudget.run`
   and the G1 hop already read the clock at the start and the end of each task; they add the task's time to a
@@ -122,11 +129,16 @@ Terminal frames do not wait for any of these (section 4).
 
 - **Construction:** sections 2 and 3. A loop over all workspaces or tabs on main is a review finding at least major
   (REVIEW-STANDARD.md), the same as a blocking call.
-- **Pre-push (early warning, added lines only):** G2's `onChange` rule; an `ObservationStream` / `withObservationTracking`
-  closure that iterates a session-wide collection (`workspaces`, `tabs`, `allTabs`, `screens`, `.values` of a store map)
-  is refused unless it is an `ObservedItems` owner that reads only the list (ids), not item fields. Escape
-  `// observation-allow: <why the read set is bounded>`. These are `guardrails.py` rules, the same class as
-  `main-hop`; they are not CI jobs, steps or perf-gate rows.
+- **Pre-push (early warning, added lines only; landed in #40127):** G2's rule `observation-onchange`, and the rule
+  `observation-scope`: an `ObservationStream` / `ObservationLoop` / `withObservationTracking` / `track(shape:)`
+  closure that walks a session-wide collection (`workspaces`, `allWorkspaces`, `tabs`, `allTabs`, `liveTabs`,
+  `screens`, `.values` of a map) is refused unless it is an `ObservedItems` owner that reads only the list (ids), not
+  item fields. Escape `// observation-scope-allow: <why the read set is bounded>`. The two escapes are not
+  `// observation-allow:`, which is the escape of the older rule `raw-observation` (a direct
+  `withObservationTracking` outside the tracked wrappers): one comment for all three would let a reviewed raw tracking
+  hide a session-wide walk. These are `guardrails.py` rules (`scripts/cmux-next/guardrails.py --list`); they are not
+  CI jobs, steps or perf-gate rows. The rule is lexical: it does not find a walk in a function that the closure calls
+  (`Self.chats(models)`, O1-O7 below), so the runtime check stays the proof.
 - **Runtime (Debug, bench builds and NIGHTLY):** G3's per-owner record; a task over 8 ms writes one `stall` record with
   its owner and stack (the watchdog does this today for scheduled tasks; G1 gives the observation jobs an owner).
   `ObservationWakes` already names the observations each change wakes, by site; the deterministic test of 1.5 uses it.
@@ -162,7 +174,8 @@ It prints the owner and stack of each failure. It fails on base `9e0c2ce826c` (t
 in one owner, tasks far over 8 ms; expected red, not run yet) and is the red-first test of step 0 and the before row of every later step.
 
 A second, deterministic test needs no GUI and no timing (which observations a change wakes does not depend on the
-host): `LargeSessionObservationTests` in `CmuxNextTests` builds a `DaemonStore` from a 60 x 6 fixture snapshot,
+host): `LargeSessionObservationTests` (target `CmuxNextAppTests`; not on the tip yet, its cases come with the PRs of
+steps 3 and 4) builds a `DaemonStore` from a 60 x 6 fixture snapshot,
 starts every session-wide observer through its real init, applies 5 x 100 title events through `DaemonStore.apply`,
 and asserts, with `ObservationWakes`: (a) a spinner-only title change wakes 0 observations; (b) a title text change
 wakes only observations of that tab and its workspace; (c) a probe changes one field of each of the 360 tabs in turn,
@@ -200,7 +213,7 @@ the snapshot and the seam, and the steps that can land before the core exists.
 
 | # | Derived state | Today (thread) | Owner module (Rust) | Snapshot type | Delivery seam (at most one per frame) |
 |---|---|---|---|---|---|
-| D1 | Link places (agent pane links to workspaces and tabs) | `S/CmuxNextAgentPane/AgentPaneLinkPlaces.swift:97` `follow` -> `:107` `places(in:)`, an `ObservationStream` over every machine x workspace x pane x tab; titles through `S/CmuxNextBridge/SidebarBridge.swift:380` -> `TabTitleResolver.swift:14` (`@MainActor`). Main. #40038 makes it one observation per workspace. | `cmux-client-core` projection `link_places` (R-SWIFT-MIRRORS D1); the tab title rule from D2. Swift-only inputs (incognito page titles, Home titles) enter the core as platform facts, one writer each (R-SWIFT-MIRRORS 3.2). | `cmux-view-rows` `Diff` of `LinkPlaceRow { key, workspace, title, resource_id, kind }`, keyed by tab key | The core's window for each agent pane page, taken at the frame owner's tick (V4: one frame per refresh) and passed to the page through the page bridge with no Swift transform (layer-ownership.md rule 3). Until the core: #40038, unchanged. |
+| D1 | Link places (agent pane links to workspaces and tabs) | `S/CmuxNextAgentPane/AgentPaneLinkPlaces.swift:111` `follow` -> `:148` `places(of:)`: since #40038 one `ObservedItems` item per workspace (before it: one `ObservationStream` over every machine x workspace x pane x tab, `places(in:)`); titles through `S/CmuxNextApp/SidebarBridge.swift:380` -> `S/CmuxNextApp/TabTitleResolver.swift:14` (`@MainActor`). Main. | `cmux-client-core` projection `link_places` (R-SWIFT-MIRRORS D1); the tab title rule from D2. Swift-only inputs (incognito page titles, Home titles) enter the core as platform facts, one writer each (R-SWIFT-MIRRORS 3.2). | `cmux-view-rows` `Diff` of `LinkPlaceRow { key, workspace, title, resource_id, kind }`, keyed by tab key | The core's window for each agent pane page, taken at the frame owner's tick (V4: one frame per refresh) and passed to the page through the page bridge with no Swift transform (layer-ownership.md rule 3). Until the core: #40038, unchanged. |
 | D2 | Tab titles: spinner glyph parse and "which title" | Raw OSC title in `title-changed` (`cmux-tui/crates/cmux-tui-core/src/mux/events.rs:55` `TitleChanged { surface, title }`). Swift parses the glyphs (`S/CmuxNextDaemon/Store/TerminalTitle.swift:17`) in `TabModel.applyTitle` (`S/CmuxNextDaemon/Store/TabModel.swift:446`), inside the store drain, main; the raw `title` is written on every spinner frame (`:447`). The "which title" rule is `TabTitleResolver` (main, per read). | Glyph parse: `cmux-tui-core/src/terminal_title.rs` (next to `TitleTracker` and `sanitize`). Which title: a pure function in `cmux-layout-reducer` beside `sidebar_face.rs` (which already shortens tab titles). | `TabTitle { text: Arc<str>, activity: Option<TitleActivity> }` on the tab entity; `TitleChanged { surface, text, activity }` | Today's seam: daemon event -> `DaemonConnection` decode off main -> `EventInbox` (newest per surface wins) -> `DaemonStore.drain` (frame class, one batch per frame). The daemon sends `TitleChanged` only when `text` or `activity` changed: a spinner frame sends nothing (C7). The raw `title` leaves `TabModel`. |
 | D3 | Sidebar rows (face, order, sections) | Per-row observation `S/CmuxNextSidebar/Store/SidebarRowFeed.swift:43` (good); face in Rust through FFI `cmux_sidebar_face_rows` (`S/CmuxNextBridge/SidebarFaceBatch.swift:200` -> `cmux-layout-reducer/src/sidebar_face.rs`), called on main for changed rows; structural pass `SidebarBridge.sections` (`SidebarBridge.swift:389`) -> `SidebarMapping.sections` (`S/CmuxNextBridge/SidebarMapping.swift:103`), main, whole list. | `cmux-client-core` sidebar window; rules in `cmux-layout-reducer` (`sidebar_face.rs`, `sidebar_layout.rs`, `rows.rs`) | `CmuxSidebarFrame` (R-SWIFT-MIRRORS 4.2: revision, ops, changed rows) | `cmux_view_sidebar_frame(core, window)` at the frame owner's tick; the view applies ops in O(changed rows). Until the core: the face batch stays (O(changed rows)); the structural pass is measured in step 0 before any change. |
 | D4 | Unread badges and the Dock count | `S/CmuxNextDaemon/Store/DaemonStore+Unread.swift:20` `recountUnread`: integer adds over 60 workspaces, assigned only on a change; read by `NotificationCenterService+Lookup.swift:67` -> `AppDockTile.swift:12`. Main, O(workspaces), cheap (60 adds). | `cmux-tui-core/src/mux/notifications.rs` (the notification ledger) | `UnreadTotals { app, per_workspace }` on the notification event | The notification event through the same inbox and drain. Low priority: not in the samples; listed so the rule has no exception. |
@@ -221,20 +234,21 @@ order) without reading item fields; each item has its own observation (`Observed
 Access-list size is the number of tracked property reads in one evaluation; "large" is the session of 1.5 (60
 workspaces, 360 tabs, 5 agents). Numbers are counts from reading the code (formula given), not measured.
 
-Loops that read across workspaces or tabs on main today (all `emit` closures run on the main actor, on macOS 14-15
-through `withObservationTracking` and on 26+ through the system `Observations`):
+Loops that read across workspaces or tabs on main (all `emit` closures run on the main actor, on macOS 14-15
+through `withObservationTracking` and on 26+ through the system `Observations`). O1 is fixed on the tip (#40038);
+O2-O9 are on the tip as written, and each row's PR is open, not merged (state 2026-11-10):
 
 | # | Site (`S/` = `Packages/macOS/CmuxNext/Sources/`) | Walks | Access list, large session (estimate) | Re-runs on | Plan (step) |
 |---|---|---|---|---|---|
-| O1 | `S/CmuxNextAgentPane/AgentPaneLinkPlaces.swift:97` (`follow`), `:107` (`places(in:)`); wired `S/CmuxNextApp/AppServices+AfterFirstFrame.swift:51` | every machine x workspace x pane x tab | 60 x 20 + 60 x 16 + 360 x 13 = about 6,800; with the restored New Tab walk (`AgentHistoryPage.title` -> `listTabsScoped`) about 12,000 to 70,000 | any title, name, kind, URL or resource id of any tab; any workspace name; any tab list; any selection. The profiled loop. | #40038 (per workspace); then D1 |
-| O2 | `S/CmuxNextAgentLanes/SidebarSessionTreeFeed.swift:59` -> `chats` `:116` | every workspace, screen, pane, tab | 180 + 360 x 3 + lanes = about 1,300 | tab add, remove, move; kind or conversation; lane links | step 4: `ObservedItems` per workspace; then a Rust window |
-| O3 | `S/CmuxNextAgentPane/AttentionTabsWatch.swift:87` (snapshot walks about `:28-31`, `items(in:)` `:102`); wired `AppServices+AfterFirstFrame.swift:46` | every tab, twice per machine | 2 x (180 + 360 x 2) = about 1,800 per machine | any tab's attention or resource id; the title of a marked tab | step 4: per tab; then the attention set from the notification ledger (D4's owner) |
-| O4 | `S/CmuxNextBridge/SidebarDocMachines.swift:132` -> `byOrigin()` `S/CmuxNextApp/Favicons/AppServices+SiteFavicon.swift:25`; wired `SidebarSections/SidebarDocWiring.swift:53` | every tab of the local store | 180 + 360 + 60 x 2 = about 660 | any navigation or favicon change in any browser tab; posts `itemFaviconsChanged` on every value, also when equal | step 4: per tab, emit only on a change |
-| O5 | `S/CmuxNextMobileHost/IPhoneHostService.swift:374` -> `workspaceFolders` (`IPhoneHostService+Wiring.swift:107`) | every tab's `cwd` | 180 + 360 = about 540 | any `cd` in any terminal; the tree. Only while iPhone access is on and signed in. | step 4: the daemon sends the folder set (cwd is Rust-owned) |
-| O6 | `S/CmuxNextAgentLanes/SidebarChatHistoryFeed.swift:44` -> `liveChats` `:103` -> `DaemonStore.liveTabs` (`S/CmuxNextDaemon/Store/DaemonStore.swift:262`) | every live tab of every machine | 1 + 360 x 3 + agents = about 1,100 | tab list revision; kind or conversation; lanes. Only while the session tree is on. | step 4: per item |
-| O7 | `S/CmuxNextAgentActivity/AgentLaneStore.swift:21`, `:56`: `withMutation(\.lanes)` per agent step; readers in D5 | every lane | 1 to 3 (small), but each wake costs O(lanes), and O(lanes log lanes) per window for the priority sort | EVERY agent step of ANY session, many per second per agent | step 4: readers use per-session cells; then D5 |
+| O1 | At `9e0c2ce826c`: `S/CmuxNextAgentPane/AgentPaneLinkPlaces.swift:97` (`follow`), `:107` (`places(in:)`). On the tip: `follow` `:111`, `places(of:)` `:148`, one item per workspace. Wired `S/CmuxNextApp/AppServices+AfterFirstFrame.swift:51` | before #40038: every machine x workspace x pane x tab | before #40038: 60 x 20 + 60 x 16 + 360 x 13 = about 6,800; with the restored New Tab walk (`AgentHistoryPage.title` -> `listTabsScoped`) about 12,000 to 70,000 | before #40038: any title, name, kind, URL or resource id of any tab; any workspace name; any tab list; any selection. The profiled loop. | DONE: #40038 (merged, per workspace); then D1 |
+| O2 | `S/CmuxNextAgentLanes/SidebarSessionTreeFeed.swift:59` -> `chats` `:116` | every workspace, screen, pane, tab | 180 + 360 x 3 + lanes = about 1,300 | tab add, remove, move; kind or conversation; lane links | step 4 (#40126): `ObservedItems` per workspace; then a Rust window |
+| O3 | `S/CmuxNextAgentPane/AttentionTabsWatch.swift:87` (snapshot walks about `:28-31`, `items(in:)` `:102`); wired `AppServices+AfterFirstFrame.swift:46` | every tab, twice per machine | 2 x (180 + 360 x 2) = about 1,800 per machine | any tab's attention or resource id; the title of a marked tab | step 4 (#40130): per workspace; then the attention set from the notification ledger (D4's owner) |
+| O4 | `S/CmuxNextBridge/SidebarDocMachines.swift:132` -> `byOrigin()` `S/CmuxNextApp/Favicons/AppServices+SiteFavicon.swift:25`; wired `SidebarSections/SidebarDocWiring.swift:53` | every tab of the local store | 180 + 360 + 60 x 2 = about 660 | any navigation or favicon change in any browser tab; posts `itemFaviconsChanged` on every value, also when equal | step 4 (#40213, replaces #40142): per workspace, emit only on a change |
+| O5 | `S/CmuxNextMobileHost/IPhoneHostService.swift:374` -> `workspaceFolders` (`IPhoneHostService+Wiring.swift:107`) | every tab's `cwd` | 180 + 360 = about 540 | any `cd` in any terminal; the tree. Only while iPhone access is on and signed in. | step 4 (#40146): per workspace in the app; end state: the daemon sends the folder set (cwd is Rust-owned) |
+| O6 | `S/CmuxNextAgentLanes/SidebarChatHistoryFeed.swift:44` -> `liveChats` `:103` -> `DaemonStore.liveTabs` (`S/CmuxNextDaemon/Store/DaemonStore.swift:262`) | every live tab of every machine | 1 + 360 x 3 + agents = about 1,100 | tab list revision; kind or conversation; lanes. Only while the session tree is on. | step 4 (#40137): per item |
+| O7 | `S/CmuxNextAgentActivity/AgentLaneStore.swift:21`, `:56`: `withMutation(\.lanes)` per agent step; readers in D5 | every lane | 1 to 3 (small), but each wake costs O(lanes), and O(lanes log lanes) per window for the priority sort | EVERY agent step of ANY session, many per second per agent | step 4 (#40154: the approvals reader first): readers use per-session cells; then D5 |
 | O8 | `S/CmuxNextApp/Themes/ThemeCoordinator.swift:177` | personal workspaces and profiles | about 60 + profiles | a theme change (rare) | keep (rare trigger) |
-| O9 | Waits until a match: `Handlers/ChiefInspectorHandlers.swift:191`, `SessionTransfer/SessionTransferService.swift:258`, `Home/HomeService+Workspace.swift:171`, `DeepLinks/DurableTabLink.swift:73`, `Cloud/CloudMachineCreation.swift:421` | all tabs or workspaces until a match | up to about 400 | any tab change while the wait is open; each ends at its match or its time limit | step 4: wait on the one id (a per-id cell), not on the list |
+| O9 | Waits until a match (all in `S/CmuxNextApp/`): `Handlers/ChiefInspectorHandlers.swift:192`, `SessionTransfer/SessionTransferService.swift:258`, `Home/HomeService+Workspace.swift:171`, `DeepLinks/DurableTabLink.swift:73`, `Cloud/CloudMachineCreation.swift:424` | all tabs or workspaces until a match | up to about 400 | any tab change while the wait is open; each ends at its match or its time limit | step 4 (#40220, replaces #40149): wait on the one id (a per-id cell), not on the list |
 
 Formula: an evaluation that reads `k` fields of each of `n` items tracks `k x n` entries, and Observation pays a key
 path hash and a set insert per entry (the samples' `generateAccessList`, `_AccessList.addAccess`,
@@ -255,10 +269,10 @@ checks the rule by its effect: which tab changes wake each observation.
 Rule: a terminal frame presents on Ghostty's renderer thread and never waits for the app's main thread. cmux keeps
 no app-level display link for terminals and no manual `ghostty_surface_draw` loop.
 
-[ghostty-integration.md](https://github.com/manaflow-ai/cmux/pull/40040) (draft PR #40040) owns this: its section 2
+[ghostty-integration.md](ghostty-integration.md) (#40040) owns this: its section 2
 lists the 27 present, hold, draw and wake paths (P1-P27) and moves P1-P8, P10-P12, P17, P18 and P23 into Ghostty's
-renderer; PR #40055 (S-P3) fixes a terminal that stays main-routed after its watch runs out (Ghostty `mainPending`,
-`IOSurfaceLayer.zig:297`). This doc does not change either.
+renderer; PR #40055 (S-P3, open) fixes a terminal that stays main-routed after its watch runs out (Ghostty
+`mainPending`, ghostty-next `src/renderer/metal/IOSurfaceLayer.zig`). This doc does not change either.
 
 What this doc adds:
 
@@ -274,7 +288,8 @@ What this doc adds:
 
 ## 5. Today's main-thread hot paths, measured cost
 
-**Fleet bench: not measured.** At 03:20Z the fleet controller (`http://100.89.225.106:18765`) did not answer
+**Fleet bench: not measured** (still true on 2026-11-10 when this doc merged: step 0, #40132, is open and no GUI
+host ran it). At 03:20Z the fleet controller (`http://100.89.225.106:18765`) did not answer
 (`cmux-ci status` timed out); the office minis and controller are down (status/LEAD.md 02:48Z-03:19Z: the only
 working routes are GitHub Actions runners on cmux-lawrence-2-light and the ultra1 pool, build-only, with no GUI
 session or input grant). The large-session bench needs a GUI host with the input grant and step 0's script.
@@ -313,7 +328,7 @@ Per-path rows to fill in step 0 (light / large, host, macOS, refresh rate):
 | Owner (MainTaskBoard) | count | p50 ms | p95 ms | max ms |
 |---|---|---|---|---|
 | `daemon.store.drain` | not measured | | | |
-| O1 `AgentPaneLinkPlaces.swift:97` | not measured | | | |
+| O1 `AgentPaneLinkPlaces.swift:111` (after #40038) | not measured | | | |
 | O2 `SidebarSessionTreeFeed.swift:59` | not measured | | | |
 | O3 `AttentionTabsWatch.swift:87` | not measured | | | |
 | O7 readers of `AgentLaneStore.lanes` | not measured | | | |
@@ -325,7 +340,20 @@ Per-path rows to fill in step 0 (light / large, host, macOS, refresh rate):
 Each step: its own red-first test (committed before the fix, red on the base, green after, run on the fleet by the
 author), and a before/after bench table from 1.5 (light and large; host, macOS, refresh rate; per owner p50/p95/max
 ms and count; key to frame p50/p95/p99/max; missed refreshes while typing). A step lands ON, with the old path
-deleted (no switch, COMMON.md m54). No step changes #40038, #40040 or #40055.
+deleted (no switch: the perf lead's rule m54 of 2026-11-07). No step changes #40038, #40040 or #40055.
+
+State of the steps on 2026-11-10 (feat `b7dfd714d4e`). Only step 2 is merged. An open PR is not compiled, not run
+on a Mac and not measured unless its own description says so; this doc claims no result for it.
+
+| Step | PR | State |
+|---|---|---|
+| 0 | #40132 | open |
+| 1 | #40134 | open |
+| 2 | #40127 | merged (`ace25f3de93`): rules `observation-onchange` and `observation-scope` |
+| 3 | #40141 | open |
+| 4 | O2 #40126, O3 #40130, O4 #40213 (replaces #40142), O5 #40146, O6 #40137, O7 #40154, O9 #40220 (replaces #40149) | open; the other six are stacked on O2's branch (#40126) |
+| 5 | none | not started |
+| 6 | none (R-SWIFT-MIRRORS W3) | not started |
 
 Bench table every step fills (from 1.5, `--mode=bench`, interleaved arms):
 
@@ -338,9 +366,9 @@ Bench table every step fills (from 1.5, `--mode=bench`, interleaved arms):
 
 | Step | Change | Red-first test (committed before the change; fleet, before and after) | Owner |
 |---|---|---|---|
-| 0 | Measurement only. The `large` session (1.5) in `perf-stress-session.py` and `sidebar-churn-typing.py --session large` with the 5 title streams; `scripts/measure/main-thread-large-session.sh`; G3's per-owner task record in `MainFrameBudget.run` and `debug.main_budget`; G4's `daemon.store.drain` owner; the 60 x 6 store fixture of `LargeSessionObservationTests` (its cases come with steps 3 and 4, each red first in its own PR). Fills section 5. | `tests/test_cmux_next_main_thread_large_session.py` (`lane = "manual"`): red on base (O1, unless #40038 landed first; then it names the next owner, or it is green and step 1+ are measured-only). `MainFrameBudgetTests`: an owner's task time lands in its histogram with no allocation (red: no histogram). | PL-main |
+| 0 | Measurement only. The `large` session (1.5) in `perf-stress-session.py` and `sidebar-churn-typing.py --session large` with the 5 title streams; `scripts/measure/main-thread-large-session.sh`; G3's per-owner task record in `MainFrameBudget.run` and `debug.main_budget`; G4's `daemon.store.drain` owner; the 60 x 6 store fixture of `LargeSessionObservationTests` (its cases come with steps 3 and 4, each red first in its own PR). Fills section 5. | `tests/test_cmux_next_main_thread_large_session.py` (`lane = "manual"`): red on base (O1, unless #40038 landed first; then it names the next owner, or it is green and step 1+ are measured-only). `MainFrameBudgetOwnerTimesTests` (the name in #40132): an owner's task time lands in its histogram with no allocation (red: no histogram). | PL-main |
 | 1 | G1: every `ObservationStream` evaluation runs inside `MainFrameBudget.run(.visible, owner: site)` on both paths (the legacy hop and the system `Observations` closure), so the board names it, its time is recorded and the budgeted work after it in that frame yields. | `ObservationStreamSchedulingTests`: during an evaluation `MainTaskBoard` shows the stream's site as owner and class `visible` (red: no owner). | PL-main |
-| 2 | G2 and 1.4's pre-push rules: an `onChange:` does only an enqueue; no session-wide read in an observation closure outside `ObservedItems`. Added lines only; not CI. | `guardrails.py` self-test cases: a session-wide `ObservationStream` and a computing `onChange:` are refused, an `ObservedItems` list read passes (red: both pass). | PL-main with PL-arch |
+| 2 | G2 and 1.4's pre-push rules: an `onChange:` does only an enqueue; no session-wide read in an observation closure outside `ObservedItems`. Added lines only; not CI. | `tests/test_cmux_next_guardrails_observation.py` (`lane = "manual"`): a session-wide `ObservationStream` and a computing `onChange:` are refused, an `ObservedItems` list read passes (red: both pass). Landed with #40127. | PL-main with PL-arch |
 | 3 | D2: the daemon parses the title glyphs (`terminal_title.rs`); `TitleChanged` carries `text` and `activity` and is not sent for a spinner-only change; `TabModel` drops the raw `title` and `TerminalTitle.swift`'s glyph rule. | Rust: `cmux-tui-core/tests/terminal_titles.rs`: 20 spinner frames of one text give 1 `TitleChanged` (red: 20). Swift: `LargeSessionObservationTests` (a): a spinner frame wakes 0 observations (red: every `title` reader wakes). Run with `cmux-ci run --class isolated` (cargo and swift test on the fleet). | session host owner (OWNERS.md) with PL-main |
 | 4 | Section 3 rows O2-O7 and O9 to per item, one PR per row, by the row's area owner (OWNERS.md). | `LargeSessionObservationTests` (b) and (c) per row: a change of one tab wakes only that row's item, and no item observation is woken from two workspaces (red: the row's whole-session evaluation wakes on every tab). | area owners; PL-main reviews the pattern |
 | 5 | D4 and D5 from their Rust owners (notification ledger; acpmux priority window). | D4: one notification changes 1 workspace total and the app total, 0 other reads. D5: an agent step changes at most 1 priority row (the `ChatsWindowMainThreadTests` shape). | session host owner; PL-acpmux |
@@ -355,7 +383,7 @@ over 4 ms p95 per owner and none over 8 ms.
 
 ## Not in this doc
 
-- The #40038 fix itself (NIGHTLY LOOP owner).
+- The #40038 fix itself (NIGHTLY LOOP owner; merged).
 - Ghostty present paths (#40040) and S-P3 (#40055).
 - CEF's message pump slice (2 ms, threading-model.md): unchanged.
 - Process isolation of browser pages and Memory Saver rules: [PATTERNS.md](PATTERNS.md), unchanged.
