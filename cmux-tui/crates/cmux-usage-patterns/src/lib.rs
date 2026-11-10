@@ -231,7 +231,7 @@ pub fn read_dir(dir: &Path) -> Readout {
     };
     // The newest MAX_WRITERS files: a machine with many short-lived sessions (tagged builds)
     // keeps one file each, and the readout stays bounded by reading the most recent.
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+    let mut files: Vec<(SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))

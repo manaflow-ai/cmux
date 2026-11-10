@@ -221758,7 +221758,19 @@
         "ja": {"stringUnit": {"state": "translated", "value": "使用パターン"}},
         "ko": {"stringUnit": {"state": "translated", "value": "사용 패턴"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用模式"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用模式"}}
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用模式"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obrasci korištenja"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brugsmønstre"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Schemi di utilizzo"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លំនាំនៃការប្រើប្រាស់"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruksmønstre"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wzorce użycia"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Padrões de uso"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Модели использования"}},
+        "th": {"stringUnit": {"state": "translated", "value": "รูปแบบการใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kullanım düzenleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Шаблони використання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mẫu sử dụng"}}
       }
     },
     "settings.diagnostics.usagePatterns": {
@@ -221772,7 +221784,19 @@
         "ja": {"stringUnit": {"state": "translated", "value": "使用パターンを記録"}},
         "ko": {"stringUnit": {"state": "translated", "value": "사용 패턴 기록"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "记录使用模式"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記錄使用模式"}}
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記錄使用模式"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Bilježi obrasce korištenja"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Registrer brugsmønstre"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Registra schemi di utilizzo"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កត់ត្រាលំនាំនៃការប្រើប្រាស់"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Registrer bruksmønstre"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rejestruj wzorce użycia"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Registrar padrões de uso"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Записывать модели использования"}},
+        "th": {"stringUnit": {"state": "translated", "value": "บันทึกรูปแบบการใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kullanım düzenlerini kaydet"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Записувати шаблони використання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ghi lại mẫu sử dụng"}}
       }
     },
     "settings.diagnostics.usagePatterns.summary": {
@@ -221786,7 +221810,19 @@
         "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータにのみ保存。回数だけで、テキストは含みません。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에만 저장됩니다. 횟수만 기록하고 텍스트는 없습니다."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "只保存在这台电脑上。只有计数，没有文字。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只存在這台電腦上。只有計數，沒有文字。"}}
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只存在這台電腦上。只有計數，沒有文字。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ostaje na ovom računaru. Samo brojevi, bez teksta."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Bliver på denne computer. Kun tællinger, ingen tekst."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Resta su questo computer. Solo conteggi, nessun testo."}},
+        "km": {"stringUnit": {"state": "translated", "value": "នៅលើកុំព្យូទ័រនេះ។ រាប់តែចំនួន គ្មានអត្ថបទ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Blir på denne datamaskinen. Kun tellinger, ingen tekst."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zostaje na tym komputerze. Tylko liczniki, bez tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Fica neste computador. Apenas contagens, sem texto."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Остаётся на этом компьютере. Только счётчики, без текста."}},
+        "th": {"stringUnit": {"state": "translated", "value": "อยู่บนคอมพิวเตอร์เครื่องนี้ นับเฉพาะจำนวน ไม่มีข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu bilgisayarda kalır. Yalnızca sayılar, metin yok."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишається на цьому комп’ютері. Лише лічильники, без тексту."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ở lại trên máy tính này. Chỉ đếm số lượng, không có văn bản."}}
       }
     },
     "settings.diagnostics.usagePatterns.help": {
@@ -221800,7 +221836,19 @@
         "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータでの cmux の使い方を数えます：コマンド、ペインの分割、エージェントのチャット、プロンプトとトークン、接続を、日ごと・時間ごとに。プロンプト、ターミナルのテキスト、Web アドレス、ファイル名、入力した内容は一切記録せず、どこにも送信しません。cmux usage-patterns または「エージェント統計」ページで確認できます。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에서 cmux를 어떻게 쓰는지 셉니다: 명령, 창 분할, 에이전트 채팅, 프롬프트와 토큰, 연결을 일과 시간별로 기록합니다. 프롬프트, 터미널 텍스트, 웹 주소, 파일 이름이나 입력한 내용은 절대 기록하지 않으며 아무 데도 보내지 않습니다. cmux usage-patterns 또는 에이전트 통계 페이지에서 확인하세요."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "统计你在这台电脑上如何使用 cmux：命令、窗格拆分、代理聊天、提示和 token，以及连接，按天和小时。绝不记录提示、终端文本、网址、文件名或你输入的任何内容，也不会发送到任何地方。用 cmux usage-patterns 或在“代理统计”页面查看。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "統計你在這台電腦上如何使用 cmux：指令、窗格分割、代理聊天、提示與 token，以及連線，按日與小時。絕不記錄提示、終端機文字、網址、檔案名稱或你輸入的任何內容，也不會傳送到任何地方。用 cmux usage-patterns 或在「代理統計」頁面查看。"}}
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "統計你在這台電腦上如何使用 cmux：指令、窗格分割、代理聊天、提示與 token，以及連線，按日與小時。絕不記錄提示、終端機文字、網址、檔案名稱或你輸入的任何內容，也不會傳送到任何地方。用 cmux usage-patterns 或在「代理統計」頁面查看。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Broji kako koristite cmux na ovom računaru: naredbe, podjele panela, razgovore s agentima, upite i tokene te veze, po danu i satu. Nikada ne bilježi upite, tekst terminala, web adrese, nazive datoteka ni bilo što što upišete, i ništa se nigdje ne šalje. Pogledajte ih pomoću cmux usage-patterns ili na stranici Statistika agenata."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tæller, hvordan du bruger cmux på denne computer: kommandoer, rudedelinger, agentchats, prompts og tokens samt forbindelser, fordelt på dag og time. Den registrerer aldrig prompts, terminaltekst, webadresser, filnavne eller noget, du skriver, og intet sendes nogen steder hen. Se dem med cmux usage-patterns eller på siden Agentstatistik."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Conta come usi cmux su questo computer: comandi, divisioni dei pannelli, chat con agenti, prompt e token, e connessioni, per giorno e ora. Non registra mai prompt, testo del terminale, indirizzi web, nomi di file né nulla di ciò che digiti, e nulla viene inviato altrove. Consultali con cmux usage-patterns o nella pagina Statistiche agenti."}},
+        "km": {"stringUnit": {"state": "translated", "value": "រាប់របៀបដែលអ្នកប្រើ cmux នៅលើកុំព្យូទ័រនេះ៖ ពាក្យបញ្ជា ការបំបែកផ្ទាំង ការជជែកភ្នាក់ងារ ប្រូមិត និងតូខឹន និងការតភ្ជាប់ តាមថ្ងៃ និងម៉ោង។ វាមិនដែលកត់ត្រាប្រូមិត អត្ថបទទែមីណាល់ អាសយដ្ឋានគេហទំព័រ ឈ្មោះឯកសារ ឬអ្វីដែលអ្នកវាយនោះទេ ហើយគ្មានអ្វីត្រូវបានផ្ញើទៅកន្លែងណាឡើយ។ មើលវាដោយ cmux usage-patterns ឬនៅលើទំព័រស្ថិតិភ្នាក់ងារ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Teller hvordan du bruker cmux på denne datamaskinen: kommandoer, rutedelinger, agentchatter, prompter og tokens samt tilkoblinger, per dag og time. Den registrerer aldri prompter, terminaltekst, nettadresser, filnavn eller noe du skriver, og ingenting sendes noe sted. Se dem med cmux usage-patterns eller på siden Agentstatistikk."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zlicza, jak używasz cmux na tym komputerze: polecenia, podziały paneli, czaty z agentami, prompty i tokeny oraz połączenia, według dnia i godziny. Nigdy nie rejestruje promptów, tekstu terminala, adresów internetowych, nazw plików ani niczego, co wpisujesz, i nic nie jest nigdzie wysyłane. Zobacz je poleceniem cmux usage-patterns lub na stronie Statystyki agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Conta como você usa o cmux neste computador: comandos, divisões de painel, chats de agentes, prompts e tokens, e conexões, por dia e hora. Nunca registra prompts, texto do terminal, endereços web, nomes de arquivos nem nada que você digite, e nada é enviado a lugar nenhum. Veja com cmux usage-patterns ou na página Estatísticas de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Считает, как вы используете cmux на этом компьютере: команды, разделения панелей, чаты с агентами, промпты и токены, а также подключения, по дням и часам. Никогда не записывает промпты, текст терминала, веб-адреса, имена файлов и всё, что вы вводите, и ничего никуда не отправляется. Смотрите их командой cmux usage-patterns или на странице статистики агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "นับวิธีที่คุณใช้ cmux บนคอมพิวเตอร์เครื่องนี้ ได้แก่ คำสั่ง การแบ่งพาเนล แชตเอเจนต์ พรอมต์และโทเค็น และการเชื่อมต่อ ตามวันและชั่วโมง จะไม่บันทึกพรอมต์ ข้อความในเทอร์มินัล ที่อยู่เว็บ ชื่อไฟล์ หรือสิ่งที่คุณพิมพ์ และไม่มีการส่งข้อมูลไปที่ใด ดูได้ด้วย cmux usage-patterns หรือในหน้าสถิติเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu bilgisayarda cmux'u nasıl kullandığınızı sayar: komutlar, bölme ayırmaları, ajan sohbetleri, istemler ve token'lar ile bağlantılar; güne ve saate göre. İstemleri, terminal metnini, web adreslerini, dosya adlarını veya yazdığınız hiçbir şeyi kaydetmez ve hiçbir yere bir şey gönderilmez. Bunları cmux usage-patterns ile veya Ajan İstatistikleri sayfasında görün."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Рахує, як ви використовуєте cmux на цьому комп’ютері: команди, розділення панелей, чати з агентами, промпти й токени та підключення, за днями й годинами. Ніколи не записує промпти, текст термінала, вебадреси, імена файлів чи будь-що, що ви вводите, і нічого нікуди не надсилається. Переглядайте їх командою cmux usage-patterns або на сторінці статистики агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Đếm cách bạn dùng cmux trên máy tính này: lệnh, chia ngăn, cuộc trò chuyện với tác nhân, câu lệnh nhắc và token, cùng các kết nối, theo ngày và giờ. Không bao giờ ghi lại câu lệnh nhắc, văn bản terminal, địa chỉ web, tên tệp hay bất cứ thứ gì bạn gõ, và không có gì được gửi đi đâu cả. Xem bằng cmux usage-patterns hoặc trên trang Thống kê tác nhân."}}
       }
     }
   },

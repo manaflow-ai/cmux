@@ -14,7 +14,7 @@ cmux usage-patterns - your own usage patterns on this machine (opt-in)
 USAGE
   cmux usage-patterns [show] [--json] [--top N]   What was counted, merged over every daemon
   cmux usage-patterns reset                      Delete what was counted so far
-  cmux usage-patterns on|off                     Turn counting on or off
+  cmux usage-patterns on|off                     Print the command that turns counting on or off
 
 Counting is off until you turn it on (Settings > Privacy and Security > Usage Patterns, or
 `cmux settings set diagnostics.usagePatterns true`). It records counts and times of day:
@@ -103,24 +103,13 @@ fn reset(json: bool) -> i32 {
     }
 }
 
-/// `on` / `off`: the same setting the Settings page writes, through `cmux settings`.
+/// `on` / `off`: the setting lives in the app's settings owner, so this names the one command
+/// that writes it (`cmux settings set`), the same path the Settings page and palette take.
 fn toggle(on: bool) -> i32 {
-    let exe = std::env::current_exe().unwrap_or_else(|_| "cmux".into());
-    let status = std::process::Command::new(exe)
-        .args([
-            "settings",
-            "set",
-            cmux_usage_patterns::SETTING_KEY,
-            if on { "true" } else { "false" },
-        ])
-        .status();
-    match status {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(error) => {
-            eprintln!("cmux usage-patterns: {error}");
-            1
-        }
-    }
+    let value = if on { "true" } else { "false" };
+    println!("cmux settings set {} {value}", cmux_usage_patterns::SETTING_KEY);
+    eprintln!("Run the line above (or use Settings > Privacy and Security > Usage Patterns).");
+    0
 }
 
 /// The plain-text readout.
@@ -137,7 +126,11 @@ pub(crate) fn render(readout: &Readout, top: usize) -> String {
         let _ = writeln!(
             out,
             "Nothing counted yet.{}",
-            if readout.enabled { "" } else { " Turn it on with `cmux usage-patterns on`." }
+            if readout.enabled {
+                ""
+            } else {
+                " Turn it on with `cmux settings set diagnostics.usagePatterns true`."
+            }
         );
         return out;
     }
@@ -222,6 +215,6 @@ mod tests {
     fn an_empty_readout_says_how_to_turn_it_on() {
         let text = render(&Readout::default(), 10);
         assert!(text.contains("counting is off"));
-        assert!(text.contains("cmux usage-patterns on"));
+        assert!(text.contains("cmux settings set diagnostics.usagePatterns true"));
     }
 }
