@@ -1,0 +1,104 @@
+{
+ "id": "cmdt-latency-webkit",
+ "priority": "P2",
+ "title": "CMD-T LATENCY (webkit): Cmd-T key to the frame that shows the new tab, to the daemon's confirm, and to the New Tab page composer focused (polled), warm and cold (spare dropped), light",
+ "why": "NIGHTLY REGRESSION cmux-ad m83 (2026-11-10): Lawrence: 'creating new tabs is hella slow now'. A/B of nightly ffffff979a1a vs 85b099928a8a.",
+ "source": "debug.new_tab bench_create new_tab (instant-new-surfaces warm arm) + debug.new_tab field poll + drop_spare",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "browser.defaultEngine",
+    "value": "webkit"
+   },
+   "title": "browser.defaultEngine webkit"
+  },
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the New Tab page spare reloads with the engine"
+  },
+  {
+   "do": "base_terminal",
+   "title": "a focused terminal to press Cmd-T from"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_tab",
+   "runs": 3,
+   "label": "webkit-warmup",
+   "title": "3 warm-up Cmd-T (not counted)",
+   "gap": 1.0,
+   "interactive": true
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_tab",
+   "runs": 20,
+   "label": "webkit-warm",
+   "title": "warm: 20 Cmd-T, spare ready (1 s gap)",
+   "gap": 1.0,
+   "runs_option": "presses",
+   "interactive": true
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_tab",
+   "runs": 20,
+   "label": "webkit-cold",
+   "title": "cold: 20 Cmd-T right after debug.new_tab drop_spare",
+   "gap": 1.0,
+   "runs_option": "presses",
+   "interactive": true,
+   "drop_spare": true
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "state"
+   },
+   "title": "New Tab spare state at the end"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 256
+   },
+   "title": "action budget"
+  },
+  {
+   "do": "type",
+   "text": "echo cmdtlat-${nonce}",
+   "enter": true,
+   "title": "set-up check: the app still types (its result does not decide the numbers)"
+  },
+  {
+   "do": "expect",
+   "title": "the app still types into the base terminal",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdtlat-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdtlat-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdtlat-${nonce}"
+    }
+   ]
+  }
+ ]
+}

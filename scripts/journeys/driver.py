@@ -704,7 +704,25 @@ class Journey:
                 self.app.rpc("debug.layout_counters", {"reset": True})
             if step.get("cpu"):
                 self.app.rpc("debug.main_cpu", {"action": "start"})
+            if step.get("drop_spare"):
+                # Cold arm (as cef-tab-bench.py's): the prewarmed New Tab page spare is dropped, then the timed
+                # press at once, so the opening loads its page cold.
+                self.app.rpc("debug.new_tab", {"action": "drop_spare"})
+                t = now()
             reply = self.app.rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=25) or {}
+            if step.get("interactive"):
+                # New Tab page interactive (NIGHTLY REGRESSION m83): wall ms from the press's rpc to the first
+                # `debug.new_tab field` reply whose composer field exists and holds the focus (polled, so its
+                # resolution is one poll's round trip, a few ms). None within 5 s.
+                reply["interactive_ms"], polls = None, 0
+                while now() - t < 5.0:
+                    polls += 1
+                    got = self.app.rpc("debug.new_tab", {"action": "field"}) or {}
+                    if isinstance(got, dict) and got.get("focused"):
+                        reply["interactive_ms"] = round((now() - t) * 1000, 1)
+                        break
+                    time.sleep(0.005)  # poll the page's readiness, a few ms apart
+                reply["interactive_polls"], reply["interactive_last"] = polls, got if isinstance(got, dict) else str(got)[:200]
             hangs = self.app.rpc("debug.hangs", {"limit": 8}) if step.get("hangs") else None
             if step.get("cpu"):
                 reply["main_cpu"] = self.app.rpc("debug.main_cpu", {"action": "stop"})
