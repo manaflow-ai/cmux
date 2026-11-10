@@ -745,6 +745,8 @@ import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
 import { ReadOnlyPresetApprovalRow } from "./rows/PresetApprovalRow";
 import { MEMORY_OFFER } from "./conversation/memoryInbox";
+import { ReadOnlyPromptCoachRow } from "./rows/PromptCoachRow";
+import { PROMPT_COACH } from "./conversation/promptCoach";
 import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
@@ -4201,13 +4203,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
-  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, and its preset approvals no
-  /// Approve or Not now.
+  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, its prompt coach card no ×, and its
+  /// preset approvals no Approve or Not now.
   const noDismissRegistry = useMemo(
     () => ({
       ...registry,
       recap: ReadOnlyRecapRow,
       [MEMORY_OFFER]: ReadOnlyMemoryOfferRow,
+      [PROMPT_COACH]: ReadOnlyPromptCoachRow,
       [PRESET_APPROVAL]: ReadOnlyPresetApprovalRow,
     }),
     [registry],
@@ -8332,6 +8335,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             );
           },
           "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
+          // The prompt coach card's × (conversation/PromptCoachCard.tsx).
+          "chat.coach.dismiss": async ({ rowId, sessionId }) =>
+            client.dismissPromptCoach(String(rowId), String(sessionId)),
           // Accept or Dismiss on a memory offer's facts (conversation/MemoryOfferCard.tsx).
           "chat.memory.resolve": async ({ offerId, accept, dismiss }) =>
             client.resolveMemory(
