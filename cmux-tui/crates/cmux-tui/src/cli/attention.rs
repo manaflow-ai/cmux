@@ -220,7 +220,18 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             .filter(|row| row.status == Some(cmux_tui_core::AgentStatus::Done))
             .map(|row| row.terminal)
             .collect();
+    // Every row of a terminal carries that terminal's current unread marker,
+    // so only its newest row says why the tab is unread.
+    let mut newest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for notification in notifications {
+        let Some(terminal) = text(notification, "terminal_id") else { continue };
+        let created = millis(field(notification, "created_at_ms")).unwrap_or(0);
+        let kept = newest.get(terminal).map(|row| millis(field(row, "created_at_ms")).unwrap_or(0));
+        if kept.is_none_or(|kept| created > kept) {
+            newest.insert(terminal, notification);
+        }
+    }
+    for notification in newest.into_values() {
         if field(notification, "unread") != true {
             continue;
         }
