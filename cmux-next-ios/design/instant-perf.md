@@ -39,7 +39,7 @@ on every PR that touches `cmux-next-ios/**`):
 | `home_list_first_screen` | `home-inbox` reply bytes to the list the first screen draws (JSON, `MacHomeRow.rows`, `MacHomeList`) | 20 rows | 5,000 rows | 16 ms |
 | `home_list_one_row_update` | one row changes in place in a list of N: what the feed does, the `home-inbox` reply read again, compared and listed; the note has `MacHomeList.Memo` alone | 20 rows | 5,000 rows | 4 ms |
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
-| `chat_reconnect_catch_up` | link back (`bind`), reattach with `afterSeq`, until the newest turn shows | 10 missed | 20,000 missed | 150 ms |
+| `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: the gap before the newest page fills after, untimed; its time is in the note) | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
@@ -49,9 +49,18 @@ parts and six months of timestamps. Its last 2 MB log sits about 60 records
 before the end: the open (capped at 128 KiB of whole records) stops short of it,
 so `chat_open_last_messages` shows the cap holding, and the first scroll-up page
 (`chat_older_page`) is the one that reads it.
+`chat_reconnect_catch_up` still times from the link coming back to the newest turn shown.
+What changed with the tail-first reattach (slice 3) is the work inside that window: a gap
+longer than one page reads the newest page (as an open does) and one read after it, and the
+missed records before that page are read afterwards, in 256 KiB pages, while the chat is
+already showing its newest turn. That fill is not in the timed window; the bench runs it once
+more on god to the end, checks every turn is then shown once and in order, and reports how
+long it took in the note.
+
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
-`maxBytes` of whole records, `beforeSeq` / `afterSeq`) with index arithmetic, so
+`maxBytes` of whole records, `beforeSeq` / `afterSeq`: the newest records between them, or
+oldest first after `afterSeq` alone) with index arithmetic, so
 its own cost does not grow with the log.
 
 UI level (`cmux-next-ios/UITests/InstantListPerfUITests.swift`, wired; runs on
