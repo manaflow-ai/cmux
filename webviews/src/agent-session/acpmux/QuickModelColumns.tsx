@@ -358,7 +358,7 @@ function Columns({
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
   // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
-  // of every tab, so it never changes width from tab to tab; a narrower menu ends names in an ellipsis.
+  // of every tab, so it never changes width from tab to tab; a narrower menu wraps a longer name.
   const ownWidth = useModelMenuWidth();
   const [natural, setNatural] = useState<{ key: string; width: number }>();
   // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
@@ -366,10 +366,19 @@ function Columns({
   const widthOf = (popup: HTMLElement | null | undefined) => {
     if (!popup || dragging.current) return;
     const room = "var(--available-width, calc(100vw - 24px))";
-    const wanted = ownWidth ?? natural?.width;
-    popup.style.width = wanted ? `min(${wanted}px, ${room})` : "";
-    popup.style.minWidth = wanted ? `min(${MODEL_MENU_MIN_WIDTH}px, ${room})` : "";
-    popup.style.maxWidth = wanted ? room : "";
+    if (ownWidth) {
+      // A width the person dragged to is theirs, from the drag's floor up to the window.
+      popup.style.width = `min(${ownWidth}px, ${room})`;
+      popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${room})`;
+      popup.style.maxWidth = room;
+      return;
+    }
+    // The default: the longest name's width in em of the menu's type, so it grows with interface
+    // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
+    // still hold; a name longer than the cap wraps under it.
+    popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
+    popup.style.minWidth = "";
+    popup.style.maxWidth = "";
   };
 
   // The Starred tab is always the rail's first, also before anything is starred.
@@ -401,7 +410,10 @@ function Columns({
   useLayoutEffect(() => {
     if (!open || natural?.key === namesKey) return;
     const width = naturalMenuWidth(names, modelsList.current);
-    if (width) setNatural({ key: namesKey, width });
+    const menu = modelsList.current?.closest<HTMLElement>(".acpmux-cols");
+    const em = menu ? Number.parseFloat(getComputedStyle(menu).fontSize) : NaN;
+    // Kept in em of the menu's type (widthOf), not px.
+    if (width && em > 0) setNatural({ key: namesKey, width: width / em });
   }, [open, names, namesKey, natural?.key, popupNode]);
   useLayoutEffect(() => widthOf(popupRef.current));
   const shown = list.find((family) => family.id === tab);
