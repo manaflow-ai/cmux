@@ -71,6 +71,14 @@ struct BrowserHostTabSwitchReadTests {
         let leaving = try #require(chromium.first), incoming = try #require(chromium.last)
         try #require(leaving != incoming, "fixture: the session has one Chromium page")
 
+        // The pane shows the leaving tab (no page is made: the test counts the host's reads, not a page's work).
+        // No link yet: the provider keeps the tab's new fact, and the next link's first list carries it.
+        let pane = HiddenPageHibernationTests.Pane()
+        let cache: TabContentCache = services.cache
+        cache.present(leaving, by: pane, presence: .visible)
+        #expect(provider.latestTabs.first { $0.targetID == leaving }?.visible == true,
+                "with no link, the provider did not keep that the tab shows: the next link would say it is hidden")
+
         // The provider's link: one end of a socket pair. A new link announces every listed tab.
         var fds: [Int32] = [-1, -1]
         try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "fixture: socketpair failed (errno \(errno))")
@@ -78,15 +86,10 @@ struct BrowserHostTabSwitchReadTests {
         provider.connection = ProviderConnection(fd: fds[0])
         provider.refreshTabs()
         try #require(provider.announced.count == pages, "fixture: the new link announced \(provider.announced.count) tabs, not \(pages)")
-
-        // The pane shows the leaving tab (no page is made: the test counts the host's reads, not a page's work).
-        let pane = HiddenPageHibernationTests.Pane()
-        let cache: TabContentCache = services.cache
-        cache.present(leaving, by: pane, presence: .visible)
         provider.send(.event(name: Self.endEvent, payload: .object([:])))
         let shown = await reader.events(through: Self.endEvent)
-        try #require(shown.last == LinkReader.Event(name: "tab.announced", target: leaving, visible: true),
-                     "fixture: the host was not told that the first tab shows; events: \(shown.suffix(3))")
+        try #require(shown.contains(LinkReader.Event(name: "tab.announced", target: leaving, visible: true)),
+                     "fixture: the host was not told that the first tab shows; events: \(shown.count)")
 
         // THE SWITCH, one main-actor turn: the pane hides the leaving tab and shows the incoming one.
         let counted = CountedAccess(host.tabs)
