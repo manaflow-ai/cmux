@@ -12,7 +12,8 @@
  * `pro` operator plan cloud-capture-provision.yml grants), acts in its personal scope (no team header), reads the
  * plan (`cloud.plan.get`) and the machines it already holds, then creates --count machines (default 6, at most 10)
  * one after another, recording each create's answer and how many machines the account held right before it. It
- * stops at the first refusal. First it deletes machines an earlier probe left behind (its exact name, over an hour old). Every machine it made is then deleted by its exact id, pass or fail (also on SIGTERM), and read
+ * stops at the first refusal. First it deletes machines an earlier probe left behind (its exact name, over an hour
+ * old). Every machine it made is then deleted by its exact id, pass or fail (also on SIGINT or SIGTERM), and read
  * back until the list no longer has it live.
  *
  * Pass: a create was accepted while the account already held five or more machines, and every machine this run made
@@ -120,19 +121,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const deletes: Array<Record<string, unknown>> = [];
   report.deletes = deletes;
   let stopping = false;
+  // A create whose outcome is unknown (cut off, or indeterminate after its retries) may still land a machine.
+  let unsure = false;
+  const removed = new Set<string>();
 
   // A machine this run made: an id a create answered, or (its answer lost) a live row under one of its exact names.
   const adopt = (rows: any[]) => { for (const m of rows) if (names.includes(m.name) && m.id && !made.includes(m.id)) made.push(m.id); };
   // Delete by id under one key, retrying any refusal but not-found within the budget: a machine still provisioning
   // may refuse its delete for a moment. 404 / not found is gone.
   const remove = async (id: string, budgetMs: number) => {
+    removed.add(id);
     const key = `${tag}-delete-${id}`;
     const until = Date.now() + budgetMs;
     let a: Answer = { status: 0, body: {} };
     for (let attempt = 1; ; attempt++) {
       a = await op("cloud.machine.delete", { machine: id }, key);
       const gone = a.status === 404 || /not[_.-]?found/i.test(String(a.body?.error?.code ?? ""));
-      if ((a.status === 200 && a.body?.ok === true) || gone || Date.now() + 3000 > until) break;
+      // A 4xx other than conflict, locked or rate limited is a final refusal: retrying it only burns the job's time.
+      const final = a.status >= 400 && a.status < 500 && ![409, 423, 429].includes(a.status);
+      if ((a.status === 200 && a.body?.ok === true) || gone || final || Date.now() + 3000 > until) break;
       await sleep(Math.min(3000 * attempt, 15_000));
     }
     const rec = { id, status: a.status, ok: a.body?.ok === true, error: a.body?.ok === true ? null : a.body?.error?.code ?? null };
@@ -158,22 +165,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // later) sends every delete at once and reads back for 20 s; otherwise up to 3 min per delete and 5 min of read back.
   const cleanup = (fast: boolean) => (cleaning ??= (async () => {
     stopping = true;
+    // A signal leaves seconds: the known ids' deletes go out before any list read.
+    if (fast) { await Promise.all(made.map((id) => remove(id, 10_000))); write(); }
     adopt(await list().catch(() => [] as any[]));
-    if (fast) await Promise.all(made.map((id) => remove(id, 10_000)));
-    else for (const id of made) await remove(id, 180_000);
+    if (fast) await Promise.all(made.filter((id) => !removed.has(id)).map((id) => remove(id, 5_000)));
+    else for (const id of made) if (!removed.has(id)) await remove(id, 180_000);
     // Read back: gone when the live list no longer has it (deleted or deleting do not count). Each pass also adopts a
-    // machine whose create answer was lost and whose row has only now appeared, and deletes it.
+    // machine whose create answer was lost and whose row has only now appeared (or a create that answered after a
+    // signal), and deletes it. With an unsure create it keeps looking for at least a minute.
     const until = Date.now() + (fast ? 20_000 : 300_000);
+    const settle = Date.now() + (unsure && !fast ? 60_000 : 0);
     let left = [...made];
     while (Date.now() < until) {
       const rows = await list().catch(() => null);
       if (rows) {
-        const known = made.length;
         adopt(rows);
-        for (const id of made.slice(known)) await remove(id, fast ? 5_000 : 60_000);
+        for (const id of made) if (!removed.has(id)) await remove(id, fast ? 5_000 : 60_000);
         const live = new Set(rows.map((m) => m.id));
         left = made.filter((id) => live.has(id));
-        if (!left.length) break;
+        if (!left.length && Date.now() >= settle) break;
       }
       await sleep(5000);
     }
@@ -223,6 +233,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         await sleep(2000 * attempt);
       }
       const ok = a.status === 200 && a.body?.ok === true;
+      if (retryable(a)) unsure = true;
       const id = ok ? String(a.body.value?.machine?.id ?? "") || null : null;
       if (id && !made.includes(id)) made.push(id);
       const rec: CreateRecord = { n, held_before: held, status: a.status, ok, machine: id, machine_status: ok ? a.body.value?.machine?.status ?? null : null, error: ok ? null : { code: String(a.body?.error?.code ?? "?"), message: String(a.body?.error?.message ?? "").slice(0, 300) } };
