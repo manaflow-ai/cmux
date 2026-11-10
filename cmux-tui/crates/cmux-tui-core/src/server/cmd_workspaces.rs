@@ -9,6 +9,7 @@ use cmux_json::JsonSet as _;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;
+use super::list_workspaces_reply_since;
 use super::optional_surface_size;
 use super::personal;
 use super::workspace_mutation;
@@ -20,12 +21,40 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// What a client holds of the tree (`list-workspaces` `known`): the fields it read from its last
+/// reply. Any field missing or different gets the whole tree.
+#[derive(Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub(super) struct KnownTree {
+    #[serde(default)]
+    pub(super) registry_id: Option<String>,
+    #[serde(default)]
+    pub(super) generation: Option<String>,
+    #[serde(default)]
+    pub(super) workspace_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) pane_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) terminal_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) tree_revision: Option<String>,
+}
+
 /// The tree, and the lines its connection had written when it was read (`lines_written_before_read`,
 /// read first): a line past that count may carry a change the tree lacks. The connection writes its
 /// events on another thread than this reply, so such an event can reach the client before the reply
 /// (#32408).
-pub(super) fn list_workspaces(mux: &Arc<Mux>, lines_written: Option<u64>) -> anyhow::Result<Value> {
-    let mut reply = list_workspaces_reply(mux)?;
+///
+/// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
+/// current. Without it, the reply is the same as before `known` existed, byte for byte.
+pub(super) fn list_workspaces(
+    mux: &Arc<Mux>,
+    lines_written: Option<u64>,
+    known: Option<&KnownTree>,
+) -> anyhow::Result<Value> {
+    let mut reply = match known {
+        Some(known) => list_workspaces_reply_since(mux, known)?,
+        None => list_workspaces_reply(mux)?,
+    };
     if let Some(lines) = lines_written {
         reply.set("lines_written_before_read", json!(lines));
     }

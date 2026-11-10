@@ -10,9 +10,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
     let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
 
-    let before =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let before = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None },
+        &test_writer(),
+    )
+    .unwrap();
     let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
         .as_u64()
         .expect("protocol v8 split id");
@@ -25,9 +29,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), request.cmd, &test_writer()).unwrap();
-    let after_exact =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_exact = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -43,9 +51,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), legacy.cmd, &test_writer()).unwrap();
-    let after_legacy =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_legacy = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -75,9 +87,13 @@ fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() 
         ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
     };
 
-    let tree =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let tree = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None },
+        &test_writer(),
+    )
+    .unwrap();
 
     for (path, prefix) in [
         (&tree["workspaces"][0]["resource_id"], "ws_"),
@@ -99,11 +115,15 @@ fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
     let first = mux.new_workspace(None, Some((80, 22))).unwrap();
     let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
     mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
-    let split =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
-            .as_u64()
-            .expect("viewport projection exposes a stable split");
+    let split = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None },
+        &test_writer(),
+    )
+    .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
+        .as_u64()
+        .expect("viewport projection exposes a stable split");
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
 

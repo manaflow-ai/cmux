@@ -94,7 +94,7 @@ fn new_pane_right_with_browser_kind_creates_a_browser_column() {
     let columns = handle_command(
         &wire.mux,
         wire.mux.local_test_client(0),
-        Command::ListWorkspaces,
+        Command::ListWorkspaces { known: None },
         &wire.writer,
     )
     .unwrap()["workspaces"][0]["screens"][0]["columns"]

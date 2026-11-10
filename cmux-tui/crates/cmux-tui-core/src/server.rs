@@ -620,6 +620,9 @@ pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last
 /// settled tree and frontend projections, for drawing before connecting.
 pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `known` on `list-workspaces`: `{"unchanged": true}` in O(1) when the
+/// client's tree is current, and `tree_revision` on the whole reply.
+pub const LIST_WORKSPACES_KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -1073,7 +1076,12 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    ListWorkspaces,
+    ListWorkspaces {
+        /// `list-workspaces-known-v1`: the identity and revisions of the tree
+        /// the client holds; `{"unchanged": true, ...}` when it is current.
+        #[serde(default)]
+        known: Option<cmd_workspaces::KnownTree>,
+    },
     GetFrontendProjection {
         frontend: String,
         scope: String,
@@ -3034,6 +3042,43 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     Ok(workspaces)
 }
 
+/// `list-workspaces` for a client that holds a tree (`known`): an O(1)
+/// `{"unchanged": true}` with the identity and revisions when nothing it
+/// shows changed, else the whole reply with its `tree_revision`. The tree
+/// revision is read first, so a change that lands while the tree is read
+/// makes the next request read it again.
+fn list_workspaces_reply_since(
+    mux: &Mux,
+    known: &cmd_workspaces::KnownTree,
+) -> anyhow::Result<Value> {
+    let tree_revision = mux.tree_revision();
+    let (registry_id, generation) = mux.registry_identity();
+    let (workspace_revision, pane_revision) =
+        mux.with_state(|state| (state.workspace_revision, state.pane_revision));
+    let current = cmd_workspaces::KnownTree {
+        registry_id: Some(registry_id),
+        generation: Some(generation),
+        workspace_revision: Some(workspace_revision),
+        pane_revision: Some(pane_revision),
+        terminal_revision: Some(mux.terminal_registry_revision()?),
+        tree_revision: Some(tree_revision.clone()),
+    };
+    if *known == current {
+        return Ok(json!({
+            "unchanged": true,
+            "registry_id": current.registry_id,
+            "generation": current.generation,
+            "workspace_revision": workspace_revision,
+            "pane_revision": pane_revision,
+            "terminal_revision": current.terminal_revision,
+            "tree_revision": tree_revision,
+        }));
+    }
+    let mut reply = list_workspaces_reply(mux)?;
+    reply.set("tree_revision", json!(tree_revision));
+    Ok(reply)
+}
+
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
@@ -3120,6 +3165,14 @@ mod browser_profile_tests;
 #[cfg(test)]
 #[path = "server/creation_burst_tests.rs"]
 mod creation_burst_tests;
+
+#[cfg(test)]
+#[path = "server/list_workspaces_known_tests.rs"]
+mod list_workspaces_known_tests;
+
+#[cfg(test)]
+#[path = "server/list_workspaces_bench_tests.rs"]
+mod list_workspaces_bench_tests;
 
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]

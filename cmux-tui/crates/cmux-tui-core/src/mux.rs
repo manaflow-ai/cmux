@@ -220,6 +220,7 @@ mod ledger_maintenance;
 mod output_cleanup;
 mod pinned_columns;
 mod pty_reclaim;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -714,6 +715,8 @@ pub struct Mux {
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     /// Git HEAD lookups keyed by directory, with the time they were read.
     git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,

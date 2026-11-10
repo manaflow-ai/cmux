@@ -1384,7 +1384,25 @@ reply. A client that applies events to a snapshot must apply every event past
 that line; an event on an earlier line is in the tree. Without the field, the
 barrier is every event read before the reply.
 
-Params: none.
+With `list-workspaces-known-v1`, a client that holds a tree sends `known`: the
+`registry_id`, `generation`, `workspace_revision`, `pane_revision`,
+`terminal_revision` and `tree_revision` of the reply it holds (`{}` when it
+holds none). When every one equals the daemon's, the result is
+`{unchanged: true, registry_id, generation, workspace_revision, pane_revision,
+terminal_revision, tree_revision}` with no `workspaces`, answered without
+reading the tree; the client keeps its tree and applies the events past
+`lines_written_before_read` as usual. Otherwise the result is the whole tree
+with its `tree_revision` added. `tree_revision` is an opaque string that
+changes with anything the tree shows (a title, an unread marker, the
+selection, a git branch a refresh reads) and never repeats across daemon
+runs; terminal output and scrolling leave it alone. A request without `known`
+(or with `known: null`) gets the result above, unchanged.
+
+Params:
+
+| Name | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 
 Result:
 

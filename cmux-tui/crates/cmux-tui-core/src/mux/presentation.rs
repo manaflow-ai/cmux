@@ -355,10 +355,19 @@ impl Mux {
         }
         let head = read_git_head(Path::new(cwd));
         let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
+        // A cleared cache forgets what it read, so it can no longer tell a
+        // change: count the clear itself.
+        let cleared = cache.len() >= GIT_HEAD_CACHE_LIMIT;
+        if cleared {
             cache.clear();
         }
-        cache.insert(cwd.to_string(), (now, head.clone()));
+        let previous = cache.insert(cwd.to_string(), (now, head.clone()));
+        drop(cache);
+        // A branch switched with no directory change has no event: the tree
+        // revision counts it here, when a refresh reads it.
+        if cleared || previous.is_some_and(|(_, previous)| previous != head) {
+            self.tree_revision.bump();
+        }
         head
     }
 

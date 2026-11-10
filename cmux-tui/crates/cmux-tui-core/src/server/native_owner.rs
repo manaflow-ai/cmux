@@ -286,7 +286,7 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
 pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::Subscribe { surface: None, .. }
-        | Command::ListWorkspaces
+        | Command::ListWorkspaces { .. }
         | Command::CreateWorkspace { .. }
         | Command::CreateTerminal { .. }
         | Command::SetDefaultColors { .. }

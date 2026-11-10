@@ -371,6 +371,7 @@ impl Mux {
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),
+            tree_revision: tree_revision::TreeRevision::new(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
