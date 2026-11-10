@@ -120,7 +120,7 @@ extension PaneContentView {
             guard live?(view) ?? true else {
                 (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
                 (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
-                view.removeFromSuperview()
+                if keepsClosedPage?(view) != true { view.removeFromSuperview() } // kept: its owner moved it inside the window
                 refreshNativeToolOwner()
                 return true
             }
