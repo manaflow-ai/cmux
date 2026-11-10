@@ -17,7 +17,8 @@ import Testing
 struct LargeSessionFixture {
     static let workspaces = 60
     static let tabsPerWorkspace = 6
-    static let host = "install:large-session"
+    /// `nonisolated`: ``tree()`` reads it in a local function of a closure, which is not on the main actor.
+    nonisolated static let host = "install:large-session"
 
     let store: DaemonStore
 
@@ -27,7 +28,7 @@ struct LargeSessionFixture {
         store.apply(snapshot: Self.tree())
     }
 
-    static func session(_ workspace: Int) -> String { "s-\(workspace)" }
+    nonisolated static func session(_ workspace: Int) -> String { "s-\(workspace)" }
 
     static func tree() -> DaemonTree {
         DaemonTree(workspaces: (1...workspaces).map { workspace in
