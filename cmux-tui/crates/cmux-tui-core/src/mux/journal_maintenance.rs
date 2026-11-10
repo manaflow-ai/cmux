@@ -265,6 +265,14 @@ impl Mux {
             || self.control_clients.daemon_handoff_in_progress()
     }
 
+    /// One maintenance tick on the caller's thread, for a test that stopped
+    /// the worker: true when the tick settled.
+    #[cfg(test)]
+    pub(crate) fn run_journal_maintenance_for_test(&self) -> bool {
+        let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+        self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
+    }
+
     /// One tick; [`TickOutcome::Settled`] only when nothing is left: the
     /// ledgers are within their bounds, no migration, checkpoint or seal is
     /// due, and no free page waits for the incremental vacuum.
