@@ -456,8 +456,10 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
 /// A Cloud start the team's spending cap (`cloud.spend_cap.reached`) or the member's monthly budget
 /// (`cloud.member_budget.reached`) refused, read from the host's code or the backend's words it passes on
 /// ("this team has spent … of its … spending cap; an admin can raise it").
-const SPEND_CAP = /\bcloud\.spend_cap\.reached\b|\bspend_cap_reached\b|\bspent [^.;]* of its [^.;]* spending cap\b|\breached its spending cap\b/i;
-const MEMBER_BUDGET = /\bcloud\.member_budget\.reached\b|\bmember_budget_reached\b|\bspent [^.;]* of your [^.;]* monthly budget\b/i;
+const SPEND_CAP =
+  /\bcloud\.spend_cap\.reached\b|\bspend_cap_reached\b|\bspent [^.;]* of its [^.;]* spending cap\b|\breached its spending cap\b/i;
+const MEMBER_BUDGET =
+  /\bcloud\.member_budget\.reached\b|\bmember_budget_reached\b|\bspent [^.;]* of your [^.;]* monthly budget\b/i;
 export type SpendRefusalCode = "cloud_spend_cap" | "cloud_member_budget";
 const SPEND_WORDS = {
   cloud_spend_cap: "cloudStart.spendCap",
