@@ -100,6 +100,42 @@ impl Fixture {
         }
     }
 
+    /// `cmux-tui --json <args>` against this fixture's owner; the JSON result.
+    fn cli(&self, args: &[&str]) -> Value {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .args(args);
+        self.env(&mut command);
+        command.env_remove("CMUX_TUI_TERMINAL_ID").env_remove("CMUX_TUI_SESSION_ID");
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "cmux {args:?} failed: {stdout} {stderr}");
+        serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|_| panic!("cmux {args:?} printed no JSON: {stdout:?} {stderr:?}"))
+    }
+
+    /// The running terminals of the session: (with a tab, with no tab).
+    fn running_terminals(&self) -> (Vec<String>, Vec<String>) {
+        let listed = self.cli(&["terminal", "list"]);
+        let mut placed = Vec::new();
+        let mut tabless = Vec::new();
+        for record in listed.as_array().into_iter().flatten() {
+            if record["lifecycle"] == "exited" {
+                continue;
+            }
+            let id = record["id"].as_str().unwrap_or_default().to_owned();
+            if record["tab_ids"].as_array().is_none_or(Vec::is_empty) {
+                tabless.push(id);
+            } else {
+                placed.push(id);
+            }
+        }
+        (placed, tabless)
+    }
+
     fn has_tui_client(&self) -> bool {
         self.client_kinds().is_some_and(|kinds| kinds.iter().any(|kind| kind == "tui"))
     }
@@ -123,7 +159,7 @@ struct Client {
     child: Mutex<Option<Child>>,
     output: Arc<Mutex<Vec<u8>>>,
     stderr: PathBuf,
-    _master: File,
+    master: File,
 }
 
 impl Client {
@@ -154,7 +190,13 @@ impl Client {
                 sink.lock().unwrap().extend_from_slice(&buffer[..count]);
             }
         });
-        Self { child: Mutex::new(Some(child)), output, stderr, _master: master }
+        Self { child: Mutex::new(Some(child)), output, stderr, master }
+    }
+
+    /// Types `bytes` into the client, as a person at its terminal would.
+    fn type_bytes(&self, bytes: &[u8]) {
+        (&self.master).write_all(bytes).unwrap();
+        (&self.master).flush().unwrap();
     }
 
     fn printed(&self, needle: &[u8]) -> bool {
@@ -367,4 +409,43 @@ fn w5r_stop_with_end_terminals_removes_terminal_state_and_keeps_chiefs_and_conve
         "stop --end-terminals removed the conversations: {stopped}"
     );
     assert_eq!(stopped["removed_terminal_state"], true, "{stopped}");
+}
+
+/// W7-C (bench round 6, friction 4): the TUI's close-tab key (prefix, `x`)
+/// left the closed tab's shell running with no tab until the reaper's grace
+/// (30 s) ran out. The key ends the terminal of the tab it closed, as the
+/// CLI's `tab <t> close` does.
+#[test]
+fn w7c_tui_close_tab_key_ends_the_tabs_terminal() {
+    let fixture = Fixture::new("w7c-key");
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    fixture.cli(&["tab", "create", "terminal"]);
+    let mut placed = Vec::new();
+    wait_for("two terminals with a tab", &client, || {
+        placed = fixture.running_terminals().0;
+        placed.len() >= 2
+    });
+
+    // Ctrl-b, then `x`: close the active tab.
+    client.type_bytes(b"\x02x");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (now_placed, tabless) = fixture.running_terminals();
+        if now_placed.len() < placed.len() && tabless.is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "10 s after the close-tab key: {} terminal(s) with a tab (before: {}), \
+             running with no tab: {tabless:?}\nclient stderr:\n{}",
+            now_placed.len(),
+            placed.len(),
+            client.stderr()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(client.running(), "the client exited:\n{}", client.stderr());
 }

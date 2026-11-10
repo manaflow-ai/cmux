@@ -3755,6 +3755,9 @@ mod carrier_tunnel;
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
+#[path = "cli/close_ends_terminals.rs"]
+mod close_ends_terminals;
+#[cfg(unix)]
 #[path = "cli/close_workspace_if_empty.rs"]
 mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
