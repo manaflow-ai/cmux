@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -16,7 +17,10 @@ import Testing
 /// Each test applies the daemon's own event (`workspace-added`, `workspace-closed`: what `DaemonStore.drain` applies
 /// after the key) in a whole window of the `LargeSessionWindowFixture` session and counts the observation trackings
 /// the change wakes (`ObservationWakes`), by the `#fileID:#line` of each woken observer. The closed workspace is a
-/// hidden one, so the count is the list change's, not the close flow's.
+/// hidden one, so the count is the list change's, not the close flow's. The store's list hook is installed as in the
+/// app (`WindowManager.reconcileMembership`), so each event also changes the window registry in its own turn: the new
+/// workspace joins the window and the closed one leaves it. Without the hook the registry never changed, and the
+/// suite did not prove that a registry change wakes the changed workspace only.
 ///
 /// The window is ``window(_:_:)``, not the fixture's: the app follows the link places after the first frame
 /// (`AppServices.startNonPaintServices`), which a window opened from the composition root alone does not start, and
@@ -24,8 +28,10 @@ import Testing
 /// counted none of them (a false red: 0 link-place wakes at 60 and at 826).
 ///
 /// Sizes: `large` (60) always, and each other size `CMUX_TEST_SESSION_SIZES` names (826 runs on a mini, never by
-/// default: `SessionFixtureSize`). Each count has a bound with no session size in it, and no observer may wake more
-/// often at a larger size than at `large` (fewer is no fault: the shown workspace of `large` has more tabs).
+/// default: `SessionFixtureSize`). Each count has a bound with no session size in it, below the smallest session (60),
+/// so one observer per workspace fails at each size. No observer may wake more than once more at a larger size than
+/// at `large` (fewer is no fault: the shown workspace of `large` has more tabs; once more is no fault: an observer of
+/// the list that `large` did not start wakes one time, at any size).
 ///
 ///     CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests
 @MainActor @Suite(.serialized) struct WorkspaceListChangeWakeTests {
@@ -34,12 +40,14 @@ import Testing
     static let sizes: [SessionFixtureSize] = [.large] + SessionFixtureSize.arms.filter { $0 != .large }
 
     /// The most observers one list change may wake, at any session size: the list's own observers (the sidebar, the
-    /// window registry's readers, the app services' list watches) and the changed workspace's.
-    static let wakeBound = 150
+    /// window registry's readers, the app services' list watches) and the changed workspace's. Below the smallest
+    /// session (60 workspaces): one observer per workspace fails it at each size.
+    static let wakeBound = 48
 
     /// The most link-place observations (one per workspace: `AgentPaneLinkPlaces.follow`) one list change may wake.
-    /// A woken one names its workspace again (its name, every pane and every tab).
-    static let linkPlaceBound = 64
+    /// A woken one names its workspace again (its name, every pane and every tab). 2 = the list's own stream and the
+    /// changed workspace's observation.
+    static let linkPlaceBound = 2
 
     /// The site prefix of the link places' per-workspace observations.
     static let linkPlaces = "CmuxNextAgentPane/AgentPaneLinkPlaces.swift"
@@ -56,6 +64,8 @@ import Testing
     struct Counts: Sendable {
         var added = Change()
         var closed = Change()
+        /// One hidden workspace moved to another window in the registry: its owner changed, no list did.
+        var moved = Change()
     }
 
     /// One measured window per size, for the whole suite: a window of 826 workspaces takes seconds to open.
@@ -72,7 +82,8 @@ import Testing
     /// A whole window of a session of `size`, as `LargeSessionWindowFixture.withWindow` opens it, with the link places
     /// followed as the app follows them (`AppServices.startNonPaintServices`). `body` gets the store once every workspace
     /// has its link-place observation: a rename of one hidden workspace must wake exactly that one.
-    private static func window<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore) async throws -> T) async throws -> T {
+    private static func window<T>(_ size: SessionFixtureSize,
+                                  _ body: @MainActor (DaemonStore, AppServices, WindowController) async throws -> T) async throws -> T {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -103,7 +114,14 @@ import Testing
         }
         try #require(followed == 1, "fixture: a rename of one workspace woke \(followed) link-place observations, not 1 (the link places are not followed)")
         try #require(store.workspaces.count == size.workspaces, "fixture: \(store.workspaces.count) workspaces, not \(size.workspaces)")
-        return try await body(store)
+        // As in the app: the first reconcile installs the store's list hook, so each list event below runs
+        // `reconcileMembership` in its own turn and changes the window registry.
+        services.windows.reconcileMembership()
+        await Fixture.drainMain()
+        try #require(store.onWorkspaceListChanged != nil, "fixture: the store has no list hook")
+        try #require(services.windows.registry.owner(ofWorkspace: probe.id) == controller.state.id,
+                     "fixture: the window does not own the ninth workspace")
+        return try await body(store, services, controller)
     }
 
     /// Applies `change` to `store` and returns what it woke in its own turn and what the sidebar did until the main
@@ -122,13 +140,16 @@ import Testing
     /// One workspace added at the end of the list, then one hidden workspace (the fifth) closed, in a session of `size`.
     static func counts(_ size: SessionFixtureSize) async throws -> Counts {
         if let counts = measured[size] { return counts }
-        let counts = try await window(size) { store -> Counts in
+        let counts = try await window(size) { store, services, controller -> Counts in
+            let registry = services.windows.registry
             let entity = newWorkspace()
             let added = await measure(store) {
                 _ = store.apply(.workspaceAdded(WorkspaceDelta(workspace: entity.id, index: size.workspaces, entity: entity,
                                                               workspaceRevision: store.workspaceRevision + 1)))
             }
             try #require(store.workspaces.count == size.workspaces + 1, "fixture: the event added no workspace")
+            try #require(registry.owner(ofWorkspace: "list-change-new") == controller.state.id,
+                         "fixture: the new workspace joined no window (owner \(registry.owner(ofWorkspace: "list-change-new") ?? "none"))")
             let hidden = Fixture.tree(size).workspaces[4]
             let closed = await measure(store) {
                 _ = store.apply(.workspaceClosed(WorkspaceDelta(workspace: hidden.id, index: 4, entity: hidden,
@@ -136,12 +157,17 @@ import Testing
             }
             try #require(store.workspaces.count == size.workspaces, "fixture: the event closed no workspace")
             try #require(!store.workspaces.contains { $0.key == hidden.key }, "fixture: the closed workspace is still listed")
-            return Counts(added: added, closed: closed)
+            try #require(registry.owner(ofWorkspace: hidden.key?.rawValue ?? "") == nil, "fixture: the closed workspace is still in a window")
+            // One hidden workspace (the eleventh) moves to another window: a registry change with no list change.
+            let other = "list-change-other"
+            let moved = await measure(store) { _ = registry.apply { $0.openWindow(id: other, workspaceIDs: [Fixture.key(11)]) } }
+            try #require(registry.owner(ofWorkspace: Fixture.key(11)) == other, "fixture: the eleventh workspace did not move")
+            return Counts(added: added, closed: closed, moved: moved)
         }
         measured[size] = counts
         // Every count, also when the test passes: which observers one list change wakes, at each size.
         let rows = ["section_sets", "rebuilds", "row_maps", "row_invalidations", "order_builds", "layout_rows", "list_reloads", "ffi_calls"]
-        for (name, change) in [("added", counts.added), ("closed", counts.closed)] {
+        for (name, change) in [("added", counts.added), ("closed", counts.closed), ("moved", counts.moved)] {
             for site in change.wakes.keys.sorted() { print("WorkspaceListChange \(size.rawValue) \(name) wakes \(site): \(change.wakes[site] ?? 0)") }
             print("WorkspaceListChange \(size.rawValue) \(name) wakes total: \(change.total); sidebar: "
                 + rows.map { "\($0) \(change.sidebar[$0] ?? 0)" }.joined(separator: ", "))
@@ -149,11 +175,11 @@ import Testing
         return counts
     }
 
-    /// The sites that woke more often at a larger size than at `large`, largest growth first.
+    /// The sites that woke more than once more at a larger size than at `large`, largest growth first.
     private static func grew(_ changes: [SessionFixtureSize: Change]) -> [String] {
         guard let small = changes[.large]?.wakes else { return [] }
         return changes.filter { $0.key != .large }.flatMap { size, change in
-            change.wakes.filter { $0.value > small[$0.key, default: 0] }.sorted { $0.value > $1.value }
+            change.wakes.filter { $0.value > small[$0.key, default: 0] + 1 }.sorted { $0.value > $1.value }
                 .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value) at \(size.rawValue)" }
         }
     }
@@ -180,6 +206,19 @@ import Testing
     @Test(.timeLimit(.minutes(10)))
     func oneWorkspaceClosedWakesAsManyObserversInALargerSession() async throws {
         try await Self.check("closed") { $0.closed }
+    }
+
+    /// A workspace that moves to another window changes its owner in the window registry. That wakes the moved
+    /// workspace's link-place observation (its name reads its window's selection), and no other workspace's: each
+    /// reads its own registry entry (`WindowRegistryStore.owner(ofWorkspace:)`), never the whole registry value.
+    @Test(.timeLimit(.minutes(10)))
+    func aWorkspaceMovedToAnotherWindowNamesItsOwnLinkPlacesOnly() async throws {
+        for size in Self.sizes {
+            let woken = try await Self.counts(size).moved.wakes(of: Self.linkPlaces)
+            #expect(woken >= 1, "one workspace moved to another window at \(size.rawValue) woke no link-place observation (its name is stale)")
+            #expect(woken <= Self.linkPlaceBound,
+                    "one workspace moved to another window in a session of \(size.workspaces) named the link places of \(woken) workspaces again (bound \(Self.linkPlaceBound))")
+        }
     }
 
     /// The link places name a workspace again when its own observation wakes. A list change wakes the changed
