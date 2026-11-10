@@ -326,8 +326,9 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   command holds 9 to 11 connections for a total of 13, not always 11. It prints `held`, `steady` and
   `listed_with_short_ones`; a count that is not the one asked for is a fault (exit 3 at its end).
   A held client reads its events at once: the daemon closes a subscriber that does not read.
-- `agents` counts the agent programs of this daemon only (each program's own `CMUX_TUI_SOCKET`),
-  not every program of that name on the host, and refuses counts that are not the session's.
+- `agents` counts the agent programs in this daemon's own agent terminals (the daemon's
+  `terminal-resources`), not every program of that name on the host, and refuses counts that are
+  not the session's. A daemon without that command gives a lower bound that is not judged.
 - `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
   terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
 - `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says

@@ -291,13 +291,39 @@ class Counts(unittest.TestCase):
             self.assertNotIn(small[0], targets)
             self.assertEqual(len(targets), min(runs, 7), (runs, targets))
 
-    def test_the_agent_programs_are_the_ones_of_this_daemon_only(self):
+    def test_the_agent_programs_are_the_ones_of_this_daemons_terminals_only(self):
+        zsh = "/bin/zsh -f /kit/session_real_agent.zsh waiting "
+        rows = table((10, 1, zsh + "real-0003"), (11, 9, zsh + "real-0008"), (12, 1, zsh + "real-0003"),   # 12: another tag's
+                     (13, 1, "/bin/zsh -l"), (14, 1, zsh + "real-0012"), (15, 1, zsh + "real-0021"))
+        tabs = [(3, {"surface": 30}), (8, {"surface": 80}), (12, {"surface": 120}), (20, {"surface": 200}), (21, {"surface": 210})]
+
+        class Daemon:
+            def call(self, cmd, **params):
+                assert cmd == "terminal-resources" and params["surfaces"] == [30, 80, 120, 200, 210]
+                return {"ok": True, "data": {"terminals": [
+                    {"surface": 30, "pid": 10, "processes": [{"pid": 10}]},
+                    {"surface": 80, "pid": 9, "processes": [{"pid": 9}, {"pid": 11}]},   # the program is below the shell
+                    {"surface": 120, "pid": 13, "processes": [{"pid": 13}]},              # a shell with no program
+                    {"surface": 210, "pid": 10, "processes": []}], "missing": [200]}}    # another terminal's program
+
+        self.assertEqual(m.agent_programs(Daemon(), tabs, rows), {"real-0003": 10, "real-0008": 11})
+
+        class OldDaemon:
+            def call(self, cmd, **params):
+                return {"ok": False, "error": "unknown command"}
+
+        self.assertIsNone(m.agent_programs(OldDaemon(), tabs, rows))
+        # A daemon that cannot say: the count is not judged, the other faults stay.
+        self.assertEqual(m.agents_faults(170, None, 170, 0, []), [])
+        self.assertEqual(len(m.agents_faults(170, None, 170, 3, [])), 1)
+
+    def test_the_socket_fallback_counts_only_programs_that_name_this_daemons_socket(self):
         zsh = "/bin/zsh /kit/session_real_agent.zsh waiting "
         rows = table((10, 1, zsh + "real-0003"), (11, 1, zsh + "real-0008"), (12, 1, zsh + "real-0003"),
                      (13, 1, "/bin/zsh -l"), (14, 1, zsh + "real-0012"))
         env = {10: "/tmp/mine.sock", 11: "/tmp/mine.sock", 12: "/tmp/other-tag.sock", 13: "/tmp/mine.sock"}
         read = lambda pid: ([], {"CMUX_TUI_SOCKET": env[pid]}) if pid in env else None
-        self.assertEqual(m.agent_programs("/tmp/mine.sock", rows, read), {"real-0003": 10, "real-0008": 11})
+        self.assertEqual(m.agent_programs_by_socket("/tmp/mine.sock", rows, read), {"real-0003": 10, "real-0008": 11})
 
     def test_a_tags_processes_are_found_by_whole_words_and_also_after_the_daemon(self):
         rows = table(

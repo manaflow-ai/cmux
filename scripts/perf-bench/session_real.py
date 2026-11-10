@@ -689,18 +689,43 @@ def host_facts():
 
 # ---------------------------------------------------------------- agents, clients
 
-def agent_programs(daemon_socket, rows=None, read=None):
-    """{name: pid} of the agent programs that run in the terminals of THIS daemon. A process is one when its command
-    is the agent program AND its own environment names this daemon's socket (`CMUX_TUI_SOCKET`, which the daemon
-    gives every terminal it makes): never by the program's name alone, so another tag's programs on the host do not
-    count. `rows` ({pid: (ppid, start, command)}) and `read` (pid -> (argv, environment)) are for tests."""
+AGENT_COMMAND = re.compile(r"session_real_agent\.zsh \S+ (real-\d{4})(?:\s|$)")
+
+
+def agent_programs(conn, tabs, rows=None):
+    """{name: pid} of the agent programs that run in the agent terminals of THIS daemon, from the daemon's own record:
+    `terminal-resources` gives the process of each of its terminals and the tree below it; a terminal runs its agent
+    when one of those processes has the agent program with the terminal's own name as its command. Never by the
+    program's name alone over the host, so another tag's programs do not count. None when the daemon does not have
+    the command (a daemon from before 2026-10). `rows` ({pid: (ppid, start, command)}) is for tests."""
+    reply = conn.call("terminal-resources", surfaces=[tab["surface"] for _, tab in tabs])
+    if not reply.get("ok"):
+        return None
+    rows = process_rows() if rows is None else rows
+    by_surface = {terminal.get("surface"): terminal for terminal in (reply.get("data") or {}).get("terminals") or []}
+    found = {}
+    for number, tab in tabs:
+        terminal, name = by_surface.get(tab["surface"]) or {}, f"real-{number:04d}"
+        for pid in [terminal.get("pid")] + [process.get("pid") for process in terminal.get("processes") or []]:
+            named = AGENT_COMMAND.search(rows.get(pid, (0, "", ""))[2]) if pid else None
+            if named and named.group(1) == name:
+                found[name] = pid
+                break
+    return found
+
+
+def agent_programs_by_socket(daemon_socket, rows=None, read=None):
+    """{name: pid} of the agent programs whose own environment names this daemon's socket (`CMUX_TUI_SOCKET`). For a
+    daemon without `terminal-resources` only, and then a LOWER BOUND: a terminal that the app starts again from a
+    saved session keeps the socket path of the daemon that made the session (measured 2026-11-10, aws-m4pro-3:
+    29 of 170 after a restore), so this count is said and never judged."""
     teardown = teardown_module()
     rows = process_rows() if rows is None else rows
     read = read or teardown.procargs
     want = os.path.realpath(daemon_socket)
     found = {}
     for pid, (_, _, command) in rows.items():
-        named = re.search(r"session_real_agent\.zsh \S+ (real-\d{4})(?:\s|$)", command)
+        named = AGENT_COMMAND.search(command)
         if not named:
             continue
         got = read(pid)
@@ -725,7 +750,12 @@ def agents(args):
     tabs = agent_tabs(tree, mix)
     # The daemon lists an agent again for a restarted kept tab from its stored record (measured: 113 listed after
     # a restore, with no program in their shells), so "runs" is read from the processes of this daemon's terminals.
-    running = agent_programs(daemon_socket)
+    exact = agent_programs(conn, tabs) is not None
+
+    def programs_now():
+        return agent_programs(conn, tabs) if exact else agent_programs_by_socket(daemon_socket)
+
+    running = programs_now()
     started = restarted = skipped = 0
     waiting, restart_failed = [], []
     for rank, (number, tab) in enumerate(tabs):
@@ -755,17 +785,19 @@ def agents(args):
             time.sleep(0.5)
     expected = len(tabs) - len(waiting) - len(restart_failed)
     settle_agents(conn, expected, args.settle)
-    programs = agent_programs(daemon_socket)
+    programs = programs_now()
     deadline = time.time() + min(args.settle, 15)
     while len(programs) < expected and time.time() < deadline:  # a shell takes a moment to `exec` the program
         time.sleep(0.5)
-        programs = agent_programs(daemon_socket)
+        programs = programs_now()
     after = counts(conn)
     print("SESSION-REAL-AGENTS " + json.dumps({
         "started": started, "restarted_shells": restarted, "already_running": skipped, "not_started": len(waiting),
         "restart_failed": len(restart_failed), "agent_terminals": len(tabs), "agent_programs_running": len(programs),
-        "agent_programs_scope": "the terminals of this daemon (each program's own CMUX_TUI_SOCKET)", "after": after}), flush=True)
-    end_with("agents", agents_faults(len(tabs), len(programs), after.get("agents"), len(waiting), restart_failed))
+        "agent_programs_scope": "the agent terminals of this daemon (its terminal-resources)" if exact else
+                                "a lower bound, not judged: programs whose CMUX_TUI_SOCKET is this daemon's (the daemon has no terminal-resources)",
+        "after": after}), flush=True)
+    end_with("agents", agents_faults(len(tabs), len(programs) if exact else None, after.get("agents"), len(waiting), restart_failed))
 
 
 def agents_faults(agent_terminals, programs, listed, not_started, restart_failed):
@@ -775,7 +807,7 @@ def agents_faults(agent_terminals, programs, listed, not_started, restart_failed
         faults.append(f"restart-tab failed for {len(restart_failed)} agent terminals: first {json.dumps(restart_failed[0])}")
     if not_started:
         faults.append(f"{not_started} agent terminals took no input")
-    if programs != agent_terminals:
+    if programs is not None and programs != agent_terminals:  # None: the daemon cannot say (no terminal-resources)
         faults.append(f"{programs} agent programs run in this daemon's terminals, the session has {agent_terminals} agent terminals")
     if listed is None or listed < agent_terminals:
         faults.append(f"the daemon lists {listed} agents, the session has {agent_terminals} agent terminals")
@@ -877,17 +909,17 @@ def clients(args):
     if args.total:
         # Make the count exact and read it back: add what is missing, take away what is too many, at most 4 times
         # (an unnamed connection of the app becomes steady, or goes, between two reads).
-        for _ in range(4):
-            steady = len(steady_clients(read_list()))
-            if steady == args.total or stop["now"]:
+        # The count that is said and judged is always a read made AFTER the last change of this command.
+        for attempt in range(6):
+            listed = read_list()
+            steady = len(steady_clients(listed))
+            if steady == args.total or stop["now"] or attempt == 5:
                 break
             for _ in range(max(0, args.total - steady)):
                 open_one()
             for _ in range(min(len(held), max(0, steady - args.total))):
                 held.pop(max(held)).close()
             drain(1.0)
-        listed = read_list()
-        steady = len(steady_clients(listed))
     else:
         for _ in range(args.count):
             open_one()
