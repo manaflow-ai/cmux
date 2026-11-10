@@ -215,6 +215,13 @@ export type CloudGroupItem = {
   readonly added_at: number
 }
 
+export type CloudGroupMember = {
+  readonly user: UserId
+  readonly role: "owner" | "edit" | "view"
+  readonly display_name: string | null
+  readonly active: boolean
+}
+
 export type CloudMachine = {
   readonly id: MachineId
   readonly team: TeamId
@@ -323,6 +330,48 @@ export type CloudRetentionSettings = {
   readonly last_note_days: number
   readonly archive_days: number
 }
+
+export type CloudSessionActivity = "working" | "needs_attention" | "idle"
+
+/** The chat's acpmux session id, or the workspace's id on its VM. */
+export type CloudSessionId = string
+
+export type CloudSessionKind = "workspace" | "chat"
+
+export type CloudSessionMachineState = "running" | "asleep" | "waking" | "unresponsive" | "gone"
+
+export type CloudSessionScope = "mine" | "team" | "following"
+
+export type CloudSessionView = {
+  readonly key: string
+  readonly team: TeamId
+  readonly vm: CloudSessionVm
+  readonly session: CloudSessionId
+  readonly kind: CloudSessionKind
+  readonly workspace?: CloudSessionId
+  readonly title: string
+  readonly harness?: string
+  readonly owner: UserId
+  readonly owner_name: string | null
+  readonly assignee: UserId
+  readonly assignee_name: string | null
+  readonly machine_state: CloudSessionMachineState
+  readonly activity: CloudSessionActivity
+  readonly last_activity_at: number
+  readonly created_at: number
+  readonly archived: boolean
+  readonly followers: ReadonlyArray<UserId>
+  readonly follower_count: number
+  readonly following: boolean
+  readonly assigned_to_you: boolean
+  readonly viewers: ReadonlyArray<UserId>
+  readonly can_reassign: boolean
+  readonly can_archive: boolean
+  readonly link: string
+}
+
+/** The Cloud machine the session runs on. */
+export type CloudSessionVm = string
 
 export type CloudSnapshot = {
   readonly id: SnapshotId
@@ -1247,6 +1296,20 @@ export type TargetPolicy = {
   readonly kind: "host"
   readonly host: HostId
   readonly fallback: "cloud_vm" | "wait" | "fail"
+}
+
+export type TeamAgentKeyAgent = "claude" | "codex"
+
+export type TeamAgentKeyKind = "api_key" | "oauth"
+
+export type TeamAgentKeyState = {
+  readonly agent: TeamAgentKeyAgent
+  readonly set: boolean
+  readonly kind: TeamAgentKeyKind | null
+  readonly generation: number
+  readonly updated_at: number | null
+  readonly updated_by: UserId | null
+  readonly hint: string | null
 }
 
 export type TeamAiLimitMember = {
@@ -2825,6 +2888,39 @@ export interface CloudOps {
       readonly next_cursor: string | null
     }
   }
+  /** A cloud group's members and their roles (any member of the group reads it). */
+  readonly "group.members.list": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
+  /** Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op. */
+  readonly "group.members.remove": {
+    readonly params: {
+      readonly group: GroupId
+      readonly user: UserId
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
+  /** Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted. */
+  readonly "group.members.set": {
+    readonly params: {
+      readonly group: GroupId
+      readonly user: UserId
+      readonly role: "owner" | "edit" | "view"
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
   /** Rename a cloud group (its owner only). */
   readonly "group.rename": {
     readonly params: {
@@ -3813,6 +3909,36 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** Remove the team's shared key for an agent (owners and admins). Members' Cloud machines go back to their own keys. */
+  readonly "team.agent_key.remove": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+    }
+    readonly result: {
+      readonly agent: TeamAgentKeyAgent
+      readonly removed: boolean
+    }
+  }
+  /** Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned. */
+  readonly "team.agent_key.set": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+      readonly kind: TeamAgentKeyKind
+      readonly secret: string
+    }
+    readonly result: TeamAgentKeyState
+  }
+  /** Whether the team has a shared key for each agent (members). Never returns a key. */
+  readonly "team.agent_key.status": {
+    readonly params: {
+      readonly team?: TeamId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly can_manage: boolean
+      readonly agents: ReadonlyArray<TeamAgentKeyState>
+    }
+  }
   /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
   readonly "team.ai_limit.get": {
     readonly params: {
@@ -3861,6 +3987,95 @@ export interface CloudOps {
       readonly entries: ReadonlyArray<TeamAuditEntry>
       readonly next_cursor: number | null
       readonly revision: string
+    }
+  }
+  /** Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived. */
+  readonly "team.cloud.session.archive": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly archived: boolean
+    }
+    readonly result: CloudSessionView
+  }
+  /** Follow (or stop following) a teammate's Cloud workspace or chat: it shows under Following in your sidebar. A session assigned to you cannot be followed. */
+  readonly "team.cloud.session.follow": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly follow: boolean
+    }
+    readonly result: CloudSessionView
+  }
+  /** One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found. */
+  readonly "team.cloud.session.get": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+    }
+    readonly result: {
+      readonly session: CloudSessionView
+    }
+  }
+  /** The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true. */
+  readonly "team.cloud.session.list": {
+    readonly params: {
+      readonly scope?: CloudSessionScope
+      readonly by?: UserId
+      readonly archived?: boolean
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly sessions: ReadonlyArray<CloudSessionView>
+      readonly next_cursor: string | null
+    }
+  }
+  /** Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived. */
+  readonly "team.cloud.session.publish": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly kind: CloudSessionKind
+      readonly title: string
+      readonly workspace?: CloudSessionId
+      readonly harness?: string
+      readonly machine_state: CloudSessionMachineState
+      readonly activity: CloudSessionActivity
+      readonly last_activity_at: number
+    }
+    readonly result: CloudSessionView
+  }
+  /** Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan. */
+  readonly "team.cloud.session.reassign": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly to: UserId
+    }
+    readonly result: CloudSessionView
+  }
+  /** Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it. */
+  readonly "team.cloud.session.remove": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+    }
+    readonly result: {
+      readonly removed: boolean
+    }
+  }
+  /** Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows. */
+  readonly "team.cloud.session.viewing": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly viewing: boolean
+    }
+    readonly result: {
+      readonly viewing: boolean
+      readonly viewers: ReadonlyArray<UserId>
     }
   }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
@@ -4281,6 +4496,9 @@ export const cloudOpMeta = {
   "group.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "group.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "group.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.members.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.members.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "group.members.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "group.rename": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "home.requests.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", idempotency: "forbidden", owner: "cloud:planetscale", risk: "read" },
@@ -4370,10 +4588,21 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.agent_key.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.member.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
   "team.ai_limit.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
   "team.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.archive": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.follow": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.cloud.session.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.publish": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.cloud.session.reassign": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.viewing": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.compliance": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },

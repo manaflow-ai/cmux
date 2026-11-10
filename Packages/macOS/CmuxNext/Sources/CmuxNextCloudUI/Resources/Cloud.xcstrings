@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.seedRefused.connectGitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect GitHub"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ربط GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub に接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz z GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar ao GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'a bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключити GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 GitHub"
+          }
+        }
+      }
+    },
+    "cloud.seedRefused.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy the Folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ المجلد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj mapu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér mappen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar la carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia la cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier mappen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiuj folder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar a pasta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать папку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasörü Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати папку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝檔案夾"
+          }
+        }
+      }
+    },
+    "cloud.seedRefused.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy the folder to %@?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد نسخ المجلد إلى %@؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirati mapu na %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du kopiere mappen til %@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Ordner nach %@ kopieren?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Copiar la carpeta a %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le dossier sur %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiare la cartella su %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを %@ にコピーしますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងថតទៅ %@ ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더를 %@에 복사할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du kopiere mappen til %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiować folder na %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar a pasta para %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать папку на %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกโฟลเดอร์ไปยัง %@ หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör %@ makinesine kopyalansın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати папку на %@?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép thư mục sang %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将文件夹拷贝到 %@？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要將檔案夾拷貝到 %@ 嗎？"
+          }
+        }
+      }
+    },
     "automations.activeCount": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "%lld نشطة"}},
       "bs": {"stringUnit": {"state": "translated","value": "%lld aktivno"}},
@@ -1220,144 +1613,6 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "创建工作区"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "建立工作區"}}
     }},
-    "cloud.workspaceSetup.credentialDisclosure": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "يشغّل Claude الأمر claude setup-token على هذا الـMac عند الحاجة ويحفظ الرمز المميز طويل الأمد للآلات الافتراضية اللاحقة. يعيد Codex استخدام تسجيل الدخول على هذا الـMac؛ ولا يُنقل إلى الآلة الافتراضية سوى إذن وصول قصير الأجل، ويبقى رمز التجديد على هذا الـMac. أبقِ cmux قيد التشغيل على هذا الـMac لتجديد الوصول إلى Codex. سيتم تثبيت بيانات الاعتماد المحددة على %@ لـ %@، مع استبدال تسجيل دخول ذلك المزوّد عند عمليات التشغيل اللاحقة. تبقى الجلسات الحالية دون تغيير. حدّد مزوّدًا واحدًا أو كليهما، ثم أكّد النقل."}},
-      "bs": {"stringUnit": {"state": "translated","value": "Claude po potrebi pokreće claude setup-token na ovom Macu i čuva dugotrajni token za buduće virtuelne mašine. Codex ponovo koristi prijavu na ovom Macu; samo kratkotrajni pristup prenosi se na virtuelnu mašinu, a token za obnavljanje ostaje na ovom Macu. Ostavite cmux pokrenut na ovom Macu da bi se pristup Codexu obnavljao. Izabrana vjerodajnica instalira se na %@ za %@, zamjenjujući prijavu tog provajdera pri budućim pokretanjima. Postojeće sesije ostaju nepromijenjene. Izaberite jednog ili oba provajdera, a zatim potvrdite prenos."}},
-      "da": {"stringUnit": {"state": "translated","value": "Claude kører claude setup-token på denne Mac, når det er nødvendigt, og gemmer det langtidsholdbare token til senere VM'er. Codex genbruger login på denne Mac; kun kortvarig adgang overføres til VM’en, og fornyelsestokenet bliver på denne Mac. Hold cmux kørende på denne Mac for at forny adgangen til Codex. Den valgte loginoplysning installeres på %@ for %@ og erstatter denne udbyders login ved fremtidige starter. Eksisterende sessioner forbliver uændrede. Vælg en eller begge udbydere, og bekræft derefter overførslen."}},
-      "de": {"stringUnit": {"state": "translated","value": "Claude führt bei Bedarf auf diesem Mac claude setup-token aus und speichert das langlebige Token für spätere VMs. Codex verwendet die Anmeldung auf diesem Mac erneut; nur der kurzlebige Zugang wird auf die VM übertragen, und das Aktualisierungstoken bleibt auf diesem Mac. Lass cmux auf diesem Mac laufen, um den Codex-Zugang zu erneuern. Die ausgewählten Anmeldedaten werden auf %@ für %@ installiert und ersetzen die Anmeldung dieses Anbieters bei künftigen Starts. Bestehende Sitzungen bleiben unverändert. Wähle einen oder beide Anbieter aus und bestätige anschließend die Übertragung."}},
-      "en": {"stringUnit": {"state": "translated","value": "Claude runs claude setup-token on this Mac when needed and saves the long-lived token for later VMs. Codex reuses sign-in on this Mac; only short-lived access moves to the VM, and its refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access. The selected credential is installed on %@ for %@, replacing that provider's login for future launches. Existing sessions stay unchanged. Select one or both providers, then confirm the transfer."}},
-      "es": {"stringUnit": {"state": "translated","value": "Claude ejecuta claude setup-token en este Mac cuando es necesario y guarda el token de larga duración para futuras VM. Codex reutiliza el inicio de sesión de este Mac; solo se transfiere a la VM el acceso de corta duración y el token de renovación permanece en este Mac. Mantén cmux en ejecución en este Mac para renovar el acceso a Codex. La credencial seleccionada se instala en %@ para %@ y reemplaza el inicio de sesión de ese proveedor en futuros lanzamientos. Las sesiones existentes no cambian. Selecciona uno o ambos proveedores y confirma la transferencia."}},
-      "fr": {"stringUnit": {"state": "translated","value": "Claude exécute claude setup-token sur ce Mac lorsque nécessaire et enregistre le jeton à longue durée de vie pour les prochaines VMs. Codex réutilise la connexion sur ce Mac ; seul un accès de courte durée est transféré à la VM, et le jeton de renouvellement reste sur ce Mac. Laissez cmux en cours d’exécution sur ce Mac pour renouveler l’accès à Codex. L’identifiant sélectionné est installé sur %@ pour %@, ce qui remplace la connexion de ce fournisseur lors des prochains lancements. Les sessions existantes restent inchangées. Sélectionnez un ou deux fournisseurs, puis confirmez le transfert."}},
-      "it": {"stringUnit": {"state": "translated","value": "Claude esegue claude setup-token su questo Mac quando necessario e salva il token a lunga durata per le VM future. Codex riutilizza l’accesso su questo Mac; solo l’accesso di breve durata viene trasferito alla VM e il token di rinnovo rimane su questo Mac. Mantieni cmux in esecuzione su questo Mac per rinnovare l’accesso a Codex. La credenziale selezionata viene installata su %@ per %@, sostituendo l’accesso di quel provider per i prossimi avvii. Le sessioni esistenti restano invariate. Seleziona uno o entrambi i provider, quindi conferma il trasferimento."}},
-      "ja": {"stringUnit": {"state": "translated","value": "Claude は必要に応じてこの Mac で claude setup-token を実行し、有効期間の長いトークンを今後の VM 用に保存します。Codex はこの Mac のログインを再利用します。VM には短期間のアクセス権限のみが転送され、更新トークンはこの Mac に残ります。Codex のアクセス権限を更新するには、この Mac で cmux を実行したままにしてください。選択した認証情報は %@ に %@ 用としてインストールされ、今後の起動時に使うそのプロバイダーのログイン情報が置き換わります。既存のセッションは変わりません。プロバイダーを一方または両方選択し、転送を確認してください。"}},
-      "km": {"stringUnit": {"state": "translated","value": "Claude ដំណើរការ claude setup-token លើ Mac នេះនៅពេលចាំបាច់ ហើយរក្សាទុកថូខឹនដែលមានសុពលភាពយូរ សម្រាប់ VM នាពេលក្រោយ។ Codex ប្រើការចូលដែលមានស្រាប់លើ Mac នេះឡើងវិញ។ មានតែសិទ្ធិចូលប្រើរយៈពេលខ្លីប៉ុណ្ណោះដែលត្រូវបានផ្ទេរទៅ VM ហើយថូខឹនបន្តសុពលភាពនៅតែស្ថិតលើ Mac នេះ។ ទុកឱ្យ cmux ដំណើរការលើ Mac នេះ ដើម្បីបន្តសិទ្ធិចូលប្រើ Codex។ ព័ត៌មានសម្គាល់អត្តសញ្ញាណដែលបានជ្រើសរើសត្រូវបានដំឡើងនៅលើ %@ សម្រាប់ %@ ដោយជំនួសព័ត៌មានចូលរបស់អ្នកផ្តល់សេវានោះសម្រាប់ការបើកដំណើរការនាពេលក្រោយ។ សម័យប្រើប្រាស់ដែលមានស្រាប់មិនផ្លាស់ប្តូរទេ។ ជ្រើសរើសអ្នកផ្តល់សេវាមួយ ឬទាំងពីរ រួចបញ្ជាក់ការផ្ទេរ។"}},
-      "ko": {"stringUnit": {"state": "translated","value": "Claude는 필요할 때 이 Mac에서 claude setup-token을 실행하고 이후 VM에서 사용할 장기 유효 토큰을 저장합니다. Codex는 이 Mac의 로그인을 재사용하며, 단기 액세스 권한만 VM으로 전송되고 갱신 토큰은 이 Mac에 남습니다. Codex 액세스 권한을 갱신하려면 이 Mac에서 cmux를 계속 실행해 두세요. 선택한 인증 정보는 %@에 %@용으로 설치되어, 이후 실행 시 사용하는 해당 공급자의 로그인 정보를 대체합니다. 기존 세션은 변경되지 않습니다. 공급자를 하나 또는 둘 다 선택한 후 전송을 확인하세요."}},
-      "nb": {"stringUnit": {"state": "translated","value": "Claude kjører claude setup-token på denne Mac-en ved behov og lagrer det langvarige tokenet for senere VM-er. Codex gjenbruker påloggingen på denne Mac-en; bare kortvarig tilgang overføres til VM-en, og fornyelsestokenet blir på denne Mac-en. La cmux kjøre på denne Mac-en for å fornye tilgangen til Codex. Den valgte legitimasjonen installeres på %@ for %@ og erstatter leverandørens pålogging ved fremtidige starter. Eksisterende økter forblir uendret. Velg én eller begge leverandørene, og bekreft deretter overføringen."}},
-      "pl": {"stringUnit": {"state": "translated","value": "Claude w razie potrzeby uruchamia na tym Macu polecenie claude setup-token i zapisuje długotrwały token na potrzeby kolejnych maszyn wirtualnych. Codex ponownie wykorzystuje logowanie na tym Macu; do maszyny wirtualnej przenoszony jest tylko krótkotrwały dostęp, a token odświeżania pozostaje na tym Macu. Pozostaw cmux uruchomiony na tym Macu, aby odnawiać dostęp do Codex. Wybrane dane uwierzytelniające zostaną zainstalowane na %@ dla %@, zastępując logowanie tego dostawcy przy kolejnych uruchomieniach. Istniejące sesje pozostaną bez zmian. Wybierz jednego lub obu dostawców, a następnie potwierdź przeniesienie."}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "O Claude executa claude setup-token neste Mac quando necessário e salva o token de longa duração para VMs futuras. O Codex reutiliza o login neste Mac; somente o acesso de curta duração é transferido para a VM, e o token de renovação permanece neste Mac. Mantenha o cmux em execução neste Mac para renovar o acesso ao Codex. A credencial selecionada é instalada em %@ para %@, substituindo o login desse provedor em inicializações futuras. As sessões existentes permanecem inalteradas. Selecione um ou ambos os provedores e confirme a transferência."}},
-      "ru": {"stringUnit": {"state": "translated","value": "При необходимости Claude запускает claude setup-token на этом Mac и сохраняет долгоживущий токен для будущих виртуальных машин. Codex повторно использует вход на этом Mac; на виртуальную машину передаётся только краткосрочный доступ, а токен обновления остаётся на этом Mac. Не закрывайте cmux на этом Mac, чтобы продлевать доступ к Codex. Выбранные учётные данные будут установлены на %@ для %@, заменив вход этого провайдера при следующих запусках. Существующие сеансы не изменятся. Выберите одного или обоих провайдеров, затем подтвердите перенос."}},
-      "th": {"stringUnit": {"state": "translated","value": "Claude จะเรียกใช้ claude setup-token บน Mac เครื่องนี้เมื่อจำเป็น และบันทึกโทเค็นที่มีอายุยาวไว้สำหรับ VM ในภายหลัง Codex ใช้การเข้าสู่ระบบบน Mac เครื่องนี้ซ้ำ โดยจะโอนเฉพาะสิทธิ์เข้าถึงระยะสั้นไปยัง VM และโทเค็นรีเฟรชจะอยู่บน Mac เครื่องนี้ เปิด cmux บน Mac เครื่องนี้ไว้เพื่อต่ออายุสิทธิ์เข้าถึง Codex ข้อมูลรับรองที่เลือกจะถูกติดตั้งบน %@ สำหรับ %@ เพื่อแทนที่ข้อมูลเข้าสู่ระบบของผู้ให้บริการนั้นสำหรับการเปิดใช้งานครั้งต่อไป เซสชันที่มีอยู่จะไม่เปลี่ยนแปลง เลือกผู้ให้บริการหนึ่งรายหรือทั้งสองราย แล้วยืนยันการโอน"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Claude gerektiğinde bu Mac'te claude setup-token komutunu çalıştırır ve sonraki VM'ler için uzun ömürlü belirteci kaydeder. Codex bu Mac’teki oturumu yeniden kullanır; VM’ye yalnızca kısa süreli erişim aktarılır ve yenileme belirteci bu Mac’te kalır. Codex erişimini yenilemek için bu Mac’te cmux’u çalışır durumda tutun. Seçilen kimlik bilgisi %@ üzerinde %@ için yüklenir ve sonraki başlatmalarda o sağlayıcının oturum açma bilgilerini değiştirir. Mevcut oturumlar değişmeden kalır. Bir veya iki sağlayıcıyı seçip ardından aktarımı onaylayın."}},
-      "uk": {"stringUnit": {"state": "translated","value": "Claude за потреби запускає claude setup-token на цьому Mac і зберігає довготривалий токен для майбутніх віртуальних машин. Codex повторно використовує вхід на цьому Mac; на віртуальну машину передається лише короткочасний доступ, а токен оновлення залишається на цьому Mac. Не закривайте cmux на цьому Mac, щоб поновлювати доступ до Codex. Вибрані облікові дані буде встановлено на %@ для %@, замінивши вхід цього провайдера під час наступних запусків. Поточні сеанси залишаться без змін. Виберіть одного або обох провайдерів, а потім підтвердьте перенесення."}},
-      "vi": {"stringUnit": {"state": "translated","value": "Claude chạy claude setup-token trên máy Mac này khi cần và lưu mã thông báo có thời hạn dài cho các máy ảo sau này. Codex sử dụng lại thông tin đăng nhập trên máy Mac này; chỉ quyền truy cập ngắn hạn được chuyển sang máy ảo, còn mã thông báo làm mới vẫn ở trên máy Mac này. Hãy giữ cmux chạy trên máy Mac này để gia hạn quyền truy cập Codex. Thông tin xác thực đã chọn được cài đặt trên %@ cho %@, thay thế thông tin đăng nhập của nhà cung cấp đó cho những lần khởi chạy sau. Các phiên hiện có không thay đổi. Chọn một hoặc cả hai nhà cung cấp, rồi xác nhận chuyển."}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "Claude 会在需要时在此 Mac 上运行 claude setup-token，并保存长期有效的令牌供后续虚拟机使用。Codex 会重复使用此 Mac 上的登录信息；只有短期访问权限会传送至虚拟机，刷新令牌会保留在此 Mac 上。请保持 cmux 在此 Mac 上运行，以续期 Codex 访问权限。所选凭据将安装到 %@ 上，供 %@ 使用，并替换该提供商在后续启动时使用的登录信息。现有会话保持不变。请选择一个或两个提供商，然后确认传输。"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "Claude 會在需要時於這部 Mac 上執行 claude setup-token，並儲存長效權杖供後續虛擬機器使用。Codex 會重複使用這部 Mac 上的登入資訊；只有短期存取權限會傳送至虛擬機器，更新權杖會留在這部 Mac 上。請保持 cmux 在這部 Mac 上執行，以更新 Codex 存取權限。所選憑證會安裝到 %@ 上，供 %@ 使用，並取代該供應商在後續啟動時使用的登入資訊。現有工作階段保持不變。請選取一個或兩個供應商，然後確認傳輸。"}}
-    }},
-    "cloud.workspaceSetup.credentialTitle": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "إعداد مزوّد ذكاء اصطناعي على %@؟"}},
-      "bs": {"stringUnit": {"state": "translated","value": "Podesiti AI provajdera na %@?"}},
-      "da": {"stringUnit": {"state": "translated","value": "Konfigurer en AI-udbyder på %@?"}},
-      "de": {"stringUnit": {"state": "translated","value": "KI-Anbieter auf %@ einrichten?"}},
-      "en": {"stringUnit": {"state": "translated","value": "Set up an AI provider on %@?"}},
-      "es": {"stringUnit": {"state": "translated","value": "¿Configurar un proveedor de IA en %@?"}},
-      "fr": {"stringUnit": {"state": "translated","value": "Configurer un fournisseur d’IA sur %@ ?"}},
-      "it": {"stringUnit": {"state": "translated","value": "Configurare un provider di IA su %@?"}},
-      "ja": {"stringUnit": {"state": "translated","value": "%@ に AI プロバイダーを設定しますか？"}},
-      "km": {"stringUnit": {"state": "translated","value": "ដំឡើងអ្នកផ្តល់សេវា AI នៅលើ %@ ឬ?"}},
-      "ko": {"stringUnit": {"state": "translated","value": "%@에 AI 공급자를 설정할까요?"}},
-      "nb": {"stringUnit": {"state": "translated","value": "Konfigurer en AI-leverandør på %@?"}},
-      "pl": {"stringUnit": {"state": "translated","value": "Skonfigurować dostawcę AI na %@?"}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Configurar um provedor de IA em %@?"}},
-      "ru": {"stringUnit": {"state": "translated","value": "Настроить провайдера ИИ на %@?"}},
-      "th": {"stringUnit": {"state": "translated","value": "ตั้งค่าผู้ให้บริการ AI บน %@ หรือไม่?"}},
-      "tr": {"stringUnit": {"state": "translated","value": "%@ üzerinde bir yapay zekâ sağlayıcısı kurulsun mu?"}},
-      "uk": {"stringUnit": {"state": "translated","value": "Налаштувати постачальника ШІ на %@?"}},
-      "vi": {"stringUnit": {"state": "translated","value": "Thiết lập nhà cung cấp AI trên %@?"}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "在 %@ 上设置 AI 提供商？"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "在 %@ 上設定 AI 供應商？"}}
-    }},
-    "cloud.workspaceSetup.credentialsAvailable": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "يتم إعداد Claude أو Codex اختياريًا بعد بدء تشغيل الآلة الافتراضية، ويتطلب تأكيدًا منفصلًا."}},
-      "bs": {"stringUnit": {"state": "translated","value": "Opcionalno podešavanje Claude ili Codex obavlja se nakon pokretanja virtuelne mašine i zahtijeva zasebnu potvrdu."}},
-      "da": {"stringUnit": {"state": "translated","value": "Valgfri opsætning af Claude eller Codex sker, efter VM'en er startet, og kræver en separat bekræftelse."}},
-      "de": {"stringUnit": {"state": "translated","value": "Die optionale Einrichtung von Claude oder Codex erfolgt nach dem Start der VM und erfordert eine separate Bestätigung."}},
-      "en": {"stringUnit": {"state": "translated","value": "Optional Claude or Codex setup happens after the VM starts and requires a separate confirmation."}},
-      "es": {"stringUnit": {"state": "translated","value": "La configuración opcional de Claude o Codex se realiza después de que se inicie la VM y requiere una confirmación independiente."}},
-      "fr": {"stringUnit": {"state": "translated","value": "La configuration facultative de Claude ou Codex intervient après le démarrage de la VM et nécessite une confirmation distincte."}},
-      "it": {"stringUnit": {"state": "translated","value": "La configurazione facoltativa di Claude o Codex avviene dopo l’avvio della VM e richiede una conferma separata."}},
-      "ja": {"stringUnit": {"state": "translated","value": "Claude または Codex のセットアップは任意です。VM の起動後に行われ、別途確認が必要です。"}},
-      "km": {"stringUnit": {"state": "translated","value": "ការដំឡើង Claude ឬ Codex ជាជម្រើសស្រេចចិត្ត ដែលធ្វើឡើងបន្ទាប់ពី VM ចាប់ផ្តើម ហើយត្រូវការការបញ្ជាក់ដោយឡែក។"}},
-      "ko": {"stringUnit": {"state": "translated","value": "Claude 또는 Codex 설정은 선택 사항이며, VM이 시작된 후 별도의 확인을 거쳐 진행됩니다."}},
-      "nb": {"stringUnit": {"state": "translated","value": "Valgfritt oppsett av Claude eller Codex skjer etter at VM-en er startet, og krever en separat bekreftelse."}},
-      "pl": {"stringUnit": {"state": "translated","value": "Opcjonalna konfiguracja Claude lub Codex odbywa się po uruchomieniu maszyny wirtualnej i wymaga osobnego potwierdzenia."}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "A configuração opcional do Claude ou Codex acontece depois que a VM é iniciada e exige uma confirmação separada."}},
-      "ru": {"stringUnit": {"state": "translated","value": "Необязательная настройка Claude или Codex выполняется после запуска виртуальной машины и требует отдельного подтверждения."}},
-      "th": {"stringUnit": {"state": "translated","value": "คุณเลือกตั้งค่า Claude หรือ Codex ได้หลัง VM เริ่มทำงาน โดยต้องยืนยันแยกต่างหาก"}},
-      "tr": {"stringUnit": {"state": "translated","value": "İsteğe bağlı Claude veya Codex kurulumu VM başlatıldıktan sonra yapılır ve ayrı bir onay gerektirir."}},
-      "uk": {"stringUnit": {"state": "translated","value": "Необов’язкове налаштування Claude або Codex виконується після запуску віртуальної машини й потребує окремого підтвердження."}},
-      "vi": {"stringUnit": {"state": "translated","value": "Việc thiết lập Claude hoặc Codex là tùy chọn, diễn ra sau khi máy ảo khởi động và cần xác nhận riêng."}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "Claude 或 Codex 设置为可选步骤，在虚拟机启动后进行，并需要单独确认。"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "Claude 或 Codex 設定為選用步驟，會在虛擬機器啟動後進行，並需要另外確認。"}}
-    }},
-    "cloud.workspaceSetup.credentialsRouteUnavailable": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "إعداد بيانات اعتماد المزوّد غير متاح مع اتصال Cloud هذا."}},
-      "bs": {"stringUnit": {"state": "translated","value": "Podešavanje vjerodajnica provajdera nije dostupno uz ovu Cloud vezu."}},
-      "da": {"stringUnit": {"state": "translated","value": "Opsætning af loginoplysninger til udbyderen er ikke tilgængelig med denne Cloud-forbindelse."}},
-      "de": {"stringUnit": {"state": "translated","value": "Die Einrichtung der Anbieter-Anmeldedaten ist mit dieser Cloud-Verbindung nicht verfügbar."}},
-      "en": {"stringUnit": {"state": "translated","value": "Provider credential setup is unavailable with this Cloud connection."}},
-      "es": {"stringUnit": {"state": "translated","value": "La configuración de credenciales del proveedor no está disponible con esta conexión de Cloud."}},
-      "fr": {"stringUnit": {"state": "translated","value": "La configuration des identifiants du fournisseur n’est pas disponible avec cette connexion Cloud."}},
-      "it": {"stringUnit": {"state": "translated","value": "La configurazione delle credenziali del provider non è disponibile con questa connessione Cloud."}},
-      "ja": {"stringUnit": {"state": "translated","value": "このクラウド接続ではプロバイダーの認証情報を設定できません。"}},
-      "km": {"stringUnit": {"state": "translated","value": "ការភ្ជាប់ក្លោដនេះមិនអាចប្រើមុខងារដំឡើងព័ត៌មានសម្គាល់អត្តសញ្ញាណសម្រាប់អ្នកផ្តល់សេវាបានទេ។"}},
-      "ko": {"stringUnit": {"state": "translated","value": "이 클라우드 연결에서는 공급자 인증 정보를 설정할 수 없습니다."}},
-      "nb": {"stringUnit": {"state": "translated","value": "Oppsett av leverandørlegitimasjon er ikke tilgjengelig med denne Cloud-tilkoblingen."}},
-      "pl": {"stringUnit": {"state": "translated","value": "Konfiguracja danych uwierzytelniających dostawcy jest niedostępna przy tym połączeniu Cloud."}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "A configuração das credenciais do provedor não está disponível com esta conexão Cloud."}},
-      "ru": {"stringUnit": {"state": "translated","value": "Настройка учётных данных провайдера недоступна при этом подключении Cloud."}},
-      "th": {"stringUnit": {"state": "translated","value": "การเชื่อมต่อคลาวด์นี้ไม่รองรับการตั้งค่าข้อมูลรับรองของผู้ให้บริการ"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Bu Cloud bağlantısında sağlayıcı kimlik bilgisi kurulumu kullanılamıyor."}},
-      "uk": {"stringUnit": {"state": "translated","value": "Налаштування облікових даних провайдера недоступне для цього підключення Cloud."}},
-      "vi": {"stringUnit": {"state": "translated","value": "Kết nối đám mây này không hỗ trợ thiết lập thông tin xác thực của nhà cung cấp."}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "此云端连接不支持设置提供商凭据。"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "此雲端連線不支援設定供應商憑證。"}}
-    }},
-    "cloud.workspaceSetup.credentialsSignInOnMachine": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "سجّل الدخول إلى Claude أو Codex على الآلة الافتراضية نفسها: توفّر محادثتها تسجيل دخول بنقرة واحدة."}},
-      "bs": {"stringUnit": {"state": "translated","value": "Prijavite se u Claude ili Codex na samoj virtuelnoj mašini: njen chat nudi prijavu jednim klikom."}},
-      "da": {"stringUnit": {"state": "translated","value": "Log ind på Claude eller Codex på selve VM'en: dens chat tilbyder login med ét klik."}},
-      "de": {"stringUnit": {"state": "translated","value": "Melde dich auf der VM selbst bei Claude oder Codex an: Ihr Chat bietet eine Anmeldung mit einem Klick."}},
-      "en": {"stringUnit": {"state": "translated","value": "Sign in to Claude or Codex on the VM itself: its chat offers a one-click sign-in."}},
-      "es": {"stringUnit": {"state": "translated","value": "Inicia sesión en Claude o Codex en la propia VM: su chat ofrece un inicio de sesión con un clic."}},
-      "fr": {"stringUnit": {"state": "translated","value": "Connectez-vous à Claude ou Codex sur la VM elle-même : son chat propose une connexion en un clic."}},
-      "it": {"stringUnit": {"state": "translated","value": "Accedi a Claude o Codex direttamente sulla VM: la sua chat offre l’accesso con un clic."}},
-      "ja": {"stringUnit": {"state": "translated","value": "VM 上で Claude または Codex にサインインしてください。チャットからワンクリックでサインインできます。"}},
-      "km": {"stringUnit": {"state": "translated","value": "ចូលគណនី Claude ឬ Codex នៅលើ VM ផ្ទាល់៖ ការជជែករបស់វាផ្តល់ការចូលគណនីដោយចុចតែម្តង។"}},
-      "ko": {"stringUnit": {"state": "translated","value": "VM에서 직접 Claude 또는 Codex에 로그인하세요. 해당 채팅에서 원클릭 로그인을 제공합니다."}},
-      "nb": {"stringUnit": {"state": "translated","value": "Logg på Claude eller Codex på selve VM-en: chatten tilbyr pålogging med ett klikk."}},
-      "pl": {"stringUnit": {"state": "translated","value": "Zaloguj się do Claude lub Codex na samej maszynie wirtualnej: jej czat oferuje logowanie jednym kliknięciem."}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Entre no Claude ou no Codex na própria VM: o chat dela oferece login com um clique."}},
-      "ru": {"stringUnit": {"state": "translated","value": "Войдите в Claude или Codex на самой виртуальной машине: в её чате есть вход в один клик."}},
-      "th": {"stringUnit": {"state": "translated","value": "ลงชื่อเข้าใช้ Claude หรือ Codex บน VM โดยตรง: แชทของ VM มีการลงชื่อเข้าใช้ด้วยคลิกเดียว"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Claude veya Codex'e doğrudan VM üzerinde giriş yapın: sohbeti tek tıkla giriş sunar."}},
-      "uk": {"stringUnit": {"state": "translated","value": "Увійдіть у Claude або Codex на самій віртуальній машині: її чат пропонує вхід одним клацанням."}},
-      "vi": {"stringUnit": {"state": "translated","value": "Đăng nhập Claude hoặc Codex ngay trên VM: cuộc trò chuyện của VM có đăng nhập bằng một lần nhấp."}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "请在虚拟机上直接登录 Claude 或 Codex：其聊天提供一键登录。"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "請在虛擬機上直接登入 Claude 或 Codex：其聊天提供一鍵登入。"}}
-    }},
-    "cloud.workspaceSetup.credentialsTeamUnavailable": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "تبقى بيانات اعتماد المزوّد الشخصية خارج الآلات الافتراضية المشتركة للفريق لأنها تشترك في مجلد رئيسي واحد."}},
-      "bs": {"stringUnit": {"state": "translated","value": "Lične vjerodajnice provajdera ostaju izvan zajedničkih timskih virtuelnih mašina jer dijele početni direktorij."}},
-      "da": {"stringUnit": {"state": "translated","value": "Personlige loginoplysninger til udbydere holdes væk fra delte team-VM'er, fordi de deler en hjemmemappe."}},
-      "de": {"stringUnit": {"state": "translated","value": "Persönliche Anbieter-Anmeldedaten werden nicht auf gemeinsam genutzte Team-VMs übertragen, da diese einen gemeinsamen Home-Ordner verwenden."}},
-      "en": {"stringUnit": {"state": "translated","value": "Personal provider credentials stay off shared team VMs because they share a home folder."}},
-      "es": {"stringUnit": {"state": "translated","value": "Las credenciales personales del proveedor no se transfieren a las VM compartidas del equipo porque comparten una carpeta de inicio."}},
-      "fr": {"stringUnit": {"state": "translated","value": "Les identifiants personnels des fournisseurs ne sont pas transférés vers les VMs d’équipe partagées, car elles utilisent un dossier personnel commun."}},
-      "it": {"stringUnit": {"state": "translated","value": "Le credenziali personali del provider restano fuori dalle VM condivise del team perché condividono una cartella home."}},
-      "ja": {"stringUnit": {"state": "translated","value": "チームの共有 VM はホームフォルダを共有するため、個人のプロバイダー認証情報は転送されません。"}},
-      "km": {"stringUnit": {"state": "translated","value": "ព័ត៌មានសម្គាល់អត្តសញ្ញាណផ្ទាល់ខ្លួនសម្រាប់អ្នកផ្តល់សេវាមិនត្រូវបានផ្ទេរទៅ VM ដែលក្រុមប្រើរួមគ្នាទេ ព្រោះ VM ទាំងនេះប្រើថតផ្ទះរួមគ្នា។"}},
-      "ko": {"stringUnit": {"state": "translated","value": "팀 공유 VM은 홈 폴더를 공유하므로 개인 공급자 인증 정보가 전송되지 않습니다."}},
-      "nb": {"stringUnit": {"state": "translated","value": "Personlig leverandørlegitimasjon holdes borte fra delte team-VM-er fordi de deler en hjemmemappe."}},
-      "pl": {"stringUnit": {"state": "translated","value": "Osobiste dane uwierzytelniające dostawcy nie są przenoszone na współdzielone maszyny zespołu, ponieważ korzystają one ze wspólnego katalogu domowego."}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "As credenciais pessoais do provedor ficam fora das VMs compartilhadas da equipe porque elas compartilham uma pasta pessoal."}},
-      "ru": {"stringUnit": {"state": "translated","value": "Личные учётные данные провайдера не переносятся на общие виртуальные машины команды, поскольку они используют одну домашнюю папку."}},
-      "th": {"stringUnit": {"state": "translated","value": "ข้อมูลรับรองส่วนตัวของผู้ให้บริการจะไม่ถูกโอนไปยัง VM ที่ทีมใช้ร่วมกัน เนื่องจากใช้โฟลเดอร์โฮมร่วมกัน"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Sağlayıcının kişisel kimlik bilgileri, ortak bir ana klasörü paylaştıkları için paylaşılan ekip VM'lerinde tutulmaz."}},
-      "uk": {"stringUnit": {"state": "translated","value": "Особисті облікові дані провайдера не переносяться на спільні віртуальні машини команди, оскільки вони використовують спільну домашню папку."}},
-      "vi": {"stringUnit": {"state": "translated","value": "Thông tin xác thực cá nhân của nhà cung cấp không được chuyển lên máy ảo dùng chung của nhóm vì các máy này dùng chung thư mục cá nhân."}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "团队共享虚拟机共用主目录，因此不会向其传输个人提供商凭据。"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "團隊共用虛擬機器會共用個人專屬檔案夾，因此不會向其傳輸個人的供應商憑證。"}}
-    }},
     "cloud.workspaceSetup.emptyChoice": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "آلة افتراضية فارغة — ابدأ مشروعًا جديدًا"}},
       "bs": {"stringUnit": {"state": "translated","value": "Prazna virtuelna mašina — započnite novi projekat"}},
@@ -1449,6 +1704,29 @@
       "vi": {"stringUnit": {"state": "translated","value": "Bắt đầu trống, bắt đầu trong một môi trường của bạn, hoặc lưu kho GitHub thành môi trường mới. Môi trường sao chép kho và chạy phần thiết lập; khi đã dựng xong, máy mới khởi động từ đó trong khoảng một giây."}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "从空白开始、在你的某个环境中开始，或将 GitHub 仓库保存为新环境。环境会克隆仓库并运行其设置；构建完成后，新机器约一秒即可从中启动。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "從空白開始、在你的某個環境中開始，或將 GitHub 儲存庫儲存為新環境。環境會複製儲存庫並執行其設定；建置完成後，新機器約一秒即可從中啟動。"}}
+    }},
+    "cloud.workspaceSetup.modelRoute": {"localizations": {
+      "ar": {"stringUnit": {"state": "needs_review","value": "يصل Claude وCodex على الجهاز الافتراضي إلى النماذج عبر الخدمة السحابية. لا تنتقل أي جلسة تسجيل دخول من هذا الـ Mac."}},
+      "bs": {"stringUnit": {"state": "needs_review","value": "Claude i Codex na VM-u pristupaju modelima preko Cloud usluge. Nijedna prijava se ne prenosi s ovog Maca."}},
+      "da": {"stringUnit": {"state": "needs_review","value": "Claude og Codex på VM'en når modellerne via Cloud-tjenesten. Intet login flyttes fra denne Mac."}},
+      "de": {"stringUnit": {"state": "needs_review","value": "Claude und Codex auf der VM erreichen Modelle über den Cloud-Dienst. Keine Anmeldung wird von diesem Mac übertragen."}},
+      "en": {"stringUnit": {"state": "translated","value": "Claude and Codex on the VM reach models through the Cloud service. No login moves from this Mac."}},
+      "es": {"stringUnit": {"state": "needs_review","value": "Claude y Codex en la VM acceden a los modelos a través del servicio en la nube. Ningún inicio de sesión sale de este Mac."}},
+      "fr": {"stringUnit": {"state": "needs_review","value": "Claude et Codex sur la VM accèdent aux modèles via le service Cloud. Aucune connexion ne quitte ce Mac."}},
+      "it": {"stringUnit": {"state": "needs_review","value": "Claude e Codex sulla VM raggiungono i modelli tramite il servizio Cloud. Nessun accesso viene spostato da questo Mac."}},
+      "ja": {"stringUnit": {"state": "translated","value": "VM 上の Claude と Codex は Cloud サービス経由でモデルにアクセスします。この Mac からログインが移されることはありません。"}},
+      "km": {"stringUnit": {"state": "needs_review","value": "Claude និង Codex នៅលើ VM ភ្ជាប់ទៅម៉ូដែលតាមរយៈសេវា Cloud។ គ្មានការចូលគណនីណាមួយត្រូវបានផ្ទេរពី Mac នេះទេ។"}},
+      "ko": {"stringUnit": {"state": "needs_review","value": "VM의 Claude와 Codex는 Cloud 서비스를 통해 모델에 연결합니다. 이 Mac의 로그인은 옮겨지지 않습니다."}},
+      "nb": {"stringUnit": {"state": "needs_review","value": "Claude og Codex på VM-en når modellene via Cloud-tjenesten. Ingen pålogging flyttes fra denne Macen."}},
+      "pl": {"stringUnit": {"state": "needs_review","value": "Claude i Codex na maszynie wirtualnej łączą się z modelami przez usługę Cloud. Żadne logowanie nie jest przenoszone z tego Maca."}},
+      "pt-BR": {"stringUnit": {"state": "needs_review","value": "Claude e Codex na VM acessam os modelos pelo serviço Cloud. Nenhum login sai deste Mac."}},
+      "ru": {"stringUnit": {"state": "needs_review","value": "Claude и Codex на ВМ обращаются к моделям через облачный сервис. Вход с этого Mac никуда не переносится."}},
+      "th": {"stringUnit": {"state": "needs_review","value": "Claude และ Codex บน VM เข้าถึงโมเดลผ่านบริการ Cloud ไม่มีการย้ายการลงชื่อเข้าใช้จาก Mac เครื่องนี้"}},
+      "tr": {"stringUnit": {"state": "needs_review","value": "VM'deki Claude ve Codex modellere Cloud hizmeti üzerinden ulaşır. Bu Mac'ten hiçbir oturum açma bilgisi taşınmaz."}},
+      "uk": {"stringUnit": {"state": "needs_review","value": "Claude і Codex на ВМ звертаються до моделей через хмарний сервіс. Вхід із цього Mac нікуди не переноситься."}},
+      "vi": {"stringUnit": {"state": "needs_review","value": "Claude và Codex trên VM truy cập mô hình qua dịch vụ Cloud. Không có thông tin đăng nhập nào được chuyển từ máy Mac này."}},
+      "zh-Hans": {"stringUnit": {"state": "needs_review","value": "VM 上的 Claude 和 Codex 通过 Cloud 服务访问模型。不会从这台 Mac 转移任何登录。"}},
+      "zh-Hant": {"stringUnit": {"state": "needs_review","value": "VM 上的 Claude 和 Codex 透過 Cloud 服務存取模型。不會從這台 Mac 轉移任何登入。"}}
     }},
     "cloud.workspaceSetup.newEnvironmentChoice": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "احفظ مستودعًا كبيئة"}},
@@ -1657,52 +1935,6 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "不支持此分支、标签或提交名称。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "不支援此分支、標籤或提交名稱。"}}
     }},
-    "cloud.workspaceSetup.setupClaude": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "bs": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "da": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "de": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "en": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "es": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "fr": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "it": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "ja": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "km": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "ko": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "nb": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "pl": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "ru": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "th": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "uk": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "vi": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "Claude"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "Claude"}}
-    }},
-    "cloud.workspaceSetup.setupCodex": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "bs": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "da": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "de": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "en": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "es": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "fr": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "it": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "ja": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "km": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "ko": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "nb": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "pl": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "ru": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "th": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "uk": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "vi": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "Codex"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "Codex"}}
-    }},
     "cloud.workspaceSetup.setupScriptLabel": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "أمر الإعداد (اختياري، لبيئة جديدة فقط)"}},
       "bs": {"stringUnit": {"state": "translated","value": "Naredba za podešavanje (opcionalno, samo za novo okruženje)"}},
@@ -1748,29 +1980,6 @@
       "vi": {"stringUnit": {"state": "translated","value": "bun install"}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "bun install"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "bun install"}}
-    }},
-    "cloud.workspaceSetup.skip": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "تخطي"}},
-      "bs": {"stringUnit": {"state": "translated","value": "Preskoči"}},
-      "da": {"stringUnit": {"state": "translated","value": "Spring over"}},
-      "de": {"stringUnit": {"state": "translated","value": "Überspringen"}},
-      "en": {"stringUnit": {"state": "translated","value": "Skip"}},
-      "es": {"stringUnit": {"state": "translated","value": "Omitir"}},
-      "fr": {"stringUnit": {"state": "translated","value": "Ignorer"}},
-      "it": {"stringUnit": {"state": "translated","value": "Salta"}},
-      "ja": {"stringUnit": {"state": "translated","value": "スキップ"}},
-      "km": {"stringUnit": {"state": "translated","value": "រំលង"}},
-      "ko": {"stringUnit": {"state": "translated","value": "건너뛰기"}},
-      "nb": {"stringUnit": {"state": "translated","value": "Hopp over"}},
-      "pl": {"stringUnit": {"state": "translated","value": "Pomiń"}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Pular"}},
-      "ru": {"stringUnit": {"state": "translated","value": "Пропустить"}},
-      "th": {"stringUnit": {"state": "translated","value": "ข้าม"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Atla"}},
-      "uk": {"stringUnit": {"state": "translated","value": "Пропустити"}},
-      "vi": {"stringUnit": {"state": "translated","value": "Bỏ qua"}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "跳过"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "略過"}}
     }},
     "cloud.workspaceSetup.sourceLabel": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "البدء باستخدام"}},
@@ -1840,29 +2049,6 @@
       "vi": {"stringUnit": {"state": "translated","value": "Không gian làm việc đám mây mới"}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "新建云端工作区"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "新增雲端工作區"}}
-    }},
-    "cloud.workspaceSetup.transferAndFinish": {"localizations": {
-      "ar": {"stringUnit": {"state": "translated","value": "نقل وإنهاء"}},
-      "bs": {"stringUnit": {"state": "translated","value": "Prenesi i završi"}},
-      "da": {"stringUnit": {"state": "translated","value": "Overfør og afslut"}},
-      "de": {"stringUnit": {"state": "translated","value": "Übertragen und abschließen"}},
-      "en": {"stringUnit": {"state": "translated","value": "Transfer and finish"}},
-      "es": {"stringUnit": {"state": "translated","value": "Transferir y terminar"}},
-      "fr": {"stringUnit": {"state": "translated","value": "Transférer et terminer"}},
-      "it": {"stringUnit": {"state": "translated","value": "Trasferisci e termina"}},
-      "ja": {"stringUnit": {"state": "translated","value": "転送して完了"}},
-      "km": {"stringUnit": {"state": "translated","value": "ផ្ទេរ ហើយបញ្ចប់"}},
-      "ko": {"stringUnit": {"state": "translated","value": "전송하고 완료"}},
-      "nb": {"stringUnit": {"state": "translated","value": "Overfør og fullfør"}},
-      "pl": {"stringUnit": {"state": "translated","value": "Przenieś i zakończ"}},
-      "pt-BR": {"stringUnit": {"state": "translated","value": "Transferir e concluir"}},
-      "ru": {"stringUnit": {"state": "translated","value": "Перенести и завершить"}},
-      "th": {"stringUnit": {"state": "translated","value": "โอนและเสร็จสิ้น"}},
-      "tr": {"stringUnit": {"state": "translated","value": "Taşı ve bitir"}},
-      "uk": {"stringUnit": {"state": "translated","value": "Перенести й завершити"}},
-      "vi": {"stringUnit": {"state": "translated","value": "Chuyển và hoàn tất"}},
-      "zh-Hans": {"stringUnit": {"state": "translated","value": "传输并完成"}},
-      "zh-Hant": {"stringUnit": {"state": "translated","value": "傳輸並完成"}}
     }},
     "cloud.workspaceSetup.size": {
       "extractionState": "manual",
@@ -2777,6 +2963,662 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法讀取目前登入帳號的 Cloud 機器，因此此對話留在這台 Mac 上。請稍後再試。"
+          }
+        }
+      }
+    },
+    "cloud.move.alreadyRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat already runs on another machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل هذه المحادثة بالفعل على جهاز آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat već radi na drugoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat kører allerede på en anden maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat läuft bereits auf einem anderen Rechner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ya se ejecuta en otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion s’exécute déjà sur une autre machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è già in esecuzione su un’altra macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはすでに別のマシンで実行されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើម៉ាស៊ីនផ្សេងរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 이미 다른 머신에서 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten kjører allerede på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat działa już na innej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat já é executado em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат уже работает на другой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ทำงานบนเครื่องอื่นอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet zaten başka bir makinede çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат уже працює на іншій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này đã chạy trên một máy khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已在另一台机器上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已在另一台機器上執行。"
+          }
+        }
+      }
+    },
+    "cloud.move.failed": {
+      "comment": "Move to Cloud stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر نقل المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat se nije mogao premjestiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke flyttes. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat konnte nicht verschoben werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo mover el chat. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de déplacer la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile spostare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを移動できませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 옮기지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke flytte chatten. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przenieść czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível mover o chat. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось перенести чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายแชทไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet taşınamadı. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося перенести чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển cuộc trò chuyện. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法移动对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法移動對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
+          }
+        }
+      }
+    },
+    "cloud.move.homeFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينسخ «النقل إلى Cloud» مجلد مشروع، ولا ينسخ مجلد المنزل أبدًا. ابدأ المحادثة في مجلد مشروع أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Premjesti u Cloud“ kopira mapu projekta, nikad tvoju početnu mapu. Prvo pokreni chat u mapi projekta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Flyt til Cloud” kopierer en projektmappe, aldrig din hjemmemappe. Start først chatten i en projektmappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„In die Cloud verschieben“ kopiert einen Projektordner, nie deinen Benutzerordner. Starte den Chat zuerst in einem Projektordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Mover a Cloud» copia una carpeta de proyecto, nunca tu carpeta de inicio. Inicia primero el chat en una carpeta de proyecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Déplacer vers le Cloud » copie un dossier de projet, jamais votre dossier personnel. Démarrez d’abord la discussion dans un dossier de projet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Sposta su Cloud” copia una cartella di progetto, mai la cartella Inizio. Avvia prima la chat in una cartella di progetto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Cloud に移動」はプロジェクトフォルダをコピーし、ホームフォルダはコピーしません。先にプロジェクトフォルダでチャットを始めてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«ផ្លាស់ទីទៅ Cloud» ចម្លងថតគម្រោង មិនដែលចម្លងថតផ្ទះរបស់អ្នកទេ។ ចាប់ផ្តើមការជជែកក្នុងថតគម្រោងជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘Cloud로 이동’은 프로젝트 폴더만 복사하며 홈 폴더는 복사하지 않습니다. 먼저 프로젝트 폴더에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Flytt til Cloud» kopierer en prosjektmappe, aldri hjemmemappen din. Start chatten i en prosjektmappe først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Przenieś do Cloud” kopiuje folder projektu, nigdy folder domowy. Najpierw rozpocznij czat w folderze projektu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Mover para o Cloud” copia uma pasta de projeto, nunca sua pasta pessoal. Inicie o chat em uma pasta de projeto primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Перенести в Cloud» копирует папку проекта, но никогда не домашнюю папку. Сначала начните чат в папке проекта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“ย้ายไปยัง Cloud” คัดลอกโฟลเดอร์โปรเจกต์ ไม่คัดลอกโฟลเดอร์หลักของคุณ เริ่มแชทในโฟลเดอร์โปรเจกต์ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Cloud'a taşı” bir proje klasörünü kopyalar, ana klasörünüzü asla kopyalamaz. Sohbeti önce bir proje klasöründe başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Перенести в Cloud» копіює теку проєкту, але ніколи не домашню теку. Спершу почніть чат у теці проєкту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Chuyển lên Cloud” sao chép thư mục dự án, không bao giờ sao chép thư mục chính của bạn. Hãy bắt đầu cuộc trò chuyện trong một thư mục dự án trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“移至 Cloud”只会复制项目文件夹，绝不复制你的个人文件夹。请先在项目文件夹中开始对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「移至 Cloud」只會複製專案資料夾，絕不複製你的個人資料夾。請先在專案資料夾中開始對話。"
+          }
+        }
+      }
+    },
+    "cloud.move.inProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is already moving. Retry in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري نقل هذه المحادثة بالفعل. أعد المحاولة بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat se već premješta. Pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat er allerede ved at blive flyttet. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wird bereits verschoben. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ya se está moviendo. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion est déjà en cours de déplacement. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è già in fase di spostamento. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはすでに移動中です。しばらくしてから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះកំពុងផ្លាស់ទីរួចហើយ។ ព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 이미 이동 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten flyttes allerede. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat jest już przenoszony. Ponów za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat já está sendo movido. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат уже переносится. Повторите чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้กำลังถูกย้ายอยู่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet zaten taşınıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат уже переноситься. Повторіть трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này đang được chuyển. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已在移动中。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已在移動中。請稍後重試。"
+          }
+        }
+      }
+    },
+    "cloud.move.moved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat now runs on %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل هذه المحادثة الآن على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat sada radi na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat kører nu på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat läuft jetzt auf %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ahora se ejecuta en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion s’exécute maintenant sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat ora è in esecuzione su %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは %@ で実行されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះឥឡូវដំណើរការលើ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 이 채팅은 %@에서 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten kjører nå på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat działa teraz na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat agora é executado em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теперь этот чат работает на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ทำงานบน %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet artık %@ üzerinde çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тепер цей чат працює на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này hiện chạy trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话现在在 %@ 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話現在在 %@ 上執行。"
           }
         }
       }
@@ -4874,662 +5716,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此對話的模式會不經詢問就執行。從 Cloud 帶回的對話必須先詢問。"
-          }
-        }
-      }
-    },
-    "cloud.move.alreadyRemote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat already runs on another machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعمل هذه المحادثة بالفعل على جهاز آخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj chat već radi na drugoj mašini."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chat kører allerede på en anden maskine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Chat läuft bereits auf einem anderen Rechner."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat ya se ejecuta en otra máquina."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette discussion s’exécute déjà sur une autre machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chat è già in esecuzione su un’altra macchina."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットはすでに別のマシンで実行されています。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែកនេះកំពុងដំណើរការលើម៉ាស៊ីនផ្សេងរួចហើយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 채팅은 이미 다른 머신에서 실행 중입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chatten kjører allerede på en annen maskin."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten czat działa już na innej maszynie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat já é executado em outra máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот чат уже работает на другой машине."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชทนี้ทำงานบนเครื่องอื่นอยู่แล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sohbet zaten başka bir makinede çalışıyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей чат уже працює на іншій машині."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện này đã chạy trên một máy khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此对话已在另一台机器上运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此對話已在另一台機器上執行。"
-          }
-        }
-      }
-    },
-    "cloud.move.failed": {
-      "comment": "Move to Cloud stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر نقل المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chat se nije mogao premjestiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chatten kunne ikke flyttes. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Chat konnte nicht verschoben werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo mover el chat. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de déplacer la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile spostare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを移動できませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 옮기지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke flytte chatten. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przenieść czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível mover o chat. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось перенести чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายแชทไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sohbet taşınamadı. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося перенести чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể chuyển cuộc trò chuyện. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法移动对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法移動對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
-          }
-        }
-      }
-    },
-    "cloud.move.homeFolder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينسخ «النقل إلى Cloud» مجلد مشروع، ولا ينسخ مجلد المنزل أبدًا. ابدأ المحادثة في مجلد مشروع أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Premjesti u Cloud“ kopira mapu projekta, nikad tvoju početnu mapu. Prvo pokreni chat u mapi projekta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“Flyt til Cloud” kopierer en projektmappe, aldrig din hjemmemappe. Start først chatten i en projektmappe."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„In die Cloud verschieben“ kopiert einen Projektordner, nie deinen Benutzerordner. Starte den Chat zuerst in einem Projektordner."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Mover a Cloud» copia una carpeta de proyecto, nunca tu carpeta de inicio. Inicia primero el chat en una carpeta de proyecto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "« Déplacer vers le Cloud » copie un dossier de projet, jamais votre dossier personnel. Démarrez d’abord la discussion dans un dossier de projet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“Sposta su Cloud” copia una cartella di progetto, mai la cartella Inizio. Avvia prima la chat in una cartella di progetto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「Cloud に移動」はプロジェクトフォルダをコピーし、ホームフォルダはコピーしません。先にプロジェクトフォルダでチャットを始めてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«ផ្លាស់ទីទៅ Cloud» ចម្លងថតគម្រោង មិនដែលចម្លងថតផ្ទះរបស់អ្នកទេ។ ចាប់ផ្តើមការជជែកក្នុងថតគម្រោងជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "‘Cloud로 이동’은 프로젝트 폴더만 복사하며 홈 폴더는 복사하지 않습니다. 먼저 프로젝트 폴더에서 채팅을 시작하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Flytt til Cloud» kopierer en prosjektmappe, aldri hjemmemappen din. Start chatten i en prosjektmappe først."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Przenieś do Cloud” kopiuje folder projektu, nigdy folder domowy. Najpierw rozpocznij czat w folderze projektu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“Mover para o Cloud” copia uma pasta de projeto, nunca sua pasta pessoal. Inicie o chat em uma pasta de projeto primeiro."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Перенести в Cloud» копирует папку проекта, но никогда не домашнюю папку. Сначала начните чат в папке проекта."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“ย้ายไปยัง Cloud” คัดลอกโฟลเดอร์โปรเจกต์ ไม่คัดลอกโฟลเดอร์หลักของคุณ เริ่มแชทในโฟลเดอร์โปรเจกต์ก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“Cloud'a taşı” bir proje klasörünü kopyalar, ana klasörünüzü asla kopyalamaz. Sohbeti önce bir proje klasöründe başlatın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Перенести в Cloud» копіює теку проєкту, але ніколи не домашню теку. Спершу почніть чат у теці проєкту."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“Chuyển lên Cloud” sao chép thư mục dự án, không bao giờ sao chép thư mục chính của bạn. Hãy bắt đầu cuộc trò chuyện trong một thư mục dự án trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“移至 Cloud”只会复制项目文件夹，绝不复制你的个人文件夹。请先在项目文件夹中开始对话。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「移至 Cloud」只會複製專案資料夾，絕不複製你的個人資料夾。請先在專案資料夾中開始對話。"
-          }
-        }
-      }
-    },
-    "cloud.move.inProgress": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat is already moving. Retry in a moment."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجري نقل هذه المحادثة بالفعل. أعد المحاولة بعد قليل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj chat se već premješta. Pokušaj ponovo za trenutak."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chat er allerede ved at blive flyttet. Prøv igen om et øjeblik."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Chat wird bereits verschoben. Versuche es gleich noch einmal."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat ya se está moviendo. Vuelve a intentarlo en un momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette discussion est déjà en cours de déplacement. Réessayez dans un instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chat è già in fase di spostamento. Riprova tra poco."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットはすでに移動中です。しばらくしてから再試行してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែកនេះកំពុងផ្លាស់ទីរួចហើយ។ ព្យាយាមម្តងទៀតបន្តិចទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 채팅은 이미 이동 중입니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chatten flyttes allerede. Prøv igjen om et øyeblikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten czat jest już przenoszony. Ponów za chwilę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat já está sendo movido. Tente novamente em instantes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот чат уже переносится. Повторите чуть позже."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชทนี้กำลังถูกย้ายอยู่ ลองอีกครั้งในอีกสักครู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sohbet zaten taşınıyor. Birazdan yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей чат уже переноситься. Повторіть трохи згодом."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện này đang được chuyển. Hãy thử lại sau giây lát."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此对话已在移动中。请稍后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此對話已在移動中。請稍後重試。"
-          }
-        }
-      }
-    },
-    "cloud.move.moved": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat now runs on %@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعمل هذه المحادثة الآن على %@."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj chat sada radi na %@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chat kører nu på %@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Chat läuft jetzt auf %@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat ahora se ejecuta en %@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cette discussion s’exécute maintenant sur %@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chat ora è in esecuzione su %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットは %@ で実行されています。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែកនេះឥឡូវដំណើរការលើ %@។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이제 이 채팅은 %@에서 실행됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chatten kjører nå på %@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten czat działa teraz na %@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat agora é executado em %@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Теперь этот чат работает на %@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชทนี้ทำงานบน %@ แล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sohbet artık %@ üzerinde çalışıyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тепер цей чат працює на %@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện này hiện chạy trên %@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此对话现在在 %@ 上运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此對話現在在 %@ 上執行。"
           }
         }
       }
@@ -9595,6 +9781,292 @@
             "value": "此對話已移至 Cloud，但它在那裡的分頁未開啟。請重試以開啟。"
           }
         }
+      }
+    },
+    "cloud.transferLocal.copying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copying the chat's folder to this Mac…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner des Chats wird auf diesen Mac kopiert …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copie du dossier de la discussion sur ce Mac…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ نسخ مجلد المحادثة إلى جهاز Mac هذا…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiando la carpeta del chat a este Mac…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在將聊天的資料夾拷貝到這台 Mac…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在将聊天的文件夹拷贝到这台 Mac…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 폴더를 이 Mac으로 복사하는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットのフォルダをこの Mac にコピーしています…"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kopiranje foldera chata na ovaj Mac…"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kopierer chattens mappe til denne Mac…"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Copia della cartella della chat su questo Mac…"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កំពុងចម្លងថតរបស់ការជជែកទៅ Mac នេះ…"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kopierer chattens mappe til denne Macen…"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kopiowanie folderu czatu na ten Mac…"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Copiando a pasta do chat para este Mac…"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Копирование папки чата на этот Mac…"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กำลังคัดลอกโฟลเดอร์ของแชทมายัง Mac เครื่องนี้…"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sohbetin klasörü bu Mac'e kopyalanıyor…"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Копіювання папки чату на цей Mac…"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Đang sao chép thư mục của cuộc trò chuyện sang máy Mac này…"}}
+      }
+    },
+    "cloud.transferLocal.folderName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Transfers"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-Übertragungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Transferts Cloud"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عمليات النقل من Cloud"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Transferencias de Cloud"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 傳輸"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 传输"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 전송"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud 転送"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cloud prijenosi"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Cloud-overførsler"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Trasferimenti Cloud"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការផ្ទេរ Cloud"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Cloud-overføringer"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Transfery Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Transferências do Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Переносы из Cloud"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การโอนจาก Cloud"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud aktarımları"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перенесення з Cloud"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chuyển từ Cloud"}}
+      }
+    },
+    "cloud.transferLocal.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your copy of the folder is open on this Mac. The chat keeps running on %@."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Deine Kopie des Ordners ist auf diesem Mac geöffnet. Der Chat läuft weiter auf %@."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Votre copie du dossier est ouverte sur ce Mac. La discussion continue sur %@."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسختك من المجلد مفتوحة على جهاز Mac هذا. تستمر المحادثة في العمل على %@."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tu copia de la carpeta está abierta en este Mac. El chat sigue ejecutándose en %@."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你的資料夾拷貝已在這台 Mac 上打開。聊天會繼續在 %@ 上執行。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你的文件夹副本已在这台 Mac 上打开。聊天会继续在 %@ 上运行。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "폴더 사본이 이 Mac에서 열렸습니다. 채팅은 %@에서 계속 실행됩니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "フォルダのコピーをこの Mac で開きました。チャットは %@ で引き続き実行されます。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tvoja kopija foldera je otvorena na ovom Macu. Chat nastavlja raditi na %@."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Din kopi af mappen er åben på denne Mac. Chatten kører videre på %@."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La tua copia della cartella è aperta su questo Mac. La chat continua su %@."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ច្បាប់ចម្លងថតរបស់អ្នកត្រូវបានបើកនៅលើ Mac នេះ។ ការជជែកនៅតែដំណើរការលើ %@។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kopien din av mappen er åpen på denne Macen. Chatten kjører videre på %@."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Twoja kopia folderu jest otwarta na tym Macu. Czat nadal działa na %@."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sua cópia da pasta está aberta neste Mac. O chat continua rodando em %@."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Ваша копия папки открыта на этом Mac. Чат продолжает работать на %@."}},
+        "th": {"stringUnit": {"state": "translated", "value": "สำเนาโฟลเดอร์ของคุณเปิดอยู่บน Mac เครื่องนี้ แชทยังคงทำงานบน %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Klasörün kopyası bu Mac'te açık. Sohbet %@ üzerinde çalışmaya devam ediyor."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вашу копію папки відкрито на цьому Mac. Чат і далі працює на %@."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Bản sao thư mục của bạn đã mở trên máy Mac này. Cuộc trò chuyện vẫn chạy trên %@."}}
+      }
+    },
+    "cloud.transferLocal.notAMachineChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Transfer to This Mac works on a chat that runs on a Cloud machine."}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Auf diesen Mac übertragen“ funktioniert bei einem Chat, der auf einer Cloud-Maschine läuft."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "« Transférer vers ce Mac » fonctionne avec une discussion qui s’exécute sur une machine Cloud."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعمل \"النقل إلى جهاز Mac هذا\" على محادثة تعمل على جهاز Cloud."}},
+        "es": {"stringUnit": {"state": "translated", "value": "«Transferir a este Mac» funciona con un chat que se ejecuta en una máquina de Cloud."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「傳輸到這台 Mac」適用於在 Cloud 機器上執行的聊天。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“传输到这台 Mac”适用于在 Cloud 机器上运行的聊天。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "'이 Mac으로 전송'은 Cloud 머신에서 실행 중인 채팅에서 사용할 수 있습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「この Mac に転送」は Cloud マシンで実行中のチャットで使えます。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prenesi na ovaj Mac radi za chat koji radi na Cloud mašini."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Overfør til denne Mac virker på en chat, der kører på en Cloud-maskine."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Trasferisci su questo Mac funziona con una chat in esecuzione su una macchina Cloud."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ទេរមក Mac នេះ ដំណើរការលើការជជែកដែលកំពុងដំណើរការលើម៉ាស៊ីន Cloud។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Overfør til denne Macen virker på en chat som kjører på en Cloud-maskin."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przenieś na ten Mac działa dla czatu działającego na maszynie Cloud."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Transferir para este Mac funciona com um chat que roda em uma máquina do Cloud."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "«Перенести на этот Mac» работает для чата, запущенного на машине Cloud."}},
+        "th": {"stringUnit": {"state": "translated", "value": "โอนมายัง Mac เครื่องนี้ ใช้ได้กับแชทที่ทำงานบนเครื่อง Cloud"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu Mac'e aktar, bir Cloud makinesinde çalışan sohbetlerde çalışır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "«Перенести на цей Mac» працює для чату, що запущений на машині Cloud."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chuyển sang máy Mac này dùng cho cuộc trò chuyện đang chạy trên máy Cloud."}}
+      }
+    },
+    "cloud.transferLocal.noFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This chat has no folder on the machine to copy."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dieser Chat hat auf der Maschine keinen Ordner zum Kopieren."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cette discussion n’a aucun dossier à copier sur la machine."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا يوجد لهذه المحادثة مجلد على الجهاز لنسخه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Este chat no tiene ninguna carpeta en la máquina que copiar."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這個聊天在機器上沒有可拷貝的資料夾。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这个聊天在机器上没有可拷贝的文件夹。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 채팅에는 머신에서 복사할 폴더가 없습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このチャットには、マシン上にコピーできるフォルダがありません。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ovaj chat nema folder na mašini za kopiranje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Denne chat har ingen mappe på maskinen at kopiere."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Questa chat non ha una cartella da copiare sulla macchina."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែកនេះគ្មានថតនៅលើម៉ាស៊ីនសម្រាប់ចម្លងទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Denne chatten har ingen mappe på maskinen å kopiere."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ten czat nie ma na maszynie folderu do skopiowania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Este chat não tem uma pasta na máquina para copiar."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "У этого чата нет папки на машине, которую можно скопировать."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชทนี้ไม่มีโฟลเดอร์บนเครื่องให้คัดลอก"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu sohbetin makinede kopyalanacak bir klasörü yok."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Цей чат не має папки на машині, яку можна скопіювати."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện này không có thư mục nào trên máy để sao chép."}}
+      }
+    },
+    "cloud.transferLocal.tooBroad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This chat's folder on the machine is a home or top folder, which holds the machine's sign-ins. Open the chat in a project folder to transfer it."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner dieses Chats auf der Maschine ist ein Home- oder oberster Ordner mit den Anmeldungen der Maschine. Öffne den Chat in einem Projektordner, um ihn zu übertragen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le dossier de cette discussion sur la machine est un dossier personnel ou de premier niveau, qui contient les connexions de la machine. Ouvrez la discussion dans un dossier de projet pour la transférer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مجلد هذه المحادثة على الجهاز هو مجلد رئيسي أو مجلد علوي يحتوي على تسجيلات دخول الجهاز. افتح المحادثة في مجلد مشروع لنقلها."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La carpeta de este chat en la máquina es una carpeta personal o de nivel superior, que guarda los inicios de sesión de la máquina. Abre el chat en una carpeta de proyecto para transferirlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這個聊天在機器上的資料夾是主資料夾或頂層資料夾，裡面有機器的登入資訊。請在專案資料夾中開啟聊天後再轉移。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这个聊天在机器上的文件夹是主文件夹或顶层文件夹，里面有机器的登录信息。请在项目文件夹中打开聊天后再转移。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 채팅의 머신 폴더는 머신의 로그인 정보가 있는 홈 폴더 또는 최상위 폴더입니다. 옮기려면 프로젝트 폴더에서 채팅을 여세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このチャットのマシン上のフォルダは、マシンのサインイン情報があるホームまたは最上位のフォルダです。転送するには、プロジェクトフォルダでチャットを開いてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Folder ovog chata na mašini je početni ili vršni folder, u kojem su prijave mašine. Otvorite chat u folderu projekta da ga prenesete."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Denne chats mappe på maskinen er en hjemmemappe eller topmappe med maskinens logins. Åbn chatten i en projektmappe for at overføre den."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La cartella di questa chat sulla macchina è una cartella home o di primo livello, che contiene gli accessi della macchina. Apri la chat in una cartella di progetto per trasferirla."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតរបស់ការជជែកនេះនៅលើម៉ាស៊ីន គឺជាថតដើម ឬថតកំពូល ដែលមានការចូលគណនីរបស់ម៉ាស៊ីន។ សូមបើកការជជែកក្នុងថតគម្រោង ដើម្បីផ្ទេរវា។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mappen til denne chatten på maskinen er en hjemmemappe eller toppmappe med maskinens pålogginger. Åpne chatten i en prosjektmappe for å overføre den."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Folder tego czatu na maszynie to folder domowy lub najwyższego poziomu, w którym są logowania maszyny. Otwórz czat w folderze projektu, aby go przenieść."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A pasta deste chat na máquina é uma pasta pessoal ou de nível superior, que guarda os logins da máquina. Abra o chat em uma pasta de projeto para transferi-lo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Папка этого чата на машине — домашняя или папка верхнего уровня, в ней хранятся входы машины. Откройте чат в папке проекта, чтобы перенести его."}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์ของแชทนี้บนเครื่องเป็นโฟลเดอร์หลักหรือโฟลเดอร์ระดับบนสุด ซึ่งเก็บการลงชื่อเข้าใช้ของเครื่องไว้ เปิดแชทในโฟลเดอร์โปรเจกต์เพื่อโอนย้าย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu sohbetin makinedeki klasörü, makinenin oturum açma bilgilerini tutan bir ana klasör veya üst klasör. Aktarmak için sohbeti bir proje klasöründe açın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Папка цього чату на машині — домашня або папка верхнього рівня, у ній зберігаються входи машини. Відкрийте чат у папці проєкту, щоб перенести його."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thư mục của cuộc trò chuyện này trên máy là thư mục chính hoặc thư mục cấp cao nhất, nơi chứa thông tin đăng nhập của máy. Hãy mở cuộc trò chuyện trong một thư mục dự án để chuyển nó."}}
+      }
+    },
+    "cloud.transferLocal.copyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't copy the folder from %1$@: %2$@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner konnte nicht von %1$@ kopiert werden: %2$@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de copier le dossier depuis %1$@ : %2$@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر نسخ المجلد من %1$@: %2$@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo copiar la carpeta desde %1$@: %2$@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法從 %1$@ 拷貝資料夾：%2$@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法从 %1$@ 拷贝文件夹：%2$@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%1$@에서 폴더를 복사할 수 없습니다: %2$@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ からフォルダをコピーできませんでした: %2$@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nije moguće kopirati folder sa %1$@: %2$@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kunne ikke kopiere mappen fra %1$@: %2$@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile copiare la cartella da %1$@: %2$@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចចម្លងថតពី %1$@ បានទេ៖ %2$@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kunne ikke kopiere mappen fra %1$@: %2$@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie udało się skopiować folderu z %1$@: %2$@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível copiar a pasta de %1$@: %2$@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось скопировать папку с %1$@: %2$@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "คัดลอกโฟลเดอร์จาก %1$@ ไม่ได้: %2$@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Klasör %1$@ üzerinden kopyalanamadı: %2$@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося скопіювати папку з %1$@: %2$@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Không thể sao chép thư mục từ %1$@: %2$@"}}
+      }
+    },
+    "cloud.transferLocal.folderNotEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ already has files. Pick a new or empty folder."}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ enthält bereits Dateien. Wähle einen neuen oder leeren Ordner."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%@ contient déjà des fichiers. Choisissez un dossier nouveau ou vide."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتوي %@ على ملفات بالفعل. اختر مجلدًا جديدًا أو فارغًا."}},
+        "es": {"stringUnit": {"state": "translated", "value": "%@ ya tiene archivos. Elige una carpeta nueva o vacía."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 已有檔案。請選擇新的或空的資料夾。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 已有文件。请选择新的或空的文件夹。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@에 이미 파일이 있습니다. 새 폴더나 빈 폴더를 선택하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ にはすでにファイルがあります。新しいフォルダか空のフォルダを選んでください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "%@ već ima datoteke. Odaberi novi ili prazan folder."}},
+        "da": {"stringUnit": {"state": "translated", "value": "%@ indeholder allerede filer. Vælg en ny eller tom mappe."}},
+        "it": {"stringUnit": {"state": "translated", "value": "%@ contiene già dei file. Scegli una cartella nuova o vuota."}},
+        "km": {"stringUnit": {"state": "translated", "value": "%@ មានឯកសាររួចហើយ។ ជ្រើសថតថ្មី ឬថតទទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "%@ har allerede filer. Velg en ny eller tom mappe."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "%@ zawiera już pliki. Wybierz nowy lub pusty folder."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "%@ já tem arquivos. Escolha uma pasta nova ou vazia."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В %@ уже есть файлы. Выберите новую или пустую папку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "%@ มีไฟล์อยู่แล้ว เลือกโฟลเดอร์ใหม่หรือโฟลเดอร์ว่าง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "%@ zaten dosya içeriyor. Yeni veya boş bir klasör seçin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "У %@ вже є файли. Виберіть нову або порожню папку."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "%@ đã có tệp. Hãy chọn một thư mục mới hoặc trống."}}
+      }
+    },
+    "cloud.transferLocal.notOnRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The machine's branch isn't on its remote yet. Push it from the machine, then transfer again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Branch der Maschine ist noch nicht auf ihrem Remote. Pushe ihn von der Maschine und übertrage dann erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La branche de la machine n’est pas encore sur son dépôt distant. Poussez-la depuis la machine, puis transférez à nouveau."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فرع الجهاز ليس على المستودع البعيد بعد. ادفعه من الجهاز، ثم انقل مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La rama de la máquina aún no está en su remoto. Haz push desde la máquina y vuelve a transferir."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "機器的分支尚未在其遠端上。請從機器推送，然後再傳輸一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "机器的分支尚未在其远程上。请从机器推送，然后再传输一次。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "머신의 브랜치가 아직 원격 저장소에 없습니다. 머신에서 푸시한 다음 다시 전송하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンのブランチがまだリモートにありません。マシンからプッシュしてから、もう一度転送してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Grana mašine još nije na njenom remoteu. Pošalji je (push) sa mašine, pa prenesi ponovo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Maskinens branch er ikke på dens remote endnu. Push den fra maskinen, og overfør så igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il branch della macchina non è ancora sul suo remote. Esegui il push dalla macchina, poi trasferisci di nuovo."}},
+        "km": {"stringUnit": {"state": "translated", "value": "សាខារបស់ម៉ាស៊ីនមិនទាន់នៅលើ remote របស់វានៅឡើយទេ។ សូម push ពីម៉ាស៊ីន រួចផ្ទេរម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Maskinens branch er ikke på remoten ennå. Push den fra maskinen, og overfør på nytt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Gałęzi maszyny nie ma jeszcze w jej zdalnym repozytorium. Wypchnij ją z maszyny, a potem przenieś ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A branch da máquina ainda não está no remoto. Faça push a partir da máquina e transfira de novo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Ветки машины ещё нет в её удалённом репозитории. Отправьте её (push) с машины и перенесите снова."}},
+        "th": {"stringUnit": {"state": "translated", "value": "สาขาของเครื่องยังไม่อยู่บนรีโมต ให้ push จากเครื่องก่อน แล้วโอนอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Makinenin dalı henüz uzak depoda değil. Makineden push edin, sonra yeniden aktarın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Гілки машини ще немає у віддаленому репозиторії. Надішліть її (push) з машини й перенесіть знову."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nhánh của máy chưa có trên remote. Hãy push từ máy, rồi chuyển lại."}}
+      }
+    },
+    "cloud.transferLocal.cloneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This Mac couldn't clone the project from its remote. Check that you can reach the repository, then try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dieser Mac konnte das Projekt nicht von seinem Remote klonen. Prüfe, ob du das Repository erreichst, und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ce Mac n’a pas pu cloner le projet depuis son dépôt distant. Vérifiez que vous pouvez accéder au dépôt, puis réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر على جهاز Mac هذا استنساخ المشروع من مستودعه البعيد. تحقّق من أنه يمكنك الوصول إلى المستودع، ثم حاول مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Este Mac no pudo clonar el proyecto desde su remoto. Comprueba que puedes acceder al repositorio y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這台 Mac 無法從遠端複製專案。請確認你能存取該儲存庫，然後再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这台 Mac 无法从远程克隆项目。请确认你能访问该仓库，然后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac이 원격 저장소에서 프로젝트를 복제하지 못했습니다. 저장소에 접근할 수 있는지 확인한 다음 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac はリモートからプロジェクトをクローンできませんでした。リポジトリにアクセスできることを確認してから、もう一度お試しください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ovaj Mac nije mogao klonirati projekat sa njegovog remotea. Provjeri imaš li pristup repozitoriju, pa pokušaj ponovo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Denne Mac kunne ikke klone projektet fra dets remote. Tjek, at du kan nå repositoriet, og prøv igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Questo Mac non è riuscito a clonare il progetto dal suo remote. Verifica di poter raggiungere il repository, poi riprova."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Mac នេះមិនអាច clone គម្រោងពី remote របស់វាបានទេ។ ពិនិត្យថាអ្នកអាចចូលដល់ repository បាន រួចព្យាយាមម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Denne Macen kunne ikke klone prosjektet fra remoten. Sjekk at du når repositoriet, og prøv igjen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ten Mac nie mógł sklonować projektu z jego zdalnego repozytorium. Sprawdź, czy masz dostęp do repozytorium, i spróbuj ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Este Mac não conseguiu clonar o projeto do remoto. Verifique se você consegue acessar o repositório e tente de novo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Этот Mac не смог клонировать проект из удалённого репозитория. Проверьте доступ к репозиторию и повторите попытку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Mac เครื่องนี้โคลนโปรเจกต์จากรีโมตไม่ได้ ตรวจสอบว่าคุณเข้าถึงรีโพสิทอรีได้ แล้วลองอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu Mac projeyi uzak depodan klonlayamadı. Depoya erişebildiğinizi kontrol edip yeniden deneyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Цей Mac не зміг клонувати проєкт із віддаленого репозиторію. Перевірте доступ до репозиторію й повторіть спробу."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Máy Mac này không thể sao chép (clone) dự án từ remote. Hãy kiểm tra bạn truy cập được kho mã, rồi thử lại."}}
+      }
+    },
+    "cloud.transferLocal.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't transfer the chat to this Mac. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Chat konnte nicht auf diesen Mac übertragen werden. Versuche es erneut; wenn es weiter fehlschlägt, führe `cmux cloud diagnostics` aus. Grund: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de transférer la discussion vers ce Mac. Réessayez ; si l’échec persiste, exécutez `cmux cloud diagnostics`. Raison : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر نقل المحادثة إلى جهاز Mac هذا. حاول مرة أخرى؛ وإذا استمر الفشل، شغّل `cmux cloud diagnostics`. السبب: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo transferir el chat a este Mac. Vuelve a intentarlo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將聊天傳輸到這台 Mac。請再試一次；如果持續失敗，請執行 `cmux cloud diagnostics`。原因：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将聊天传输到这台 Mac。请重试；如果持续失败，请运行 `cmux cloud diagnostics`。原因：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅을 이 Mac으로 전송할 수 없습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットをこの Mac に転送できませんでした。もう一度お試しください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nije moguće prenijeti chat na ovaj Mac. Pokušaj ponovo; ako i dalje ne uspijeva, pokreni `cmux cloud diagnostics`. Razlog: %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kunne ikke overføre chatten til denne Mac. Prøv igen; hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile trasferire la chat su questo Mac. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចផ្ទេរការជជែកមក Mac នេះបានទេ។ សូមព្យាយាមម្តងទៀត បើនៅតែបរាជ័យ ដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kunne ikke overføre chatten til denne Macen. Prøv igjen; hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie udało się przenieść czatu na ten Mac. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível transferir o chat para este Mac. Tente de novo; se continuar falhando, rode `cmux cloud diagnostics`. Motivo: %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось перенести чат на этот Mac. Повторите попытку; если ошибка повторяется, запустите `cmux cloud diagnostics`. Причина: %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โอนแชทมายัง Mac เครื่องนี้ไม่ได้ ลองอีกครั้ง หากยังล้มเหลว ให้รัน `cmux cloud diagnostics` สาเหตุ: %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sohbet bu Mac'e aktarılamadı. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` çalıştırın. Neden: %@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося перенести чат на цей Mac. Повторіть спробу; якщо помилка не зникає, запустіть `cmux cloud diagnostics`. Причина: %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Không thể chuyển cuộc trò chuyện sang máy Mac này. Hãy thử lại; nếu vẫn lỗi, chạy `cmux cloud diagnostics`. Lý do: %@"}}
       }
     }
   },

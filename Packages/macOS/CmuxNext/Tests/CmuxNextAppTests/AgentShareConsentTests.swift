@@ -125,7 +125,7 @@ struct AgentShareConsentTests {
 
     /// An Allow at the sheet's last second still gets the daemon's create inside the caller's deadline.
     @Test func theSheetClosesBeforeTheCallerGivesUp() {
-        #expect(AgentShareConsentSheet.answerWithin + AgentShareActions.createDeadline < ActionDescriptor.personDeadline)
+        #expect(AgentShareActions.consentAnswerWithin + AgentShareActions.createDeadline < ActionDescriptor.personDeadline)
         #expect(ActionRegistry.standard().descriptor(for: AgentShareActions.share)?.waitsForPerson == true)
     }
 

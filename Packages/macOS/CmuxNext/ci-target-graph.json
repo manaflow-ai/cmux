@@ -430,7 +430,6 @@
         "CmuxNextAppHealth",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
-        "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
         "CmuxNextChecklist",
@@ -534,7 +533,6 @@
         "scripts/cmux-next/web-bundle-key.py",
         "tests/fixtures/classic-to-next/",
         "web/scripts/cloud-vm/cmux-tui-upgrade.sh",
-        "web/services/vms/images/devbox/agent-auth.sh",
         "webviews/test/fixtures/new-tab-intents.json"
       ]
     },
@@ -891,6 +889,7 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings"
@@ -901,6 +900,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCloudUI",
         "CmuxNextDesign",

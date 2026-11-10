@@ -813,6 +813,18 @@
       "scope": "group:read",
       "class": "read"
     },
+    "group.members.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.members.remove": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.members.set": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
     "group.rename": {
       "scope": "group:write",
       "class": "mutation"
@@ -1729,6 +1741,38 @@
       "scope": "team:read",
       "class": "read"
     },
+    "team.cloud.session.archive": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.follow": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.publish": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.reassign": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.remove": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.viewing": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -2175,6 +2219,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.agent_key.remove",
+    "team.agent_key.set",
+    "team.agent_key.status",
     "team.ai_limit.member.set",
     "team.ai_limit.set",
     "team.audit.list",

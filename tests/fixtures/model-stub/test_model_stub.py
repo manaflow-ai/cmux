@@ -10,7 +10,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 import urllib.request
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -300,6 +302,86 @@ class ScriptAndCliTest(unittest.TestCase):
             finally:
                 p.terminate()
                 p.wait(5)
+
+
+class FaultTest(unittest.TestCase):
+    """Faults (the Cloud self-test, plans/cmux-next/cloud-selftest-DESIGN.md): injected errors and delays."""
+
+    setUp = StubTest.setUp
+    tearDown = StubTest.tearDown
+    rows = StubTest.rows
+
+    def post_status(self, path: str, body: dict) -> tuple[int, dict, dict]:
+        req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers={"content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, dict(r.headers), json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), json.loads(e.read() or b"{}")
+
+    def test_queued_faults_answer_turn_requests_in_order_then_clear(self) -> None:
+        status, _, armed = self.post_status("/__stub/faults", {"faults": [
+            {"status": 429, "type": "rate_limit_error", "message": "slow down", "retry_after": 3},
+            {"status": 401, "type": "authentication_error", "path": "/v1/responses"},
+        ]})
+        self.assertEqual((status, armed["pending"]), (200, 2))
+        turn = {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]}
+        # A side request (no tools) never takes a fault.
+        side_status, _, _ = self.post_status("/v1/messages", {"messages": [{"role": "user", "content": "title"}]})
+        self.assertEqual(side_status, 200)
+        status, headers, body = self.post_status("/v1/messages", turn)
+        self.assertEqual(status, 429)
+        self.assertEqual({k.lower(): v for k, v in headers.items()}["retry-after"], "3")
+        self.assertEqual(body, {"type": "error", "error": {"type": "rate_limit_error", "message": "slow down"}})
+        # The 401 is only for /v1/responses: a Messages turn passes it by and answers.
+        self.assertEqual(self.post_status("/v1/messages", turn)[0], 200)
+        status, _, body = self.post_status("/v1/responses", {"input": "go", "tools": [{"type": "function", "name": "shell"}]})
+        self.assertEqual((status, body["error"]["type"], body["error"]["code"]), (401, "authentication_error", "authentication_error"))
+        self.assertEqual(self.post_status("/v1/responses", {"input": "go", "tools": [{"type": "function", "name": "shell"}]})[0], 200)
+        faulted = [r for r in self.rows() if r.get("fault")]
+        self.assertEqual([r["fault"]["status"] for r in faulted], [429, 401])
+        with urllib.request.urlopen(self.base + "/__stub/faults", timeout=10) as r:
+            self.assertEqual(json.loads(r.read())["faults"], [])
+
+    def test_a_fault_with_a_count_repeats_and_delete_clears_it(self) -> None:
+        self.post_status("/__stub/faults", {"faults": [{"status": 529, "type": "overloaded_error", "count": 2}]})
+        turn = {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]}
+        self.assertEqual(self.post_status("/v1/messages", turn)[0], 529)
+        req = urllib.request.Request(self.base + "/__stub/faults", method="DELETE")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual(json.loads(r.read())["cleared"], 1)
+        self.assertEqual(self.post_status("/v1/messages", turn)[0], 200)
+
+    def test_a_delay_fault_holds_the_turn_open_then_answers(self) -> None:
+        self.post_status("/__stub/faults", {"faults": [{"delay_ms": 400}]})
+        turn = {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]}
+        # The stub's own pause is what is checked, not how long the request took.
+        with mock.patch.object(model_stub.time, "sleep") as held:
+            self.assertEqual(self.post_status("/v1/messages", turn)[0], 200)
+        held.assert_called_once_with(0.4)
+
+    def test_bad_faults_are_refused(self) -> None:
+        for bad in [{"faults": [{"status": 200}]}, {"faults": [{"count": 0, "status": 500}]}, {"faults": [{}]}, {"faults": "x"}]:
+            self.assertEqual(self.post_status("/__stub/faults", bad)[0], 400, bad)
+
+    def test_script_error_and_delay_steps(self) -> None:
+        script = {"version": 1, "steps": [{"text": "held {{nonce}}", "delay_ms": 300}, {"error": {"status": 500, "type": "api_error"}}]}
+        model_stub.load_script_value(script)
+        server, _ = model_stub.serve(script, "n")
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            with mock.patch.object(model_stub.time, "sleep") as held:
+                _, text = post(base + "/v1/messages", {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]})
+            held.assert_called_once_with(0.3)
+            self.assertEqual(json.loads(text)["content"][0]["text"], "held n")
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                post(base + "/v1/messages", {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]}], "tools": [{"name": "Bash"}]})
+            self.assertEqual(e.exception.code, 500)
+        finally:
+            server.shutdown()
+            server.server_close()
+        with self.assertRaises(ValueError):
+            model_stub.load_script_value({"version": 1, "steps": [{"error": {"status": 200}}]})
 
 
 if __name__ == "__main__":

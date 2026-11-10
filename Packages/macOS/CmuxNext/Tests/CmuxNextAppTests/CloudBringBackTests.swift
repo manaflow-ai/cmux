@@ -51,6 +51,94 @@ struct CloudBringBackTests {
         }
     }
 
+    /// Transfer to This Mac of a chat started on the machine (no move from this Mac put it there):
+    /// the machine's project comes into a new folder here (`link seed fetch --find-root --adopt`),
+    /// then the chat moves here in that folder as Bring Back Local moves it, and opens here.
+    @Test func aChatStartedOnTheMachineTransfersToANewFolderHere() async throws {
+        try await Self.withRoundTrip("back", onMachine: true) { trip in
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(CloudBringBack.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudBringBack.action))
+            #expect(!CloudTransferLocal.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudTransferLocal.action))
+            let target = trip.root.appendingPathComponent("transferred").path
+            if let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)]) {
+                Issue.record("cmux cloud transfer-local: \(error.code) \(error.message)")
+            }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = trip.calls()
+            #expect(calls.first == ["link", "seed", "fetch", "--socket", trip.vmSocket, target, trip.synced + "/sub", "--find-root", "--adopt"], "\(calls)")
+            #expect(calls.contains(["link", "seed", "pull", "--socket", trip.vmSocket, target, trip.synced, "--or-copy"]), "\(calls)")
+            let move = try #require(calls.last)
+            #expect(move.prefix(2) == ["link", "agent"] && move.contains(target + "/sub"), "the chat did not land in its subfolder here: \(move)")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil)
+        }
+    }
+
+    /// A teammate's chat on a team machine: the person gets their own copy of the folder, without
+    /// the machine's records, in a new workspace here; the chat stays on the machine with its owner.
+    @Test func aTeammatesChatTransfersAsTheirOwnCopyAndStaysOnTheMachine() async throws {
+        try await Self.withRoundTrip("back", onMachine: true) { trip in
+            trip.machine.machine.team = "team_shared"
+            trip.machine.machine.createdBy = "user_teammate"
+            let target = trip.root.appendingPathComponent("copied").path
+            let before = trip.services.daemon.store.workspaces.count
+            if let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)]) {
+                Issue.record("cmux cloud transfer-local: \(error.code) \(error.message)")
+            }
+            try await trip.waitUntil { trip.services.daemon.store.workspaces.count > before }
+            #expect(trip.calls() == [["link", "seed", "fetch", "--socket", trip.vmSocket, target, trip.synced + "/sub", "--find-root"]])
+            #expect(trip.machineChat() != nil, "the chat left the machine")
+            #expect(trip.localChat() == nil)
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil, "a copy is not a moved chat")
+        }
+    }
+
+    /// A transfer the machine refuses (a folder here that is not empty) changes nothing and says why.
+    @Test func aTransferIntoAFolderWithFilesStopsBeforeAnythingMoves() async throws {
+        try await Self.withRoundTrip("fetchBusy", onMachine: true) { trip in
+            let target = trip.root.appendingPathComponent("busy").path
+            let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)])
+            #expect(error?.message.contains(target) == true, "\(String(describing: error))")
+            #expect(trip.calls().count == 1)
+            #expect(trip.machineChat() != nil)
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil)
+        }
+    }
+
+    @Test func aNewTransferFolderNeverReusesOneThatExists() {
+        let taken: Set<String> = ["/h/Cloud Transfers/app", "/h/Cloud Transfers/app 2"]
+        #expect(CloudTransferRules.newFolder(named: "app", base: "Cloud Transfers", home: "/h", exists: taken.contains) == "/h/Cloud Transfers/app 3")
+        #expect(CloudTransferRules.newFolder(named: "", base: "Cloud Transfers", home: "/h", exists: { _ in false }) == "/h/Cloud Transfers/Cloud chat")
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r/sub/x", remoteRoot: "/r") == ("/r", "/l/sub/x"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r", remoteRoot: nil) == ("/r", "/l"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/rx/a", remoteRoot: "/r") == ("/r", "/l"), "a root that is not a parent")
+    }
+
+    /// The machine's refusals each say what to do; a conflict is left to Bring Back's own message.
+    @Test func eachTransferRefusalSaysWhy() {
+        let say = { (code: String) in
+            CloudTransferLocalStrings.refusal(.init(ok: false, errorCode: code), machine: "Box", folder: "/here")
+        }
+        #expect(say("fetch.too_broad") == CloudTransferLocalStrings.tooBroad)
+        #expect(say("fetch.no_folder") == CloudTransferLocalStrings.noFolder)
+        #expect(say("fetch.folder_not_empty")?.contains("/here") == true)
+        #expect(say("fetch.base_unreachable") == CloudTransferLocalStrings.notOnRemote)
+        #expect(say("sync_conflict") == nil)
+    }
+
+    @Test func onlyTheCreatorOwnsATeamMachine() {
+        var machine = CloudMachine(id: "vm", status: .running, displayName: "VM")
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"), "a personal machine with no creator is the person's")
+        machine.team = "team_a"
+        #expect(!CloudTransferRules.isOwner(machine, user: "u1"), "a team machine with no creator is no one's to move")
+        machine.createdBy = "u1"
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"))
+        #expect(!CloudTransferRules.isOwner(machine, user: "u2"))
+        #expect(!CloudTransferRules.isOwner(machine, user: nil))
+    }
+
     /// The chat comes back: the machine's folder is merged into the chat's folder here, the chat
     /// moves from the machine's tab to this Mac in that folder, and opens in a local tab bound to
     /// its session on this Mac; then the machine's tab closes.
@@ -455,7 +543,8 @@ struct CloudBringBackTests {
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
     /// has the chat ask for a file, `secret` for a secret; `revokeOnce` fails the first `link access revoke`).
-    private static func withRoundTrip(_ mode: String, accessPoll: Duration = .seconds(3), fromStart: Bool = false, _ body: (Trip) async throws -> Void) async throws {
+    private static func withRoundTrip(_ mode: String, accessPoll: Duration = .seconds(3), fromStart: Bool = false, onMachine: Bool = false,
+                                      _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -491,7 +580,7 @@ struct CloudBringBackTests {
         let trip = Trip(services: services, machine: machine, project: project, log: log, vmSocket: vmSocket)
         let result: Result<Void, any Error>
         do {
-            if fromStart { try await startInCloud(trip) } else { try await moveToCloud(trip) }
+            if onMachine { try await startOnMachine(trip) } else if fromStart { try await startInCloud(trip) } else { try await moveToCloud(trip) }
             try await body(trip)
             result = .success(())
         } catch {
@@ -559,6 +648,39 @@ struct CloudBringBackTests {
                                                          endpoint: { Issue.record("a retry tried to create another chat"); throw CancellationError() })
     }
 
+    /// A chat started on the machine itself, in a subfolder of a project there: no move from this
+    /// Mac put it there, so only Transfer to This Mac takes it.
+    private static func startOnMachine(_ trip: Trip) async throws {
+        let services = trip.services, machine = trip.machine
+        try await trip.waitUntil {
+            services.daemon.store.workspaces.first?.screens.first?.panes.first != nil
+                && machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
+        }
+        trip.macSocket = await services.daemon.connection?.endpoint?.socketPath ?? ""
+        trip.synced = trip.root.appendingPathComponent("vm-home/work/app").path
+        try FileManager.default.createDirectory(atPath: trip.synced + "/sub", withIntermediateDirectories: true)
+        let connection = try #require(machine.daemon.connection)
+        let workspace = WorkspaceKey.generate()
+        try await connection.createWorkspace(name: "On the machine", key: workspace)
+        try await connection.createTerminal(in: workspace, cwd: trip.synced + "/sub")
+        try await trip.waitUntil { machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first?.tabs.first?.cwd != nil }
+        let pane = try #require(machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first)
+        let host = try #require(AgentTabStore.registryHost(of: machine.daemon))
+        // The machine's own chat: a session its agent host already has (the stand-in's landed receipt, as in the
+        // started-in-Cloud fixture), so the tab only reopens it; a new chat there starts through agent-session-start.
+        let state = trip.root.appendingPathComponent("vm-state")
+        let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+        let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" })
+        let landed = [["session": "chat-on-vm", "landed_at_ms": Int64(Date().timeIntervalSince1970 * 1000)]] as [[String: Any]]
+        try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+        let created = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, session: "chat-on-vm", harness: "claude"),
+                                                                              pane: pane.handle))
+        try await trip.waitUntil { machine.daemon.store.tab(surface: created.surface) != nil }
+        let opened = try #require(trip.machineChat())
+        trip.machineKey = opened.id
+        trip.machineSurface = opened.surface.rawValue
+    }
+
     /// Opens a live chat in this Mac's first workspace and moves it to the machine with
     /// `cmux cloud move`, as a person would before bringing it back.
     private static func moveToCloud(_ trip: Trip) async throws {
@@ -619,6 +741,11 @@ struct CloudBringBackTests {
                 for target in "$@"; do :; done
                 mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
+            "link seed fetch")
+                [ '\(mode)' = fetchBusy ] && { echo '{"ok":false,"error":"not empty","error_code":"fetch.folder_not_empty"}'; exit 1; }
+                mkdir -p "$6"
+                root="$7"; case "$root" in */sub) root="${root%/sub}" ;; esac
+                printf '{"ok":true,"mode":"git","folder":"%s","remote_root":"%s"}\n' "$6" "$root" ;;
             "link seed pull")
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;

@@ -46,12 +46,12 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
- * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
- * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
- * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
- * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
- * token the step is skipped and the reply fails "Not logged in".
+ * Pass Claude login gives the journey's machine a login of its own (cmux-platform#587): a `claude setup-token`
+ * login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials; a made-up one with --model stub) goes
+ * from the client straight to the machine over the machine routes, never kept by the platform. The app itself
+ * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
+ * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
+ * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
  *
  * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
  * the machine's loopback
@@ -59,6 +59,10 @@
  * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
  * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
  * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
+ *
+ * --seed none|auto sets the create's seed (none: boot from the image even when the person has a machine to copy;
+ * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
+ * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
@@ -157,13 +161,34 @@ export function scrub(text: string, secrets: string[] = []): string {
   return out;
 }
 
+/** The steps from asking for a machine to its agent running, in order (cmux#36050). */
+export const READY_STEPS: readonly ((step: string) => boolean)[] = [
+  (s) => s === "create machine",
+  (s) => s === "running (status)",
+  (s) => s === "first exec",
+  (s) => s === "pass Claude login" || s === "pass Codex login",
+  (s) => s.startsWith("start agent ("),
+];
+
+/** Create machine to agent running, in ms: the sum of the READY_STEPS, or null unless each one ran and passed. */
+export function readyMs(steps: Step[]): number | null {
+  let total = 0;
+  for (const is of READY_STEPS) {
+    const s = steps.find((x) => is(x.step));
+    if (s?.status !== "pass") return null;
+    total += s.ms;
+  }
+  return total;
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
 export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
-  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s`;
+  const ready = readyMs(steps);
+  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
@@ -854,7 +879,8 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  const ready = readyMs(steps);
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }) };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
 }
@@ -940,19 +966,21 @@ export const JOURNEY_STUB_SCRIPT = {
   turns: [countingTurnScript()],
 };
 
-/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
-export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
-
-/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
 /**
- * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
- * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
+ * reach models through the Cloud service's model route), so these programs are the journey's, not the app's.
+ */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("./cloud-journey-login-installer.txt", import.meta.url));
+
+/**
+ * The journey's login programs: the guest check and the installer. `creatorTeamGuest` also allows a team guest, for a
+ * run on a team machine the journey itself created.
  */
 export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   return loginPrograms(installerSwift, "claude", creatorTeamGuest);
 }
 
-/** The same programs for either provider CloudCredentialTransfer copies (claude or codex). */
+/** The same programs for either provider (claude or codex). */
 export function loginPrograms(installerSwift: string, provider: "claude" | "codex", creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
@@ -987,7 +1015,7 @@ export async function waitPreflight(exec: Exec, program: string, kinds: string, 
   }
 }
 
-/** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
+/** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
   if (provider === "claude") return /^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(value);
@@ -1692,6 +1720,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
+  const seed = argValue("--seed", argv) ?? "auto";
+  if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -1906,7 +1936,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         })
       : await J.step("create machine", async () => {
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
@@ -2105,7 +2135,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
       // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");

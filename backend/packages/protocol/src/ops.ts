@@ -32,10 +32,12 @@ import { hostNetworkOps } from "./host-network-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamAiLimitOps } from "./team-ai-limit-ops.ts"
 import { teamGroupOps } from "./team-group-ops.ts"
+import { teamCloudSessionOps } from "./team-cloud-session-ops.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
+import { teamAgentKeyOps } from "./team-agent-key-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
 import { cloudEnvironmentOps } from "./cloud-environment-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
@@ -272,7 +274,9 @@ export const cloudOps = [
   ...teamMemberOps,
   ...teamAiLimitOps,
   ...teamGroupOps,
+  ...teamCloudSessionOps,
   ...teamSshOps,
+  ...teamAgentKeyOps,
   ...cloudMachineOps,
   ...cloudEnvironmentOps,
   ...cloudVmOps,

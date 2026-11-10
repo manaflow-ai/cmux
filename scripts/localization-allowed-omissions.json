@@ -7435,5 +7435,17 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "cloudTeam.section.title": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "cloudTeam.filter.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
   }
 }

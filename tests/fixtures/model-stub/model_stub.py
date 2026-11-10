@@ -16,7 +16,19 @@ the same answer. Past the last step the last step repeats. A step is one of:
   {"shell": "echo hi"}               one shell tool call, sent as the shell tool the client offered: Claude Code's
                                      Bash, or Codex's exec_command, shell or local_shell;
   {"tool": {"name": N, "input": {...}}}  one call to a named tool, verbatim (for OpenAI, "arguments" may stand in
-                                     for "input").
+                                     for "input");
+  {"error": {"status": 429, "type": "rate_limit_error", "message": "...", "retry_after": 2}}
+                                     an HTTP error in the protocol's own error shape (Anthropic {"type": "error",
+                                     "error": {...}}, OpenAI {"error": {"type", "code", "message"}}), with Retry-After.
+Any step may also carry "delay_ms": N, a pause before the answer, so a test can hold a turn open (steer, transfer or
+revoke access while it runs).
+
+Faults (the Cloud self-test, plans/cmux-next/cloud-selftest-DESIGN.md) are queued at run time, for the requests that
+offer tools (turns; side requests never take one): POST /__stub/faults {"faults": [{"status": 401, "type":
+"authentication_error", "message": M, "retry_after": S, "delay_ms": N, "count": 1, "path": "/v1/messages"}]} appends
+them; each answers the next `count` turn requests whose path starts with `path` (any model path when absent), in
+order, then is gone. A fault with only delay_ms delays the answer and then answers as the script says. GET
+/__stub/faults lists what is left, DELETE /__stub/faults clears it. A faulted request is logged with "fault".
 Text and commands are templates: {{nonce}} is --nonce, {{result.N}} is the text of the conversation's Nth tool
 result (from 0, trimmed), and {{result.N~REGEX}} is the first group of REGEX (case-insensitive, dot matches
 newline) in that text, or "" when it does not match (a REGEX cannot end in "}"). {{prompt}} and {{prompt~REGEX}}
@@ -57,7 +69,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
-STUB_VERSION = 3  # 2: {{prompt}} templates; 3: per-turn scripts ("turns")
+STUB_VERSION = 4  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: error steps, delay_ms, /__stub/faults
 
 DEFAULT_SCRIPT: dict[str, Any] = {"version": 1, "steps": [{"text": "Stub reply {{nonce}}."}]}
 # Codex's exec_command result starts with a header (Chunk ID, Wall time, exit code, token count) before "Output:";
@@ -76,12 +88,47 @@ class Results(list):
         self.prompts = prompts if prompts is not None else []
 
 
+def check_error(error: Any, where: str) -> None:
+    """An error step or fault: an HTTP status 400..599 and optional type, message and retry_after."""
+    if not isinstance(error, dict) or not isinstance(error.get("status"), int) or not 400 <= error["status"] <= 599:
+        raise ValueError(f"{where}: an error needs a status from 400 to 599")
+    if not isinstance(error.get("type", ""), str) or not isinstance(error.get("message", ""), str):
+        raise ValueError(f"{where}: an error's type and message are strings")
+    if "retry_after" in error and not isinstance(error["retry_after"], (int, float)):
+        raise ValueError(f"{where}: retry_after is a number of seconds")
+
+
+def check_delay(value: Any, where: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 600_000:
+        raise ValueError(f"{where}: delay_ms is a whole number of ms from 0 to 600000")
+
+
+def check_fault(fault: Any, where: str) -> dict[str, Any]:
+    """One queued fault: an error (status ...) and/or a delay_ms, a count >= 1 and an optional path prefix."""
+    if not isinstance(fault, dict) or not ({"status", "delay_ms"} & fault.keys()):
+        raise ValueError(f"{where}: a fault has a status, a delay_ms or both")
+    if "status" in fault:
+        check_error(fault, where)
+    if "delay_ms" in fault:
+        check_delay(fault["delay_ms"], where)
+    count = fault.get("count", 1)
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise ValueError(f"{where}: count is a whole number >= 1")
+    if not isinstance(fault.get("path", ""), str):
+        raise ValueError(f"{where}: path is a string")
+    return {**fault, "count": count}
+
+
 def load_script(path: str | None) -> dict[str, Any]:
     if not path:
         return DEFAULT_SCRIPT
     with open(path, encoding="utf-8") as f:
         script = json.load(f)
-    if script.get("version") != 1 or not isinstance(script.get("steps"), list) or not script["steps"]:
+    return load_script_value(script, path)
+
+
+def load_script_value(script: Any, path: str = "script") -> dict[str, Any]:
+    if not isinstance(script, dict) or script.get("version") != 1 or not isinstance(script.get("steps"), list) or not script["steps"]:
         raise ValueError(f"{path}: a script is {{\"version\": 1, \"steps\": [...]}} with at least one step")
     check_steps(path, script["steps"])
     turns = script.get("turns", [])
@@ -100,8 +147,12 @@ def load_script(path: str | None) -> dict[str, Any]:
 
 def check_steps(path: str, steps: list[Any]) -> None:
     for i, step in enumerate(steps):
-        if not isinstance(step, dict) or len({"text", "shell", "tool"} & step.keys()) != 1:
-            raise ValueError(f"{path}: step {i} must have exactly one of text, shell or tool")
+        if not isinstance(step, dict) or len({"text", "shell", "tool", "error"} & step.keys()) != 1:
+            raise ValueError(f"{path}: step {i} must have exactly one of text, shell, tool or error")
+        if "error" in step:
+            check_error(step["error"], f"{path}: step {i}")
+        if "delay_ms" in step:
+            check_delay(step["delay_ms"], f"{path}: step {i}")
         if "tool" in step and not (isinstance(step["tool"], dict) and isinstance(step["tool"].get("name"), str)):
             raise ValueError(f"{path}: step {i}: a tool step is {{\"tool\": {{\"name\": ..., \"input\": {{...}}}}}}")
         if ("text" in step and not isinstance(step["text"], str)) or ("shell" in step and not isinstance(step["shell"], str)):
@@ -244,7 +295,19 @@ class Stub:
     def __init__(self, script: dict[str, Any], nonce: str, log_path: str | None):
         self.script, self.nonce, self.log_path = script, nonce, log_path
         self.rows: list[dict[str, Any]] = []
+        self.faults: list[dict[str, Any]] = []
         self.lock = threading.Lock()
+
+    def take_fault(self, path: str) -> dict[str, Any] | None:
+        """The first queued fault for this path, its count taken down by one (gone at zero)."""
+        with self.lock:
+            for i, fault in enumerate(self.faults):
+                if path.startswith(fault.get("path") or ""):
+                    fault["count"] -= 1
+                    if fault["count"] <= 0:
+                        del self.faults[i]
+                    return {k: v for k, v in fault.items() if k != "count"}
+        return None
 
     def step(self, results: Results, offered: list[str]) -> tuple[int, dict[str, Any], Results, int | None]:
         """The request's step, the step itself, the tool results its templates read, and which turn script (if any)."""
@@ -301,6 +364,27 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
             self.wfile.flush()
 
+        def _error(self, path: str, error: dict[str, Any]) -> None:
+            kind = error.get("type") or ("rate_limit_error" if error["status"] == 429 else "api_error")
+            message = error.get("message") or f"model stub: injected {error['status']}"
+            body = {"type": "error", "error": {"type": kind, "message": message}} if path.endswith("/messages") else \
+                {"error": {"type": kind, "code": kind, "message": message}}
+            data = json.dumps(body).encode()
+            self.send_response(error["status"])
+            self.send_header("content-type", "application/json")
+            if "retry_after" in error:
+                self.send_header("retry-after", str(error["retry_after"]))
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_DELETE(self) -> None:
+            if self.path.split("?")[0] != "/__stub/faults":
+                return self._json(404, {"error": {"type": "not_found_error", "message": "only /__stub/faults takes DELETE"}})
+            with stub.lock:
+                cleared, stub.faults = len(stub.faults), []
+            return self._json(200, {"cleared": cleared})
+
         def do_HEAD(self) -> None:
             self.send_response(200)
             self.send_header("content-length", "0")
@@ -313,6 +397,9 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             if path == "/__stub/log":
                 with stub.lock:
                     return self._json(200, {"rows": list(stub.rows)})
+            if path == "/__stub/faults":
+                with stub.lock:
+                    return self._json(200, {"faults": [dict(f) for f in stub.faults]})
             stub.log({"protocol": "-", "method": "GET", "path": path, "cred_sha256": credential_sha256(self.headers)})
             if path.endswith("/models"):
                 model = {"id": "stub-model", "object": "model", "type": "model", "display_name": "Model stub", "created": 0, "owned_by": "stub"}
@@ -337,12 +424,33 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             if not isinstance(body, dict):
                 body = {}
             path = self.path.split("?")[0]
+            if path == "/__stub/faults":
+                try:
+                    given = body.get("faults")
+                    if not isinstance(given, list) or not given:
+                        raise ValueError("a body is {\"faults\": [...]} with at least one fault")
+                    faults = [check_fault(f, f"fault {i}") for i, f in enumerate(given)]
+                except ValueError as e:
+                    return self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                with stub.lock:
+                    stub.faults.extend(faults)
+                    pending = len(stub.faults)
+                return self._json(200, {"pending": pending})
             row = {"method": "POST", "path": path, "model": body.get("model"), "stream": bool(body.get("stream")),
                    "cred_sha256": credential_sha256(self.headers), "tools": tool_names(body),
                    **({"unread_body": len(raw), "encoding": self.headers.get("content-encoding") or ""} if unread else {})}
             if path.endswith("/messages/count_tokens"):
                 stub.log({"protocol": "anthropic", **row})
                 return self._json(200, {"input_tokens": 10})
+            if (path.endswith("/messages") or path.endswith("/responses")) and row["tools"]:
+                fault = stub.take_fault(path)
+                if fault:
+                    if fault.get("delay_ms"):
+                        time.sleep(fault["delay_ms"] / 1000)
+                    if "status" in fault:
+                        stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "fault": fault})
+                        return self._error(path, fault)
+                    row["fault"] = fault
             try:
                 if path.endswith("/messages"):
                     return self.anthropic(body, row)
@@ -357,8 +465,20 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             stub.log({"protocol": "-", **row})
             return self._json(404, {"error": {"type": "not_found_error", "message": f"the model stub does not serve {path}"}})
 
+        def scripted(self, path: str, i: int, step: dict[str, Any], row: dict[str, Any], results: list[str]) -> bool:
+            """A step's delay_ms, then its error if it is an error step (answered here: True)."""
+            if step.get("delay_ms"):
+                time.sleep(step["delay_ms"] / 1000)
+            if "error" not in step:
+                return False
+            stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "tool_results": len(results), "step": i, "fault": step["error"]})
+            self._error(path, step["error"])
+            return True
+
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(anthropic_results(body), row["tools"])
+            if self.scripted("/v1/messages", i, step, row, results):
+                return
             content, stop = self.anthropic_content(i, step, row["tools"], results)
             stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             model = body.get("model") or "stub-model"
@@ -400,6 +520,8 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(openai_results(body), row["tools"])
+            if self.scripted("/v1/responses", i, step, row, results):
+                return
             item = self.openai_item(i, step, row["tools"], results)
             stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {}), **({"turn": turn} if turn is not None else {})})
             rid = f"resp_stub_{uuid.uuid4().hex[:12]}"

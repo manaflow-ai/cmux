@@ -174,6 +174,11 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// The attach page's session is a side chat of this chat (its `side` tag), as acpmux
+    /// summarizes one (agent_session_side_known.rs).
+    pub(super) side_of: Option<&'static str>,
+    /// acpmux refuses its `_acpmux/sessions` list.
+    pub(super) sessions_unreadable: bool,
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
@@ -290,9 +295,13 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
+                let mut session = json!({"sessionId": SESSION, "name": "sub", "status": "running",
+                    "pending": [{"permissionId": "perm_attach", "options": []}]});
+                if let Some(chat) = fixture.side_of {
+                    session["tags"] = json!({"side": chat});
+                }
                 Some(json!({
-                    "session": {"sessionId": SESSION, "name": "sub", "status": "running",
-                                "pending": [{"permissionId": "perm_attach", "options": []}]},
+                    "session": session,
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
@@ -328,7 +337,21 @@ fn serve(
                     json!({"sessions": older, "nextCursor": "c1"})
                 })
             }
-            "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/sessions" => {
+                let mut list = machine_sessions();
+                // A side chat as acpmux lists it: its persisted `side` tag on the row.
+                if let Some(chat) = fixture.side_of
+                    && let Some(row) = list["sessions"]
+                        .as_array_mut()
+                        .and_then(|rows| rows.iter_mut().find(|row| row["sessionId"] == SESSION))
+                {
+                    row["tags"] = json!({"side": chat});
+                }
+                if fixture.sessions_unreadable {
+                    list = json!({FAKE_ERROR: "list.paced"});
+                }
+                Some(list)
+            }
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],
                 "transferBlocked": transfers.lock().unwrap().contains(
@@ -353,6 +376,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The owner's decision on a prompt held for them (agent-session-queue-*).
+            "_acpmux/queue_approve" | "_acpmux/queue_decline" => Some(json!({"ok": true})),
             // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
             "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).

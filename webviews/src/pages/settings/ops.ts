@@ -553,8 +553,53 @@ export type GitHubConnectionState = {
   signIn?: string | null;
 };
 
+/** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
+export type TeamAgentKeyRow = {
+  agent: "claude" | "codex";
+  name: string;
+  set: boolean;
+  status: string;
+  /** Kind, last four characters (admins only) and when it changed; null when unset. */
+  detail: string | null;
+  error: string | null;
+  notice: string | null;
+};
+
+/**
+ * Settings > Accounts > Team agent keys: the active team's shared Claude and Codex keys, which the
+ * team's Cloud machines use in place of members' own. Gestures: `agentKeySave` (`provider` = agent,
+ * `name` = kind, `secret` = the pasted key, sent once and cleared), `agentKeyRemove` (`provider`),
+ * `agentKeyRefresh`. Admins (`canManage`) change keys; members read `note`.
+ */
+export type TeamAgentKeysState = {
+  title: string;
+  detail: string;
+  /** Signed out, personal team, or read-only member copy; null otherwise. */
+  note: string | null;
+  signIn: string | null;
+  busy: boolean;
+  canManage: boolean;
+  error: string | null;
+  refresh: string;
+  labels: {
+    add: string;
+    replace: string;
+    remove: string;
+    confirmRemove: string;
+    cancel: string;
+    save: string;
+    kind: string;
+    secret: string;
+    placeholder: string;
+  };
+  kinds: Array<{ id: "api_key" | "oauth"; title: string }>;
+  agents: TeamAgentKeyRow[];
+};
+
 export type AccountsState = {
   github?: GitHubConnectionState;
+  /** Older hosts omit it. */
+  agentKeys?: TeamAgentKeysState | null;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;

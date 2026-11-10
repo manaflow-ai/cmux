@@ -1277,6 +1277,46 @@
         }
       }
     },
+    "CloudGroupMember": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "owner",
+              "edit",
+              "view"
+            ]
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "active": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      }
+    },
     "CloudMachine": {
       "kind": "object",
       "fields": {
@@ -2082,6 +2122,245 @@
           }
         }
       }
+    },
+    "CloudSessionActivity": {
+      "kind": "enum",
+      "values": [
+        "working",
+        "needs_attention",
+        "idle"
+      ]
+    },
+    "CloudSessionId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "description": "The chat's acpmux session id, or the workspace's id on its VM."
+    },
+    "CloudSessionKind": {
+      "kind": "enum",
+      "values": [
+        "workspace",
+        "chat"
+      ]
+    },
+    "CloudSessionMachineState": {
+      "kind": "enum",
+      "values": [
+        "running",
+        "asleep",
+        "waking",
+        "unresponsive",
+        "gone"
+      ]
+    },
+    "CloudSessionScope": {
+      "kind": "enum",
+      "values": [
+        "mine",
+        "team",
+        "following"
+      ]
+    },
+    "CloudSessionView": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "vm": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionVm"
+          }
+        },
+        "session": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionKind"
+          }
+        },
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionId"
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 200
+          }
+        },
+        "harness": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[a-z0-9-]{1,64}$"
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "owner_name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "assignee": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "assignee_name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "machine_state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionMachineState"
+          }
+        },
+        "activity": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CloudSessionActivity"
+          }
+        },
+        "last_activity_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "archived": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "followers": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        },
+        "follower_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "following": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "assigned_to_you": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "viewers": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        },
+        "can_reassign": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "can_archive": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "link": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      }
+    },
+    "CloudSessionVm": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+      "description": "The Cloud machine the session runs on."
     },
     "CloudSnapshot": {
       "kind": "object",
@@ -7427,6 +7706,86 @@
           }
         }
       ]
+    },
+    "TeamAgentKeyAgent": {
+      "kind": "enum",
+      "values": [
+        "claude",
+        "codex"
+      ]
+    },
+    "TeamAgentKeyKind": {
+      "kind": "enum",
+      "values": [
+        "api_key",
+        "oauth"
+      ]
+    },
+    "TeamAgentKeyState": {
+      "kind": "object",
+      "fields": {
+        "agent": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamAgentKeyAgent"
+          }
+        },
+        "set": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamAgentKeyKind"
+            }
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        },
+        "hint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
     },
     "TeamAiLimitMember": {
       "kind": "object",
@@ -53302,6 +53661,572 @@
         }
       }
     },
+    "group.members.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudGroupMember"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "group cloud member list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "A cloud group's members and their roles (any member of the group reads it).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          }
+        },
+        "required": [
+          "group"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudGroupMember"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "members"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroupMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              },
+              "display_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "user",
+              "role",
+              "display_name",
+              "active"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.members.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "group": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "GroupId"
+                }
+              },
+              "members": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "ref",
+                    "name": "CloudGroupMember"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "group.last_owner",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud member remove",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "user": {
+            "$ref": "#/$defs/UserId"
+          }
+        },
+        "required": [
+          "group",
+          "user"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudGroupMember"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "members"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroupMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              },
+              "display_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "user",
+              "role",
+              "display_name",
+              "active"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.members.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "role": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "owner",
+                "edit",
+                "view"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "group": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "GroupId"
+                }
+              },
+              "members": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "ref",
+                    "name": "CloudGroupMember"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "group.last_owner",
+        "group.member_not_in_team",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud member set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "edit",
+              "view"
+            ]
+          }
+        },
+        "required": [
+          "group",
+          "user",
+          "role"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudGroupMember"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "members"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroupMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              },
+              "display_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "user",
+              "role",
+              "display_name",
+              "active"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "group.rename": {
       "class": "mutation",
       "idempotency": "required",
@@ -72937,6 +73862,565 @@
         "$defs": {}
       }
     },
+    "team.agent_key.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "agent": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyAgent"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "agent": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamAgentKeyAgent"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team agent-key remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Remove the team's shared key for an agent (owners and admins). Members' Cloud machines go back to their own keys.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          }
+        },
+        "required": [
+          "agent"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          }
+        }
+      }
+    },
+    "team.agent_key.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "agent": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyAgent"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyKind"
+            }
+          },
+          "secret": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 16384
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamAgentKeyState"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "team_agent_key.not_configured",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team agent-key set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          },
+          "kind": {
+            "$ref": "#/$defs/TeamAgentKeyKind"
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 16384
+          }
+        },
+        "required": [
+          "agent",
+          "kind",
+          "secret"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamAgentKeyState",
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamAgentKeyState": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "$ref": "#/$defs/TeamAgentKeyAgent"
+              },
+              "set": {
+                "type": "boolean"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamAgentKeyKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent",
+              "set",
+              "kind",
+              "generation",
+              "updated_at",
+              "updated_by",
+              "hint"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.agent_key.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "can_manage": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "agents": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamAgentKeyState"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team agent-key status",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Whether the team has a shared key for each agent (members). Never returns a key.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "can_manage": {
+            "type": "boolean"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamAgentKeyState"
+            }
+          }
+        },
+        "required": [
+          "team",
+          "can_manage",
+          "agents"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamAgentKeyState": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "$ref": "#/$defs/TeamAgentKeyAgent"
+              },
+              "set": {
+                "type": "boolean"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamAgentKeyKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent",
+              "set",
+              "kind",
+              "generation",
+              "updated_at",
+              "updated_by",
+              "hint"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "team.ai_limit.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -73872,6 +75356,2261 @@
               "hash"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.archive": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "archived": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudSessionView"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.not_found",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud archive-session",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vm",
+          "session",
+          "archived"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSessionView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.follow": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "follow": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudSessionView"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.assigned_to_you",
+        "cloud_session.not_found",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud follow",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Follow (or stop following) a teammate's Cloud workspace or chat: it shows under Following in your sidebar. A session assigned to you cannot be followed.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "follow": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vm",
+          "session",
+          "follow"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSessionView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionView"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found",
+        "team.not_member"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud team-session",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          }
+        },
+        "required": [
+          "vm",
+          "session"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/$defs/CloudSessionView"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "scope": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionScope"
+            }
+          },
+          "by": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "archived": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "sessions": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudSessionView"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud team-sessions",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "$ref": "#/$defs/CloudSessionScope"
+          },
+          "by": {
+            "$ref": "#/$defs/UserId"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionScope": {
+            "type": "string",
+            "enum": [
+              "mine",
+              "team",
+              "following"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudSessionView"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "team",
+          "sessions",
+          "next_cursor"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.publish": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionKind"
+            }
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[a-z0-9-]{1,64}$"
+            }
+          },
+          "machine_state": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionMachineState"
+            }
+          },
+          "activity": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionActivity"
+            }
+          },
+          "last_activity_at": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudSessionView"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.not_found",
+        "cloud_session.not_yours",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud team publish",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "kind": {
+            "$ref": "#/$defs/CloudSessionKind"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "workspace": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "harness": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,64}$"
+          },
+          "machine_state": {
+            "$ref": "#/$defs/CloudSessionMachineState"
+          },
+          "activity": {
+            "$ref": "#/$defs/CloudSessionActivity"
+          },
+          "last_activity_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "vm",
+          "session",
+          "kind",
+          "title",
+          "machine_state",
+          "activity",
+          "last_activity_at"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSessionView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.reassign": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudSessionView"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.assignee_not_member",
+        "cloud_session.not_found",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud reassign",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "to": {
+            "$ref": "#/$defs/UserId"
+          }
+        },
+        "required": [
+          "vm",
+          "session",
+          "to"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudSessionView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          },
+          "CloudSessionKind": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "chat"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudSessionMachineState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "asleep",
+              "waking",
+              "unresponsive",
+              "gone"
+            ]
+          },
+          "CloudSessionActivity": {
+            "type": "string",
+            "enum": [
+              "working",
+              "needs_attention",
+              "idle"
+            ]
+          },
+          "CloudSessionView": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "vm": {
+                "$ref": "#/$defs/CloudSessionVm"
+              },
+              "session": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "kind": {
+                "$ref": "#/$defs/CloudSessionKind"
+              },
+              "workspace": {
+                "$ref": "#/$defs/CloudSessionId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "harness": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,64}$"
+              },
+              "owner": {
+                "$ref": "#/$defs/UserId"
+              },
+              "owner_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "assignee": {
+                "$ref": "#/$defs/UserId"
+              },
+              "assignee_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "machine_state": {
+                "$ref": "#/$defs/CloudSessionMachineState"
+              },
+              "activity": {
+                "$ref": "#/$defs/CloudSessionActivity"
+              },
+              "last_activity_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "followers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "follower_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "following": {
+                "type": "boolean"
+              },
+              "assigned_to_you": {
+                "type": "boolean"
+              },
+              "viewers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UserId"
+                }
+              },
+              "can_reassign": {
+                "type": "boolean"
+              },
+              "can_archive": {
+                "type": "boolean"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "team",
+              "vm",
+              "session",
+              "kind",
+              "title",
+              "owner",
+              "owner_name",
+              "assignee",
+              "assignee_name",
+              "machine_state",
+              "activity",
+              "last_activity_at",
+              "created_at",
+              "archived",
+              "followers",
+              "follower_count",
+              "following",
+              "assigned_to_you",
+              "viewers",
+              "can_reassign",
+              "can_archive",
+              "link"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.cloud.session.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.not_yours",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud team remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          }
+        },
+        "required": [
+          "vm",
+          "session"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team.cloud.session.viewing": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vm": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionVm"
+            }
+          },
+          "session": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudSessionId"
+            }
+          },
+          "viewing": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "viewing": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "viewers": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "ref",
+                    "name": "UserId"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud_session.not_found",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud team viewing",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vm": {
+            "$ref": "#/$defs/CloudSessionVm"
+          },
+          "session": {
+            "$ref": "#/$defs/CloudSessionId"
+          },
+          "viewing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vm",
+          "session",
+          "viewing"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudSessionVm": {
+            "type": "string",
+            "pattern": "^vm[_-][A-Za-z0-9]{1,64}$",
+            "description": "The Cloud machine the session runs on."
+          },
+          "CloudSessionId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "The chat's acpmux session id, or the workspace's id on its VM."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "viewing": {
+            "type": "boolean"
+          },
+          "viewers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/UserId"
+            }
+          }
+        },
+        "required": [
+          "viewing",
+          "viewers"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
           }
         }
       }

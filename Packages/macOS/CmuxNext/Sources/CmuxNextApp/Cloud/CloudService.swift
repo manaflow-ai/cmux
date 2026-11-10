@@ -33,10 +33,6 @@ final class CloudService {
     /// The chat tabs a Bring Back Local or Move to Another Machine runs on now (``CloudBringBack``).
     @ObservationIgnored var movingBack: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
-    /// One app-lifetime owner of confirmed, per-account Codex delivery.
-    let codexBroker: CloudCodexHolder
-    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
-    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
     /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
     @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
@@ -120,7 +116,6 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
-    @ObservationIgnored let claimedCopies = CloudClaimedCopyRegistrations() // the claims' login copies Rust has not registered yet (CloudSpareWarm)
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -186,36 +181,13 @@ final class CloudService {
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() })
-        let build = LaunchIdentity.current().build
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let environment = ProcessInfo.processInfo.environment
-        let userHome = FileManager.default.homeDirectoryForCurrentUser
-        codexBroker = CloudCodexHolder(
-            configuration: .init(binary: machineIO?.binary, root: paths.root, userHome: userHome, api: configuration.ownerAPIBaseURL(),
-                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next"),
-            answers: .init(
-                credential: { try? await auth.tokens().access },
-                acpmux: {
-                    try? await work.run(.userVisible, mayBlock: .files) {
-                        AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment, userHome: userHome)?.executable
-                    }
-                },
-                currentScope: {
-                    guard auth.isSignedIn, let user = auth.user else { return nil }
-                    return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-                },
-                // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
-                ownsMachine: { [weak machines] machineID in
-                    guard let link = machines?.session(machineID)?.appLink else { return false }
-                    return await link.ownerLink != nil
-                },
-                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
+        let build = LaunchIdentity.current().build
         let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
             carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })
@@ -244,9 +216,8 @@ final class CloudService {
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
     func installID() async throws -> String { try await installIDs.machine.load() }
 
-    /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
-    /// broker's target reads it: a Worker machine's owner link on the app server link. A personal
-    /// harness login goes only to such a machine (``CloudCredentialTransfer``).
+    /// Whether the signed-in caller owns `machineID`, as the platform answers it: a Worker machine's
+    /// owner link on the app server link.
     func callerOwnsVM(_ machineID: String) async throws -> Bool {
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil
@@ -354,7 +325,6 @@ final class CloudService {
             for await account in ObservationStream({ self.account }) where account != last {
                 signedOutCreation.scopeDidChange(from: last, to: account)
                 last = account
-                await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
                 startSessionAsks.endAll()
             }
@@ -370,10 +340,8 @@ final class CloudService {
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
-        // Fence Codex broker requests synchronously with the policy flip. The
-        // adapter tears down holders asynchronously and retains their private
-        // homes for a later confirmed run after policy is restored. The credential relay refuses (no carrier socket).
-        codexBroker.setAvailable(!disabled); credentialProvider?.setTurnedOff(disabled)
+        // The credential relay refuses (no carrier socket) while policy turns Cloud off.
+        credentialProvider?.setTurnedOff(disabled)
         if disabled {
             // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
             machineWire.stop()
@@ -414,9 +382,9 @@ final class CloudService {
         for session in machines.cloud { session.disconnect() }
     }
 
-    /// The quit coordinator awaits this before AppKit may terminate the
-    /// process. Delivered Codex access stays on each Cloud machine (#33482).
-    func prepareForTermination() async { await codexBroker.detachForQuit() }
+    /// The quit coordinator awaits this before AppKit may terminate the process. Nothing of Cloud's
+    /// needs it now: the Mac holds no Cloud machine's model access (its edge carries the route).
+    func prepareForTermination() async {}
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -496,7 +464,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now; codexBroker.machinesListed(list)
+            listLoadedAt = .now
             return true
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
@@ -585,23 +553,12 @@ final class CloudService {
         }
     }
 
-    /// Remove the app session after an authoritative omission or destroyed detail. Only a
-    /// destroyed detail may discard the broker's target/auth metadata; an omission may be a
+    /// Remove the app session after an authoritative omission or destroyed detail; an omission may be a
     /// filtered retired-provider row while the VM survives.
-    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed _: Bool) {
         deferredRecordRemovals[machineID] = nil
         guard machines.session(machineID) != nil else { return }
         changes.removed(machineID)
-        if let user = auth.user {
-            let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-            // task-owner: confirmed removal stops renewal, then discards the deleted target.
-            Task {
-                try? await codexBroker.revoke(machineID: machineID, scope: scope)
-                if destructionConfirmed {
-                    await codexBroker.machineWasDeleted(machineID, scope: scope)
-                }
-            }
-        }
         creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
     }
@@ -800,7 +757,6 @@ final class CloudService {
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
-        await codexBroker.signOut()
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()

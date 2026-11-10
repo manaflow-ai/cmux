@@ -42,8 +42,8 @@ on:
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
-      # The login step runs the app's own preflight and installer, read from this file (loginPrograms).
-      - Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift
+      # The login step runs the journey's own preflight and installer, read from this file (loginPrograms).
+      - scripts/cmux-next/cloud-journey-login-installer.txt
       - .github/workflows/cloud-journey-pr.yml
 
 permissions:

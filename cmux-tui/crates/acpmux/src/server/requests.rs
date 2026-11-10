@@ -741,7 +741,6 @@ async fn dispatch_brief(
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
-use crate::hub::SIDE_TAG;
 
 /// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
 /// `hub/remote_floor.rs`) sends no files: not through `acpmux send --attach` from its shell, now
@@ -1647,6 +1646,8 @@ async fn dispatch_request_with_identity(
                 }
                 None => heap(|| hub.new_session_with_id(req, fixed_id)).await?,
             };
+            // This connection's own new session: what its `_acpmux/side` may tag (the tour's task).
+            conn.note_created(&s.id);
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
             {
@@ -2690,12 +2691,9 @@ async fn dispatch_request_with_identity(
             let chat = hub.resolve(chat).ok().filter(|c| c.id == chat).ok_or_else(|| {
                 RpcError::not_found(format!("no chat with the session id {chat:?}"))
             })?;
-            if chat.id == s.id {
-                return Err(RpcError::invalid_params("a chat is not its own side chat"));
-            }
-            let mut set = serde_json::Map::new();
-            set.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
-            hub.set_tags(&s, Some(&set), &[], None);
+            // A fork of the chat, or a session this same connection just made with `session/new`
+            // (the repo tour's task, which has no parent): never a session someone else made.
+            hub.mark_side(&s, &chat, conn.created_here(&s.id))?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_HARNESS_ENABLE => {

@@ -1131,13 +1131,16 @@ pub fn effective_for(
     restored.extend(nested_local(vault.clone(), machine.clone()));
     let local = pairs_with(family, Some(profile), vault, machine);
     let names = machine::names();
-    layered(
+    let mut env = layered(
         std::env::vars().filter(|(key, _)| !names.contains(key)),
         nested,
         local,
         restored,
         profile,
-    )
+    );
+    // A launch adds the Cloud machine's route where nothing set one; a check sees the same.
+    crate::cloud_model_plane::fill_map(&mut env);
+    env
 }
 
 /// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
@@ -1191,6 +1194,8 @@ pub fn apply_tokio_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_tokio(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1217,6 +1222,9 @@ pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    // On a Cloud machine its own model route (root-owned, no credential) is the machine's, not
+    // the remote caller's authority: a chat the Mac started there reaches the edge too.
+    crate::cloud_model_plane::fill_tokio(cmd, false);
 }
 
 /// Same, for std's process builder.
@@ -1230,6 +1238,8 @@ pub fn apply_std_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_std(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }

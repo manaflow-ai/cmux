@@ -9,6 +9,7 @@ mod cloud_fs;
 mod control;
 mod daemon_entry;
 pub(crate) use daemon_entry::DaemonEntryStartup;
+mod chat_cli;
 mod dial;
 mod dial_cli;
 mod enrollment;
@@ -123,6 +124,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
     }
+    // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
+    if args.first().map(String::as_str) == Some("chat") {
+        return chat_cli::run(args.get(1..).unwrap_or_default());
+    }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
@@ -130,7 +135,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(
             args.get(1).map(String::as_str),
-            Some("push" | "clone" | "pull" | "move" | "copy-rest")
+            Some("push" | "clone" | "pull" | "fetch" | "move" | "copy-rest")
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }

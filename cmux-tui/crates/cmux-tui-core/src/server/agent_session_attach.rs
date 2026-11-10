@@ -33,6 +33,8 @@ mod context;
 mod inventory_socket;
 #[path = "agent_session_side.rs"]
 mod side;
+#[path = "agent_session_side_known.rs"]
+mod side_known;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -153,6 +155,9 @@ pub(crate) struct AgentSessions {
     /// `agent-session-children-v1`: the descendants acpmux answered, which
     /// a `registry:` tab of this store may show.
     pub(crate) known_children: agent_session_children::KnownChildren,
+    /// `agent-session-side-v1`: the side chats this daemon opened or saw tagged. The owner's
+    /// alone: no teammate attaches to one, and the team list leaves them out.
+    pub(crate) sides: side_known::SideSessions,
 }
 
 #[derive(Default)]
@@ -437,6 +442,8 @@ enum AgentSessionCommand {
     SetConfig(SetConfigParams),
     Login(LoginParams),
     Context(context::Params),
+    QueueApprove(QueueDecisionParams),
+    QueueDecline(QueueDecisionParams),
     Btw(BtwParams),
 }
 
@@ -464,6 +471,8 @@ impl AgentSessionCommand {
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
             "agent-session-login" => Self::Login(from_value(params).ok()?),
             "agent-session-context" => Self::Context(from_value(params).ok()?),
+            "agent-session-queue-approve" => Self::QueueApprove(from_value(params).ok()?),
+            "agent-session-queue-decline" => Self::QueueDecline(from_value(params).ok()?),
             "agent-session-btw" => Self::Btw(from_value(params).ok()?),
             _ => return None,
         })
@@ -678,6 +687,25 @@ struct PromptParams {
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
+    /// Steer into the running turn (acpmux `_meta.acpmux.steer`) instead of queueing behind
+    /// it (`agent-session-steer-v1`). acpmux still decides: a prompt that waits for the owner
+    /// (a link guest's) is held whatever this says, and a chat that cannot steer now queues it.
+    #[serde(default)]
+    steer: bool,
+}
+
+/// `agent-session-queue-approve`: the owner runs a prompt held for them (a link guest's) in
+/// its queue place; `agent-session-queue-decline` drops it. acpmux's `_acpmux/queue_approve`
+/// and `_acpmux/queue_decline` on the tab's own session. The owner's only.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueueDecisionParams {
+    surface: SurfaceId,
+    prompt_id: String,
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    revision: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -769,6 +797,9 @@ pub(crate) enum Refusal {
     ScopeNotGranted,
     /// A link guest whose share expired or was revoked, or who was removed.
     ShareEnded,
+    /// A Cloud team member's answer to a permission ask, or approval of a held prompt: the
+    /// chat's owner decides what runs on their machine.
+    OwnerOnly,
 }
 
 impl Refusal {
@@ -798,6 +829,7 @@ impl Refusal {
             Self::NotShared => "agent_session.not_shared",
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
+            Self::OwnerOnly => "agent_session.owner_only",
         }
     }
 
@@ -837,6 +869,7 @@ impl Refusal {
             Self::NotShared => "the surface does not show the chat that was shared",
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
+            Self::OwnerOnly => "only the chat's owner answers its asks and approves held prompts",
         }
     }
 
@@ -902,7 +935,10 @@ pub(super) fn try_handle(
     };
     // Remote trust comes from the verified Cloud mobile peer
     // (`cloud_mobile_client`), never from the declared capability alone.
-    if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) {
+    // A Cloud team member's signed Native dial reaches its member verbs (`member.rs`), stamped
+    // with the member the link token names.
+    let member = author.as_ref().is_some_and(proxy::is_member) && mux.is_native_team_member(client);
+    if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) && !member {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
     let sessions = &mux.control_clients.agent_sessions;
@@ -1024,6 +1060,9 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetConfig(params) => params.surface,
         AgentSessionCommand::Login(params) => params.surface,
         AgentSessionCommand::Context(params) => params.surface(),
+        AgentSessionCommand::QueueApprove(params) | AgentSessionCommand::QueueDecline(params) => {
+            params.surface
+        }
         AgentSessionCommand::Btw(params) => params.surface,
     }
 }
@@ -1128,6 +1167,10 @@ fn attach(
     if author.is_some() && pinned.as_deref() != Some(session.as_str()) {
         return refuse(writer, id, Refusal::NotShared);
     }
+    // A side chat is the owner's alone, whoever shares or lists its tab.
+    if author.is_some() && sessions.sides.contains(&session) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     let record_session = session.clone();
     let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
@@ -1227,6 +1270,8 @@ impl ReaderSlot {
 
 #[path = "agent_session_media.rs"]
 mod media;
+#[path = "agent_session_member.rs"]
+pub(super) mod member;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
 use media::{media, media_range};
@@ -1269,6 +1314,8 @@ fn run_on_worker(
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
                 | AgentSessionCommand::Context(_)
+                | AgentSessionCommand::QueueApprove(_)
+                | AgentSessionCommand::QueueDecline(_)
                 | AgentSessionCommand::Btw(_)
         )
     {
@@ -1299,8 +1346,21 @@ fn run_on_worker(
     // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
     // view carry its author.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
+    // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
+    let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
-        && (!guest || matches!(&command, AgentSessionCommand::Permission(_)))
+        && matches!(
+            &command,
+            AgentSessionCommand::Permission(_)
+                | AgentSessionCommand::QueueApprove(_)
+                | AgentSessionCommand::QueueDecline(_)
+        )
+    {
+        return refuse(writer, id, if member { Refusal::OwnerOnly } else { Refusal::NotTrusted });
+    }
+    if attachment.author.is_some()
+        && (!(guest || member) || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)
@@ -1382,8 +1442,31 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
-            prompt(attachment, prompt_id, text, content)
+        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, steer, .. }) => {
+            prompt(attachment, prompt_id, text, content, steer)
+        }
+        AgentSessionCommand::QueueApprove(QueueDecisionParams {
+            prompt_id,
+            turn_id,
+            revision,
+            ..
+        }) => {
+            let (Some(turn_id), Some(revision)) = (turn_id, revision) else {
+                return Err(Refusal::BadRequest);
+            };
+            if !valid_prompt_id(&prompt_id) || turn_id.is_empty() || turn_id.len() > 128 {
+                return Err(Refusal::BadRequest);
+            }
+            let params = json!({"sessionId": session, "promptId": prompt_id, "turnId": turn_id,
+                "revision": revision});
+            attachment.link.call("_acpmux/queue_approve", params, CALL_TIMEOUT).map_err(Refusal::of)
+        }
+        AgentSessionCommand::QueueDecline(QueueDecisionParams { prompt_id, .. }) => {
+            if !valid_prompt_id(&prompt_id) {
+                return Err(Refusal::BadRequest);
+            }
+            let params = json!({"sessionId": session, "promptId": prompt_id});
+            attachment.link.call("_acpmux/queue_decline", params, CALL_TIMEOUT).map_err(Refusal::of)
         }
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
@@ -1590,15 +1673,20 @@ fn valid_prompt_block(block: &Value) -> bool {
 /// Sends one prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
+/// A prompt id as the attach verbs take it: 1 to 128 of `[A-Za-z0-9_-]`.
+fn valid_prompt_id(prompt_id: &str) -> bool {
+    (1..=128).contains(&prompt_id.len())
+        && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 fn prompt(
     attachment: &Attachment,
     prompt_id: String,
     text: Option<String>,
     content: Option<Vec<Value>>,
+    steer: bool,
 ) -> Result<Value, Refusal> {
-    let valid_id = (1..=128).contains(&prompt_id.len())
-        && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id {
+    if !valid_prompt_id(&prompt_id) {
         return Err(Refusal::BadRequest);
     }
     let blocks = match (text, content) {
@@ -1619,7 +1707,7 @@ fn prompt(
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
         return Err(Refusal::NotTrusted);
     }
-    submit_prompt(attachment, &attachment.session, blocks, prompt_id)
+    submit_steering_prompt(attachment, &attachment.session, blocks, prompt_id, steer)
 }
 
 /// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
@@ -1630,6 +1718,18 @@ fn submit_prompt(
     session: &str,
     blocks: Vec<Value>,
     prompt_id: String,
+) -> Result<Value, Refusal> {
+    submit_steering_prompt(attachment, session, blocks, prompt_id, false)
+}
+
+/// [`submit_prompt`], with `steer`: into the running turn instead of behind it
+/// (`agent-session-steer-v1`).
+fn submit_steering_prompt(
+    attachment: &Attachment,
+    session: &str,
+    blocks: Vec<Value>,
+    prompt_id: String,
+    steer: bool,
 ) -> Result<Value, Refusal> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
@@ -1650,6 +1750,15 @@ fn submit_prompt(
     // the phone or forwarded as arbitrary ACP metadata.
     if attachment.cloud_mobile {
         params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+    }
+    // The owner's and a team member's steer. A link guest never steers: its prompt waits for
+    // the owner (acpmux holds it whatever the flag says; the flag is not even sent).
+    let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
+    if steer
+        && !guest
+        && let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        meta.insert("steer".to_owned(), json!(true));
     }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
@@ -1673,6 +1782,10 @@ fn submit_prompt(
             "prompt_id": prompt_id,
             "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
+            // `steered`, `queued` or `started` (acpmux's own word; null from an older acpmux).
+            "state": accepted.get("state").cloned().unwrap_or(Value::Null),
+            // Held for the owner's approval (a link guest's prompt).
+            "awaiting_owner": accepted.get("awaitingOwner").cloned().unwrap_or(json!(false)),
         })),
         Err(_) => Err(Refusal::Timeout),
     }

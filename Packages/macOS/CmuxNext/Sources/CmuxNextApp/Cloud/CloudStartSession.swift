@@ -1,7 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
-import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -41,7 +41,6 @@ struct CloudStartSession {
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
         var fromFolder: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
-        var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
@@ -50,7 +49,6 @@ struct CloudStartSession {
             words.append("--agent " + agent)
             if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
 
@@ -86,14 +84,6 @@ struct CloudStartSession {
     /// or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
         CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
-    }
-
-    /// Whether the run is the person's own, the only kind whose `--login` is kept or counts as their
-    /// consent: a gesture in this app (``ActionInvocation/isPersonsOwnRun``, so never the control
-    /// socket claiming `user`). A CLI run is never one: an agent in a terminal looks like the person
-    /// there, so a terminal's `--login pass` counts only when the person chose pass in cmux.
-    static func isPersons(_ invocation: ActionInvocation) -> Bool {
-        CloudHandlers.origin(of: invocation) == .user && invocation.isPersonsOwnRun
     }
 
     /// An agent's run: a card in its own chat, and only the person's Start starts anything.
@@ -210,9 +200,7 @@ struct CloudStartSession {
         }
         let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        let login: CloudHarnessLoginAsk
-        do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), login: login)
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd))
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -248,13 +236,10 @@ struct CloudStartSession {
         try still(name)
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
-        // Remote approvals turn on beside the login (an idle daemon only), awaited on every exit: the gate is never released under them.
-        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {
-            try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
-            steps.done("login")
-        }
+        // No login step: the machine's agents reach models through its edge, and nothing is copied to it.
+        // Remote approvals turn on (an idle daemon only), awaited on every exit: the gate is never released under them.
+        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
         steps.done("approvals")
-        if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name))) }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -306,6 +291,8 @@ struct CloudStartSession {
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
+        // The team sees the new chat now (TeamDO `team.cloud.session.publish`), not on its tab's next change.
+        services.cloudTeam.chatStarted()
         return [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
@@ -402,9 +389,7 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                let made = try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
-                if request.login.allowsEarlyCopy(harness: request.agent) { CloudStartChat.warmSpare(services, claimed: made.machineID) } // the login copy beside the connect, as a start-chat claim's
-                return made
+                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -445,12 +430,6 @@ struct CloudStartSession {
         guard up else { throw failure() }
     }
 
-    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
-    /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
-    func passHarnessLogin(_ session: CloudMachineSession, agent: String, login: CloudHarnessLoginAsk = .init(), still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
-        try still()
-    }
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }

@@ -19,7 +19,8 @@ pub(super) enum Why {
     KeyFile,
     /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
     CredentialFolder,
-    /// A file of tokens or passwords ([`credential`]: `.netrc`, `.cargo/credentials.toml`, ...).
+    /// A file of tokens or passwords ([`credential`]: `.netrc`,
+    /// `.cargo/credentials.toml`, ...; [`secret_at`]: a registry file with a token).
     CredentialFile,
     SymlinkInside,
     SymlinkOutside,
@@ -178,6 +179,19 @@ pub(super) fn secret(name: &str) -> Option<Why> {
         .any(|prefix| lower.starts_with(prefix))
         || [".pem", ".p12", ".pfx", ".key"].iter().any(|suffix| lower.ends_with(suffix));
     key.then_some(Why::KeyFile)
+}
+
+/// Why the untracked file at `relative` (under `top`) stays on this Mac
+/// because it may hold a secret: [`secret`]'s names, plus everything the git
+/// seed leaves out (`git_seed::secrets::reason`: `.netrc`, a registry file
+/// with a token). One rule for a chat's copy and its seed, so a folder never
+/// sends a secret on one path that the other keeps here.
+pub(super) fn secret_at(top: &Path, relative: &str) -> Option<Why> {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    if let Some(why) = secret(name) {
+        return Some(why);
+    }
+    cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes()).map(|_| Why::CredentialFile)
 }
 
 /// Folders of keys and logins, as paths of one or more names, left out at

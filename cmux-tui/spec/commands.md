@@ -9938,6 +9938,36 @@ filed under this store's `registry:` host with its session in
 chat in a tab of its own and shows it with `agent-session-attach`); any other
 session there is `conversation_tab.machine_mismatch`.
 
+### agent-session-side
+
+`agent-session-side-v1`: `{id, cmd:"agent-session-side", surface, through_seq |
+live:true, prompt?, prompt_id?}` on the owner's own attached tab opens a side
+chat of the attached chat (the app's New side chat and `/side [prompt]` for a
+chat on another machine). Everything runs on this machine's acpmux.
+
+Exactly one boundary: `through_seq` (a completed turn, above 0) or `live:true`
+(the chat as it is now). The daemon forks the attached chat (acpmux
+`acp.session.fork`) and tags the fork its side chat (`_acpmux/side`) in one
+step; a fork whose tag is refused, or that the attachment has no room to
+follow (`agent_session.limit`), is ended, so no untagged copy stays. With
+`prompt` and `prompt_id` (both or neither, the id as `agent-session-prompt`'s)
+the text is sent to the side chat as its first prompt. Answers `{sessionId,
+prompted}`, and `notSent` (a refusal code) when acpmux did not take the
+prompt: the side chat is open either way.
+
+The frame names no folder, command, agent, model, name, tag or session; any
+other field is `agent_session.bad_request`. The side chat's id may be filed in
+`new-conversation-tab` like a child chat's.
+
+Owner only. A teammate link, a Cloud team member, a link guest and a phone
+are refused the verb (`agent_session.not_trusted`, or their entry's own
+refusal), an observer gets `agent_session.read_only`. A side chat is its
+owner's alone: an authored `agent-session-attach` to a tab whose session the
+daemon opened as a side chat, or whose acpmux summary carries the `side` tag,
+is `agent_session.not_trusted`. `agent-session-team-list` reads acpmux's
+`side` tags (`_acpmux/sessions`) each time and leaves such tabs out, also on a
+daemon that just restarted; when that list cannot be read it lists no chat.
+
 ### agent-session-typing, agent-session-view
 
 `agent-session-presence-v1` (advertised with `agent-session-attach-v1`): who is
@@ -10778,7 +10808,7 @@ or null), hidden?, target_kind?}`.
 
 | Command | Params | Data | Error codes |
 | --- | --- | --- | --- |
-| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}` | `fs.not_found` |
+| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}`, and for a folder `available_bytes` (what a writer may still use on its file system; an older daemon leaves it out) | `fs.not_found` |
 | `fs.list` | `{path, sort?, filter?, limit (1..1000, default 200), cursor?, listing?}` | `{entries, listing, cursor, total, revision}` | `fs.not_a_directory`, `fs.too_large`, `cursor.expired` |
 | `fs.read` | `{path, offset?, max_bytes}` | `{text \| bytes_base64, truncated, size, encoding: "utf-8"\|"base64"}` | `fs.not_a_file` |
 | `fs.write` | `{path, text \| bytes_base64, mode: "create"\|"overwrite"\|"replace"\|"append", expected?, permissions?}` (`append` adds the bytes in place to a regular, singly linked file while it has the revision `expected`, for files over the single-write limit; a failed append is cut back. `permissions` gives the written file 0644, 0755, 0600 or 0700, as a decimal number) | `{entry}` (with `revision`) | `fs.exists`, `fs.revision_mismatch` (`error_details.current`), `fs.too_large`, `fs.no_space`, `fs.read_only` |

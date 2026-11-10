@@ -31,7 +31,6 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             agent: "claude".into(),
             cwd: None,
             from_folder: None,
-            login: None,
             environment: None,
             machine: Machine::New,
             wait: false,
@@ -88,28 +87,11 @@ fn an_output_flag_after_the_separator_is_the_prompt() {
     }
 }
 
-/// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with
-/// nothing at all": `--login` takes the words `cloud start-session` takes, in any case.
-#[test]
-fn parse_takes_the_harness_login() {
-    for (word, login) in
-        [("pass", "pass"), ("machine", "machine"), ("none", "none"), ("None", "none")]
-    {
-        assert_eq!(
-            request(&["--prompt", "x", "--login", word]).login.as_deref(),
-            Some(login),
-            "{word}"
-        );
-    }
-    assert_eq!(request(&["--prompt", "x", "--login=machine"]).login.as_deref(), Some("machine"));
-    assert_eq!(request(&["--prompt", "x"]).login, None);
-}
-
 /// Leo (2026-11-06): "Like with an initial ... prompts. Or not?": with no --prompt the command starts the chat
 /// and sends nothing. An empty --prompt is still a mistake, not "no prompt".
 #[test]
 fn parse_takes_no_prompt() {
-    for words in [vec![], vec!["--name", "dev"], vec!["--wait", "--login", "none"]] {
+    for words in [vec![], vec!["--name", "dev"], vec!["--wait"]] {
         assert!(
             matches!(parse(&strings(&words), || Ok(String::new())), Ok(Parsed::Run(_))),
             "{words:?}"
@@ -192,40 +174,16 @@ fn again_command_quotes_every_word() {
         again_command(&asked, &Machine::Named("chat-1".into())),
         "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt TEXT --wait --json"
     );
-    let asked = request(&["--prompt", "x", "--login", "none"]);
+    let asked = request(&["--prompt", "x"]);
     assert_eq!(
         again_command(&asked, &Machine::Target("vm-1".into())),
-        "cmux cloud start-chat --target machine:vm-1 --login none --prompt TEXT --json"
+        "cmux cloud start-chat --target machine:vm-1 --prompt TEXT --json"
     );
 }
 
+/// start-session is told about no login: the machine reaches models through its edge, and the app copies none.
 #[test]
-fn the_login_goes_to_start_session() {
-    for (agent, login) in [("claude", "pass"), ("codex", "machine"), ("claude", "none")] {
-        let mut fake = Fake::new(vec![
-            signed_in(),
-            started(),
-            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
-        ]);
-        let asked =
-            request(&["--prompt", "x", "--name", "dev", "--agent", agent, "--login", login]);
-        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-        assert_eq!(
-            fake.ran[1],
-            strings(&[
-                "cloud",
-                "start-session",
-                "--name",
-                "dev",
-                "--agent",
-                agent,
-                "--login",
-                login,
-                "--json"
-            ])
-        );
-    }
-    // No --login: start-session gets none, so the app's default holds.
+fn no_login_goes_to_start_session() {
     let mut fake = Fake::new(vec![
         signed_in(),
         started(),
@@ -234,7 +192,11 @@ fn the_login_goes_to_start_session() {
     let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
         panic!()
     };
-    assert!(!fake.ran[1].contains(&"--login".to_owned()));
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "dev", "--agent", "claude", "--json"])
+    );
+    assert!(!fake.ran.iter().flatten().any(|word| word == "--login"), "{:?}", fake.ran);
 }
 
 /// A fake app: answers each step from a queue and records what ran.
@@ -657,7 +619,7 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
             ),
         ]);
-        let mut words = vec!["--login", "machine"];
+        let mut words = vec![];
         if wait {
             words.push("--wait");
         }
@@ -675,8 +637,6 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                     "chat-fresh",
                     "--agent",
                     "claude",
-                    "--login",
-                    "machine",
                     "--json"
                 ]),
             ]
@@ -1929,7 +1889,7 @@ fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
     // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
     // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
     let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
-        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        Set one up with `cmux inference setup`, then send the message again. \
         (Claude said: Not logged in · Please run /login)";
     for error in [
         json!({"code": "cloud_start_failed", "message": claude}),
@@ -2355,7 +2315,6 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         agent: String::new(),
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -2391,7 +2350,6 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         agent: String::new(),
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -2506,6 +2464,106 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
         error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
         "{error}"
     );
+}
+
+#[test]
+fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    // A spelling with `.` and `..` parts is the folder's canonical path.
+    let spelled = format!("{}/./sub/..", dir.path().display());
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let parsed = request(&["--prompt", "x", "--from-folder", spelled.as_str()]);
+    assert_eq!(parsed.from_folder.as_deref(), Some(canonical.as_str()));
+    assert_eq!(parsed.cwd, None);
+    let inline = format!("--from-folder={canonical}");
+    assert_eq!(
+        request(&["--prompt", "x", inline.as_str()]).from_folder.as_deref(),
+        Some(canonical.as_str())
+    );
+    let file = dir.path().join("file.txt");
+    std::fs::write(&file, "x").unwrap();
+    let missing = dir.path().join("gone");
+    for words in [
+        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder"],
+        // `--cwd` is a folder on the machine; `--from-folder` already names where the chat starts.
+        vec!["--prompt", "x", "--from-folder", canonical.as_str(), "--cwd", "/home/cmux/work"],
+        vec!["--prompt", "x", "--cwd", "/home/cmux/work", "--from-folder", canonical.as_str()],
+    ] {
+        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
+    }
+    // `--from-folder --json`: the output flag is never taken as its value.
+    let mut output = OutputMode::Human;
+    let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
+    assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+#[test]
+fn from_folder_goes_to_start_session_as_its_own_argument() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&[
+        "--prompt",
+        "Run the tests",
+        "--from-folder",
+        folder.as_str(),
+        "--name",
+        "dev",
+        "--wait",
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+    // The start names the folder as its own argument.
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--name",
+            "dev",
+            "--agent",
+            "claude",
+            "--from-folder",
+            folder.as_str(),
+            "--json"
+        ])
+    );
+    assert_eq!(
+        again_command(&asked, &asked.machine),
+        format!(
+            "cmux cloud start-chat --name dev --from-folder {} --prompt TEXT --wait --json",
+            shell_quote(&folder)
+        )
+    );
+}
+
+#[test]
+fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(json!({"machines": [{"title": "dev", "machine_id": "vm-9", "status": "running"}]})),
+    ]);
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-9", "--from-folder", folder.as_str()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
+    assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
 }
 
 /// A read the app could not get to the Cloud API at all is asked again, like one it did not answer in time.

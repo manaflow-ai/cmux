@@ -187,6 +187,9 @@ pub struct Conn {
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
+    /// The sessions this connection's own `session/new` created here, newest last (at most
+    /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
+    created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     /// Its pace of full session lists (`hub/list_guard.rs`).
@@ -370,6 +373,22 @@ where
 }
 
 impl Conn {
+    const MAX_CREATED: usize = 256;
+
+    /// Records a session this connection's `session/new` just created here.
+    pub(crate) fn note_created(&self, session: &str) {
+        let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
+        if created.len() >= Self::MAX_CREATED {
+            created.pop_front();
+        }
+        created.push_back(session.to_owned());
+    }
+
+    /// True when this connection's own `session/new` created `session` here.
+    pub(crate) fn created_here(&self, session: &str) -> bool {
+        self.created.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|id| id == session)
+    }
+
     fn preparation_cancel(&self, session: &str) -> tokio::sync::watch::Receiver<bool> {
         self.preparation_cancels
             .lock()
@@ -1626,6 +1645,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
+        created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         list_pace: Default::default(),

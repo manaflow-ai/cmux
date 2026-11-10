@@ -79,7 +79,7 @@ cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] [--on-seed-refusal copy|ask] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -157,7 +157,11 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{}", json!({"store": {"used": false, "error": error}}));
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
-                push(socket, local, remote, &copy.subpath)
+                if copy.seed_only {
+                    push_seed_only(socket, local, remote, &copy.subpath)
+                } else {
+                    push(socket, local, remote, &copy.subpath)
+                }
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
@@ -983,7 +987,7 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// One push of a folder to a machine: `(socket, local, remote)` to what the
 /// answer adds about it ([`pushed_fields`]), or the push's error code and
 /// message.
-pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
+pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 'a;
 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
@@ -995,13 +999,21 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, 
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
 /// done (`seed_cli`'s record).
-fn push(
+fn push(socket: &Path, local: &Path, remote: &str, subpath: &str) -> Result<Value, Value> {
+    super::seed_cli::push(socket, local, remote, Some(subpath))
+        .map(|pushed| pushed_fields(&pushed.json()))
+        .map_err(|error| super::seed_cli::failure(&error))
+}
+
+/// [`push`] that never copies: a refused seed is `seed_refused`
+/// (`--on-seed-refusal ask`).
+fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
-) -> Result<Value, (String, String)> {
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+) -> Result<Value, Value> {
+    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -1075,6 +1087,9 @@ pub(super) struct StartCopy {
     pub(super) work_roots: Vec<String>,
     /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
     pub(super) acpmux_home: Option<PathBuf>,
+    /// `--on-seed-refusal ask`: a refused seed is `seed_refused` and nothing
+    /// is copied, so the person decides; `copy` (the default) copies.
+    pub(super) seed_only: bool,
 }
 
 impl StartCopy {
@@ -1100,6 +1115,11 @@ impl StartCopy {
             subpath,
             work_roots,
             acpmux_home: trust::acpmux_home(flags),
+            seed_only: match flags.all("--on-seed-refusal").as_slice() {
+                [] | ["copy"] => false,
+                ["ask"] => true,
+                _ => return None,
+            },
         })
     }
 
@@ -1208,7 +1228,7 @@ impl StartCopy {
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
-        let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
+        let mut last = refused("sync_failed", "no work root to copy to");
         for root in &self.work_roots {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
@@ -1232,7 +1252,8 @@ impl StartCopy {
                     };
                 }
                 Err(failure) => {
-                    let next = failure.0 == PERMISSION_DENIED;
+                    let next =
+                        failure.get("error_code").is_some_and(|code| *code == PERMISSION_DENIED);
                     last = failure;
                     // Not this machine's home (an image without the work user): the next root.
                     if !next {
@@ -1241,7 +1262,7 @@ impl StartCopy {
                 }
             }
         }
-        refused(&last.0, last.1)
+        last
     }
 
     fn cached_copy(&self, pins: &Ledger, send: &Send, chat: &str) -> Value {

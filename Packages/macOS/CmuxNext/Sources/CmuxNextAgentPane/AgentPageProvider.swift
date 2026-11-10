@@ -54,7 +54,7 @@ public nonisolated struct AgentPageOps {
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

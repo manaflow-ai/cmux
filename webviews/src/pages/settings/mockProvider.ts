@@ -6,6 +6,7 @@
 //
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
+import { runMockAgentKeys } from "./mockAgentKeys";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
@@ -1438,6 +1439,8 @@ export class MockSettingsProvider {
           },
         };
       }
+    } else if (run.action.startsWith("agentKey") && this.accounts.agentKeys) {
+      this.accounts = { ...this.accounts, agentKeys: runMockAgentKeys(this.accounts.agentKeys, run) };
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {

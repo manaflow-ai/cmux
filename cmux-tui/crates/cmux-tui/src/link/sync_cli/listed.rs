@@ -43,8 +43,8 @@ pub(super) fn open_listed(path: &Path, id: Option<(u64, u64)>) -> anyhow::Result
 }
 
 /// The entry `name` (not a folder) of the folder `handle` holds open, as
-/// `entry` found it, read only through that descriptor: a credential file is
-/// left out, a regular file and a symlink go, anything else is named skipped.
+/// `entry` found it, read only through that descriptor: a secret or credential
+/// file is left out, a regular file and a symlink go, anything else is named skipped.
 pub(super) fn entry_in(
     set: &mut LocalSet,
     rules: Rules,
@@ -54,7 +54,7 @@ pub(super) fn entry_in(
     name: &str,
     entry: place::Entry,
 ) -> anyhow::Result<()> {
-    if let Some(why) = skips::secret(name)
+    if let Some(why) = skips::secret_at(set.skips.top(), relative)
         .or_else(|| skips::credential(relative, false))
         .filter(|_| rules == Rules::Copy)
     {

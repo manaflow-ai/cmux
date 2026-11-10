@@ -31,23 +31,19 @@ struct CloudWorkspaceSetupWizardTests {
         }
     }
 
-    @Test(arguments: [
-        (nil, true, CloudWorkspaceSetupWizard.CredentialAvailability.available),
-        ("team-1", true, .teamMachine),
-        (nil, false, .unsupportedCloudRoute),
-    ])
-    func providerSetupAvailabilityFollowsAccountScopeAndFileRoute(
-        teamID: String?, supportsFileRoute: Bool, expected: CloudWorkspaceSetupWizard.CredentialAvailability
-    ) {
-        #expect(CloudWorkspaceSetupWizard.CredentialAvailability.resolve(teamID: teamID, supportsFileRoute: supportsFileRoute) == expected)
-    }
-
-    /// A build that does not copy the Mac's login points a personal VM at its own sign-in, not at
-    /// the connection; a team VM keeps its own note.
-    @Test func aBuildThatDoesNotPassTheLoginSaysToSignInOnTheMachine() {
-        typealias A = CloudWorkspaceSetupWizard.CredentialAvailability
-        #expect(A.resolve(teamID: nil, supportsFileRoute: true, passesLogin: false) == .signInOnMachine)
-        #expect(A.resolve(teamID: "team-1", supportsFileRoute: true, passesLogin: false) == .teamMachine)
+    /// A new Cloud workspace never asks for or moves a login: the VM's Claude and Codex reach models
+    /// through the Cloud service's model route, on a personal machine and a team one alike. The
+    /// dialog says so, and holds no provider check or transfer step.
+    @Test(arguments: [true, false])
+    func theSetupDialogNamesTheModelRouteAndOffersNoLoginStep(supportsEnvironments: Bool) {
+        let spec = CloudWorkspaceSetupWizard.setupDialogSpec(supportsEnvironments: supportsEnvironments)
+        #expect(spec.lines.count == 2)
+        #expect(spec.lines.last?.contains("Cloud service") == true)
+        #expect(spec.lines.last?.contains("No login moves from this Mac") == true)
+        #expect(!spec.lines.joined().contains("setup-token"))
+        #expect(spec.buttons.map(\.id) == ["cancel", "create"])
+        let checks = spec.fields.filter { if case .check = $0 { return true } else { return false } }
+        #expect(checks.isEmpty)
     }
 
     @MainActor
@@ -55,7 +51,7 @@ struct CloudWorkspaceSetupWizardTests {
     func accountOrTeamChangeDuringSetupRefusesTheCreationPlan(changesTeam: Bool) async throws {
         let originalUser = "user-a", originalTeam = "team-a"
         var currentUser = originalUser, currentTeam = originalTeam
-        let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .teamMachine,
+        let plan = try await CloudWorkspaceSetupWizard().choosePlan(
             scopeIsCurrent: { currentUser == originalUser && currentTeam == originalTeam },
             present: { _ in
                 if changesTeam { currentTeam = "team-b" } else { currentUser = "user-b" }
@@ -73,7 +69,7 @@ struct CloudWorkspaceSetupWizardTests {
         }
         #expect(selected == "empty")
         #expect(options.first { $0.value == "repository" }?.isEnabled == false)
-        let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .unsupportedCloudRoute,
+        let plan = try await CloudWorkspaceSetupWizard().choosePlan(
             scopeIsCurrent: { true }, supportsRepository: false,
             present: { _ in CmuxDialogAnswer(button: "create", role: .default,
                 values: ["source": .text("repository"), "repository": .text("octo/paint")]) })
@@ -86,7 +82,7 @@ struct CloudWorkspaceSetupWizardTests {
     @Test(arguments: [true, false])
     func aChatsRepositoryIsTheSuggestedStartingPoint(supportsRepository: Bool) async throws {
         var shown: CmuxDialogSpec?
-        _ = try await CloudWorkspaceSetupWizard().choosePlan(availability: .available, scopeIsCurrent: { true },
+        _ = try await CloudWorkspaceSetupWizard().choosePlan(scopeIsCurrent: { true },
             supportsRepository: supportsRepository, suggested: CloudMachineRepo(owner: "octo", name: "paint", ref: "fix/brush"),
             present: { spec in shown = spec; return CmuxDialogAnswer(button: "cancel", role: .cancel) })
         let spec = try #require(shown)
@@ -103,37 +99,6 @@ struct CloudWorkspaceSetupWizardTests {
         #expect(CloudWorkspaceSetupWizard.shouldRevealProject(originalWorkspace: "original",
             currentWorkspace: current, windowIsActive: active) == expected)
     }
-
-    @MainActor
-    @Test(arguments: ["skip", "cancel", "transfer"])
-    func noCredentialMovesWithoutAnExplicitProviderSelection(button: String) async throws {
-        var moved: [CloudWorkspaceSetupWizard.Provider] = []
-        try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account",
-            present: { _ in CmuxDialogAnswer(button: button, role: .normal) },
-            transfer: { moved.append($0) })
-        #expect(moved.isEmpty)
-    }
-
-    @MainActor
-    @Test func dismissedConsentNeverTransfersEvenWhenProvidersWereSelected() async throws {
-        var moved: [CloudWorkspaceSetupWizard.Provider] = []
-        try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account",
-            present: { _ in CmuxDialogAnswer(button: "transfer", role: .normal,
-                                            values: ["claude": .bool(true), "codex": .bool(true)], isDismissal: true) },
-            transfer: { moved.append($0) })
-        #expect(moved.isEmpty)
-    }
-
-    @MainActor
-    @Test(arguments: [CloudWorkspaceSetupWizard.Provider.claude, .codex])
-    func explicitConsentTransfersOnlyTheSelectedProvider(provider: CloudWorkspaceSetupWizard.Provider) async throws {
-        var moved: [CloudWorkspaceSetupWizard.Provider] = []
-        try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account",
-            present: { _ in CmuxDialogAnswer(button: "transfer", role: .normal, values: [provider == .claude ? "claude" : "codex": .bool(true)]) },
-            transfer: { moved.append($0) })
-        #expect(moved == [provider])
-    }
-
 
     @MainActor
     @Test func completedCloneOpensItsAbsoluteProjectDirectory() async throws {

@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
+                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -379,6 +379,88 @@ const GROUPS: &[Group] = &[
                 "移したチャットをこの Mac に戻す",
             ),
             verb(
+                "transfer-local",
+                "[--path DIR]",
+                "Transfer any other Cloud chat (or a teammate's copy) to this Mac",
+                "ほかの Cloud チャット（チームメイトのものはコピー）をこの Mac に転送",
+            ),
+        ],
+    },
+    // Team Cloud sessions (CloudTeamActionCatalog.swift): what the sidebar's Team section shows
+    // and does. SESSION is a `cloud:TEAM/VM/ID` key or a `cmux://cloud/…` link; without
+    // --session the action reads the targeted or focused Cloud workspace or chat.
+    Group {
+        en: "TEAM",
+        ja: "チーム",
+        verbs: &[
+            verb(
+                "team-sessions",
+                "[--scope mine|team|following] [--by USER] [--archived true] [--limit N] [--cursor CURSOR]",
+                "List the team's Cloud workspaces and chats",
+                "チームの Cloud ワークスペースとチャットを一覧表示",
+            ),
+            verb(
+                "team-session",
+                "[--session SESSION]",
+                "Show one team Cloud workspace or chat",
+                "チームの Cloud ワークスペースまたはチャットを 1 件表示",
+            ),
+            verb(
+                "copy-session-link",
+                "[--session SESSION]",
+                "Copy the link teammates open it with",
+                "チームメイトが開くためのリンクをコピー",
+            ),
+            verb(
+                "follow",
+                "[--session SESSION]",
+                "Follow a teammate's Cloud workspace or chat",
+                "チームメイトの Cloud ワークスペースまたはチャットをフォロー",
+            ),
+            verb("unfollow", "[--session SESSION]", "Stop following it", "フォローを解除"),
+            verb(
+                "reassign",
+                "[--session SESSION] --to USER",
+                "Assign it to another member of the team",
+                "チームの別のメンバーに割り当てる",
+            ),
+            verb(
+                "archive-session",
+                "[--session SESSION] [--archived false]",
+                "Archive it for the team, or bring it back",
+                "チームでアーカイブ、または元に戻す",
+            ),
+            verb(
+                "show-team-section",
+                "",
+                "Add the Team section to the sidebar",
+                "サイドバーにチームセクションを追加",
+            ),
+            verb(
+                "team-members",
+                "",
+                "List the members you can reassign to",
+                "割り当て先にできるメンバーを一覧表示",
+            ),
+            verb(
+                "group-members",
+                "--group GROUP_ID",
+                "List a cloud group's members",
+                "クラウドグループのメンバーを一覧表示",
+            ),
+            verb(
+                "group-member-set",
+                "--group GROUP_ID --user USER --role owner|edit|view",
+                "Add a member to a cloud group or change their role",
+                "クラウドグループにメンバーを追加、または役割を変更",
+            ),
+            verb(
+                "group-member-remove",
+                "--group GROUP_ID --user USER",
+                "Remove a member from a cloud group",
+                "クラウドグループからメンバーを削除",
+            ),
+            verb(
                 "move-to-machine",
                 "[--machine vm:VM_ID]",
                 "Move a moved chat on to another Cloud machine",
@@ -485,6 +567,12 @@ SECRETS (stored in this Mac's Keychain)
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set reads the value from a hidden prompt or stdin, never a command argument.
 
+TEAM KEYS (one shared key per agent for the team; owners and admins)
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+A team key overrides each member's own key on the team's Cloud machines.
+
 CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -507,6 +595,12 @@ DEV と nightly は切り替え可能です。Release と RC は既定で prod �
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
 
+チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+チームキーは、チームの Cloud マシンで各メンバー自身のキーより優先されます。
+
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -521,12 +615,14 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
                              [--cwd DIR | --from-folder PATH [--allow-large]]
-                             [--login pass|machine|none] [--environment ENV]
+                             [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+The machine's agents reach models through the Cloud service's model route;
+no login is copied from this Mac (`cmux cloud machine-auth --machine ID` checks it).
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
@@ -545,10 +641,6 @@ older name; both run the same start.
                      reuses the finished copy.
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files
                      (the files the copy sends), which are refused without it
-  --login pass|machine|none
-                     The agent's login there: yours from this Mac, the
-                     machine's own, or none (default: the machine's login or
-                     your earlier choice)
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
                      Neither: create a new small machine with a new name
@@ -568,7 +660,7 @@ new_machine: true when this run made the machine.
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
-  cmux cloud start-chat --agent codex --login machine --json
+  cmux cloud start-chat --agent codex --json
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait

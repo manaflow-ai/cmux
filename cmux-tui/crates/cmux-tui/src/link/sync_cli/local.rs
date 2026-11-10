@@ -3,8 +3,11 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` and credential files,
-//! which are shared only on purpose), plus the repository itself as
+//! and untracked ones that are not ignored, minus untracked secrets
+//! ([`skips::secret_at`]: `.env*`, private keys, certificate stores,
+//! `.netrc`, registry files with a token; the git seed's rule) and
+//! credential files ([`skips::credential`]), which are shared only on
+//! purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
 //! ([`GIT_TOP`]); hooks never go at any level (they would run on the
@@ -23,13 +26,13 @@
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
-//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`];
-//! credential folders and files at any depth: [`skips::credential`]).
+//! machine ([`skips::heavy`]) and secrets ([`skips::secret_at`]; credential
+//! folders and files at any depth: [`skips::credential`]).
 //! A symlink whose target stays inside the folder goes as a symlink
 //! ([`super::links`]); other symlinks, special files and names the machine
 //! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
-//! named with why ([`Skips`]), except the git path's untracked `.env*` and
-//! non-UTF-8 paths, which are counted.
+//! named with why ([`Skips`]), except the git path's non-UTF-8 paths,
+//! which are counted.
 
 use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -220,16 +223,28 @@ pub(super) fn collect(
         return Ok(set);
     };
     set.git = true;
+    // Each untracked heavy folder is named once, as the folder.
+    let mut heavy_named: BTreeSet<String> = BTreeSet::new();
     let top = place::Dir::open(folder)?;
     // Each file is counted as git lists it: past the copy's limit the listing stops there.
     let mut skipped = 0;
     working_files(folder, &mut skipped, &mut |path, untracked| {
-        // An untracked credential file never goes either (tracked ones were committed on purpose).
         if untracked
-            && (path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
-                || skips::credential(&path, false).is_some())
+            && rules == Rules::Copy
+            && let Some(heavy) = heavy_folder(folder, &path)
         {
-            set.skipped += 1;
+            if heavy_named.insert(heavy.to_owned()) {
+                set.skips.note(&format!("{heavy}/"), Why::Heavy);
+            }
+            return Ok(());
+        }
+        // Untracked secrets and credential files never go (tracked ones were
+        // committed on purpose).
+        if untracked
+            && let Some(why) =
+                skips::secret_at(folder, &path).or_else(|| skips::credential(&path, false))
+        {
+            set.skips.note(&path, why);
             return Ok(());
         }
         add_working(&mut set, &top, folder, &path)
@@ -279,6 +294,22 @@ pub(super) fn collect(
         })?;
     }
     Ok(set)
+}
+
+/// The heavy folder ([`skips::heavy`]) `relative` (a file git names in
+/// `top`) is in, as a path in `top`, or `None`. The outermost one wins, as
+/// [`walk_plain`] never enters a heavy folder.
+pub(super) fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str> {
+    let (folders, _file) = relative.rsplit_once('/')?;
+    let mut end: usize = 0;
+    for name in folders.split('/') {
+        let parent = relative.get(..end.saturating_sub(1)).unwrap_or_default();
+        end = end.saturating_add(name.len()).saturating_add(1);
+        if skips::heavy(&top.join(parent), name) {
+            return relative.get(..end.saturating_sub(1));
+        }
+    }
+    None
 }
 
 /// A dropped folder's own files for a one-off upload: git's ignore rules

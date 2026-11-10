@@ -62,12 +62,12 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
-mod cloud_codex_holder;
-#[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
+#[cfg(unix)]
+mod cloud_machine_auth;
 #[cfg(unix)]
 mod cloud_machine_io;
 #[cfg(unix)]
@@ -80,6 +80,8 @@ mod cloud_retention;
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_team_keys;
 #[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;
@@ -104,6 +106,8 @@ mod frontend_browser;
 mod host_mount;
 #[cfg(unix)]
 mod inference_gateway;
+#[cfg(unix)]
+mod inference_gateway_admin;
 #[cfg(unix)]
 mod inference_setup;
 mod internal;
@@ -794,6 +798,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
+        .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -804,12 +809,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_auth::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
-        .or_else(|| cloud_codex_holder::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))

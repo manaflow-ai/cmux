@@ -12,6 +12,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 public import CmuxNextComputerUse
 import CmuxNextControl
@@ -128,6 +129,8 @@ final class AppServices {
         auth: cloud.auth, local: daemon, approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
+    /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
+    private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
     var showcase = ShowcaseState()
     /// The wide Inbox page (the Feed page on `#/inbox`).
     private(set) lazy var feedPage = FeedPageService(services: self)
@@ -198,7 +201,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { cloud.codexBroker.consent = CloudStartChat.codexConsent(self); onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).

@@ -74647,7 +74647,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -74723,7 +74723,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -74743,6 +74743,93 @@
         "tab"
       ],
       "title" : "Bring Back Local",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "path",
+          "suggestions" : null,
+          "title" : "Path"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud transfer-local",
+      "computed" : {
+        "canonical_action_id" : "cloudTransferLocal",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its folder (the branch, commits, staged and working changes; never secrets or ignored files) into a new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the chat stays with its owner. Only a person runs it: an agent's run is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloudTransferLocal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "transfer",
+        "local",
+        "copy",
+        "chat",
+        "agent",
+        "sync",
+        "mac"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : "move",
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "laptopcomputer.and.arrow.down",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Transfer to This Mac",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -74813,11 +74900,11 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
-            "rank" : 2,
+            "rank" : 3,
             "style" : "item"
           }
         ],
@@ -81295,17 +81382,6 @@
           "name" : "fromFolder",
           "suggestions" : null,
           "title" : "Folder on This Mac to Copy"
-        },
-        {
-          "isAskedInPalette" : false,
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "login",
-          "suggestions" : null,
-          "title" : "Harness Login"
         }
       ],
       "category" : "cloud",
@@ -81323,7 +81399,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. The machine's agents reach models through its Cloud model route; no login is copied from this Mac. An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,
@@ -81381,6 +81457,1069 @@
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : true,
       "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Assigned to Me",
+                "value" : "mine"
+              },
+              {
+                "title" : "Team",
+                "value" : "team"
+              },
+              {
+                "title" : "Following",
+                "value" : "following"
+              }
+            ]
+          },
+          "name" : "scope",
+          "suggestions" : null,
+          "title" : "Show"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "by",
+          "suggestions" : null,
+          "title" : "Assigned To"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "archived",
+          "suggestions" : null,
+          "title" : "Archived"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "cursor",
+          "suggestions" : null,
+          "title" : "Cursor"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 200,
+              "min" : 1
+            }
+          },
+          "name" : "limit",
+          "suggestions" : null,
+          "title" : "Limit"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud team-sessions",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.sessions",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Lists the team's Cloud chats and workspaces, newest activity first: --scope mine (assigned to you), team (default: everyone's) or following; --by USER (assigned to that member); --archived (the archived ones instead); --limit 1-200 (default 50) and --cursor from next_cursor. Returns team, sessions [{key, vm, session, kind (chat, workspace), title, owner, owner_name, assignee, assignee_name, machine_state (running, asleep, waking, unresponsive, gone), activity (working, needs_attention, idle), last_activity_at (ms), created_at, archived, followers [USER], follower_count, following, assigned_to_you, viewers [USER] (who has it open now), can_reassign, can_archive, link}] and next_cursor. Errors: cloud.signed_out, auth.forbidden (not a member of the team, or a guest), validation.invalid, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.sessions",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "team",
+        "cloud",
+        "sessions",
+        "workspaces",
+        "chats",
+        "shared",
+        "teammates",
+        "multiplayer"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.2",
+      "targets" : [
+
+      ],
+      "title" : "List Team Cloud Sessions",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud team-session",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.session",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Reads one team Cloud session (--session KEY|LINK, else the targeted or focused Cloud workspace or chat). Returns session, shaped as one row of cloud team-sessions. Errors: selector.not_found or cloud_session.not_found (closed or removed), cloud_session.not_cloud (the target is not a Cloud workspace or chat), cloud_session.invalid (--session is not a key or link), auth.forbidden or team.not_member, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.session",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "team",
+        "cloud",
+        "session",
+        "status",
+        "who"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.2",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Show Team Cloud Session",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud copy-session-link",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.copyLink",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Copies the link to a team Cloud session (--session, else the targeted or focused Cloud workspace or chat tab): cmux://cloud/workspace/TEAM/VM/WORKSPACE for a workspace, cmux://cloud/session/TEAM/VM/SESSION for a chat. Any member of the team opens it with `cmux link open`; anyone else is refused. Returns link, key (cloud:TEAM/VM/ID), kind and copied (false for a script's run, which prints it instead). Errors: cloud_session.not_cloud, cloud.signed_out.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.copyLink",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "link",
+        "url",
+        "copy",
+        "share",
+        "cloud",
+        "team",
+        "teammate"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "workspaceRow",
+            "folder" : "copy",
+            "group" : "inspect",
+            "label" : null,
+            "parent" : null,
+            "rank" : 406,
+            "style" : "item"
+          },
+          {
+            "context" : "tab",
+            "folder" : "copy",
+            "group" : "inspect",
+            "label" : null,
+            "parent" : null,
+            "rank" : 502,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "link",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Copy Cloud Session Link",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud follow",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.follow",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Follows a team Cloud session (--session, else the targeted or focused Cloud workspace or chat): it shows under Following in the Team section for you on every Mac. Following twice is a no-op. Returns session. Errors: cloud_session.assigned_to_you (your own work is already yours), cloud_session.not_found, cloud_session.not_cloud, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.follow",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "follow",
+        "watch",
+        "eye",
+        "team",
+        "cloud",
+        "subscribe"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "workspaceRow",
+            "folder" : "options",
+            "group" : "identity",
+            "label" : null,
+            "parent" : null,
+            "rank" : 312,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Follow",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud unfollow",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.unfollow",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Stops following a team Cloud session (--session, else the targeted or focused one). Unfollowing one you do not follow is a no-op. Returns session. Errors: as cloud follow.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.unfollow",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "unfollow",
+        "stop watching",
+        "eye",
+        "team",
+        "cloud"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "workspaceRow",
+            "folder" : "options",
+            "group" : "identity",
+            "label" : null,
+            "parent" : null,
+            "rank" : 313,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye.slash",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Unfollow",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "to",
+          "suggestions" : null,
+          "title" : "Teammate"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud reassign",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.reassign",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a team Cloud session (--session, else the targeted or focused one) to another member's assigned work (--to USER, a member's user id from cloud team-members or a row's owner). Its owner (who pays for the machine) does not change; followers keep following, and the previous assignee follows it. Only its assignee, its owner or a team admin may; a turn that is running goes on. Returns session. Errors: cloud_session.not_yours, cloud_session.assignee_not_member (a guest or someone outside the team), cloud_session.not_found, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.reassign",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "reassign",
+        "assign",
+        "hand off",
+        "handoff",
+        "transfer",
+        "teammate",
+        "team",
+        "cloud"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.crop.circle.badge.arrow.forward",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Reassign to…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "session",
+          "suggestions" : null,
+          "title" : "Session or Link"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "archived",
+          "suggestions" : null,
+          "title" : "Archived"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud archive-session",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.archive",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Archives a team Cloud session for the whole team (--session, else the targeted or focused one), or brings it back with --archived false. Its machine and files are untouched. Only its assignee, its owner or a team admin may. Returns session. Errors: cloud_session.not_yours, cloud_session.not_found, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.archive",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "archive",
+        "unarchive",
+        "hide",
+        "team",
+        "cloud"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "archivebox",
+      "targets" : [
+        "workspace",
+        "tab"
+      ],
+      "title" : "Archive Cloud Session",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud show-team-section",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.showSection",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Adds the Team section to the bottom of the sidebar: the team's Cloud workspaces and chats under Assigned to Me, Team, Following and Archived, each with its follow (eye) toggle and a menu with Reassign To, Copy Link and Archive. A sidebar that has it already keeps the one it has. Errors: cloud.signed_out.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.showSection",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "team",
+        "cloud",
+        "sidebar",
+        "section",
+        "sessions",
+        "shared"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.2",
+      "targets" : [
+
+      ],
+      "title" : "Show Team Section",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud team-members",
+      "computed" : {
+        "canonical_action_id" : "cloud.team.members",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Lists the members a team Cloud session can be reassigned to: members [{user, name, role (owner, admin, member, billing, guest), you}] of the active team, guests last. Errors: auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.team.members",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "team",
+        "members",
+        "people",
+        "teammates"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.3",
+      "targets" : [
+
+      ],
+      "title" : "List Team Members",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "group",
+          "suggestions" : null,
+          "title" : "Group"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud group-members",
+      "computed" : {
+        "canonical_action_id" : "cloud.group.members",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Lists a cloud group's members (--group grp_…): group and members [{user, role (owner, edit, view), display_name, active (false for someone no longer in the team)}], owners first. Errors: group.not_found, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.group.members",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "group",
+        "members",
+        "people",
+        "roles"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.3",
+      "targets" : [
+
+      ],
+      "title" : "List Cloud Group Members",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "group",
+          "suggestions" : null,
+          "title" : "Group"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "user",
+          "suggestions" : null,
+          "title" : "Member"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Owner",
+                "value" : "owner"
+              },
+              {
+                "title" : "Can edit",
+                "value" : "edit"
+              },
+              {
+                "title" : "Can view",
+                "value" : "view"
+              }
+            ]
+          },
+          "name" : "role",
+          "suggestions" : null,
+          "title" : "Role"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud group-member-set",
+      "computed" : {
+        "canonical_action_id" : "cloud.group.memberSet",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Adds a team member to a cloud group, or changes their role (--group grp_… --user USER --role owner|edit|view). Only a group owner may; the last owner cannot step down. Returns group. Errors: group.member_not_in_team (a guest or someone outside the team), group.last_owner, group.too_many_members (200), group.not_found, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.group.memberSet",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "group",
+        "member",
+        "add",
+        "role",
+        "share"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.badge.plus",
+      "targets" : [
+
+      ],
+      "title" : "Add Cloud Group Member",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "group",
+          "suggestions" : null,
+          "title" : "Group"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "user",
+          "suggestions" : null,
+          "title" : "Member"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud group-member-remove",
+      "computed" : {
+        "canonical_action_id" : "cloud.group.memberRemove",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Removes a member from a cloud group (--group grp_… --user USER); anyone may remove themselves, only an owner may remove someone else, and the last owner stays. Returns group and removed. Errors: group.last_owner, group.not_found, auth.forbidden, cloud.signed_out, cloud.unreachable.",
+      "focuses" : false,
+      "group" : "CloudTeamActionCatalog",
+      "hint" : null,
+      "id" : "cloud.group.memberRemove",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "group",
+        "member",
+        "remove",
+        "leave"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "familyMember",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "familyMember"
+        }
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "person.badge.minus",
+      "targets" : [
+
+      ],
+      "title" : "Remove Cloud Group Member",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -90404,6 +91543,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90433,6 +91573,7 @@
           "title" : "Kind"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90461,6 +91602,7 @@
       "description" : null,
       "focuses" : false,
       "group" : "DividerActionCatalog",
+      "hint" : null,
       "id" : "divider.insertNew",
       "isDebugOnly" : false,
       "isDestructive" : false,
@@ -90520,6 +91662,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90548,6 +91691,7 @@
       "description" : null,
       "focuses" : false,
       "group" : "DividerActionCatalog",
+      "hint" : null,
       "id" : "divider.hide",
       "isDebugOnly" : false,
       "isDestructive" : false,
@@ -90603,6 +91747,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90631,6 +91776,7 @@
       "description" : null,
       "focuses" : false,
       "group" : "DividerActionCatalog",
+      "hint" : null,
       "id" : "divider.show",
       "isDebugOnly" : false,
       "isDestructive" : false,

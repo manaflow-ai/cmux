@@ -1719,6 +1719,49 @@ fn a_guest_gets_a_bounded_snapshot_its_own_records_and_its_prompts_states() {
     });
 }
 
+/// The guest relay knows its few frame types and ignores every other: a guest's browser cannot
+/// fork the chat, open, prompt or end a side chat, or name a daemon verb through the room.
+#[test]
+fn a_guest_relay_frame_of_an_unknown_type_reaches_nothing() {
+    let room = FakeRoom::start(&[]);
+    let (fake, mux, surface, mut owner) = bridged("relay-unknown", &room);
+    let (_, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    for frame in [
+        json!({"t": "agent-session-side", "live": true}),
+        json!({"t": "agent-session-side", "live": true, "prompt": "x", "prompt_id": "p"}),
+        json!({"t": "agent-session-btw", "question": "why?"}),
+        json!({"t": "guest_side", "live": true}),
+        json!({"t": "guest_fork", "through_seq": 1}),
+        json!({"t": "agent-session-fork", "through_seq": 1}),
+        json!({"t": "acp.session.fork", "sessionId": SESSION, "live": true}),
+        json!({"t": "_acpmux/side", "sessionId": "acp_side_1", "chat": SESSION}),
+        json!({"t": "_acpmux/btw", "sessionId": SESSION, "question": "why?"}),
+        json!({"t": "agent-session-attach", "surface": surface}),
+        // A known type never carries a daemon verb either: `cmd` is not read.
+        json!({"t": "guest_typing", "on": true, "cmd": "agent-session-side",
+            "live": true, "surface": surface}),
+    ] {
+        let mut frame = frame;
+        frame["v"] = json!(1);
+        frame["guest_id"] = json!(ann);
+        room.send(frame);
+    }
+    // Only the typing notice may reach acpmux; no fork, tag, side question, prompt or kill.
+    while let Some(sent) = fake.next_frame(Duration::from_millis(300)) {
+        assert_eq!(sent["method"], "_acpmux/typing", "{sent}");
+    }
+    assert!(!mux.control_clients.agent_sessions.sides.contains("acp_side_1"));
+    // The relay still serves what it knows.
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c1",
+        "text": "hello"}));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "session/prompt");
+    assert_eq!(sent["params"]["sessionId"], SESSION);
+}
+
 #[test]
 fn reconnects_get_fresh_snapshots_and_a_kick_ends_the_guests_relay() {
     let room = FakeRoom::start(&[]);

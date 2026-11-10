@@ -1400,7 +1400,12 @@ pub(super) fn handle(
 ) -> bool {
     let id = object.remove("id");
     object.remove("cmd");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    // The owner's own connection: a same-user local one, or the owner's signed Native dial to
+    // their own Cloud machine (a Cloud chat's share, cloud multiplayer lane C). Redeem stays the
+    // room bridge's own (local).
+    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
+    let native_owner = mux.is_native_agent_owner(client) && cmd != "agent-session-share-redeem";
+    if bound || !(local || native_owner) {
         return fail(writer, id, "share.not_trusted");
     }
     let shares = &mux.control_clients.agent_sessions.link_shares;

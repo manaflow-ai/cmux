@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 861,
-    "mcp": 777
+    "verbs": 874,
+    "mcp": 790
   },
   "nouns": [
     {
@@ -1254,11 +1254,25 @@
           "mcpTool": "app_cloud_apply_machine_config"
         },
         {
+          "command": "cmux cloud archive-session",
+          "title": "Archive Cloud Session",
+          "id": "cloud.team.archive",
+          "mcp": true,
+          "mcpTool": "app_cloud_archive_session"
+        },
+        {
           "command": "cmux cloud bring-back",
           "title": "Bring Back Local",
           "id": "cloudBringBack",
           "mcp": true,
           "mcpTool": "app_cloud_bring_back"
+        },
+        {
+          "command": "cmux cloud copy-session-link",
+          "title": "Copy Cloud Session Link",
+          "id": "cloud.team.copyLink",
+          "mcp": true,
+          "mcpTool": "app_cloud_copy_session_link"
         },
         {
           "command": "cmux cloud delete-snapshot",
@@ -1366,11 +1380,39 @@
           "mcpTool": "app_cloud_firewall_list"
         },
         {
+          "command": "cmux cloud follow",
+          "title": "Follow",
+          "id": "cloud.team.follow",
+          "mcp": true,
+          "mcpTool": "app_cloud_follow"
+        },
+        {
           "command": "cmux cloud fork-machine",
           "title": "Fork Cloud Machine",
           "id": "palette.cloud.fork",
           "mcp": true,
           "mcpTool": "app_cloud_fork_machine"
+        },
+        {
+          "command": "cmux cloud group-member-remove",
+          "title": "Remove Cloud Group Member",
+          "id": "cloud.group.memberRemove",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_member_remove"
+        },
+        {
+          "command": "cmux cloud group-member-set",
+          "title": "Add Cloud Group Member",
+          "id": "cloud.group.memberSet",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_member_set"
+        },
+        {
+          "command": "cmux cloud group-members",
+          "title": "List Cloud Group Members",
+          "id": "cloud.group.members",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_members"
         },
         {
           "command": "cmux cloud hand-off-machine",
@@ -1548,6 +1590,13 @@
           "mcpTool": "app_cloud_publication_list"
         },
         {
+          "command": "cmux cloud reassign",
+          "title": "Reassign to…",
+          "id": "cloud.team.reassign",
+          "mcp": true,
+          "mcpTool": "app_cloud_reassign"
+        },
+        {
           "command": "cmux cloud rename-machine",
           "title": "Rename Machine…",
           "id": "cloudRenameMachine",
@@ -1597,6 +1646,13 @@
           "mcpTool": "app_cloud_setup_github"
         },
         {
+          "command": "cmux cloud show-team-section",
+          "title": "Show Team Section",
+          "id": "cloud.team.showSection",
+          "mcp": true,
+          "mcpTool": "app_cloud_show_team_section"
+        },
+        {
           "command": "cmux cloud sign-in",
           "title": "Sign In",
           "id": "palette.auth.signIn",
@@ -1632,6 +1688,34 @@
           "mcpTool": "app_cloud_start_session"
         },
         {
+          "command": "cmux cloud team-members",
+          "title": "List Team Members",
+          "id": "cloud.team.members",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_members"
+        },
+        {
+          "command": "cmux cloud team-session",
+          "title": "Show Team Cloud Session",
+          "id": "cloud.team.session",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_session"
+        },
+        {
+          "command": "cmux cloud team-sessions",
+          "title": "List Team Cloud Sessions",
+          "id": "cloud.team.sessions",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_sessions"
+        },
+        {
+          "command": "cmux cloud transfer-local",
+          "title": "Transfer to This Mac",
+          "id": "cloudTransferLocal",
+          "mcp": true,
+          "mcpTool": "app_cloud_transfer_local"
+        },
+        {
           "command": "cmux cloud tunnel-attach",
           "title": "Attach Cloud Tunnel Network",
           "id": "cloudTunnelAttach",
@@ -1651,6 +1735,13 @@
           "id": "cloudTunnelRotateKey",
           "mcp": true,
           "mcpTool": "app_cloud_tunnel_rotate_key"
+        },
+        {
+          "command": "cmux cloud unfollow",
+          "title": "Unfollow",
+          "id": "cloud.team.unfollow",
+          "mcp": true,
+          "mcpTool": "app_cloud_unfollow"
         }
       ]
     },

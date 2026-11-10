@@ -48,6 +48,7 @@ pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub mod cloud_host;
+pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 pub mod codex_app_server;

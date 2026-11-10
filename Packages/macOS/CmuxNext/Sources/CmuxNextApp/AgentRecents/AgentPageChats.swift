@@ -153,8 +153,7 @@ final class AgentPageChats {
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
-                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
-                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
+                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() }) // no login copy onto the reserve's machine: its agents reach models through its edge
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

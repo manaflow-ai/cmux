@@ -695,3 +695,70 @@ async fn a_restart_keeps_control_prompts_the_person_rewrote() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A Cloud team member's prompt (an author `user_<id>` with no `approval`, stamped by the
+/// machine's daemon from the member's signed dial) steers into the owner's running turn like the
+/// owner's own, keeps its author, and is never held; a link guest's steer beside it is held
+/// (cloud multiplayer lane C: members steer, guests wait for the owner).
+#[tokio::test]
+async fn a_team_members_steer_goes_in_and_a_guests_waits_for_the_owner() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_CLAUDE_STEER": "1"}}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    let local = crate::server::Origin::Local;
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), rx, out_tx, local));
+    let send = |id: i64, m: &str, params: Value| Message::request(id, m, params).to_line();
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(send(1, method::SESSION_NEW, new)).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let prompt = |id: &str, text: &str, author: Value| {
+        json!({"sessionId": session.id, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": id, "author": author, "steer": true}}})
+    };
+    let mut run = prompt("p-run", "until-cancel", Value::Null);
+    run["_meta"]["acpmux"].as_object_mut().unwrap().remove("steer");
+    tx.send(send(2, method::SESSION_PROMPT, run)).await.unwrap();
+    until(&mut out, |v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
+
+    let member = json!({"id": "user_0123456789abcdef0123", "name": "Ana"});
+    tx.send(send(3, method::SESSION_PROMPT, prompt("m-1", "also the tests", member.clone())))
+        .await
+        .unwrap();
+    let accepted = until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "m-1"
+    })
+    .await;
+    assert_eq!(accepted["params"]["state"], "steered", "{accepted}");
+    assert!(accepted["params"].get("awaitingOwner").is_none(), "{accepted}");
+
+    let guest = json!({"id": "guest:k3x9", "name": "Cy", "approval": "owner"});
+    tx.send(send(4, method::SESSION_PROMPT, prompt("g-1", "guest words", guest))).await.unwrap();
+    let held = until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "g-1"
+    })
+    .await;
+    assert_eq!(held["params"]["awaitingOwner"], true, "{held}");
+    assert!(session.queue().iter().any(|q| q.prompt_id == "g-1" && q.awaiting_owner));
+    assert!(
+        user_messages(&hub, &session.id, "g-1").is_empty(),
+        "a guest's steer reached the agent"
+    );
+
+    // The member's words reached the agent with the member as their author.
+    let steered = user_messages(&hub, &session.id, "m-1");
+    assert_eq!(steered.len(), 1, "{steered:?}");
+    let provenance = &steered[0]["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "person_message", "{steered:?}");
+    assert_eq!(provenance["from"], member["id"], "{steered:?}");
+    assert_eq!(provenance["fromName"], "Ana", "{steered:?}");
+    hub.cancel(&session).await.unwrap();
+}

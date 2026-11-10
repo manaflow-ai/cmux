@@ -72,6 +72,18 @@ pub(super) fn connect_and_attach(
         refuse(&writer, id, Refusal::UnknownTab);
         return;
     }
+    // A side chat (acpmux's `side` tag on the page) is the owner's alone: it is remembered, and
+    // a teammate's, team member's or link guest's attach to it ends here, before any record.
+    if side_known::tagged(&page) {
+        sessions.sides.remember(&resolved);
+        sessions.sides.remember(&record_session);
+    }
+    if author.is_some() && (side_known::tagged(&page) || sessions.sides.contains(&resolved)) {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotTrusted);
+        return;
+    }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.

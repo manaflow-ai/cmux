@@ -121,13 +121,13 @@ import Testing
     }
 
     /// SECURITY: a write to a parent object that holds a user-only key (`cloud` with the person's
-    /// Claude login consent) is the person's to confirm too, never a raw write past the leaf's policy.
+    /// Cloud delegation) is the person's to confirm too, never a raw write past the leaf's policy.
     @Test func aParentObjectWriteCannotSetAUserOnlyKeyUnderIt() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
         var asked: [String] = []
         settings.userOnlyConfirmation = { key, _ in asked.append(key); return false }
-        let value: JSONValue = ["useMyClaudeLoginOnMyCloudMachines": true]
+        let value: JSONValue = ["agentsStartWithoutAsking": true]
         guard case .failure(let refused) = await call(router, "settings.set", ["path": "cloud", "value": value]) else {
             Issue.record("a parent write set a user-only key")
             return
@@ -138,7 +138,7 @@ import Testing
             return
         }
         #expect(asked.count == 1)
-        #expect(try await settings.file.value(at: ["cloud", "useMyClaudeLoginOnMyCloudMachines"]) == nil)
+        #expect(try await settings.file.value(at: ["cloud", "agentsStartWithoutAsking"]) == nil)
     }
 
     /// cmux-browser mutes a workspace through settings.set as `script` (a separate process is

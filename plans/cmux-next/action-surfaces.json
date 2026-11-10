@@ -33559,6 +33559,41 @@
     {
       "args" : [
         {
+          "kind" : "string",
+          "name" : "path",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud transfer-local",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudTransferLocal",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Transfer to This Mac",
+      "title_key" : "action.cloudTransferLocal",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
           "kind" : "target",
           "name" : "machine",
           "required" : false,
@@ -36389,11 +36424,6 @@
           "kind" : "string",
           "name" : "fromFolder",
           "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
-          "required" : false
         }
       ],
       "cli" : "offered",
@@ -36422,6 +36452,476 @@
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
       "title_table" : "CloudSessionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "enum",
+          "name" : "scope",
+          "required" : false,
+          "values" : [
+            "mine",
+            "team",
+            "following"
+          ]
+        },
+        {
+          "kind" : "string",
+          "name" : "by",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "archived",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "cursor",
+          "required" : false
+        },
+        {
+          "kind" : "int",
+          "max" : 200,
+          "min" : 1,
+          "name" : "limit",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-sessions",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.sessions",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Team Cloud Sessions",
+      "title_key" : "action.cloud.team.sessions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-session",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.session",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Team Cloud Session",
+      "title_key" : "action.cloud.team.session",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud copy-session-link",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow",
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.copyLink",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Cloud Session Link",
+      "title_key" : "action.cloud.team.copyLink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud follow",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.follow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Follow",
+      "title_key" : "action.cloud.team.follow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud unfollow",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.unfollow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Unfollow",
+      "title_key" : "action.cloud.team.unfollow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "to",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud reassign",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.reassign",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reassign to…",
+      "title_key" : "action.cloud.team.reassign",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "session",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "archived",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud archive-session",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.archive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Cloud Session",
+      "title_key" : "action.cloud.team.archive",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud show-team-section",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.showSection",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Team Section",
+      "title_key" : "action.cloud.team.showSection",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud team-members",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.team.members",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Team Members",
+      "title_key" : "action.cloud.team.members",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-members",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.members",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Cloud Group Members",
+      "title_key" : "action.cloud.group.members",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "user",
+          "required" : true
+        },
+        {
+          "kind" : "enum",
+          "name" : "role",
+          "required" : true,
+          "values" : [
+            "owner",
+            "edit",
+            "view"
+          ]
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-member-set",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.memberSet",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Cloud Group Member",
+      "title_key" : "action.cloud.group.memberSet",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "group",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "user",
+          "required" : true
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud group-member-remove",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloud.group.memberRemove",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Cloud Group Member",
+      "title_key" : "action.cloud.group.memberRemove",
+      "title_table" : "ActionCatalog"
     },
     {
       "args" : [

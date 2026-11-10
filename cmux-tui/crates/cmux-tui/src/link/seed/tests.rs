@@ -461,6 +461,13 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A submodule whose commit is on its remote seeds at that commit even with
+/// uncommitted changes in it: the changes stay on this Mac and the plan
+/// names the submodule, so the folder is cloned on the machine instead of
+/// copied whole. RED before: any uncommitted change in a submodule refused
+/// the seed (cmuxterm-hq's three submodules), and the start copied 12.8 GB.
+/// A submodule commit that is not on its remote still refuses: the machine
+/// could not fetch it.
 #[test]
 fn submodule_local_work_falls_back() {
     let f = Fixture::new();
@@ -482,8 +489,15 @@ fn submodule_local_work_falls_back() {
 
     let checkout = f.work.join("vendor/lib");
     write(&checkout.join("lib.txt"), "dirty\n");
-    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
-    assert_eq!(dirty.code, FallbackCode::SubmoduleLocalWork, "{}", dirty.why);
+    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_or_else(|why| panic!("{why:?}"));
+    assert_eq!(dirty.submodules[0].commit, lib_head);
+    let named: Vec<(&str, &str)> =
+        dirty.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    assert_eq!(
+        named,
+        [("vendor/lib/", "a submodule's uncommitted changes stay on this Mac")],
+        "{named:?}"
+    );
     git(&checkout, &["commit", "-q", "-am", "local only"]);
     let unpushed = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
     assert_eq!(unpushed.code, FallbackCode::SubmoduleLocalWork, "{}", unpushed.why);
@@ -611,4 +625,35 @@ fn a_delta_seed_needs_the_previous_commits() {
         PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &short).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious);
+}
+
+#[test]
+fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
+    // The fixture's .gitignore names node_modules/, so the heavy folder here is one it doesn't.
+    let f = Fixture::new();
+    let work = &f.work;
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+    write(&work.join("web/package.json"), "{}\n");
+    write(&work.join("web/.next/server/page.js"), "module.exports = 1;\n");
+    write(&work.join("web/.next/build-manifest.json"), "{}\n");
+    write(&work.join("assets/model.bin"), vec![7_u8; 6 * 1024 * 1024]);
+    write(&work.join("assets/icon.png"), vec![7_u8; 64 * 1024]);
+
+    let planned = plan(work, &f.path("seed.bundle")).unwrap();
+    let skipped: Vec<(&str, &str)> =
+        planned.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    let heavy = skipped.iter().filter(|(path, _)| path.contains(".next")).collect::<Vec<_>>();
+    assert_eq!(heavy.len(), 1, "one entry for the heavy folder, none for its files: {skipped:?}");
+    assert_eq!(heavy[0].0, "web/.next/");
+    assert!(heavy[0].1.contains("heavy folder"), "{skipped:?}");
+    let big = skipped.iter().find(|(path, _)| *path == "assets/model.bin");
+    assert!(big.is_some_and(|(_, why)| why.contains("6.3 MB")), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/icon.png"), "{skipped:?}");
+
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "web/package.json"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/icon.png"), "{work_paths}");
+    assert!(!work_paths.contains(".next"), "{work_paths}");
+    assert!(!work_paths.contains("model.bin"), "{work_paths}");
 }

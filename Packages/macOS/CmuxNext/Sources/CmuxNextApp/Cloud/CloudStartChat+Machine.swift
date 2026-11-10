@@ -105,7 +105,6 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        invocation.arguments["machine"]?.stringValue.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
         return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
     }
 

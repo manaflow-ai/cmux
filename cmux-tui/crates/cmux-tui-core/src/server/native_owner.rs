@@ -41,6 +41,20 @@ const COMMANDS: &[&str] = &[
     "agent-session-typing",
     "agent-session-view",
     "agent-session-context",
+    // A Cloud chat's held guest prompts and its share links: the owner decides and shares on
+    // their own machine (cloud multiplayer lane C). `-share-redeem` stays the room bridge's.
+    "agent-session-queue-approve",
+    "agent-session-queue-decline",
+    "agent-session-team-list",
+    "agent-session-of",
+    "agent-session-share-create",
+    "agent-session-share-list",
+    "agent-session-share-revoke",
+    "agent-session-share-kick",
+    "agent-session-share-room",
+    "agent-session-share-invite",
+    "agent-session-share-invite-chat",
+    "agent-session-share-uninvite",
     // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
     "agent-session-btw",
     "agent-transfer-receive",
@@ -139,6 +153,9 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
@@ -234,6 +251,10 @@ pub(super) fn try_handle(
         && raw_command(mux, client, &request.cmd)
     {
         return Some(handle_request(mux, client, request, writer));
+    }
+    if command == "agent-session-team-list" {
+        let data = agent_session_attach::member::team_list(mux, client);
+        return Some(writer.send_control(&json!({"id": id, "ok": true, "data": data})).is_ok());
     }
     agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))

@@ -10,8 +10,6 @@ pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
-#[cfg(unix)]
-pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod command_new;
@@ -45,6 +43,7 @@ pub mod hosts;
 pub mod join_input;
 pub mod ledger;
 pub mod ls_table;
+pub mod machine_auth;
 pub(crate) mod machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;

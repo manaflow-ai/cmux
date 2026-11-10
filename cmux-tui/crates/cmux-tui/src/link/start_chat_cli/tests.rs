@@ -12,8 +12,8 @@ use super::pick::{self, Candidate, Destination};
 use super::trust::trusted_at;
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
-    valid_environment, valid_key, valid_repo, valid_workspace,
+    origin_url, percent_segment, pin, plan, plan_with, refused, remote_name, setup_state,
+    too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -417,6 +417,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         subpath: subpath.into(),
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
         acpmux_home: None,
+        seed_only: false,
     }
 }
 
@@ -436,11 +437,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     let (seen, results) = pushes(vec![Err("fs.permission_denied"), Ok(())]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results
-            .borrow_mut()
-            .remove(0)
-            .map(|()| json!({}))
-            .map_err(|code| (code.to_string(), "refused".to_string()))
+        results.borrow_mut().remove(0).map(|()| json!({})).map_err(|code| refused(code, "refused"))
     };
     let answer = copy.run(&path, &push);
     assert_eq!(answer["ok"], json!(true));
@@ -458,11 +455,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     let (seen, results) = pushes(vec![Err("machine_outdated")]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results
-            .borrow_mut()
-            .remove(0)
-            .map(|()| json!({}))
-            .map_err(|code| (code.to_string(), "old".to_string()))
+        results.borrow_mut().remove(0).map(|()| json!({})).map_err(|code| refused(code, "old"))
     };
     let answer = other.run(&path, &push);
     assert_eq!(answer["ok"], json!(false));
@@ -646,7 +639,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
     assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
     let failed = StartCopy { key: key(), ..copy }
-        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
+        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(refused("sync_failed", "no")));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
 }
 
@@ -655,9 +648,8 @@ fn failed_copy_and_ledger_answers_finish_the_clone_clock() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let copy = copy_of("/Users/me/src/paint", "");
-    let failed = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
-        Err(("sync_failed".into(), "copy refused".into()))
-    });
+    let failed =
+        copy.run(&path, &|_: &Path, _: &Path, _: &str| Err(refused("sync_failed", "copy refused")));
     assert_eq!(failed["ok"], json!(false));
     assert_eq!(failed["seed_state"], json!("failed"));
     assert_eq!(failed["seed_phase"], json!("copy"));
@@ -872,11 +864,7 @@ fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
     let (seen, results) = pushes(vec![Err("timeout"), Ok(())]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results
-            .borrow_mut()
-            .remove(0)
-            .map(|()| json!({}))
-            .map_err(|code| (code.to_string(), "lost".to_string()))
+        results.borrow_mut().remove(0).map(|()| json!({})).map_err(|code| refused(code, "lost"))
     };
     assert_eq!(copy.run(&path, &push)["error_code"], json!("timeout"));
     let retry = StartCopy { key: copy.key.to_uppercase(), ..copy.clone() }.run(&path, &push);
@@ -930,7 +918,7 @@ fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
     let seen = RefCell::new(Vec::<String>::new());
     let fails = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        Err(("fs.failure".to_string(), "cut off".to_string()))
+        Err(refused("fs.failure", "cut off"))
     };
     assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
     let place =
@@ -983,8 +971,7 @@ fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
     }
     let dir = scratch();
     let path = ledger_in(dir.path());
-    let never =
-        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied") };
+    let never = |_: &Path, _: &Path, _: &str| -> Result<Value, Value> { panic!("copied") };
     let answer = copy_of("/System", "").run(&path, &never);
     assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
@@ -1028,8 +1015,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         machine: "vm-b".into(),
         ..copy_of("/a", "")
     };
-    let never =
-        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
+    let never = |_: &Path, _: &Path, _: &str| -> Result<Value, Value> { panic!("copied again") };
     assert_eq!(copy.run(&path, &never)["copied"], json!(false));
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
@@ -2101,4 +2087,26 @@ fn reservation_bind_preserves_the_environment_authorization_input() {
     };
     assert_eq!(call.bind_payload()["environment"], "env_project");
     assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
+}
+
+#[test]
+fn a_refused_seed_answers_its_fallback_code_and_what_a_copy_would_send() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let refused = json!({
+        "ok": false,
+        "error": "The machine can't clone this folder: it is not a git working copy",
+        "error_code": "seed_refused",
+        "fallback_code": "not_git",
+        "copy_files": 2,
+        "copy_bytes": 5,
+    });
+    let answer = copy.run(&path, &|_: &Path, _: &Path, _: &str| Err(refused.clone()));
+    assert_eq!(answer["ok"], json!(false), "{answer}");
+    assert_eq!(answer["error_code"], json!("seed_refused"), "{answer}");
+    assert_eq!(answer["fallback_code"], json!("not_git"), "the log names why: {answer}");
+    assert_eq!(answer["copy_files"], json!(2), "{answer}");
+    assert_eq!(answer["copy_bytes"], json!(5), "{answer}");
+    assert_eq!(answer["seed_state"], json!("failed"), "{answer}");
 }

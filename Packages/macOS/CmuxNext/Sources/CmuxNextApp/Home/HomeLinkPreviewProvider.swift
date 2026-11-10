@@ -61,6 +61,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
                                    status: HomeLinkPreviewStrings.open, statusTone: .success,
                                    lines: tabs.prefix(HomeLinkPreview.maxLines).map { titles.title($0) })
+        case .cloudSession(_, _, let session, _):
+            // A team Cloud session's record is in cmux Cloud; opening the link reads it (CloudSessionLink).
+            return closed(kind, session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }

@@ -245,6 +245,75 @@ export const AGENT_SIGN_IN_FILES = [
   { name: "claude-onboarding.py", path: "/etc/cmux/claude-onboarding.py" },
 ] as const;
 
+/**
+ * The model route of every agent acpmux starts on the machine: the coderouter edge alias
+ * (https://coderouter.cmux.internal, vmGuestEnv.ts) with the public placeholder key. The machine's edge rule
+ * (cmux-platform CoderouterEdge) steers that name and adds the per-machine token, so the guest never holds a
+ * provider login and the Mac never copies one here.
+ *
+ * acpmux starts Claude Code from the login environment, where agent-config.sh keeps Claude's pair set aside
+ * (its terminal launchers put it back per launch), so an acpmux chat had no route at all and ran on whatever
+ * login sat in HOME. The route is therefore pinned in each agent's managed layer: root-owned, read on every
+ * start, and above user settings. Claude Code ranks `apiKeyHelper` over CLAUDE_CODE_OAUTH_TOKEN and a /login
+ * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
+ * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
+ */
+export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; text: string; mode: number }> {
+  const env = vmGuestModelPlaneEnv(alias);
+  const claude = {
+    // Kept from the devbox image's managed defaults.
+    cleanupPeriodDays: 99999,
+    skipDangerousModePermissionPrompt: true,
+    env: { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL },
+    // The placeholder, never a credential: the edge replaces it. A helper needs no "use this API key?" consent.
+    apiKeyHelper: `printf %s ${sq(env.ANTHROPIC_API_KEY)}`,
+  };
+  const codex = [
+    "# cmux Cloud machine: Codex reaches models only through the machine's coderouter edge, which adds the",
+    "# per-machine credential. Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
+    'model_provider = "cmux"',
+    "check_for_update_on_startup = false",
+    "",
+    "[model_providers.cmux]",
+    'name = "cmux"',
+    `base_url = ${JSON.stringify(env.OPENAI_BASE_URL)}`,
+    'env_key = "OPENAI_API_KEY"',
+    'wire_api = "responses"',
+    "requires_openai_auth = false",
+    "supports_websockets = false",
+    "",
+    "[model_providers.cmux.env_http_headers]",
+    '"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"',
+    '"x-cmux-surface-id" = "CMUX_SURFACE_ID"',
+    "",
+    // The folder trust of the devbox's codex-managed.toml: the two HOMEs a session starts in.
+    '[projects."/root"]',
+    'trust_level = "trusted"',
+    "",
+    `[projects.${JSON.stringify(DEVBOX_WORK_HOME)}]`,
+    'trust_level = "trusted"',
+    "",
+  ].join("\n");
+  return [
+    { path: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
+    { path: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
+  ];
+}
+
+/** Fails unless both route files exist, parse, point at the edge, and carry no credential. `root` prefixes every path (tests). */
+export function agentModelRouteCheckCommand(root = ""): string {
+  const claude = sq(`${root}/etc/claude-code/managed-settings.json`);
+  const codex = sq(`${root}/etc/codex/managed_config.toml`);
+  const files = `${claude} ${codex}`;
+  return [
+    `test -s ${claude}`,
+    `test -s ${codex}`,
+    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
+    `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
+    "echo agent-model-route-baked",
+  ].join(" && ");
+}
+
 /** Fails unless the sign-in files parse and agent-auth.sh defines what the Mac app calls. `root` prefixes every path (tests). */
 export function agentSignInCheckCommand(root = ""): string {
   const auth = sq(`${root}/etc/cmux/agent-auth.sh`);
@@ -846,6 +915,9 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
+  await L.step(vm, "agent-model-route-dirs", "install -d -m 755 /etc/claude-code /etc/codex");
+  for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await L.step(vm, "agent-model-route", agentModelRouteCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
 }

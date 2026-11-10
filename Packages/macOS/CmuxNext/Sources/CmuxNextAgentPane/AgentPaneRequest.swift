@@ -205,8 +205,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
     case cloudRepository(AgentPaneCloudRepositoryRequest)
     case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
-    /// A user-confirmed provider credential transfer for one Cloud chat.
-    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
