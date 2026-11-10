@@ -70,7 +70,7 @@ in the same PR. A seam never switches a working Swift path off before its React 
 The Messages view is React: the docked Home, classic Home's top page and a Home pane tab all host
 `home-messages` (`HomeMessagesPage`, one page kept and reused per host). The AppKit list, sheets and
 New Message are deleted. Conversation tabs and the Chief panel are not part of this move: they draw
-the native iMessage transcript ([The Chief's chat](#the-chiefs-chat)).
+the native chat transcript ([The Chief's chat](#the-chiefs-chat)).
 
 - **Chief.** The name pill of a Chief chat sends its box (`chief.settings {conversation, anchor}`), and
   the app's Chief settings popover opens under it (`HomeChiefSurface`, the same popover and rows). While
@@ -87,15 +87,15 @@ Picked transcript: `imessage` (blue mine, grey theirs, tails on each group's las
 
 ## The Chief's chat
 
-The Chief panel and conversation tabs draw the Chief's chat as the native iMessage transcript:
+The Chief panel and conversation tabs draw the Chief's chat as the native chat transcript:
 `HomeHostView` over `CmuxNextHome/NativeTranscript` (`HomeNativeTranscriptView`), never the React
 Messages page. The docked Home's Messages view stays React (above).
 
-> "imessage home lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust" (Lawrence,
+> "[the native Home chat] lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust" (Lawrence,
 > relayed by Leo, 2026-11-10)
 
 > "Was this us on the chief related UI bit? Like, how could this have possibly freaking regressed?
-> ... Where's the freaking spec for that? Where's the freaking iMessage ... we're not freaking going
+> ... Where's the freaking spec for that? Where's the freaking [chat look] ... we're not freaking going
 > back. If we are, we can just turn it back instantly and just reinforce the thing." (Leo,
 > 2026-11-10, swearing softened)
 

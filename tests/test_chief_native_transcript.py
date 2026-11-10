@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Chief's chat is the native iMessage transcript (design/home.md, "The Chief's chat").
+"""The Chief's chat is the native chat transcript (design/home.md, "The Chief's chat").
 
 The Chief panel and conversation tabs draw `HomeHostView` over `CmuxNextHome/NativeTranscript`.
 #37777 swapped both to the React Messages page and deleted the native transcript; Leo
