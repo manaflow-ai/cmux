@@ -44,6 +44,7 @@ export interface AcpmuxRequests {
   "_acpmux/markUnread": { params: SessionRef; result: Done };
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
+  "_acpmux/register": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: OfferRespondParams; result: unknown };
   "_acpmux/subsession/answer": { params: unknown; result: unknown };
@@ -73,6 +74,7 @@ export interface AcpmuxRequests {
   "_acpmux/app_reply": { params: AppReplyParams; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
   "_acpmux/ledger": { params: unknown; result: unknown };
+  "_acpmux/team_audit": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/review_queue": { params: unknown; result: unknown };
   "_acpmux/review_brief": { params: unknown; result: unknown };
@@ -112,6 +114,7 @@ export interface AcpmuxRequests {
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
   "_acpmux/retention": { params: unknown; result: unknown };
+  "_acpmux/cold_archive": { params: unknown; result: unknown };
   "_acpmux/kill": { params: KillParams; result: unknown };
   "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: WatchTakeOverParams; result: unknown };
@@ -136,6 +139,7 @@ export interface AcpmuxRequests {
   "_acpmux/history": { params: unknown; result: unknown };
   "_acpmux/session_search": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
+  "_acpmux/hunk_summary": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
   "_acpmux/watch_add": { params: unknown; result: unknown };
   "_acpmux/watch_ls": { params: unknown; result: unknown };
@@ -387,6 +391,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: true },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/register", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
@@ -416,6 +421,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: true },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/ledger", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/team_audit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_queue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_brief", kind: "request", acp: false, typed: false },
@@ -455,6 +461,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/retention", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/cold_archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: true },
   { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
@@ -480,6 +487,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/session_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/hunk_summary", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_ls", kind: "request", acp: false, typed: false },

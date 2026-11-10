@@ -1621,8 +1621,8 @@
         },
         {
           "key": "updates.liveWebReload",
-          "title": "Live Web Reload",
-          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "title": "cmux Live",
+          "help": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code).",
           "kind": "toggle",
           "default": true,
           "group": "Updates"
@@ -3725,14 +3725,15 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
           "kind": "choice",
           "default": "auto",
           "group": "Sidebar",
           "values": [
             "auto",
             "glass",
-            "solid"
+            "solid",
+            "sections"
           ]
         },
         {

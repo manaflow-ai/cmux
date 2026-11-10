@@ -35,6 +35,8 @@ fn run_against_error(output: &[&str], action: &str, error: Value) -> Output {
         .env_remove("CMUX_AGENT_SESSION")
         .env("LC_ALL", "C")
         .env("LANG", "C")
+        // An app that refuses `busy` forever is asked again until the deadline: a short one for the test.
+        .env("CMUX_TEST_NOT_RUN_DEADLINE_MS", "300")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -202,11 +202,12 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
   the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
-  the workflow's commands and its script's sends name it. On a path that names
-  no subagent, a subagent passes `notify: false` and reads the task with
-  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
-  subagent ID)` and ends its turn with its answer; it does not send it to the
-  lead.
+  the workflow's commands and its script's sends name it. Its work on another
+  machine (an `agent()` or `machine()` with `on: HOST`, a CI machine) still runs
+  as the lead. On a path that names no subagent, a subagent passes
+  `notify: false` and reads the task with `bg_output`. The receiver reads
+  `From another agent (LEAD's TYPE subagent ID)` and ends its turn with its
+  answer; it does not send it to the lead.
   A subagent's send that goes to the send relay (`sendRelay`: no session here
   or on a peer) names the subagent to the relay as a label only
   (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). Both are unverified claims:
@@ -225,6 +226,23 @@ the person's prompt. What the receiver gets depends on who you are to it:
   with your harness's own SendMessage, which reaches no acpmux session.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
+
+A Claude Code session acpmux did not start (the Claude desktop app's Code tab,
+a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
+one by being started with acpmux):
+
+```bash
+acpmux register desktop-zoe            # in its Bash tool; then run the --code line it receives
+acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
+```
+
+The daemon checks who runs the shell by the kernel's process tree, never by
+what you type. A Claude Code session's message opens with its own
+`CLAUDE_CODE_MESSAGING_TOKEN` (the inbox Claude Code documents for a script or
+hook) and arrives as another session's message, under its inbound rules. While
+the app is closed the message waits as `bridge.not_running`; register again
+after the session restarts. Which harness can send, receive, steer and wake:
+`cmux-tui/crates/acpmux/docs/address-book.md`.
 
 Start an agent for a task (its own worktree and brief) with one command; running
 it again reuses the session and worktree and sends nothing:

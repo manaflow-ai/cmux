@@ -25,6 +25,8 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
+import { Slot } from "../../../slots/Slot";
+import { thinkingIndicatorSlot } from "../../../slots/thinkingIndicator";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
@@ -239,14 +241,6 @@ export function Thinking({
     () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
     [t, statusVerbConfig, thinkingVerbs],
   );
-  // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
-  const verbSizes = useMemo(
-    () =>
-      verbs.map((word, index) => (
-        <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
-      )),
-    [verbs],
-  );
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
@@ -322,12 +316,11 @@ export function Thinking({
   // compaction's clock beside its words) already reads as that word's.
   const own =
     ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
-  // "Thinking" past the first step with no thoughts streamed yet: the turn's clock after a dot, named,
-  // never bare beside the word, which would read as that long a think (Leo, 2026-11-03).
-  const bareTurn = decorative && total && own === undefined && timesLook === "labelled";
-  // The turn's clock after it: named when labelled, only in the step time's tooltip on hover.
+  // "Thinking" with no own time stands beside the turn's clock alone, unnamed: "Thinking 1m 24s", never
+  // "Thinking · turn 1m 24s" (Leo, 2026-11-09: "when thinking dont add the turn ... jsut remove the turn").
+  // The turn's clock after an own time: named when labelled, only in the step time's tooltip on hover.
   const turnClock =
-    (own || bareTurn) && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+    own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
   const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting
@@ -336,9 +329,7 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : bareTurn
-      ? undefined
-      : (own ?? turnTime);
+    : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -437,6 +428,10 @@ export function Thinking({
           >
             {compactLook === "calm" ? (
               label
+            ) : decorative ? (
+              // The thinking indicator is a theme slot (schemas/theme/slots.json `chat.thinkingIndicator`):
+              // its default variant draws exactly the shimmer below did for this case.
+              <Slot slot={thinkingIndicatorSlot} props={{ label, verbs, elapsed, elapsedMs }} />
             ) : (
               <ShimmerText
                 text={label}
@@ -446,20 +441,13 @@ export function Thinking({
                       <span className="cv-worked__lead">{lead.lead}</span>
                       {lead.rest}
                     </>
-                  ) : decorative ? (
-                    <span className="cv-status-verb">
-                      {verbSizes}
-                      <span className="cv-status-verb__word">{label}</span>
-                    </span>
                   ) : (
                     label
                   )
                 }
                 lit={
                   <>
-                    <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-                      {decorative && verbSizes}
-                    </span>
+                    <span className="cv-shimmer__lit-label" data-text={label} />
                     {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                   </>
                 }
@@ -473,7 +461,7 @@ export function Thinking({
           )}
         </span>
       )}
-      {(own || bareTurn) && !waiting && timesLook !== "hover" && (
+      {own && !waiting && timesLook !== "hover" && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·

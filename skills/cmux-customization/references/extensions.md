@@ -6,6 +6,11 @@ in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
 still missing, and four copy-paste folders that work as written.
 
+An extension of its own (an id `local/NAME` beside the customize app, built from
+TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code
+and errors ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app
@@ -79,6 +84,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
 | Read the current workspace, pane, tab | `cmux.workspace.list()`, `cmux.pane.list({ workspace })`, `cmux.tab.list({ workspace })`; each row has `focused` | `workspace:read` |
 | Follow changes | `cmux.events.on("workspace.changed" \| "pane.changed" \| "tab.changed" \| "terminal.changed", fn)`; `cmux.live(op)` re-reads on `<family>.changed` | the op's read scope |
+| Show live data | `cmux.watch(name, params)` reads a signal source (`github.pulls`, `workspace.list`, `agent.list`; the list is `CmuxSignalMap` in `generated/cmux-app.d.ts`): one read per (name, params) for every section, re-read on push, polled behind the signal only when nothing pushes, the last value kept while it re-reads. Use it instead of `cmux.timer.every` polling. Recipe: `examples/extensions/pr-list` | the source's scopes |
 | Focus, rename, split | `cmux.tab.focus`, `cmux.workspace.rename`, `cmux.pane.split`, ... | `workspace:write` |
 | Run a shell command in a new terminal | `cmux.pane.run({ pane, argv })`, `cmux.workspace.run({ workspace, argv })` | `workspace:execute` |
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |

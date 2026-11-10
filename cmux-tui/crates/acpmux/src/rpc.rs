@@ -377,6 +377,9 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
+    /// (`hub/register.rs`). Local unix socket only.
+    pub const MUX_REGISTER: &str = "_acpmux/register";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
@@ -541,6 +544,9 @@ pub mod method {
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
+    /// The team's agent spend from cmux-platform's `GET /v1/usage/audit`, read with this daemon's
+    /// cmux sign-in (`server/chats/team_audit.rs`); the local unix socket and the local app only.
+    pub const MUX_TEAM_AUDIT: &str = "_acpmux/team_audit";
     /// Stop and delete every chat of one cmux workspace, an incognito one when its window
     /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
     pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
@@ -650,6 +656,9 @@ pub mod method {
     /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
     /// session, tools, MCP, hooks or session file. The unix socket only.
     pub const MUX_COMPLETE: &str = "_acpmux/complete";
+    /// One plain sentence for one diff hunk (`crate::hunk_summary`), kept by the hunk's content
+    /// hash; a `_acpmux/complete` run on a miss. The unix socket only.
+    pub const MUX_HUNK_SUMMARY: &str = "_acpmux/hunk_summary";
     /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
     /// no-sudo updater of the named outdated harnesses. The unix socket only.
     pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
@@ -758,6 +767,9 @@ pub mod method {
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
+    /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
+    /// with `coldArchive` while archived. `archived: false` brings its log back.
+    pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";

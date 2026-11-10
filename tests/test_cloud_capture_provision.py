@@ -48,14 +48,25 @@ def open_sealed(value_b64, pk, sk):
 class FakeStack:
     """The Stack REST endpoints the script uses, recording each request."""
 
-    def __init__(self, users=(), sign_in_ok=True):
+    def __init__(self, users=(), sign_in_ok=True, memberships=()):
         self.users = {u["id"]: dict(u) for u in users}
         self.sign_in_ok = sign_in_ok
+        self.memberships = set(memberships)  # (team id, user id)
         self.requests = []
 
     def __call__(self, method, url, headers, body, timeout=None):
         path = url.removeprefix(provision.STACK_API)
         self.requests.append((method, path, headers, body))
+        if method == "GET" and path.startswith("/teams?user_id="):
+            user = provision.urllib.parse.unquote(path.split("=", 1)[1])
+            return 200, {}, {"items": [{"id": t} for t, u in sorted(self.memberships) if u == user]}
+        if path.startswith("/team-memberships/"):
+            team, user = (provision.urllib.parse.unquote(p) for p in path.split("/")[2:4])
+            if method == "POST":
+                if (team, user) in self.memberships:
+                    return 409, {"x-stack-known-error": "TEAM_MEMBERSHIP_ALREADY_EXISTS"}, None
+                self.memberships.add((team, user))
+                return 201, {}, {}
         if path.startswith("/users?"):
             return 200, {}, {"items": list(self.users.values())}
         if method == "POST" and path == "/users":
@@ -216,6 +227,46 @@ class Provision(unittest.TestCase):
         self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
         self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
 
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_team_target_has_its_own_account_sealed_beside_the_probes(self):
+        # cmuxterm-hq's cloud-chat-replies-production-team row (cmuxterm-hq#8541): a second production account that
+        # joins a shared team. The hourly probe's account must stay in no shared team, so it is never this one.
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["production-team"]
+        self.assertEqual(target.project, provision.PRODUCTION_PROJECT_ID)
+        self.assertNotIn(target.email, [t.email for n, t in provision.TARGETS.items() if n != "production-team"])
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        logs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=logs.append, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")  # the probe's account is untouched
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-prod-team@manaflow.dev")
+        self.assertEqual(created[0][3]["client_read_only_metadata"], {"cmuxVmPlan": "pro"})
+        self.assertIs(created[0][3]["primary_email_verified"], True)  # a team invitation needs a verified email
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmuxterm-hq", "cloud-capture"))
+        self.assertEqual(sorted(bundle["secrets"]),
+                         ["CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertIn("production test account", logs[-1])
+
+    def test_the_workflow_offers_production_team_with_the_production_key_and_no_grant_only(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        self.assertIn("production-team", options)
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        self.assertIn("inputs.target == 'production-team'", environment)  # the production project's server key
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.target != 'production-team'", grant)
+
     def test_the_platform_targets_seal_to_cmux_platform_repository_secrets_with_their_own_accounts(self):
         key, pk, sk = keypair()
         for name, project, email, secrets in (
@@ -266,6 +317,146 @@ class Provision(unittest.TestCase):
         users = [{"id": f"u{i}", "primary_email": provision.EMAIL} for i in range(2)]
         with self.assertRaisesRegex(provision.ProvisionError, "refusing to pick"):
             stack(FakeStack(users)).find(provision.EMAIL)
+
+
+COMPANY_TEAM = "d13acd51-c77d-438a-9610-5369455e2a2f"
+
+
+def team_calls(fake):
+    return [(m, p) for m, p, _, _ in fake.requests if p.startswith("/teams") or p.startswith("/team-memberships")]
+
+
+def prod_stack(fake):
+    return provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                           expected_project=provision.PRODUCTION_PROJECT_ID)
+
+
+@unittest.skipIf(SODIUM is None, "libsodium is not installed")
+class CompanyTeam(unittest.TestCase):
+    """The production-team account is a member of the company team "cmux" in the production Stack project, added
+    with the server key, so nobody has to invite it by hand (and nobody's own account stands in for it)."""
+
+    TEAM_EMAIL = "cmux-cloud-capture-prod-team@manaflow.dev"
+
+    def run_provision(self, fake, target="production-team"):
+        key, _, _ = keypair()
+        logs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            try:
+                provision.provision(prod_stack(fake) if provision.TARGETS[target].project ==
+                                    provision.PRODUCTION_PROJECT_ID else stack(fake), out, log=logs.append,
+                                    lib=SODIUM, key_id="42", key=key, make_password=lambda: PASSWORD,
+                                    target=provision.TARGETS[target])
+            finally:
+                wrote = out.exists()
+        return logs, wrote
+
+    def test_only_the_production_team_target_names_the_company_team(self):
+        self.assertEqual(provision.COMPANY_TEAM_ID, COMPANY_TEAM)
+        self.assertEqual(provision.TARGETS["production-team"].team_id, COMPANY_TEAM)
+        others = {n: t.team_id for n, t in provision.TARGETS.items() if n != "production-team"}
+        self.assertEqual(others, {n: None for n in others})  # the hourly probe's account stays in no team
+
+    def test_provisioning_adds_the_account_to_the_company_team_and_reads_it_back(self):
+        fake = FakeStack()
+        logs, wrote = self.run_provision(fake)
+        self.assertTrue(wrote)
+        self.assertIn((COMPANY_TEAM, "user-new"), fake.memberships)
+        self.assertEqual(team_calls(fake), [("GET", "/teams?user_id=user-new"),
+                                            ("POST", f"/team-memberships/{COMPANY_TEAM}/user-new"),
+                                            ("GET", "/teams?user_id=user-new")])
+        post = [r for r in fake.requests if r[0] == "POST" and r[1].startswith("/team-memberships/")][0]
+        self.assertEqual(post[2]["x-stack-access-type"], "server")
+        self.assertEqual(post[3], {})
+        self.assertTrue(any(f"member of the company team {COMPANY_TEAM}" in line for line in logs))
+
+    def test_an_existing_member_is_not_added_again(self):
+        fake = FakeStack([{"id": "u9", "primary_email": self.TEAM_EMAIL, "password": "old",
+                           "client_read_only_metadata": {}}], memberships=[(COMPANY_TEAM, "u9")])
+        _, wrote = self.run_provision(fake)
+        self.assertTrue(wrote)
+        self.assertEqual(team_calls(fake), [("GET", "/teams?user_id=u9"), ("GET", "/teams?user_id=u9")])
+
+    def test_a_membership_added_meanwhile_counts_as_added(self):
+        class Racing(FakeStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "POST" and "/team-memberships/" in url:
+                    self.memberships.add((COMPANY_TEAM, "user-new"))
+                return super().__call__(method, url, headers, body, timeout)
+        fake = Racing()
+        _, wrote = self.run_provision(fake)
+        self.assertTrue(wrote)
+        self.assertIn((COMPANY_TEAM, "user-new"), fake.memberships)
+
+    def test_a_membership_that_does_not_read_back_fails_and_writes_no_bundle(self):
+        class Forgetful(FakeStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                answer = super().__call__(method, url, headers, body, timeout)
+                self.memberships.clear()
+                return answer
+        with self.assertRaisesRegex(provision.ProvisionError, "not a member of the company team"):
+            self.run_provision(Forgetful())
+
+    def test_a_refused_membership_names_its_status(self):
+        class Refusing(FakeStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "POST" and "/team-memberships/" in url:
+                    self.requests.append((method, url, headers, body))
+                    return 404, {"x-stack-known-error": "TEAM_NOT_FOUND"}, None
+                return super().__call__(method, url, headers, body, timeout)
+        with self.assertRaisesRegex(provision.ProvisionError, r"HTTP 404 \(TEAM_NOT_FOUND\)"):
+            self.run_provision(Refusing())
+
+    def test_no_other_target_touches_a_team(self):
+        for name in ("production", "journey-production", "capture"):
+            fake = FakeStack()
+            self.run_provision(fake, name)
+            self.assertEqual(team_calls(fake), [], name)
+
+
+class TeamOnly(unittest.TestCase):
+    TEAM_EMAIL = CompanyTeam.TEAM_EMAIL
+
+    def test_an_existing_account_joins_without_a_rotation(self):
+        fake = FakeStack([{"id": "u9", "primary_email": self.TEAM_EMAIL, "password": "kept",
+                           "client_read_only_metadata": {}}])
+        provision.team_only(prod_stack(fake), provision.TARGETS["production-team"], log=lambda _: None)
+        self.assertIn((COMPANY_TEAM, "u9"), fake.memberships)
+        self.assertEqual(fake.users["u9"]["password"], "kept")
+        self.assertFalse([r for r in fake.requests if r[0] == "PATCH" or r[1] == "/auth/password/sign-in"])
+
+    def test_a_missing_account_is_never_created(self):
+        fake = FakeStack()
+        with self.assertRaisesRegex(provision.ProvisionError, "never creates"):
+            provision.team_only(prod_stack(fake), provision.TARGETS["production-team"], log=lambda _: None)
+        self.assertFalse([r for r in fake.requests if r[0] in ("POST", "PATCH")])
+
+    def test_a_target_with_no_team_is_refused_before_any_request(self):
+        fake = FakeStack()
+        with self.assertRaisesRegex(provision.ProvisionError, "no company team"):
+            provision.team_only(prod_stack(fake), provision.TARGETS["production"], log=lambda _: None)
+        self.assertEqual(fake.requests, [])
+
+    def test_main_runs_team_only_without_writing_a_bundle(self):
+        env = {"NEXT_PUBLIC_STACK_PROJECT_ID": provision.PRODUCTION_PROJECT_ID, "STACK_SECRET_SERVER_KEY": "k",
+               "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "c"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(provision, "team_only") as join, \
+                mock.patch.object(provision, "provision") as rotate, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(provision.main(["--target", "production-team", "--team-only"]), 0)
+        rotate.assert_not_called()
+        self.assertIs(join.call_args.args[1], provision.TARGETS["production-team"])
+
+    def test_the_workflow_offers_team_only_with_the_production_key_and_no_rotation(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        self.assertIn("team_only:", text.split("permissions:", 1)[0])
+        step = text.split("- name: Join the company team only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.team_only", step)
+        self.assertIn('--target "$TARGET" --team-only', step)
+        self.assertIn("secrets.STACK_SECRET_SERVER_KEY", step)
+        for name in ("Provision and seal", "Upload the sealed bundle (ciphertext only)", "libsodium"):
+            guard = text.split(f"- name: {name}", 1)[1].split("\n", 2)[1]
+            self.assertIn("!inputs.team_only", guard, name)
 
 
 class GrantOnly(unittest.TestCase):
