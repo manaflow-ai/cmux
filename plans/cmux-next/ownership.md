@@ -227,7 +227,7 @@ terminal stay, and the new shell starts below the previous screen and the marker
 An explicit request has no backoff and resets the supervisor's attempt count. It takes a turn in
 the respawn gate, the shown workspace's terminal first, so the restarts of a restored session's
 kept tabs never all launch at once, and a failed launch is tried again
-(`terminal_respawn/retry.rs`). The turn ends when the new shell is in the tabs: the wait for its
+(`terminal_respawn/retry.rs`); a next try that waits a backoff takes its turn when the wait is over. The turn ends when the new shell is in the tabs: the wait for its
 prompt, to type a resume command there, holds no turn. A tab whose terminal runs, launches or already restarts is the typed reject
 `tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
 superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
