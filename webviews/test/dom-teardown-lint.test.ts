@@ -30,10 +30,13 @@ function testFiles(): string[] {
       stdout: "pipe",
     },
   );
-  return new TextDecoder()
-    .decode(listed.stdout)
-    .split("\0")
-    .filter((name) => name && !name.startsWith("test/support/"));
+  return (
+    new TextDecoder()
+      .decode(listed.stdout)
+      .split("\0")
+      // dom-teardown-settles.test.ts's fixtures (gitignored; a run beside this one can still list them).
+      .filter((name) => name && !name.startsWith("test/support/") && !name.includes("/.dom-teardown-"))
+  );
 }
 
 test("every test file that deletes DOM globals settles React first", () => {

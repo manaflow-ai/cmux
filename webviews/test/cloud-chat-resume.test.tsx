@@ -27,9 +27,9 @@ beforeEach(setup);
 afterEach(async () => {
   await act(async () => root.unmount());
   mount.remove();
-  await teardownDom(saved, { window: dom.window, scope });
   jest.useRealTimers();
   setSystemTime();
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test.serial("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {

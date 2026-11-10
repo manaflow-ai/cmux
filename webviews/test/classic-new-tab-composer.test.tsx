@@ -77,8 +77,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  window.close();
-  await teardownDom(saved, { scope });
+  await teardownDom(saved, { window, scope });
 });
 
 const noop = () => {};

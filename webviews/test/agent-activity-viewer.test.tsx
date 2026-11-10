@@ -69,8 +69,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  window.close();
-  await teardownDom(saved, { scope });
+  await teardownDom(saved, { window, scope });
 });
 
 const model = await import("../src/agent-activity/model");

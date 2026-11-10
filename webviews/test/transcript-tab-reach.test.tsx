@@ -109,8 +109,7 @@ afterEach(() => {
   win.document.getElementById("root")!.replaceChildren();
 });
 afterAll(async () => {
-  win.close();
-  await teardownDom(saved, { scope });
+  await teardownDom(saved, { window: win, scope });
 });
 
 function turn(n: number, at: number) {
