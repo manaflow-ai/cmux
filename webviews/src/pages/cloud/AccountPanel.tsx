@@ -214,9 +214,7 @@ function CleanupSettings({
             })}
           </div>
           {state.retention?.forbidden && (
-            <output className="cloud-muted cloud-cleanup-admin">
-              {t(L.cleanupAdminOnly)}
-            </output>
+            <output className="cloud-muted cloud-cleanup-admin">{t(L.cleanupAdminOnly)}</output>
           )}
           {state.retention?.error && (
             <p className="cloud-sheet-error" role="alert">
