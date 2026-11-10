@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42817878335",
+  "recorded_at": "2026-11-10T12:49:11Z",
+  "reason": "cmux-tui 52d07ab73074 changes the image's cmux-tui (pinned bde25ee5e76c)",
+  "dry_run": false,
+  "cmux_tui": "52d07ab7307400b045931ca6bdf2466897cfe2bf",
+  "fixes": [
+    {
+      "sha": "52d07ab7307400b045931ca6bdf2466897cfe2bf",
+      "mergedAt": "2026-11-10T04:24:12-08:00",
+      "subject": "Prompt coach: settle each prompt by its own turn, count only proven corrections, hold the logged offer after a restart (#40382)"
+    },
+    {
+      "sha": "257e61ed1f2208488ab8f410b6e77bff26dcdb29",
+      "mergedAt": "2026-11-10T04:05:39-08:00",
+      "subject": "Safe mode: one switch turns every extension off, crash loops enter it, local apps roll back (#40254)"
+    },
+    {
+      "sha": "20d28f516b1ce44697901d16997a07de173e0e2e",
+      "mergedAt": "2026-11-10T12:02:45Z",
+      "subject": "No bounce in any motion: every spring stops on its target (#40288)"
+    },
+    {
+      "sha": "52f68f01c85595079475fe3ec7834b1692764734",
+      "mergedAt": "2026-11-10T04:00:14-08:00",
+      "subject": "Cloud start: one workspace per machine; the plan's ensure names no project (#40405)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T12:49:11Z",
+    "snapshot_id": "sh-cf589827f8764f388a0b3af078a364d6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42817878335): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9fad9588409f3f88f1a16ddd6ac2a145219512b4",
+    "image": "cloud-native-auto-52d07ab7-42817878335-1",
+    "revision": "ci-42817878335-1",
+    "at": "2026-11-10T12:49:11Z"
+  },
+  "rolled_back": false
+}
