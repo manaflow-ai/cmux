@@ -35,13 +35,13 @@ TAG="cmux-app-ffi-$pin_sha"
 # A release built from the FFI inputs already pinned is not re-pinned (2026-11-10: the bot moved #39863 to a release
 # of the same sources with a new checksum, since the archive is not byte-reproducible): neither the base's pin nor the
 # pin at the head of the open re-pin PR is moved to it. Any failed read re-pins as before.
-pin_of() { # pin_of DIR: the source sha that the pin files in DIR hold, read as the pin check reads them
+pin_of() { # pin_of DIR: "SOURCE_SHA CHECKSUM" of the pin files in DIR, read as the pin check reads them
   local args=(read "$1/Package.swift")
   [[ -f "$1/app-ffi-pin.json" ]] && args=(read-pin-file "$1/app-ffi-pin.json" "$1/Package.swift")
-  python3 -I scripts/ci/app_ffi_pin.py "${args[@]}" | awk '{print $1}'
+  python3 -I scripts/ci/app_ffi_pin.py "${args[@]}"
 }
 pin_err="$RUNNER_TEMP/current-pin.err"
-current="$(pin_of Packages/macOS/CmuxNext 2>"$pin_err" || true)"
+current="$(pin_of Packages/macOS/CmuxNext 2>"$pin_err" | awk '{print $1}' || true)"
 [[ "$current" =~ ^[0-9a-f]{40}$ ]] ||
   echo "::notice title=Re-pin::could not read the current pin ($(head -c 300 "$pin_err")); re-pinning as before"
 # The inputs as the tip's pin check lists them (its Cargo graph): a crate that left the graph since an older pin is
@@ -56,13 +56,14 @@ same_inputs() { # same_inputs A B: exit 0 when the app FFI inputs of commits A a
 }
 previous="$(remote_head "$branch")"
 # The pin at the re-pin branch's head (fetched, since its signed commit may be newer than this checkout).
-pr_pin=""
+pr_pin="" pr_sum=""
 if [[ -n "$previous" ]] && git fetch --quiet --no-tags origin "$previous" 2>/dev/null; then
   pr_dir="$(mktemp -d)"
   if git show "$previous:$manifest" >"$pr_dir/Package.swift" 2>/dev/null; then
     git show "$previous:Packages/macOS/CmuxNext/app-ffi-pin.json" >"$pr_dir/app-ffi-pin.json" 2>/dev/null ||
       rm -f "$pr_dir/app-ffi-pin.json"
-    pr_pin="$(pin_of "$pr_dir" 2>/dev/null || true)"
+    read -r pr_pin pr_sum < <(pin_of "$pr_dir" 2>/dev/null || true) || true
+    [[ "$pr_pin" =~ ^[0-9a-f]{40}$ && "$pr_sum" =~ ^[0-9a-f]{64}$ ]] || pr_pin="" pr_sum=""
   fi
   rm -rf "$pr_dir"
 fi
@@ -75,19 +76,19 @@ open_pr() { # the number of the open re-pin PR at $previous, or nothing
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
   echo "$number"
 }
-if same_inputs "$current" "$pin_sha"; then
-  # The base already has these inputs: an open re-pin PR that pins anything else is stale or churn, so it closes.
-  if [[ "$pr_pin" =~ ^[0-9a-f]{40}$ && "$pr_pin" != "$current" ]] && number="$(open_pr)"; then
-    gh pr close "$number" --comment "feat-cmux-next already pins ${current:0:12}, which has the same app FFI inputs as the newest published release $TAG; this pull request pins ${pr_pin:0:12}, so it is closed (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." ||
+if [[ "$current" != "$pin_sha" ]] && same_inputs "$current" "$pin_sha"; then
+  # The base already has these inputs. An open re-pin PR whose pin is older than the picked release (a revert brought
+  # the base's inputs back) is stale, so it closes. One that pins a newer commit is left: the picker falls back to an
+  # older release when a newer one reads as unpublished (a 404), and that PR may be right.
+  if [[ -n "$pr_pin" && "$pr_pin" != "$current" ]] && git merge-base --is-ancestor "$pr_pin" "$pin_sha" 2>/dev/null &&
+      number="$(open_pr)"; then
+    if gh pr close "$number" --comment "feat-cmux-next already pins ${current:0:12}, which has the same app FFI inputs as the newest published release $TAG; this pull request pins the older ${pr_pin:0:12}, so it is closed (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."; then
+      echo "closed #$number, which pins ${pr_pin:0:12}: the base's pin ${current:0:12} has the inputs of $TAG"
+    else
       echo "::warning title=Re-pin::could not close the stale re-pin pull request #$number"
-    echo "closed #$number, which pins ${pr_pin:0:12}: the base's pin ${current:0:12} has the inputs of $TAG"
+    fi
   fi
-  if [[ "$current" != "$pin_sha" ]]; then
-    echo "$TAG has the same app FFI inputs as the pinned ${current:0:12}: nothing to re-pin"
-    exit 0
-  fi
-elif same_inputs "$pr_pin" "$pin_sha"; then
-  echo "the open re-pin branch already pins ${pr_pin:0:12}, with the same app FFI inputs as $TAG: left alone"
+  echo "$TAG has the same app FFI inputs as the pinned ${current:0:12}: nothing to re-pin"
   exit 0
 fi
 # Wait for a newer release that is still building (2026-11-10: #39863 at 8c29468b pinned 1818fd17 while the run for
@@ -138,6 +139,13 @@ if newer="$(pending_newer)"; then
   read -r newer_run newer_sha <<<"$newer"
   echo "::notice title=Re-pin held::release run $newer_run for ${newer_sha:0:12}, newer than $TAG, has its re-pin still to come: run $newer_run re-pins; this run leaves $branch alone ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$newer_run)"
   exit 0
+fi
+# A re-pin branch that already pins these inputs keeps its release: the normal path below then keeps a young head
+# with no failed check, and rebuilds an older or failing head, or replaces a closed PR, with that same release, so the
+# checksum does not churn and the pin keeps an owner.
+if [[ -n "$pr_pin" && "$pr_pin" != "$pin_sha" ]] && same_inputs "$pr_pin" "$pin_sha"; then
+  echo "the re-pin branch pins ${pr_pin:0:12}, with the same app FFI inputs as $TAG: keeping that release"
+  pin_sha="$pr_pin" CHECKSUM="$pr_sum" TAG="cmux-app-ffi-$pr_pin"
 fi
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then

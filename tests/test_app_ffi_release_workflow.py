@@ -802,7 +802,8 @@ class RePinPublication(unittest.TestCase):
                 with self.subTest(name, head=head):
                     result, state = self.run_repin(same_inputs=same, pr_files=files, **options)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(state["repins"], [[pr_pin, "0" * 64]])
+                    # The branch's own checksum (the fake pin reader's) for another release; the picked one's for itself.
+                    self.assertEqual(state["repins"], [[pr_pin, "0" * 64 if same else "e" * 64]])
                     self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
                     self.assertIn("verified open", result.stdout)
                     if options.get("closed"):
