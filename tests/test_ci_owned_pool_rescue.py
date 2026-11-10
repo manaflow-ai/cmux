@@ -8598,5 +8598,348 @@ class SpendLess(unittest.TestCase):
         self.assertEqual(len(asked), 2)
 
 
+
+def stall_job(name, *, job_id, status="queued", label=SIDE, created=0, runner="", steps=None, conclusion=None,
+              started=None):
+    """A cmux-next job for the stall move; `steps` are (name, started, completed or None) in seconds."""
+    found = {"id": job_id, "name": name, "status": status, "labels": [label], "created_at": stamp(created),
+             "runner_name": runner or None, "conclusion": conclusion}
+    if started is not None:
+        found["started_at"] = stamp(started)
+    if steps is not None:
+        found["steps"] = [{"name": step, "status": "completed" if done is not None else "in_progress",
+                           "conclusion": "success" if done is not None else None, "started_at": stamp(begin),
+                           "completed_at": stamp(done) if done is not None else None}
+                          for step, begin, done in steps]
+    return found
+
+
+def room_snapshot(*, queued=0, running=0, oldest=0):
+    """The janitor's snapshot with STALL_DESTINATION's load."""
+    return lambda seconds: {"generated_at": stamp(seconds), "pools": {
+        rescue.STALL_DESTINATION: {"queued": queued, "running": running, "oldest_queued_minutes": oldest}}}
+
+
+class StallAPI:
+    """One cmux-next pull request run for the stall move. `jobs(attempt, seconds)` gives an attempt's jobs, the
+    seconds counted on the test clock; a cancel settles after `settles_after` seconds."""
+
+    def __init__(self, clock, jobs, *, attempt=3, actor="teamleaderleo", head=HEAD, state="open",
+                 settles_after=10, snapshot=None, started=0):
+        self.clock, self.jobs_at, self.attempt, self.actor = clock, jobs, attempt, actor
+        self.head, self.state, self.settles_after = head, state, settles_after
+        self.snapshot = snapshot or room_snapshot()
+        self.began = {attempt: started}
+        self.calls: list[str] = []
+        self.cancelled_at: float | None = None
+        rescue.SETTLED_HERE.clear()
+
+    def record(self):
+        done = self.cancelled_at is not None and self.clock.seconds - self.cancelled_at >= self.settles_after
+        return {"id": RUN_ID, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "event": "pull_request",
+                "status": "completed" if done else "in_progress", "conclusion": "cancelled" if done else None,
+                "run_attempt": self.attempt, "run_started_at": stamp(self.began[self.attempt]),
+                "created_at": stamp(0), "head_sha": HEAD, "head_branch": "lane/x",
+                "head_repository": {"full_name": "manaflow-ai/cmux"}, "pull_requests": [{"number": 42}],
+                "triggering_actor": {"login": self.actor}, "name": "cmux-next", "display_title": "a change"}
+
+    def run(self, run_id):
+        self.calls.append("run")
+        return self.record()
+
+    def jobs(self, run_id, attempt):
+        self.calls.append(f"jobs:{attempt}")
+        found = self.jobs_at(attempt, self.clock.seconds)
+        if self.cancelled_at is not None and attempt == self.attempt and \
+                self.clock.seconds - self.cancelled_at >= self.settles_after:
+            found = [{**job, "status": "completed", "conclusion": job.get("conclusion") or "cancelled"}
+                     for job in found]
+        return found
+
+    def next_pull_runs(self, count):
+        self.calls.append("list")
+        return [self.record()]
+
+    def pull(self, number):
+        self.calls.append("pull")
+        return {"state": self.state, "head": {"sha": self.head}}
+
+    def pool_snapshot(self, now):
+        self.calls.append("snapshot")
+        return self.snapshot(self.clock.seconds)
+
+    def annotations(self, job_id, *, final=False):
+        return []
+
+    def cancel(self, run_id, before_send=None):
+        if before_send is not None:
+            before_send()
+        self.calls.append(f"cancel:{self.attempt}")
+        self.cancelled_at = self.clock.seconds
+
+    def force_cancel(self, run_id):
+        self.calls.append("force-cancel")
+
+    def rerun_failed(self, run_id, next_attempt):
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
+        self.calls.append(f"rerun-failed:{next_attempt}")
+        self.attempt = next_attempt
+        self.began[next_attempt] = self.clock.seconds
+        self.cancelled_at = None
+
+    def rerun(self, run_id, next_attempt):
+        raise AssertionError("a stall move never re-runs every job")
+
+    def rerun_job(self, run_id, job_id, next_attempt):
+        raise AssertionError("a stall move never re-runs one job")
+
+
+def stall_target(api):
+    return rescue.stall_target(api.record(), "manaflow-ai/cmux")
+
+
+def move(api, clock, *, scan_at):
+    """Advance to `scan_at` seconds, scan once, and run the move the scan starts in this thread."""
+    clock.advance(scan_at - clock.seconds)
+    moves, moved, logs, results = [], set(), [], []
+
+    def start(target, stalls):
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as out:
+            results.append(rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep,
+                                             log=logs.append, deadline=clock.now() + dt.timedelta(hours=2)))
+        logs.append(out.getvalue())
+    started = rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=moved,
+                                moves=moves, start=start)
+    return started, results, "\n".join(logs)
+
+
+class StallMove(unittest.TestCase):
+    """The stall move (owned_pool_rescue.STALL_MOVE): a cmux-next job queued past STALL_QUEUE_SECONDS, or held by an
+    owned runner with no step progress past its step's bound, moves to Blacksmith."""
+
+    def test_bounds_come_from_the_documented_figures(self):
+        self.assertEqual(rescue.STALL_QUEUE_SECONDS, 40 * 60)  # p90 swift-test 2368 s, rounded up
+        self.assertLess(rescue.STALL_QUEUE_SECONDS, rescue.MAX_QUEUE_ROUNDS * rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(rescue.step_stall_seconds("Set up runner"), rescue.SETUP_WAIT_SECONDS)
+        self.assertEqual(rescue.step_stall_seconds("Checkout"), rescue.STALL_CHECKOUT_SECONDS)
+        self.assertEqual(rescue.step_stall_seconds("Retry checkout after transient network failure"),
+                         rescue.STALL_CHECKOUT_SECONDS)
+        self.assertEqual(rescue.step_stall_seconds("Build package and tests"), rescue.STALL_STEP_SECONDS)
+        self.assertEqual(rescue.STALL_SCAN_TICKS, rescue.SIDE_FAILURE_TICKS)
+        self.assertEqual(rescue.STALL_MOVES_PER_SWEEP, rescue.SWEEP_SECONDS // rescue.STALL_QUEUE_SECONDS)
+        self.assertIn(rescue.STALL_DESTINATION, rescue.simple_pool_picker.CAPACITY)
+
+    def test_a_job_queued_on_an_owned_label_past_the_bound_is_stalled(self):
+        bound = rescue.STALL_QUEUE_SECONDS
+        queued = stall_job("cmux-next generated files", job_id=1)
+        self.assertEqual(rescue.owned_stalls([queued], START + dt.timedelta(seconds=bound - 1)), [])
+        found = rescue.owned_stalls([queued], START + dt.timedelta(seconds=bound))
+        self.assertEqual([(stall.name, stall.label, stall.step) for stall in found],
+                         [("cmux-next generated files", SIDE, "")])
+        # A Blacksmith job is never the stall move's.
+        hosted = stall_job("cmux-next generated files", job_id=2, label=BLACKSMITH)
+        self.assertEqual(rescue.owned_stalls([hosted], START + dt.timedelta(seconds=bound * 3)), [])
+
+    def test_a_running_job_with_no_step_progress_past_its_step_bound_is_stalled(self):
+        # Run 42890452294's generated files: Checkout began at 22:43:17Z and ended at 22:59:47Z (16.5 min).
+        checkout = stall_job("cmux-next generated files", job_id=1, status="in_progress", runner="mini-6",
+                             started=0, steps=[("Set up job", 0, 30), ("Set up runner", 30, 31),
+                                               ("Checkout", 31, None)])
+        bound = rescue.STALL_CHECKOUT_SECONDS
+        self.assertEqual(rescue.owned_stalls([checkout], START + dt.timedelta(seconds=31 + bound - 1)), [])
+        found = rescue.owned_stalls([checkout], START + dt.timedelta(seconds=31 + bound))
+        self.assertEqual([stall.step for stall in found], ["Checkout"])
+        # A long build step is given the step bound, not the checkout's.
+        build = stall_job("cmux-next generated files", job_id=1, status="in_progress", runner="mini-6", started=0,
+                          steps=[("Checkout", 0, 60), ("Build package and tests", 60, None)])
+        self.assertEqual(rescue.owned_stalls([build], START + dt.timedelta(seconds=60 + bound * 2)), [])
+        self.assertEqual(len(rescue.owned_stalls(
+            [build], START + dt.timedelta(seconds=60 + rescue.STALL_STEP_SECONDS))), 1)
+        # A job held in glaeda's capacity wait ("Set up runner") gets SETUP_WAIT_SECONDS.
+        held = stall_job("cmux-next fast tier", job_id=3, status="in_progress", runner="ultra1", started=0,
+                         steps=[("Set up job", 0, 5), ("Set up runner", 5, None)])
+        self.assertEqual(len(rescue.owned_stalls(
+            [held], START + dt.timedelta(seconds=5 + rescue.SETUP_WAIT_SECONDS))), 1)
+        # Progress resets the clock: a step that just completed is progress.
+        moving = stall_job("cmux-next generated files", job_id=1, status="in_progress", runner="mini-6",
+                           started=0, steps=[("Checkout", 0, 3000)])
+        self.assertEqual(rescue.owned_stalls([moving], START + dt.timedelta(seconds=3000 + bound - 1)), [])
+
+    def test_a_running_sibling_or_a_real_failure_keeps_the_run(self):
+        at = START + dt.timedelta(seconds=rescue.STALL_QUEUE_SECONDS + 60)
+        queued = stall_job("cmux-next generated files", job_id=1)
+        sibling = stall_job("cmux-next swift test", job_id=2, status="in_progress", runner="mini-2", started=3000,
+                            steps=[("Run tests", 3000, None)])
+        stalls, blocked = rescue.stall_verdict([queued, sibling], at, START)
+        self.assertEqual(len(stalls), 1)
+        self.assertIn("cmux-next swift test still running", blocked)
+        red = stall_job("cmux-next fast tier", job_id=3, status="completed", conclusion="failure", started=60,
+                        steps=[("Run the fast tier", 60, 600)])
+        red["steps"][-1]["conclusion"] = "failure"
+        stalls, blocked = rescue.stall_verdict([queued, red], at, START)
+        self.assertIn("cmux-next fast tier already failed", blocked)
+        self.assertEqual(rescue.stall_verdict([queued], at, START)[1], "")
+
+    def test_room_respects_blacksmith_concurrency(self):
+        now = START
+        # 2026-11-10: blacksmith-6vcpu-macos-26 had 27 queued against a cap of 10.
+        self.assertIn("27 queued", rescue.stall_room(room_snapshot(queued=27, running=10)(0), now, 1, 0))
+        self.assertEqual(rescue.stall_room(room_snapshot(running=7)(0), now, 3, 0), "")
+        self.assertIn("more moved there", rescue.stall_room(room_snapshot(running=7)(0), now, 3, 1))
+        self.assertIn("unknown", rescue.stall_room(None, now, 1, 0))
+        self.assertIn("does not list", rescue.stall_room({"generated_at": stamp(0), "pools": {}}, now, 1, 0))
+        self.assertIn("stalled", rescue.stall_room(room_snapshot(queued=3, running=0, oldest=30)(0), now, 1, 0))
+
+    def test_only_an_open_same_repository_pull_request_run_on_the_minis_is_a_target(self):
+        clock = Clock()
+        api = StallAPI(clock, lambda attempt, seconds: [], attempt=4, actor=CMUX_BOT)
+        self.assertEqual(stall_target(api), "attempt 4 takes Blacksmith")
+        api.actor = "teamleaderleo"  # a person's attempt 4 goes back to the minis
+        target = stall_target(api)
+        self.assertIsInstance(target, rescue.Target)
+        self.assertTrue(target.refusals_only)
+        self.assertEqual((target.attempt, target.pr_number), (4, 42))
+        self.assertIsInstance(rescue.stall_target({**api.record(), "event": "push"}, "manaflow-ai/cmux"), str)
+        fork = {**api.record(), "head_repository": {"full_name": "someone/cmux"}}
+        self.assertIsInstance(rescue.stall_target(fork, "manaflow-ai/cmux"), str)
+        dev = {**api.record(), "event": "workflow_dispatch", "display_title": "cmux NEXT DEV daily"}
+        self.assertIsInstance(rescue.stall_target(dev, "manaflow-ai/cmux"), str)
+
+    def test_a_refusals_only_attempt_3_queued_past_the_bound_moves_to_blacksmith(self):
+        # Run 42878905180 (PR #40461): attempt 3 (a person's re-run) queued its generated files on
+        # glaeda-side-std-xcode-26.6 from 20:23Z to 22:26Z; its next bot attempt (4) takes Blacksmith.
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 3:
+                return [stall_job("cmux-next generated files", job_id=31),
+                        stall_job("cmux-next checks", job_id=32, status="completed", conclusion="success",
+                                  label="blacksmith-4vcpu-ubuntu-2404", started=30, steps=[("Run", 30, 300)])]
+            return [stall_job("cmux-next generated files", job_id=41, label=BLACKSMITH, created=seconds)]
+        api = StallAPI(clock, jobs, attempt=3, snapshot=room_snapshot(running=2))
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS - 1)
+        self.assertEqual((started, results), (0, []))
+        self.assertNotIn("cancel:3", api.calls)
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
+        self.assertEqual(started, 1)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:3", "rerun-failed:4"])
+        self.assertTrue(results[0].startswith("re-ran the failed jobs"), results)
+        self.assertIn("::notice title=Owned-pool stall move::", text)
+        self.assertIn(f"attempt 4 takes {rescue.STALL_DESTINATION}", text)
+        self.assertIn("has waited 40 min for a runner", text)
+
+    def test_an_attempt_2_with_no_step_progress_is_passed_through_to_blacksmith(self):
+        # Run 42890452294 (PR #40479): the bot's attempt 2; generated files sat in Checkout on a mini. A re-run of
+        # failed jobs there is attempt 3, which rejoins the owned label; no mini takes it, so it is passed through.
+        clock = Clock()
+        start = 600  # the attempt began 10 minutes before the job's runner started its checkout
+
+        def jobs(attempt, seconds):
+            if attempt == 2:
+                return [stall_job("cmux-next generated files", job_id=21, status="in_progress", runner="mini-6",
+                                  started=start, steps=[("Set up job", start, start + 60),
+                                                        ("Checkout", start + 60, None)])]
+            if attempt == 3:
+                return [stall_job("cmux-next generated files", job_id=31, created=api.began[3])]
+            return [stall_job("cmux-next generated files", job_id=41, label=BLACKSMITH, created=seconds)]
+        api = StallAPI(clock, jobs, attempt=2, actor=CMUX_BOT, snapshot=room_snapshot(running=1))
+        started, results, text = move(api, clock, scan_at=start + 60 + rescue.STALL_CHECKOUT_SECONDS)
+        self.assertEqual(started, 1)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3", "cancel:3", "rerun-failed:4"])
+        self.assertIn("no step progress in 10 min (Checkout)", text)
+        self.assertIn("passed through to Blacksmith", text)
+        self.assertTrue(results[0].startswith("re-ran the failed jobs"), results)
+
+    def test_a_pass_through_attempt_a_mini_took_stays_on_the_minis(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 2:
+                return [stall_job("cmux-next generated files", job_id=21)]
+            return [stall_job("cmux-next generated files", job_id=31, status="in_progress", runner="mini-3",
+                              started=api.began[3] + 5, steps=[("Set up job", api.began[3] + 5, None)])]
+        api = StallAPI(clock, jobs, attempt=2, actor=CMUX_BOT)
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3"])
+        self.assertIn("attempt 3 stays: no owned job waits for a runner", results[0])
+
+    def test_no_move_without_blacksmith_room_and_one_move_a_run(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux-next generated files", job_id=attempt * 10 + 1)]
+        api = StallAPI(clock, jobs, attempt=3, snapshot=room_snapshot(queued=27, running=10))
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
+        self.assertEqual(started, 0)
+        self.assertIn("27 queued", text)
+        self.assertFalse(any(call.startswith("cancel") for call in api.calls))
+        # The same scan state never moves a run twice, and stops at the sweep's cap.
+        api.snapshot = room_snapshot()
+        moved, moves = {RUN_ID}, []
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=moved, moves=moves, start=lambda *args: None), 0)
+        full = [(clock.now(), 1)] * rescue.STALL_MOVES_PER_SWEEP
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=set(), moves=full, start=lambda *args: None), 0)
+
+    def test_a_superseded_head_is_never_cancelled_or_re_run(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux-next generated files", job_id=31)]
+        api = StallAPI(clock, jobs, attempt=3, head="b" * 40)
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
+        self.assertEqual(started, 1)
+        self.assertFalse(any(call.startswith(("cancel", "rerun")) for call in api.calls), api.calls)
+        self.assertIn("newer head", results[0])
+
+    def test_a_job_that_starts_before_the_cancel_drops_it(self):
+        clock = Clock()
+        taken = []
+
+        def jobs(attempt, seconds):
+            if taken:
+                return [stall_job("cmux-next generated files", job_id=31, status="in_progress", runner="mini-1",
+                                  started=seconds, steps=[("Set up job", seconds, None)])]
+            return [stall_job("cmux-next generated files", job_id=31)]
+        api = StallAPI(clock, jobs, attempt=3)
+        target = stall_target(api)
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        stalls = rescue.owned_stalls(jobs(3, clock.seconds), clock.now())
+        taken.append(True)  # a mini takes it between the scan and the cancel
+        result = rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                   deadline=clock.now() + dt.timedelta(hours=2))
+        self.assertFalse(any(call.startswith(("cancel", "rerun")) for call in api.calls), api.calls)
+        self.assertIn("the stall cleared before the cancel", result)
+
+    def test_the_sweeper_scans_for_stalls_and_starts_one_move(self):
+        clock = Clock()
+        run = {**listed(9, path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=3, status="queued",
+                        run_started_at=stamp(0), triggering_actor={"login": "teamleaderleo"})}
+
+        class API(SweepAPI):
+            def next_pull_runs(self, count):
+                return [run]
+
+            def pool_snapshot(self, now):
+                return room_snapshot()(clock.seconds)
+        api = API([run], attempt_jobs={9: [stall_job("cmux-next generated files", job_id=91)]})
+        moved = []
+
+        def fake_move(client, target, stalls, **kwargs):
+            moved.append((target.run_id, target.attempt, [stall.name for stall in stalls]))
+            return "re-ran the failed jobs of run 9"
+        clock.advance(rescue.STALL_QUEUE_SECONDS)
+        with unittest.mock.patch.object(rescue, "follow", lambda *args, **kwargs: "stopped: test"), \
+                unittest.mock.patch.object(rescue, "stall_move", fake_move):
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                                    log=lambda text: None, sweep_seconds=12 * 60, tick_seconds=60, wait=clock.sleep)
+        self.assertEqual(moved, [(9, 3, ["cmux-next generated files"])])
+        self.assertEqual(outcomes.get(f"{rescue.STALL_MOVE}: re-ran the failed jobs of run 9"), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
