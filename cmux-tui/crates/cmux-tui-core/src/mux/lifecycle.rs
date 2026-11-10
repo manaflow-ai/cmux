@@ -207,6 +207,16 @@ impl Mux {
         // Readers are stopped and every terminal is still alive: write the
         // output store's last snapshots and segment frames.
         self.output_store.shutdown(self);
+        // A marker the full terminal lane still owes goes ahead of the last
+        // barrier. Nothing waits here: a lane that is still full loses the
+        // marker and the shutdown stays bounded.
+        let owed = self.journal_ingress.offer_owed_terminal_gaps();
+        if owed > 0 {
+            eprintln!(
+                "cmux-tui: {context} could not record {owed} terminal output gap marker(s): the \
+                 session journal terminal lane is full"
+            );
+        }
         // Each terminal reader has drained or its journal capture gate has
         // closed. An update that exceeded the extra active-update grace has a
         // durable gap above. Fence the terminal ingress lane while this Mux

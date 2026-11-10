@@ -139,23 +139,32 @@ impl Mux {
     }
 
     /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
-    /// and structural, it carries no output.
+    /// and structural, it carries no output. Offered to the terminal lane
+    /// without a wait, as a geometry change is.
     pub(crate) fn journal_terminal_output_gap(
-        &self,
+        self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         reason: &'static str,
     ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        });
+        let offer = self.journal_ingress.offer_terminal(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id: terminal_id.clone(),
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        );
+        self.note_terminal_offer(&terminal_id, offer);
     }
 
+    /// Journals an accepted geometry change without a wait: the callers hold
+    /// the terminal's geometry and parser locks, and a writer that cannot
+    /// drain must not stop the terminal. A full terminal lane leaves a
+    /// `journal_queue_full` gap marker in place of the change
+    /// (journal_ingress/terminal_offer.rs).
     pub(crate) fn journal_terminal_resize(
-        &self,
+        self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         cols: u16,
@@ -163,15 +172,37 @@ impl Mux {
         cell_width: u16,
         cell_height: u16,
     ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            cols,
-            rows,
-            cell_width,
-            cell_height,
-        });
+        let offer = self.journal_ingress.offer_terminal(
+            crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                terminal_id: terminal_id.clone(),
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                cols,
+                rows,
+                cell_width,
+                cell_height,
+            },
+        );
+        self.note_terminal_offer(&terminal_id, offer);
+    }
+
+    /// A refused record, and the marker that later stands for it, move the
+    /// terminal's replay boundary: the next coalesced checkpoint covers it
+    /// (and first offers the marker again, mux/journal_retention.rs).
+    fn note_terminal_offer(
+        self: &Arc<Self>,
+        terminal_id: &TerminalPublicId,
+        offer: crate::journal_ingress::TerminalOffer,
+    ) {
+        if offer == crate::journal_ingress::TerminalOffer::Owed {
+            eprintln!(
+                "cmux-tui: the session journal terminal lane is full: a record of terminal \
+                 {terminal_id} is not journaled, a journal_queue_full gap marker stands for it"
+            );
+        }
+        if offer.needs_checkpoint() {
+            self.note_terminal_host_reconnect(terminal_id.clone());
+        }
     }
 
     pub(crate) fn commit_session_journal_events<F>(
