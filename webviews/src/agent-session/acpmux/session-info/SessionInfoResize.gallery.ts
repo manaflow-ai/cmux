@@ -74,6 +74,12 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 560, normal: 900, wide: 1300 },
+  checks: {
+    layoutShiftMax: {
+      value: 1,
+      reason: "Each step resizes the window: the chat reflows to the new width, which is the step, not a shift.",
+    },
+  },
   covers: [
     "agent-session/acpmux/session-info/useSessionInfo.tsx",
     "agent-session/acpmux/session-info/sessionInfoState.ts",
