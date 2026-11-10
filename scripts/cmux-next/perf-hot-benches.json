@@ -135,6 +135,11 @@
       "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
       "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
       "owner": "WORKSPACE LIST 800"
+    },
+    "terminal-output-scan": {
+      "what": "the byte scanners every terminal output chunk runs in the host and in the daemon mirror: the title tracker (terminal_title.rs TitleTracker::rewrite), the OSC metadata collector (terminal_metadata.rs OscCollector::observe) and the prompt mark search (prompt_mode_reset.rs); each jumps over the bytes no state can change on",
+      "bench": "cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture (64 KiB colored log and box-drawing TUI output; prints ns per byte, jumping scan and byte-at-a-time reference)",
+      "owner": "cmux-tui"
     }
   }
 }
