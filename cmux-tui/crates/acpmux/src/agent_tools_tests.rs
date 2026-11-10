@@ -547,8 +547,13 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
 /// GitHub connection, with no setup there; its config holds no token.
 #[test]
 fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_config() {
+    use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("acpmux-github-mcp-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
+    // The `cmux` CLI, so the `cmux` server exists to fold the github server under.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
     let inputs = |github: bool| super::Inputs {
         acpmux: Some(crate::self_command::SelfCommand::new(
             std::path::PathBuf::from("/usr/local/bin/acpmux"),
