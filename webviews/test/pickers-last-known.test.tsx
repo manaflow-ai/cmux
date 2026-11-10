@@ -147,7 +147,8 @@ test("the base picker opened after a base change lists the last refs at once and
   };
   const picker = (currentRef: string) => ({
     repoRoot: "/repo",
-    capabilityToken: "token",
+    // A base change opens a new session with its own token: the refs are still the repository's.
+    capabilityToken: `token-${currentRef}`,
     currentRef,
     refsURL: "",
     regenerateURLTemplate: "",
