@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4288396829101",
+  "notes": "notes/4288396829101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40704,
+      "title": "Cloud copy: a huge Git folder is refused while it's listed; --allow-large is a parsed flag, cmux chat takes it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40464,
+      "title": "Settings: the app takes the daemon's settings lock for every write of cmux-next.json",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40604,
+      "title": "Close Workspace: the press's turn reads its own window only, one path for the palette row, typed effect",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40583,
+      "title": "fix(terminal): a new terminal draws no cells before its first cell build (ghostty-next b37a94dfe)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40711,
+      "title": "cmux-next route: a pure app FFI re-pin runs only the app compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40097,
+      "title": "app FFI pin: pin a published release straight on feat-cmux-next when its headers only add",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40688,
+      "title": "compile-status: a [no-verdict] marker the classifier keys on; one shared deadline per read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31802,
+      "title": "projects: the daemon reads acpmux's chat index itself; delete the Swift ProjectsImport relay (A14)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40622,
+      "title": "perf(cmux-next): one workspace's change updates the favicon table and Needs you from that workspace only (826 workspaces)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
