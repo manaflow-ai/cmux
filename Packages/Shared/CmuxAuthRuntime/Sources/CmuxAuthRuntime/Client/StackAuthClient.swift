@@ -25,7 +25,17 @@ public struct StackAuthClient: AuthClient {
     ///     read as a signed-out store.
     public init(stack: StackClientApp, tokenStore: (any StackAuthTokenStoreProtocol)? = nil) {
         self.init(stack: stack, apiBaseURL: nil, keepsServerSession: nil,
-                  tokenReadFailures: tokenStore.map { store in { await store.tokenReadFailureCount() } })
+                  tokenReadFailures: Self.failedReadCounter(of: tokenStore))
+    }
+
+    private static func failedReadCounter(
+        of store: (any StackAuthTokenStoreProtocol)?
+    ) -> (@Sendable () async -> UInt64)? {
+        guard let store else { return nil }
+        let reader: @Sendable () async -> UInt64 = {
+            await store.tokenReadFailureCount()
+        }
+        return reader
     }
 
     private init(stack: StackClientApp, apiBaseURL: URL?,
@@ -69,14 +79,13 @@ public struct StackAuthClient: AuthClient {
             ),
             apiBaseURL: URL(string: config.apiBaseURL),
             keepsServerSession: keepsServerSession,
-            tokenReadFailures: Self.tokenReadFailures(of: tokenStore)
+            tokenReadFailures: Self.failedReadCounter(ofStoreInit: tokenStore)
         )
     }
 
-    private static func tokenReadFailures(of tokenStore: TokenStoreInit) -> (@Sendable () async -> UInt64)? {
-        guard case .custom(let store) = tokenStore,
-              let ours = store as? any StackAuthTokenStoreProtocol else { return nil }
-        return { await ours.tokenReadFailureCount() }
+    private static func failedReadCounter(ofStoreInit tokenStore: TokenStoreInit) -> (@Sendable () async -> UInt64)? {
+        guard case .custom(let store) = tokenStore else { return nil }
+        return failedReadCounter(of: store as? any StackAuthTokenStoreProtocol)
     }
 
     public func tokenReadFailureCount() async -> UInt64 {
