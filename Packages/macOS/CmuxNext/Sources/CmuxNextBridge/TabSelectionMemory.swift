@@ -36,11 +36,14 @@ public final class TabSelectionMemory {
 
     /// Each pane whose selection changed (set, replaced or dropped: nil) since the last call, with its selection
     /// now. For the one reader that keeps a copy of every selection of this window (its saved record,
-    /// `WindowRecordSaver`): it applies these and reads no pane. One entry per pane at most, so it never holds
-    /// more than the panes this window selected a tab in.
-    public func takeChanges() -> [String: String?] {
-        defer { changes.removeAll(keepingCapacity: true) }
-        return changes
+    /// `WindowRecordSaver`): it applies these and reads no pane. ONE caller only: a second one would take changes
+    /// that the first never sees. One entry per pane at most, so it never holds more than the panes this window
+    /// selected a tab in.
+    package func takeChanges() -> [String: String?] {
+        guard !changes.isEmpty else { return [:] }
+        var taken: [String: String?] = [:]
+        swap(&taken, &changes)
+        return taken
     }
 
     public func select(_ tab: String, in pane: String) {

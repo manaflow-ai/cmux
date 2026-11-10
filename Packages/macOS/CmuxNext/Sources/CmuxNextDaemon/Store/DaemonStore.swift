@@ -71,6 +71,10 @@ public final class DaemonStore: StateResourceQueries {
     /// tabs the tree lists, their panes or their order: one read for an
     /// observer that follows every tab list, instead of a walk of every pane.
     public private(set) var tabListRevision: UInt64 = 0
+    /// Bumped once per apply (batch, snapshot, intent) that changed which panes the tree lists, or the screen of
+    /// one. A tab that comes, goes or moves does not move it, and neither does a snapshot that applies a workspace
+    /// again as it was (``tabListRevision`` moves for both). Not observed: its reader compares two values.
+    @ObservationIgnored public private(set) var paneListRevision: UInt64 = 0
     /// Tabs a pending close only hides while the daemon's read decides (``holdTabs(_:)``); the live tree still lists them.
     @ObservationIgnored var heldTabIDs: Set<String> = []
     public let session = SessionStateStore()
@@ -570,6 +574,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Publishes a tab list change once the visible state is complete.
     func publishTabListChange() {
         if index.takeTabListChange() { tabListRevision &+= 1 }
+        if index.takePaneListChange() { paneListRevision &+= 1 }
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace set differs from
