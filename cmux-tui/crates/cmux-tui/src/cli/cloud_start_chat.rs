@@ -55,6 +55,10 @@ const GUEST_CMUX: &str = "cmux-tui";
 pub(super) const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
+/// The send's read of where the chat runs on the machine (support.rs `session_cwd`), in the same
+/// exec as the send, bounded so it never holds it: the answer's `cwd`, a folderless chat's too.
+const SESSION_CWD: &str = "echo @@cwd; timeout 5 \"$c\" acp ls --live --machine local --json --fields sessionId,cwd 2>/dev/null; ";
+
 /// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
 /// file on the machine first. The cmux API takes a command of at most 64 KiB, and this one has
 /// the script around it.
@@ -112,6 +116,9 @@ pub(super) struct Request {
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
+    /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
+    /// and start again once.
+    pub make_room: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -182,6 +189,7 @@ pub(super) fn send_existing(
         machine: Machine::Target(machine_id.to_owned()),
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
+        make_room: false,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global) };
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -306,6 +314,7 @@ pub(super) fn parse(
     let mut name = None;
     let mut target = None;
     let mut wait = false;
+    let mut make_room = false;
     let mut timeout = DEFAULT_TIMEOUT;
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
     let mut literal = false;
@@ -345,6 +354,7 @@ pub(super) fn parse(
                 timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
+            "--make-room" => make_room = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -425,6 +435,7 @@ pub(super) fn parse(
         machine,
         wait,
         timeout,
+        make_room,
     }))
 }
 
@@ -840,6 +851,73 @@ impl Progress {
 /// A step that answered after the `--timeout` deadline ends the run as that phase's timeout ([`Progress::late`]),
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let outcome = run_once(runner, request);
+    if request.make_room { make_room(runner, request, outcome) } else { outcome }
+}
+
+/// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
+/// delete frees room at once. An archive keeps the machine until its disk is archived, so the run
+/// ends there and says to ask again once it is gone; from the CLI the archive may also need a person
+/// (cloud_retention.rs), which that step's own answer says.
+fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Outcome {
+    let Outcome::Failed { error, .. } = &outcome else { return outcome };
+    if at(error, "code").as_str() != Some("cloud.machine_cap") {
+        return outcome;
+    }
+    let Some(room) = at(at(error, "details"), "make_room").as_object().and_then(|room| {
+        Some(cap::Room {
+            machine: room.get("machine_id")?.as_str()?.to_owned(),
+            name: room.get("name")?.as_str()?.to_owned(),
+            archive: room.get("how")?.as_str()? == "archive",
+        })
+    }) else {
+        return outcome;
+    };
+    // An archive picks from the Cloud app's own records (keep and last use on every one), never
+    // from the list's rows alone, which have neither.
+    let room = if room.archive {
+        let read = ["apps", "run", "cmux/cloud", "cloud.machine.list", "--args", "{\"limit\":100}"];
+        let records = step_result(&runner.cmux(&read.map(str::to_owned)));
+        match records.ok().and_then(|records| cap::oldest_paused(&cap::machine_rows(&records))) {
+            Some(room) => room,
+            None => {
+                return failed(
+                    "cloud.make_room_failed",
+                    "no paused machine nobody kept could be read to archive; archive one from the \
+                     app's Cloud page, then run this command again",
+                    json!({"make_room": room.json()}),
+                    1,
+                );
+            }
+        }
+    } else {
+        room
+    };
+    if let Err(refused) = step_result(&runner.cmux(&room.command())) {
+        let message = at(&refused, "message").as_str().unwrap_or("it was refused").to_owned();
+        return failed(
+            "cloud.make_room_failed",
+            format!("could not free {} to make room: {message}", room.name),
+            json!({"make_room": room.json(), "app": refused}),
+            1,
+        );
+    }
+    if room.archive {
+        return failed(
+            "cloud.make_room_archiving",
+            format!(
+                "archiving {}: it is deleted once its archive is ready; then run `{}` again",
+                room.name,
+                again_command(request, &request.machine)
+            ),
+            json!({"make_room": room.json()}),
+            1,
+        );
+    }
+    run_once(runner, &Request { make_room: false, ..request.clone() })
+}
+
+fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let deadline = Deadline::of(request, runner.now());
     let mut progress = Progress::default();
     let mut timed = Timed::new(runner);
@@ -1166,8 +1244,12 @@ fn steps(
         "tab_id": at(&started, "tab_id"),
         "host": at(&started, "host"),
         "agent": request.agent,
+        "folder": folder_kind(request.cwd.as_deref(), request.from_folder.as_deref()),
         "follow_up": follow_ups(machine_id, session),
     });
+    if let Some(cwd) = &request.cwd {
+        answer.set("cwd", json!(cwd));
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
 
@@ -1176,6 +1258,16 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
+        // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
+        // a read that fails leaves the answer without `cwd`, never fails a chat that started.
+        if request.cwd.is_none()
+            && !deadline.passed(runner)
+            && let Ok(listed) = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{SESSION_CWD}"))
+            && let Some(cwd) = session_cwd(sections(&listed).get("cwd"), session)
+        {
+            answer.set("cwd", json!(cwd));
+        }
         return Outcome::Done(answer);
     };
     // start-session answered after the deadline: the chat is there, and nothing is sent to it.
@@ -1207,7 +1299,7 @@ fn send_prompt(
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
-            "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+            "{GUEST_PRELUDE}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
              printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
             sid = shell_quote(session),
         )
@@ -1235,7 +1327,7 @@ fn send_prompt(
         }
         uploaded = Some(file.clone());
         format!(
-            "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+            "{GUEST_PRELUDE}{file}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
              echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
              rm -f \"$f\"",
             sid = shell_quote(session),
@@ -1269,6 +1361,9 @@ fn send_prompt(
         );
     }
     answer.set("sent", json!(true));
+    if let Some(cwd) = session_cwd(reported.get("cwd"), session) {
+        answer.set("cwd", json!(cwd));
+    }
     if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
         answer.set("delivery", json!(delivery));
     }
@@ -1656,6 +1751,8 @@ pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
     };
     json!({
         "send": format!("cmux chat send {session} 'PROMPT' --wait"),
+        // Another folder or a repository later, a folderless start's included (chat_cd.rs).
+        "cd": format!("cmux chat cd {session} DIR|--repo OWNER/NAME"),
         "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
         "last": on(format!("{GUEST_CMUX} acp last {session}")),
     })
@@ -1863,9 +1960,19 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
 /// `cloud.machine_cap` or `cloud.spend_cap`: the stop `found` refused, the account's machines in `listed`
 /// and the commands that free one; `app` is what the app answered, its own words included.
 fn cap_refusal(found: cap::Cap, listed: &Value, request: &Request, app: Value) -> Outcome {
-    let (text, mut details) =
+    let (mut text, mut details) =
         cap::at_cap(found, listed, |id| again_command(request, &Machine::Target(id.to_owned())));
+    let room = cap::room(found, at(&app, "details"), listed);
+    if let Some(room) = &room {
+        let how = if room.archive { "archives and deletes" } else { "deletes" };
+        text.push_str(&format!(
+            "\nMake room: `{} --make-room` {how} {} first, then starts.",
+            again_command(request, &request.machine),
+            room.name
+        ));
+    }
     if let Some(fields) = details.as_object_mut() {
+        fields.insert("make_room".to_owned(), room.as_ref().map_or(Value::Null, cap::Room::json));
         fields.insert("app".to_owned(), app);
     }
     failed(cap::code_of(found), text, details, 1)
@@ -1949,7 +2056,7 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, words};
+use support::{at, folder_kind, last_turn, reply, session_cwd, words};
 // `cmux chat cd` reads the same guest script sections.
 pub(in crate::cli) use support::sections;
 

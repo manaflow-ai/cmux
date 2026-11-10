@@ -37,6 +37,7 @@ import {
   type HomeParticipant,
   type HomeLinkPreviewPart,
   type HomeLocation,
+  type HomeWidgetPart,
   type HomePart,
   type HomeQuestion,
   type HomeQuestionItem,
@@ -168,23 +169,34 @@ function part(raw: Json): HomePart {
       if (typeof raw.label === "string" && raw.label) place.label = raw.label;
       return place;
     }
+    case "widget":
+      return widgetPart(raw);
     default:
       return { type: "other", text: unknownPartText(raw) };
   }
 }
 
-/** A part type this page does not draw, as native showed it (HomeCoreMapping): an agent's widget
- * (an app and a fallback) by its fallback text; any other by its link when it carries one, else
- * its type (ConversationPart.plainText). */
+/** A stored `widget` part (Swift `HomeWireMapping` "widget"): without an app or a fallback it reads
+ * as its fallback, else its link, as text. */
+export function widgetPart(raw: Json): HomePart {
+  const fallback = typeof raw.fallback === "string" ? raw.fallback : "";
+  const url = typeof raw.url === "string" && raw.url ? raw.url : undefined;
+  if (typeof raw.app !== "string" || !raw.app || !fallback) return { type: "other", text: fallback || url || "" };
+  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? (raw.props as Json) : {};
+  const widget: HomeWidgetPart = {
+    type: "widget",
+    app: raw.app,
+    widget: typeof raw.widget === "string" && raw.widget ? raw.widget : "cmux.chat.widget/1",
+    props,
+    fallback,
+  };
+  if (url) widget.url = url;
+  return widget;
+}
+
+/** A part type this page does not draw, as native showed it (HomeCoreMapping): by its link when it
+ * carries one, else its type (ConversationPart.plainText). A widget is `widgetPart`'s. */
 export function unknownPartText(raw: Json): string {
-  if (
-    raw.type === "widget" &&
-    typeof raw.app === "string" &&
-    raw.app &&
-    typeof raw.fallback === "string" &&
-    raw.fallback
-  )
-    return raw.fallback;
   if (typeof raw.url === "string" && raw.url) return raw.url;
   return String(raw.type ?? "");
 }
@@ -569,6 +581,8 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   if (result.pinned && typeof raw.pin_position === "number") result.pinPosition = raw.pin_position;
   if (raw.marked_unread === true) result.markedUnread = true;
+  const readers = Object.entries(cursors).filter(([id, seq]) => id !== me && typeof seq === "number" && seq > 0);
+  if (readers.length > 0) result.readCursors = Object.fromEntries(readers.map(([id, seq]) => [id, { seq }]));
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
   // The last message's time orders the list even when it was deleted (a read never moves a row).

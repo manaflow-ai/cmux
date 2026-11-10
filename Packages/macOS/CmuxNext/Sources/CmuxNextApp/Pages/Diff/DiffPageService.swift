@@ -432,7 +432,7 @@ final class DiffPageService: InternalPageProvider {
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
-        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self?.services.feed.acpmuxEnvironment })
+        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self.flatMap { QuitAgents.environment($0.services) } })
         provider.startPreopen()
         tab.page = page
         tab.provider = provider

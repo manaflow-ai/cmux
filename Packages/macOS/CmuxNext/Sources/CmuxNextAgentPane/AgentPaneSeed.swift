@@ -123,6 +123,24 @@ public final class AgentPaneSeedSource {
     /// that fails before its handshake never takes it).
     public var onDraftTaken: (() -> Void)?
 
+    /// The draft a hand-off gives later (``handingOffDraft(_:now:)``): ``take()`` waits for it.
+    private var lateDraft: AgentPaneLateDraft?
+
+    /// A seed whose draft is known only at a hand-off still to come: a Cloud start's chat, whose sending
+    /// tab's composer stays open (Leo, 2026-11-09: "I can't click into the composer at all to, like
+    /// potentially type other stuff while it's doing that initial load situation") until the App closes
+    /// that tab, after the chat's tab is made and its folder trusted. The page's ``take()`` waits for the
+    /// hand-off however long that takes, so nothing typed meanwhile is snapshotted early and dropped:
+    /// the start hands off on every way out (``CloudStartChat`` `openUploaded` gives in a `defer`).
+    /// ``peek()`` never waits. `give(true)` hands off the sending tab's text as `now` reads it then;
+    /// `give(false)` (the start failed) hands off none. The first call counts.
+    public static func handingOffDraft(_ seed: AgentPaneSeed, now: @escaping @MainActor () -> String?)
+        -> (source: AgentPaneSeedSource, give: @MainActor (_ handedOff: Bool) -> Void) {
+        let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft()
+        source.lateDraft = handOff
+        return (source, { handOff.give($0 ? now() : nil) })
+    }
+
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
         self.limit = limit
@@ -179,6 +197,10 @@ public final class AgentPaneSeedSource {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
             surface = value?.surface
+        }
+        if let late = lateDraft {
+            lateDraft = nil
+            if let draft = await late.value(), !draft.isEmpty { value?.draft = draft }
         }
         let seed = value
         if seed?.draft != nil, let taken = onDraftTaken {
@@ -241,5 +263,25 @@ extension AgentPaneSeedSource {
             seed.cloudStartHandoff = handoff
             return seed
         }
+    }
+}
+
+/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:)``).
+@MainActor
+final class AgentPaneLateDraft {
+    private var given: String??
+    private var waiting: [CheckedContinuation<String?, Never>] = []
+
+    func give(_ value: String?) {
+        guard given == nil else { return }
+        given = .some(value)
+        let resumed = waiting
+        waiting = []
+        for continuation in resumed { continuation.resume(returning: value) }
+    }
+
+    func value() async -> String? {
+        if let given { return given }
+        return await withCheckedContinuation { waiting.append($0) }
     }
 }
