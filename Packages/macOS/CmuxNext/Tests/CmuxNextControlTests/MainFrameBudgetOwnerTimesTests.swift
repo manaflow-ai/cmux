@@ -86,6 +86,7 @@ import Testing
         #expect(budget.ownerTimes.first?.maxNanos == 1_000_000)
     }
 
+    /// More owners RUN tasks than the record has slots: the ones that run after the last slot is taken share one row.
     @Test func ownersPastTheRecordsCapacityShareOneSlot() throws {
         let clock = OwnerTimesClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
@@ -95,7 +96,7 @@ import Testing
         }
         let times = budget.ownerTimes
         let overflow = try #require(times.first { $0.owner == MainFrameBudget.overflowOwnerName })
-        // Board index 0 is "no task", so the first capacity - 1 owners have their own slot and the rest share one.
+        // Slot 0 is the shared one, so the first capacity - 1 owners that run have their own slot and the rest share one.
         #expect(overflow.count == owners.count - (MainFrameBudget.ownerTimesCapacity - 1))
         #expect(times.reduce(0) { $0 + $1.count } == owners.count, "no task is lost")
     }
