@@ -654,12 +654,14 @@ export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: numbe
 export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number): Promise<Felt> {
   const sentAt = Date.now();
   const from = chat.received.length;
+  // Only a record the chat did not hold at the send: a page that replays a held seq is not this send's reply.
+  const held = chat.held;
   const promptId = `chaos-felt-${sentAt.toString(36)}`;
   let ack: number | null = null;
   let tries = 0;
   let error = "";
   for (const until = sentAt + deadlineMs; ;) {
-    const hit = chat.received.slice(from).find((r) => isReply(r.record));
+    const hit = chat.received.slice(from).find((r) => r.seq > held && isReply(r.record));
     if (hit) return { felt_ms: hit.at - sentAt, ack_ms: ack, tries, error };
     if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
     if (ack === null) {
@@ -809,6 +811,12 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
     // judged for lost output, so each fails with the reason.
     const chatError = await chat.open(ctx.harness ?? "claude").then(() => "", (e: Error) => e.message)
       || await felt.open(ctx.harness ?? "claude").then(() => "", (e: Error) => `the felt chat: ${e.message}`);
+    // One reply on the felt chat before any fault, so the first fault's felt time holds no cold agent start.
+    const warm = chatError ? null : await feltAfterSend(felt, `${feltMarker(`${safeTag(ctx.tag)}-warm`)} warm up.`, RECOVER_DEADLINE_MS);
+    if (warm) {
+      await turnOutcome(ctx, feltMarker(`${safeTag(ctx.tag)}-warm`), felt.session);
+      ctx.log?.(`chaos: the felt chat's warm-up reply began after ${warm.felt_ms ?? "no"} ms`);
+    }
     if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface}, its felt chat ${felt.session} on ${felt.surface}, each over its own carrier dial`);
     for (const [i, f] of FAULTS.entries()) {
       if (chatError) {

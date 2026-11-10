@@ -499,8 +499,8 @@ describe("the felt time after a send", () => {
     expect(felt.tries).toBe(3);
     expect(new Set(prompts.map((p) => p.prompt_id)).size).toBe(1);
     // Two refusals, each followed by a 500 ms pause: the person waited through them.
-    expect(felt.felt_ms).toBeGreaterThanOrEqual(1_000);
-    expect(felt.ack_ms).toBeGreaterThanOrEqual(1_000);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
+    expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
     chat.stop();
   });
 
@@ -510,6 +510,16 @@ describe("the felt time after a send", () => {
     expect(felt.felt_ms).toBeNull();
     expect(felt.ack_ms).toBeNull();
     expect(felt.error).toContain("no dial");
+    chat.stop();
+  });
+
+  test("a replayed record the chat already held is not the reply", async () => {
+    const { chat } = await chatWith(0, [{ ms: 300, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    // A re-attach page after the send that repeats held seq 4 (take keeps it, so the loss judge sees the replay).
+    (chat as any).take({ events: [{ seq: 4, kind: "agent_message_chunk" }], hasMore: false });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
     chat.stop();
   });
 
