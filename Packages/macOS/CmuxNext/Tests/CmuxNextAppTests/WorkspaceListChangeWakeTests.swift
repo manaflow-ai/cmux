@@ -95,7 +95,7 @@ import Testing
         store.apply(snapshot: Fixture.tree(size))
         let keys = [Fixture.key(size.workspaces)] + (1..<size.workspaces).map(Fixture.key)
         let controller = try #require(services.windows.openWindow(workspaces: keys, frame: CGRect(x: 200, y: 200, width: 1600, height: 900)))
-        defer { controller.teardown(); controller.window?.close() }
+        defer { controller.teardown(); controller.window?.close(); services.closeWindowsForTest() }
         for _ in 0..<50 where controller.workspaceContent == nil { await Fixture.drainMain() }
         try #require(controller.workspaceContent).contentView.layoutSubtreeIfNeeded()
         // The wiring of `AppServices.startNonPaintServices`, alone (that function also starts the updater, SSH and the
@@ -161,7 +161,12 @@ import Testing
             // One hidden workspace (the eleventh) moves to another window: a registry change with no list change.
             let other = "list-change-other"
             let moved = await measure(store) { _ = registry.apply { $0.openWindow(id: other, workspaceIDs: [Fixture.key(11)]) } }
-            try #require(registry.owner(ofWorkspace: Fixture.key(11)) == other, "fixture: the eleventh workspace did not move")
+            let owner = registry.owner(ofWorkspace: Fixture.key(11))
+            // The move goes back before the window closes: a second registered window would take every workspace of
+            // the closed one and get a controller in the teardown (a whole window left open for the later suites).
+            _ = registry.apply { $0.move([Fixture.key(11)], to: controller.state.id) }
+            try #require(owner == other, "fixture: the eleventh workspace did not move")
+            try #require(registry.value.window(other) == nil, "fixture: the other window is still registered")
             return Counts(added: added, closed: closed, moved: moved)
         }
         measured[size] = counts
@@ -214,7 +219,10 @@ import Testing
     @Test(.timeLimit(.minutes(10)))
     func aWorkspaceMovedToAnotherWindowNamesItsOwnLinkPlacesOnly() async throws {
         for size in Self.sizes {
-            let woken = try await Self.counts(size).moved.wakes(of: Self.linkPlaces)
+            let moved = try await Self.counts(size).moved
+            let woken = moved.wakes(of: Self.linkPlaces)
+            #expect(moved.total <= Self.wakeBound,
+                    "one workspace moved to another window in a session of \(size.workspaces) woke \(moved.total) observers (bound \(Self.wakeBound))")
             #expect(woken >= 1, "one workspace moved to another window at \(size.rawValue) woke no link-place observation (its name is stale)")
             #expect(woken <= Self.linkPlaceBound,
                     "one workspace moved to another window in a session of \(size.workspaces) named the link places of \(woken) workspaces again (bound \(Self.linkPlaceBound))")
