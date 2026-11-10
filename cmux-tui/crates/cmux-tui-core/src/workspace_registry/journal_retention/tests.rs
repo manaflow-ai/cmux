@@ -331,3 +331,27 @@ fn the_floor_never_goes_below_what_retention_deleted() {
     reducer_at(&registry, AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION, 3_000);
     assert_eq!(floor(&registry), deleted);
 }
+
+/// The swap at open records the floor of its cut. A sealed segment at or
+/// below that floor can stay in the table. The delete of that segment must
+/// not move the floor in `meta` down: a cursor between the two values would
+/// read a hole and get no `cursor.gap`.
+#[test]
+fn a_higher_floor_in_meta_survives_retention() {
+    let mut registry = registry(|_| OLD);
+    let higher = 20 * SEGMENT_RECORDS;
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![PRUNED_THROUGH_META_KEY, higher.to_string()],
+        )
+        .unwrap();
+    assert!(
+        registry.prune_oldest_journal_segment(higher).unwrap(),
+        "setup: a segment at or below the floor stayed"
+    );
+    assert_eq!(registry.journal_pruned_through().unwrap(), higher);
+}
