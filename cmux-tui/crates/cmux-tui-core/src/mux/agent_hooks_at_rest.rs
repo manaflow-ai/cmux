@@ -17,7 +17,8 @@
 //! work from memory (presence with the tool's target, the activity stream)
 //! and its caller still gets a receipt: the one of the journal row that holds
 //! the session's durable facts, marked `replayed` because this report added
-//! nothing to it.
+//! nothing to it. A retry (the same origin and idempotency key) gets its first
+//! answer again and has no second effect.
 //!
 //! A row is still appended when it carries something durable:
 //!
@@ -34,7 +35,7 @@
 //! terminal is appended again, and the roster folds to the same state because
 //! the rows left out never changed it.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use super::*;
 
@@ -42,6 +43,9 @@ use super::*;
 const AT_REST_KIND: &str = "agent.state.changed";
 /// Subject lists kept per terminal (one per agent-tree node that reported).
 const MAX_SUBJECT_LISTS: usize = 512;
+/// Idempotency keys remembered per terminal, so a hook's retry is told apart
+/// from a new report.
+const MAX_RECENT_KEYS: usize = 64;
 
 /// What the journal already holds of the agent session in one terminal.
 #[derive(Debug)]
@@ -62,6 +66,23 @@ struct HookSlot {
     /// The highest sequence noted: commits can finish out of order.
     noted_sequence: u64,
     stored: Option<StoredHookFacts>,
+    /// The latest reports by origin and idempotency key, with the answer of
+    /// each one that got no row (`None`: the report was appended, and the
+    /// registry holds its receipt).
+    recent: VecDeque<(String, Option<crate::JournalAppendCommit>)>,
+}
+
+impl HookSlot {
+    fn remember(&mut self, key: String, answer: Option<crate::JournalAppendCommit>) {
+        if self.recent.len() >= MAX_RECENT_KEYS {
+            self.recent.pop_front();
+        }
+        self.recent.push_back((key, answer));
+    }
+}
+
+fn receipt_key(origin: &str, idempotency_key: &str) -> String {
+    format!("{origin}\n{idempotency_key}")
 }
 
 /// The durable facts one hook report carries for the history fold.
@@ -189,6 +210,8 @@ impl Mux {
     pub(super) fn answer_agent_hook_at_rest(
         &self,
         ingress: &crate::JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
     ) -> Option<crate::JournalAppendCommit> {
         if ingress.kind != AT_REST_KIND {
             return None;
@@ -206,8 +229,14 @@ impl Mux {
         }
         // Held through the presence change: a later row of this terminal (a
         // turn's end) waits here, so its presence change comes after this one.
-        let terminals = self.agent_hooks_at_rest.terminals();
-        let slot = terminals.get(&facts.terminal)?;
+        let mut terminals = self.agent_hooks_at_rest.terminals();
+        let slot = terminals.get_mut(&facts.terminal)?;
+        // A retry gets its first answer and has no second effect; the retry
+        // of an appended report goes to the registry, which holds its receipt.
+        let key = receipt_key(origin, idempotency_key);
+        if let Some((_, answer)) = slot.recent.iter().find(|(recent, _)| *recent == key) {
+            return answer.clone();
+        }
         let stored = slot.stored.as_ref().filter(|_| slot.in_flight == 0)?;
         if !stored.holds(&facts) {
             return None;
@@ -217,6 +246,7 @@ impl Mux {
             event_id: stored.event_id.clone(),
             replayed: true,
         };
+        slot.remember(key, Some(commit.clone()));
         self.activity.note_agent_action();
         self.apply_live_agent_presence(ingress);
         Some(commit)
@@ -238,10 +268,13 @@ impl Mux {
         &self,
         ingress: &crate::JournalIngress,
         commit: &crate::JournalAppendCommit,
+        origin: &str,
+        idempotency_key: &str,
     ) {
         let Some(facts) = HookFacts::of(ingress) else { return };
         let mut terminals = self.agent_hooks_at_rest.terminals();
         let slot = terminals.entry(facts.terminal.clone()).or_default();
+        slot.remember(receipt_key(origin, idempotency_key), None);
         if commit.sequence <= slot.noted_sequence {
             return;
         }
