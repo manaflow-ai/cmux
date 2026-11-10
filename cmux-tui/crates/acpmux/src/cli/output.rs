@@ -1173,6 +1173,18 @@ async fn collect_once(
     {
         reply = logged;
     }
+    // The reply is its own turn's, read from the log by the turn id its answer names: the
+    // stream also carries the words of a turn it was queued behind, and its answer can come
+    // before the last updates it heard are read. Empty when its turn said nothing. A log that
+    // no longer reaches the turn's start (or an older daemon's answer without a turn id) keeps
+    // the reply heard.
+    if !prompt.resend
+        && steered.turn().is_none()
+        && let Some(turn) = result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str)
+        && let Some(logged) = before_deadline(deadline, id, turn_reply(&client, id, turn)).await?
+    {
+        reply = logged;
+    }
     // A resent prompt id streams nothing: its turn already ran, so read the
     // reply of that turn (not necessarily the newest) from the log.
     if prompt.resend {
