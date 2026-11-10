@@ -1510,6 +1510,38 @@ mod prompt_tests {
         drop(dir);
     }
 
+    /// A send queued behind another client's running turn hears that turn's words too: its reply
+    /// is its own turn's only, empty when its turn says nothing (`send -q`, `--json`, `run`).
+    /// Before, it was the running turn's text.
+    #[tokio::test]
+    async fn a_queued_sends_reply_is_its_own_turns_not_the_turn_before_it() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        // "slow" streams "tick0 tick1 tick2" for about a second.
+        queue_prompt(client.clone(), &id, "slow", false, None, &PromptId::new(None)).await.unwrap();
+        let path = dir.path().join("d.sock");
+        let other = Client::connect(&path).await.unwrap();
+        let opts = CollectOpts {
+            timeout: Some(20),
+            deadline: None,
+            on_permission: OnPermission::Deny,
+            stall_secs: 0,
+            retries: 0,
+            steer: false,
+        };
+        let quiet = PromptId::new(None);
+        let got = collect_reply(other, &id, "quiet-tool", opts, &quiet).await.unwrap();
+        assert!(!got.reply.contains("tick"), "the turn before's words: {:?}", got.reply);
+        assert_eq!(got.reply, "", "its own turn said nothing");
+        let session = hub.resolve(&id).unwrap();
+        assert_eq!(session.meta().turn_count, 2);
+        drop(dir);
+    }
+
     /// A reply holds at most `hub::MAX_PAGE_BYTES` of a chat's history: the CLI reads on through
     /// the older pages for the replies it asked for, past 12 MB of tool output.
     #[tokio::test]
