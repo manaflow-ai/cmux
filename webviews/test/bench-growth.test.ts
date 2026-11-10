@@ -13,7 +13,13 @@ const samples = (heap: (op: number) => number, nodes: (op: number) => number, li
 
 describe("growthPerOp", () => {
   test("a leak of 50 KB and 12 nodes a switch is that slope", () => {
-    const growth = growthPerOp(samples((op) => 9000 + 50 * op, (op) => 3000 + 12 * op, (op) => 40 + op));
+    const growth = growthPerOp(
+      samples(
+        (op) => 9000 + 50 * op,
+        (op) => 3000 + 12 * op,
+        (op) => 40 + op,
+      ),
+    );
     expect(growth).toEqual({ heapKbPerOp: 50, nodesPerOp: 12, listenersPerOp: 1 });
   });
 
@@ -28,7 +34,14 @@ describe("growthPerOp", () => {
   });
 
   test("it needs three samples", () => {
-    expect(() => growthPerOp(samples(() => 1, () => 1).slice(0, 2))).toThrow();
+    expect(() =>
+      growthPerOp(
+        samples(
+          () => 1,
+          () => 1,
+        ).slice(0, 2),
+      ),
+    ).toThrow();
   });
 });
 
