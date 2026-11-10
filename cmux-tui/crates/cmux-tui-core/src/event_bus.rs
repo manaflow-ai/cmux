@@ -111,6 +111,7 @@ enum CoalescedEventKey {
     ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+    Bell(SurfaceId),
 }
 
 impl MuxEventBroadcaster {
@@ -366,6 +367,11 @@ impl MuxEventMailbox {
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
+            // A bell that is still pending says all a later one would: a burst of them
+            // takes one slot, so it can never overflow the subscriber.
+            event @ MuxEvent::Bell(surface) => {
+                state.push_coalesced(sequence, CoalescedEventKey::Bell(surface), event)
+            }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
                 CoalescedEventKey::ConfigReload,
@@ -452,6 +458,7 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        self.discard_coalesced(CoalescedEventKey::Bell(surface));
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
