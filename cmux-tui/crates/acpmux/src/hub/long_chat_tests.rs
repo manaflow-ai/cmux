@@ -175,3 +175,43 @@ fn per_turn_reads(turns: u64, print: bool) -> Vec<String> {
     let _ = std::fs::remove_dir_all(&root);
     over
 }
+
+/// Session Info of a fork of a long chat keeps its history a reference: the saved fold is written
+/// at the fork's folder path, which copies none of the chat's records into the fork (review of
+/// #39975, F1: `session_dir` would write the whole history into the fork first).
+#[test]
+fn a_forks_session_info_never_copies_its_chats_history() {
+    let root = std::env::temp_dir().join(format!("acpmux-long-fork-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        let log = long_log(20);
+        for rec in &log {
+            writer.append("chat", rec).unwrap();
+        }
+        let meta = |id: &str, last: u64| -> SessionMeta {
+            let mut meta: SessionMeta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "fake",
+                "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+            }))
+            .unwrap();
+            meta.last_seq = last;
+            meta
+        };
+        let last = log.last().unwrap().seq;
+        writer.save(&meta("chat", last)).unwrap();
+        let mut fork = meta("fork", last);
+        fork.history_from =
+            Some(crate::store::HistoryRef { session: "chat".into(), through_seq: last });
+        writer.save(&fork).unwrap();
+        writer.flush().unwrap();
+    }
+    let hub = hub_over(&sessions);
+    let fork = hub.resolve("fork").unwrap();
+    let breakdown = hub.session_detail(&fork)["timeBreakdown"].clone();
+    assert!(breakdown.is_object(), "{breakdown}");
+    assert!(fork.meta().history_from.is_some(), "the fork's history is still a reference");
+    let copied = sessions.join("fork").join("events").join("000000.ndjson");
+    assert!(!copied.exists(), "the chat's history was copied into the fork");
+    let _ = std::fs::remove_dir_all(&root);
+}

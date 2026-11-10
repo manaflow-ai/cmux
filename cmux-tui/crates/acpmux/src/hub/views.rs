@@ -461,7 +461,7 @@ impl Hub {
         session: &Session,
     ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
         use crate::hub::time_breakdown::{FILE, SAVE_AFTER, State};
-        let path = self.store.session_dir(&session.id).map(|dir| dir.join(FILE));
+        let path = self.store.session_path(&session.id).map(|dir| dir.join(FILE));
         {
             let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
             if state.initialized {
