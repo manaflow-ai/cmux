@@ -408,8 +408,8 @@ impl Mux {
                 AfterTurn::Nothing
             };
             // The turn and the Kitty expectation are given back here, before
-            // what is left. The wait for the new shell's prompt (up to 10 s,
-            // `prefill.rs`) held the turn: the terminals of a restored
+            // what is left. The wait for the new shell's prompt (10 s and
+            // more, `prefill.rs`) held the turn: the terminals of a restored
             // session came back a few at a time, each wave a prompt wait
             // after the one before. The next try of a failed launch takes
             // its own turn and expectation.

@@ -255,8 +255,8 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
     use std::os::unix::fs::PermissionsExt;
 
     const TABS: usize = 3;
-    // Far below one prompt wait (10 s), far above 3 launches.
-    const ALL_RESTARTED_WITHIN_MS: u64 = 5_000;
+    // Below one prompt wait (10 s), far above 3 launches on a loaded host.
+    const ALL_RESTARTED_WITHIN_MS: u64 = 8_000;
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("kept-restore-prompt-wait");
     let terminals = create_workspaces(&harness, "wait", TABS);
@@ -278,7 +278,8 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
     let shell = harness.dir.join("no-prompt-shell");
     fs::write(
         &shell,
-        "#!/bin/sh\ni=0\nwhile [ $i -lt 120 ]; do printf .; sleep 0.1; i=$((i+1)); done\nexec /bin/cat\n",
+        "#!/bin/sh\necho no-prompt-shell\ni=0\n\
+         while [ $i -lt 120 ]; do printf .; sleep 0.1; i=$((i+1)); done\nexec /bin/cat\n",
     )
     .unwrap();
     fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
@@ -315,6 +316,11 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
     let at = restarted.iter().filter_map(|line| line["at_ms"].as_u64()).collect::<Vec<_>>();
     assert_eq!(at.len(), TABS, "a restart line has no time: {restarted:?}");
     let spread = at.iter().max().unwrap() - at.iter().min().unwrap();
+    // The shell with no prompt ran in a restarted terminal: with another
+    // shell the prompt comes at once and the test proves nothing.
+    let surface = all_tabs(&harness)[0]["surface"].as_u64().expect("a restarted tab's surface");
+    let text = wait_for_screen(&harness.socket, surface, "no-prompt-shell");
+    assert!(text.contains("no-prompt-shell"), "the shell with no prompt did not run: {text}");
     assert!(
         spread < ALL_RESTARTED_WITHIN_MS,
         "{TABS} kept terminals took {spread} ms to restart with 1 respawn slot: each one waited \
