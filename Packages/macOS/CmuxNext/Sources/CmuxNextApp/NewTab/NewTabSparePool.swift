@@ -306,8 +306,8 @@ final class NewTabSparePool {
     private(set) var lastRecycleRefusal: String?
 
     func recycle(_ view: AgentPaneView) -> Bool {
-        lastRecycleRefusal = refusal(of: view) ?? (returns.arrived(view, in: parking) ? nil : "not in the window")
-        guard lastRecycleRefusal == nil else { return false }
+        lastRecycleRefusal = refusal(of: view)
+        guard lastRecycleRefusal == nil, returns.arrived(view, in: parking, of: target) else { lastRecycleRefusal = lastRecycleRefusal ?? "not in the window"; return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
             slot.parked(view)

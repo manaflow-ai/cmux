@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Closed New Tab pages on their way back to the spare pool (CmuxNextApp's `NewTabSparePool`). A pane drops a closed
 /// tab's page in the close's turn; the pool gets it only when the tab's release comes, after the store's answer.
@@ -32,12 +32,16 @@ public final class AgentPaneSpareReturns {
         return true
     }
 
-    /// The pool takes `view` as a spare now: true when it is in `parking`, sized with it as every spare. It waits no
-    /// more. False for a page that is not there (its pane was in another window, or it left the window): the pool
-    /// holds no spare that a Cmd-T would attach to the window in the key's turn.
-    public func arrived(_ view: AgentPaneView, in parking: NSView) -> Bool {
+    /// The pool takes `view` as a spare now: true when it is in `parking`, or in a pane of `window` (its tab's release
+    /// came before its pane dropped it), which moves it there now, inside the window. It is sized with the parking
+    /// view as every spare, and waits no more. False for a page of another window or of none: the pool holds no
+    /// spare that a Cmd-T would attach to the window in the key's turn.
+    public func arrived(_ view: AgentPaneView, in parking: NSView, of window: NSWindow?) -> Bool {
         waiting.removeAll { $0.view == nil || $0.view === view }
-        guard view.superview === parking else { return false }
+        if view.superview !== parking {
+            guard let window, view.window === window, parking.window === window else { return false }
+            parking.addSubview(view)
+        }
         if view.frame != parking.bounds { view.frame = parking.bounds }
         view.autoresizingMask = [.width, .height]
         return true
