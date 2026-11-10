@@ -13,7 +13,7 @@ const scales: Scale[] = process.env.STRESS_SCALE === "god" ? ["small", "god"] : 
 
 for (const scale of scales)
   for (const [name, run] of Object.entries(SCENARIOS))
-    test(`${name} (${scale}) grows nothing per operation after warm-up`, async () => {
+    test(`${name} (${scale}) keeps nothing per operation past its band after warm-up`, async () => {
       const growth = await run({ scale });
       console.log(
         `${name} ${scale}: heap ${growth.perOp.heapBytes.toFixed(0)} B/op, objects ${growth.perOp.objects.toFixed(1)}/op, ` +

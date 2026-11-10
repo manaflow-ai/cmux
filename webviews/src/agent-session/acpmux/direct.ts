@@ -6457,22 +6457,27 @@ export class AcpmuxDirectClient {
   private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
     const generation = this.selectionGeneration;
     // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
-    // `turn_error` come just before its result, so only a result ends the turn before. A turn
-    // older than the records held is read from the oldest one held: the part shown is repaired.
-    let start: number | undefined;
-    let before = false;
+    // `turn_error` come just before its result, so only a result ends the turn before. The read
+    // starts right after that result, not at the turn's first prompt held: a prompt that never
+    // reached the pane (lost, or overtaken by its `turn_started` and dropped as stale) was the
+    // turn's first record, so a read from the first one held never brought it back and the turn
+    // drew without its prompt (test/transcript-delivery-property.test.ts). A turn older than the
+    // records held is read from the oldest one held: the part shown is repaired.
+    let afterSeq: number | undefined;
     for (let index = this.events.length - 1; index >= 0; index--) {
       const event = this.events[index]!;
       if (event.seq >= endSeq) continue;
       if (event.dir === "mux" && event.kind === "turn_result") {
-        before = true;
+        afterSeq = event.seq;
         break;
       }
-      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
     }
-    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
-    if (start === undefined || start >= endSeq) return;
-    const afterSeq = start - 1;
+    if (afterSeq === undefined) {
+      const oldest = this.events[0]?.seq;
+      if (oldest === undefined || oldest >= endSeq) return;
+      afterSeq = oldest - 1;
+    }
+    if (afterSeq + 1 >= endSeq) return;
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
         if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;

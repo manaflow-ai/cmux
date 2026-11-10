@@ -2,8 +2,8 @@
 // Growth per operation of the pane's state layer, small and god side by side (bench/stateGrowth.ts): each scenario
 // repeats one operation that should leave nothing behind and fits a line over full-GC samples after warm-up.
 //   bun bench/state-growth.bench.ts [OPS] [--scale small|god|both] [--only a,b]
-// Prints a table, then one PERF_ROW per scenario, scale and series (bytes, objects and entries per operation; target
-// 0 slope within the stated band), and exits 1 when any slope is over its band.
+// Prints a table, then one PERF_ROW per scenario, scale and series (bytes, objects and entries per operation; the
+// target is the slope's band), and exits 1 when any slope is over its band. perf-cron.py's web-ui-growth part runs it.
 /// <reference types="bun" />
 import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 import { SCENARIOS, type Growth } from "./stateGrowth";
@@ -35,21 +35,23 @@ for (const [name, run] of Object.entries(SCENARIOS)) {
   }
 }
 
-const row = (name: string, value: number, unit: string, floor: number): PerfRow => ({
+/// A slope's row: its target is the band it is held to (noise, plus what streamed records weigh where a scenario
+/// streams), so over target is what fails the bench; the band is its noise floor too.
+const row = (name: string, value: number, unit: string, band: number): PerfRow => ({
   name,
   p50: Math.max(0, value),
   p95: Math.max(0, value),
   unit,
-  target: 0,
-  floor,
+  target: Math.round(band * 100) / 100,
+  floor: Math.round(band * 100) / 100,
   clock: "cpu",
 });
 for (const growth of results) {
   const base = `state_growth.${growth.scale === "god" ? "god." : ""}${growth.scenario.replaceAll("-", "_")}`;
   for (const each of [
-    row(`${base}.heap_bytes_per_op`, growth.perOp.heapBytes, "bytes", 4096),
-    row(`${base}.objects_per_op`, growth.perOp.objects, "objects", 40),
-    row(`${base}.entries_per_op`, growth.perOp.entries, "entries", 0.05),
+    row(`${base}.heap_bytes_per_op`, growth.perOp.heapBytes, "bytes", growth.bands.heapBytes),
+    row(`${base}.objects_per_op`, growth.perOp.objects, "objects", growth.bands.objects),
+    row(`${base}.entries_per_op`, growth.perOp.entries, "entries", growth.bands.entries),
   ])
     console.log(PERF_ROW_MARK + JSON.stringify(each));
 }
