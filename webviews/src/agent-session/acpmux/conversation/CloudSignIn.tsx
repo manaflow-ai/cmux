@@ -16,7 +16,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
-import { LoginStepError, takesApiKey, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
+import {
+  LoginStepError,
+  takesApiKey,
+  type CloudSignIn as SignIn,
+  type LoginFailure,
+  type LoginStart,
+} from "../cloudAgentLogin";
 import { cancelResize, playResize } from "./fold";
 import { motionMode } from "../../../ui/motion/motionMode";
 
@@ -33,7 +39,11 @@ type Stage =
   | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
 
 /// What the card's lead says: the agent's own name, as the person knows it.
-const SIGN_IN_LABEL = { claude: "turn.signIn.claude", codex: "turn.signIn.codex", cursor: "turn.signIn.cursor" } as const;
+const SIGN_IN_LABEL = {
+  claude: "turn.signIn.claude",
+  codex: "turn.signIn.codex",
+  cursor: "turn.signIn.cursor",
+} as const;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   bad_code: "turn.signIn.error.badCode",
