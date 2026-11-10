@@ -137,7 +137,13 @@ pub fn plan(state: &State, reason: Reason) -> Plan {
     // The timer keeps one warm only while Cloud is in use; a call or an intent always may.
     let in_use =
         reason != Reason::Timer || state.last_use.is_some_and(|at| state.now - at < IDLE_STOP_MS);
-    let wake_in = held.map(|held| (held.refresh_at - state.now).max(0));
+    // The timer wakes at the refresh time, or after a failed refresh when the backoff ends; never while idle.
+    let retry_in = backing_off
+        .then(|| state.failed_at.map(|at| at + RETRY_AFTER_MS - state.now))
+        .flatten()
+        .unwrap_or(0);
+    let wake_in =
+        held.filter(|_| in_use).map(|held| (held.refresh_at - state.now).max(retry_in).max(0));
     Plan { send, fetch: due && !backing_off && in_use, wake_in }
 }
 

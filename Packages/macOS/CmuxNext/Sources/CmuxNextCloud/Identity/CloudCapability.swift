@@ -147,7 +147,8 @@ public actor CloudCapabilityHolder {
     /// token's team or the held one is due. Returns once that mint (if any) has answered.
     public func intent() async {
         lastUse = now()
-        guard let bearer = try? await token() else { return }
+        let bound = generation
+        guard let bearer = try? await token(), bound == generation else { return }
         let team = teamOf(bearer)
         if ask(.intent, team: team)?.fetch == true { startMint(bearer: bearer, team: team) }
         await minting?.value
@@ -186,6 +187,7 @@ public actor CloudCapabilityHolder {
         minting = nil
         guard let answer, let next = rules.mint(answer.status, answer.body, team, now()) else {
             failed = (now(), team)
+            schedule() // a held one's refresh retries when the backoff ends (Rust's plan), while Cloud is in use
             return
         }
         held = next
