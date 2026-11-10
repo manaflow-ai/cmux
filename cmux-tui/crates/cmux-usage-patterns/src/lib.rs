@@ -222,21 +222,28 @@ pub struct WriterSummary {
     pub updated: u64,
 }
 
-/// Every writer's file in `dir`, merged (at most [`MAX_WRITERS`] files; an
-/// unreadable one is skipped).
+/// Every writer's file in `dir`, merged (the [`MAX_WRITERS`] most recently
+/// written; an unreadable one is skipped).
 pub fn read_dir(dir: &Path) -> Readout {
     let mut readout = Readout { dir: dir.display().to_string(), ..Readout::default() };
     let Ok(entries) = std::fs::read_dir(dir) else {
         return readout;
     };
-    let mut files: Vec<PathBuf> = entries
+    // The newest MAX_WRITERS files: a machine with many short-lived sessions (tagged builds)
+    // keeps one file each, and the readout stays bounded by reading the most recent.
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .map(|path| {
+            let modified =
+                std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+            (modified, path)
+        })
         .collect();
-    files.sort();
+    files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     files.truncate(MAX_WRITERS);
-    for path in files {
+    for (_, path) in files {
         let Some(rollup) = std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Rollup>(&bytes).ok())
