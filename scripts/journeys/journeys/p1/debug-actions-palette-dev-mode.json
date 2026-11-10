@@ -259,9 +259,13 @@
       ]
     },
     {
-      "do": "key",
-      "key": "escape",
-      "modifiers": []
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "escape",
+        "modifiers": [],
+        "target": "palette"
+      }
     },
     {
       "do": "expect",
@@ -516,9 +520,13 @@
       ]
     },
     {
-      "do": "key",
-      "key": "escape",
-      "modifiers": []
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "escape",
+        "modifiers": [],
+        "target": "palette"
+      }
     },
     {
       "do": "settings_file",
