@@ -33,16 +33,16 @@ fn hub() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
-            "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+            "fake": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]},
+            "kin": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"], "family": "kin"},
             // A family whose adapter reports no modes, so none that asks.
-            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_ASK_CLAIM": "0"}},
+            "bare": {"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_ASK_CLAIM", "0"], "family": "bare"},
             // A family whose default policy is wider than an asking starter's.
-            "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
+            "lax": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"], "family": "lax"},
             // The starter's family, with a session/new that takes a while.
-            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_FULL_ACCESS": "1", "FAKE_NEW_DELAY_MS": "1500"}},
+            "slow": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_NEW_DELAY_MS", "1500"], "family": "fake"},
             // The starter's family, with mode changes that take a while.
-            "sticky": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "2000"}},
+            "sticky": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_SET_MODE_DELAY_MS", "2000"], "family": "fake"},
         },
         "defaults": {"lax": {"policy": "approve-all"}},
         "defaultHarness": "fake",
@@ -426,10 +426,10 @@ fn hub_yolo() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
-            "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+            "fake": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]},
+            "kin": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"], "family": "kin"},
             // A family with a plan mode that asks, as Claude's: "default", "plan" and full access.
-            "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "claude", "FAKE_FULL_ACCESS": "1"}},
+            "planner": {"argv": ["python3", FAKE, "--fake", "FAKE_PLAN_MODE", "claude", "--fake", "FAKE_FULL_ACCESS", "1"], "family": "planner"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",

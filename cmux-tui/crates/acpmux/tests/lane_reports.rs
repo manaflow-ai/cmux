@@ -47,11 +47,10 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             // Steers as Claude Code does: a prompt during a turn is read into it.
-            "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
+            "steer": {"argv": ["python3", FAKE, "--fake", "FAKE_CLAUDE_STEER", "1"], "family": "fake"},
             // A turn on a lane report runs until it is cancelled.
-            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_UNTIL_CANCEL_IN": " · turn "}},
-            "steer-slow": {"argv": ["python3", FAKE], "family": "fake",
-                           "env": {"FAKE_CLAUDE_STEER": "1", "FAKE_UNTIL_CANCEL_IN": " · turn "}},
+            "slow": {"argv": ["python3", FAKE, "--fake", "FAKE_UNTIL_CANCEL_IN", " · turn "], "family": "fake"},
+            "steer-slow": {"argv": ["python3", FAKE, "--fake", "FAKE_CLAUDE_STEER", "1", "--fake", "FAKE_UNTIL_CANCEL_IN", " · turn "], "family": "fake"},
             // Starts no more once the file `FLAKY_MARK` names exists. Each variant is of the
             // starter's family, so a lane started from a `fake` parent inherits its mode.
             "flaky": {"argv": ["sh", "-c", "[ -e \"$FLAKY_MARK\" ] && exit 1; exec python3 \"$0\"", FAKE], "family": "fake",

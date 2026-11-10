@@ -2153,8 +2153,7 @@ async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate()
         Daemon::with_env("stallterm", "ask", &[("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")]);
     daemon.sigterm();
     daemon.key = Some(KEY.to_owned());
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_PLAN_MODE": "1",
-                      "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_PLAN_MODE", "1", "--fake", "FAKE_FULL_ACCESS", "1", "--fake", "FAKE_SET_MODE_DELAY_MS", "1500"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -2362,7 +2361,7 @@ async fn a_host_a_daemon_left_while_it_started_ends_under_mdm_off_by_the_argv_it
     let mut rpc = daemon.rpc().await;
     // The profile is pinned to full access now; its agent takes 4 s to initialize.
     let pinned =
-        json!({"argv": ["python3", FAKE, "--yolo"], "env": {"FAKE_INIT_DELAY_MS": "4000"}});
+        json!({"argv": ["python3", FAKE, "--yolo", "--fake", "FAKE_INIT_DELAY_MS", "4000"]});
     let config =
         json!({"harnesses": {"fake": pinned}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -2451,7 +2450,7 @@ async fn an_end_that_could_not_read_the_host_records_is_tried_again() {
     ];
     let mut daemon = Daemon::with_env("mdmrecfail", "ask", &env);
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_MODE_OPTION": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_MODE_OPTION", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -2655,7 +2654,7 @@ async fn a_retained_host_that_moved_itself_into_full_access_ends_once_mdm_turns_
     daemon.sigterm();
     std::fs::write(
         daemon.home.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}}}, "defaultHarness": "fake", "permissionPolicy": "ask"}).to_string(),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1"]}}, "defaultHarness": "fake", "permissionPolicy": "ask"}).to_string(),
     )
     .unwrap();
     daemon.start();
@@ -2683,7 +2682,7 @@ async fn a_retained_host_that_moved_itself_into_full_access_ends_once_mdm_turns_
 async fn left_in_bypass(tag: &str, then: Option<&str>) -> (Daemon, String, i64) {
     let mut daemon = Daemon::new(tag, "ask");
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -2904,8 +2903,7 @@ async fn a_full_access_mode_reported_during_a_load_ends_a_left_host_under_mdm_of
 async fn a_forks_answer_does_not_hide_its_parents_full_access_under_mdm_off() {
     let mut daemon = Daemon::new("mdmforkans", "ask");
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
-                      "FAKE_MODE_OPTION": "1", "FAKE_FORK_DEFAULTS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_MODE_OPTION", "1", "--fake", "FAKE_FORK_DEFAULTS", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -2989,7 +2987,7 @@ async fn a_full_access_report_counts_before_it_is_applied_under_mdm_off() {
     let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500")];
     let mut daemon = Daemon::with_env("mdmunapplied", "ask", &delay);
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -3030,7 +3028,7 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "2000")];
     let mut daemon = Daemon::with_env("mdmlatereport", "ask", &delay);
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -3110,8 +3108,7 @@ async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
         ("null", false, "mdmnulllive"),
         ("null", true, "mdmnullrestart"),
     ] {
-        let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
-                          "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": bare}});
+        let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_MODE_OPTION", "1", "--fake", "FAKE_BARE_OPTION_ANSWER", bare]});
         let (mut daemon, mut rpc) = proven_daemon(tag, fake, &[]).await;
         let session = new_session(&daemon).await;
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
@@ -3155,9 +3152,7 @@ async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
 /// took: under MDM's off that agent ends, also once an earlier off read its log back.
 #[tokio::test]
 async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
-                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1",
-                      "FAKE_OPTION_REPORT_FIRST": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_MODE_OPTION", "1", "--fake", "FAKE_BARE_OPTION_ANSWER", "1", "--fake", "FAKE_OPTION_REPORT_FIRST", "1"]});
     let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "800")];
     let (daemon, mut rpc) = proven_daemon("mdmoptorder", fake, &delay).await;
     let session = new_session(&daemon).await;
@@ -3187,8 +3182,7 @@ async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
 /// kept for the next agent to replay.
 #[tokio::test]
 async fn a_null_options_answer_is_saved_as_before() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
-                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "null"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1", "--fake", "FAKE_MODE_OPTION", "1", "--fake", "FAKE_BARE_OPTION_ANSWER", "null"]});
     let (mut daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
     let session = new_session(&daemon).await;
     let full = json!({"sessionId": session,
@@ -3217,7 +3211,7 @@ async fn a_null_options_answer_is_saved_as_before() {
 /// `ACPMUX_TEST_UPDATE_DELAY_MS`).
 #[tokio::test]
 async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_mdm_off() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500")];
     let (mut daemon, mut rpc) = proven_daemon("mdmreplay", fake, &delay).await;
     let session = new_session(&daemon).await;
@@ -3266,7 +3260,7 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
 /// behind that entry.
 #[tokio::test]
 async fn a_report_a_host_numbers_after_its_hello_is_judged_before_adoption_under_mdm_off() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (mut daemon, mut rpc) = proven_daemon("mdmresume", fake, &[]).await;
     let session = new_session(&daemon).await;
     let first = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
@@ -3308,7 +3302,7 @@ async fn a_report_a_reattached_host_numbers_after_its_hello_is_judged_under_mdm_
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"strict\"")];
     let mut daemon = Daemon::with_env("mdmrelinkresume", "ask", &env);
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -3381,7 +3375,7 @@ async fn a_mode_a_reattached_host_replays_is_judged_before_its_agent_is_reached_
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
     let mut daemon = Daemon::with_env("mdmrelink", "ask", &env);
     daemon.sigterm();
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let config =
         json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
     std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
@@ -3419,7 +3413,7 @@ async fn a_host_reattached_while_mdm_is_unset_is_judged_by_its_replay_at_the_nex
         ("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\""),
         ("ACPMUX_TEST_UPDATE_DELAY_MS", "2000"),
     ];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmrelinkunset", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3457,7 +3451,7 @@ async fn a_host_reattached_while_mdm_is_unset_is_judged_by_its_replay_at_the_nex
 /// loop has not applied the replayed update yet (`ACPMUX_TEST_UPDATE_DELAY_MS`).
 #[tokio::test]
 async fn an_off_pushed_while_a_left_host_is_adopted_judges_its_replay() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let env = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500"), ("ACPMUX_TEST_ADOPT_HOLD_MS", "3000")];
     let (mut daemon, mut rpc) = proven_daemon("mdmadoptrace", fake, &env).await;
     let session = new_session(&daemon).await;
@@ -3502,7 +3496,7 @@ async fn an_off_pushed_while_a_left_host_is_adopted_judges_its_replay() {
 #[tokio::test]
 async fn a_host_whose_link_broke_ends_when_mdm_turns_full_access_off() {
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmbroken", fake, &env).await;
     let session = new_session(&daemon).await;
     // An asking mode: only the report this daemon never logs puts the agent in full access.
@@ -3529,7 +3523,7 @@ async fn a_host_whose_link_broke_ends_when_mdm_turns_full_access_off() {
 #[tokio::test]
 async fn a_link_that_breaks_under_mdm_off_ends_its_agent_at_once() {
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmbreaklate", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3555,7 +3549,7 @@ async fn a_failed_end_of_an_unheard_agent_is_tried_again_by_the_next_push() {
         ("ACPMUX_TEST_STALL_HOST_TERMINATE", "1"),
         ("ACPMUX_TEST_HOST_END_FAILS", "once"),
     ];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmendretry", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3581,7 +3575,7 @@ async fn a_failed_end_of_an_unheard_agent_is_tried_again_by_the_next_push() {
 #[tokio::test]
 async fn a_prompt_on_an_unheard_agent_settles_when_mdm_ends_it() {
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmendprompt", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3600,7 +3594,7 @@ async fn a_prompt_on_an_unheard_agent_settles_when_mdm_ends_it() {
 /// ends at once, without waiting for a request, a push or the idle period.
 #[tokio::test]
 async fn a_link_lost_under_mdm_off_ends_its_agent_at_once() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmlinklost", fake, &[]).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3629,7 +3623,7 @@ async fn a_link_lost_under_mdm_off_ends_its_agent_at_once() {
 #[tokio::test]
 async fn a_link_that_breaks_while_its_agent_starts_under_mdm_off_ends_it() {
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmbreakstart", fake, &env).await;
     let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
     assert_eq!(pushed["applied"], true, "{pushed}");
@@ -3658,7 +3652,7 @@ async fn a_link_that_breaks_while_its_agent_starts_under_mdm_off_ends_it() {
 #[tokio::test]
 async fn an_off_pushed_after_a_link_broke_while_its_agent_started_ends_it() {
     let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmbreakthenoff", fake, &env).await;
     let mut starts = daemon.rpc().await;
     prove(&mut starts).await;
@@ -3688,7 +3682,7 @@ async fn an_off_pushed_after_a_link_broke_while_its_agent_started_ends_it() {
 #[tokio::test]
 async fn a_held_reader_of_a_lost_link_leaves_the_reattached_link_heard() {
     let env = [("ACPMUX_TEST_READER_STOP_HOLD_MS", "3000")];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmheldreader", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3719,7 +3713,7 @@ async fn a_held_reader_of_a_lost_link_leaves_the_reattached_link_heard() {
 /// the chat it answered is not marked disconnected, and its host runs on.
 #[tokio::test]
 async fn an_ack_failure_with_mdm_unset_leaves_its_chat_as_before() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
     let (daemon, mut rpc) = proven_daemon("mdmackunset", fake, &env).await;
     let session = new_session(&daemon).await;
@@ -3750,7 +3744,7 @@ async fn a_late_notice_of_a_reattached_link_leaves_its_requests_alone() {
         ("ACPMUX_TEST_UNLOGGED_ONCE", "unheard-marker"),
         ("ACPMUX_TEST_LINK_BROKEN_DELAY_MS", "5000"),
     ];
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let (daemon, mut rpc) = proven_daemon("mdmlatebreak", fake, &env).await;
     let session = new_session(&daemon).await;
     rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
@@ -3782,7 +3776,7 @@ async fn a_late_notice_of_a_reattached_link_leaves_its_requests_alone() {
 /// it moves itself into full access unseen.
 #[tokio::test]
 async fn an_agent_whose_ack_failed_ends_under_mdm_off() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let fake = json!({"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"]});
     let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
     let (daemon, mut rpc) = proven_daemon("mdmackfail", fake, &env).await;
     let session = new_session(&daemon).await;

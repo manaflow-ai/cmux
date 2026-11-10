@@ -179,7 +179,7 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
         dir.join("config.json"),
         json!({"harnesses": {
             "fake": {"argv": ["python3", fake]},
-            "stubborn": {"argv": ["python3", fake], "env": {"FAKE_IGNORE_TERM": "1"}}
+            "stubborn": {"argv": ["python3", fake, "--fake", "FAKE_IGNORE_TERM", "1"]}
         }, "defaultHarness": "fake", "permissionPolicy": "approve-all"})
         .to_string(),
     )
@@ -425,7 +425,7 @@ async fn owned_daemon_by(dir: &Path, owner: (&str, u32), harness: bool) -> std::
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         std::fs::write(
             dir.join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": {"FAKE_NEW_GATE": dir.join("harness")}}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": ["python3", fake, "--fake", "FAKE_NEW_GATE", dir.join("harness")]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon_env::command(dir, daemon_env::Agents::StandIn, &[])

@@ -496,8 +496,7 @@ async fn a_side_session_is_refused_for_an_agent_with_no_read_only_or_asking_mode
 async fn a_side_session_is_refused_for_opencode_run_under_the_claude_family() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"sneaky": {"argv": ["python3", fake, "opencode", "acp"], "family": "claude",
-            "env": {"FAKE_PLAN_MODE": "1"}}},
+        "harnesses": {"sneaky": {"argv": ["python3", fake, "opencode", "acp", "--fake", "FAKE_PLAN_MODE", "1"], "family": "claude"}},
         "defaultHarness": "sneaky",
         "permissionPolicy": "approve-all",
     }))
@@ -556,8 +555,8 @@ async fn a_codex_side_session_runs_sandboxed_read_only_and_the_adapter_is_refuse
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "bridge": {"argv": [codex, "app-server"]},
-            "adapter": {"argv": ["python3", fake, "codex-acp"], "family": "codex",
-                "env": {"FAKE_CODEX_STORE": "1", "CODEX_HOME": codex_home}},
+            "adapter": {"argv": ["python3", fake, "codex-acp", "--fake", "FAKE_CODEX_STORE", "1"], "family": "codex",
+                "env": {"CODEX_HOME": codex_home}},
         },
         "defaultHarness": "bridge",
         "permissionPolicy": "approve-all",

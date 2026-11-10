@@ -24,7 +24,7 @@ fn hub() -> Arc<Hub> {
         // idle (ACP; Claude Code's interrupt and Codex do). The stand-in otherwise keeps a cancel
         // that came while idle and stops its next prompt with it: a cancel acpmux sent for a
         // turn it fenced before the write then stopped `later-person` 12 times in 16.
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_RESET_CANCEL_ON_PROMPT": "1"}}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE, "--fake", "FAKE_RESET_CANCEL_ON_PROMPT", "1"]}},
         "defaultHarness": "fake",
         "webRoots": [std::env::temp_dir()],
         // A peer's dispatch runs only a harness with a reviewed asking mode (`remote_guard.rs`).

@@ -84,6 +84,23 @@ import os
 import threading
 import time
 
+# --fake KEY VALUE (any number of them): a setting of this fake, read as env var KEY. acpmux
+# believes an agent's asksBeforeTools claim only when every env name of its config entry is a
+# reviewed one (src/hub/claim_basis.rs), so a test gives the FAKE_* settings of this claiming fake
+# on its command line. They leave sys.argv, so "argv" still answers the harness's own words.
+def _take_fake_settings():
+    kept, words = sys.argv[:1], iter(sys.argv[1:])
+    for word in words:
+        if word == "--fake":
+            key = next(words)
+            os.environ[key] = next(words)
+        else:
+            kept.append(word)
+    sys.argv[:] = kept
+
+
+_take_fake_settings()
+
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()

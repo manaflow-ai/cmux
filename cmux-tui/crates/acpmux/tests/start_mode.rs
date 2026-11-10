@@ -57,7 +57,7 @@ fn home(name: &str, extra: Value) -> PathBuf {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
             // Says nothing about asking (`FAKE_ASK_CLAIM=0`): it cannot keep a policy.
-            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
+            "plain": {"argv": ["python3", FAKE_AGENT, "--fake", "FAKE_ASK_CLAIM", "0"]},
             // The same agent, which says it asks before every tool call (the fake's default,
             // `agentCapabilities._meta.acpmux.asksBeforeTools`).
             "asker": {"argv": ["python3", FAKE_AGENT]},
@@ -1667,7 +1667,7 @@ mod claim_launch {
     /// started from, so the claim is not believed.
     #[tokio::test]
     async fn a_claim_is_not_believed_once_its_presets_env_changed() {
-        let presets = json!({"presets": {"asked": {"harness": "asker", "env": {"W5L": "1"}}}});
+        let presets = json!({"presets": {"asked": {"harness": "asker", "env": {"NO_COLOR": "1"}}}});
         let dir = home("claim-preset", presets);
         let daemon = hub(&dir);
         let mut app = Client::app(&daemon).await;
@@ -1680,7 +1680,7 @@ mod claim_launch {
             .await;
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
         let mut cfg = daemon.config.write().await;
-        cfg.presets.get_mut("asked").expect("preset").env.insert("W5L".into(), "2".into());
+        cfg.presets.get_mut("asked").expect("preset").env.insert("NO_COLOR".into(), "2".into());
         drop(cfg);
         let why = narrowed_why(&mut app, &id).await;
         assert!(why.contains("entry_changed"), "{why}");
@@ -1690,13 +1690,13 @@ mod claim_launch {
     /// The harness's `defaults` env changed after the agent started: the same.
     #[tokio::test]
     async fn a_claim_is_not_believed_once_its_defaults_env_changed() {
-        let defaults = json!({"defaults": {"asker": {"env": {"W5L": "1"}}}});
+        let defaults = json!({"defaults": {"asker": {"env": {"NO_COLOR": "1"}}}});
         let dir = home("claim-defaults", defaults);
         let daemon = hub(&dir);
         let mut app = Client::app(&daemon).await;
         let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
         let mut cfg = daemon.config.write().await;
-        cfg.defaults.get_mut("asker").expect("defaults").env.insert("W5L".into(), "2".into());
+        cfg.defaults.get_mut("asker").expect("defaults").env.insert("NO_COLOR".into(), "2".into());
         drop(cfg);
         let why = narrowed_why(&mut app, &id).await;
         assert!(why.contains("entry_changed"), "{why}");
