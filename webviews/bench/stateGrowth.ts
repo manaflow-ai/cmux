@@ -362,6 +362,8 @@ export type Growth = {
   ops: number;
   ms: number;
   perOp: { heapBytes: number; objects: number; entries: number; timers: number };
+  /// The bands the slopes were held to (with what the streamed records weigh, for a scenario that streams).
+  bands: Bands;
   /// The paths whose size grew over the measured samples, with how much per operation.
   grew: [string, number][];
   failures: string[];
@@ -401,7 +403,7 @@ export function judge(scenario: string, scale: Scale, samples: Sample[], warm: n
     failures.push(`grew: ${grew.slice(0, 6).map(([path, rate]) => `${path} +${rate.toFixed(2)}/op`).join(", ")}`);
   if (failures.length && types.length)
     failures.push(`cells: ${types.slice(0, 6).map(([type, rate]) => `${type} +${rate.toFixed(1)}/op`).join(", ")}`);
-  return { scenario, scale, ops: kept.at(-1)?.op ?? 0, ms, perOp, grew, failures };
+  return { scenario, scale, ops: kept.at(-1)?.op ?? 0, ms, perOp, bands, grew, failures };
 }
 
 // ---------- scenarios ----------
@@ -696,8 +698,11 @@ export async function dayReplay(options: ScenarioOptions): Promise<Growth> {
   const failures: string[] = [];
   if (second.perOp.timers > DEFAULT_BANDS.timers)
     failures.push(`day-replay/${options.scale}: timers grow ${second.perOp.timers.toFixed(2)} per turn`);
+  // The day's bands: what a turn added in the first half, a quarter more, and the noise band.
+  const bands: Bands = { ...DEFAULT_BANDS };
   for (const key of ["entries", "objects", "heapBytes"] as const) {
     const limit = Math.max(0, first.perOp[key]) * 1.25 + DEFAULT_BANDS[key];
+    bands[key] = limit;
     if (second.perOp[key] > limit)
       failures.push(
         `day-replay/${options.scale}: ${key} per turn grew from ${first.perOp[key].toFixed(1)} to ` +
@@ -706,7 +711,7 @@ export async function dayReplay(options: ScenarioOptions): Promise<Growth> {
   }
   if (failures.length && second.grew.length)
     failures.push(`grew: ${second.grew.slice(0, 6).map(([path, rate]) => `${path} +${rate.toFixed(2)}/turn`).join(", ")}`);
-  return { ...second, ops: turns, perOp: second.perOp, failures };
+  return { ...second, ops: turns, perOp: second.perOp, bands, failures };
 }
 
 export const SCENARIOS = { sessionChurn, chatReopen, reconnectMidStream, toolOutputStream, dayReplay } as const;

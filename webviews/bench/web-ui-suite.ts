@@ -101,7 +101,7 @@ export const BENCHES: readonly Bench[] = [
   },
   // The pane's state layer kept per operation that should keep nothing (sessions made and closed, chats reopened,
   // reconnects mid-stream, a shell's output streaming), small and god side by side: bytes, objects and entries per
-  // operation after warm-up (bench/stateGrowth.ts). Run with `--only state-growth`.
+  // operation after warm-up (bench/stateGrowth.ts). perf-cron.py's web-ui-growth part runs it (`--only state-growth`).
   {
     name: "state-growth",
     file: "state-growth.bench.ts",
