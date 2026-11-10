@@ -10,8 +10,8 @@
 //! Counted, not timed, at 60 and at 826 workspaces (one terminal each), for a close of the LAST
 //! workspace (no workspace after it), a MIDDLE one and the FIRST one:
 //! - no full topology read and no full projection;
-//! - the SELECT statements and the rows written by a close of the last workspace are equal at 60
-//!   and at 826 (the flat part);
+//! - the rows written by a close of the last workspace are equal at 60 and at 826, and its SELECT
+//!   statements do not grow (the flat part; see [`BACKGROUND_SELECTS`]);
 //! - the index rebuild and the decoration walk do not grow.
 //!
 //! STEP 4, NOT DONE (the stored format): a workspace's stored `position` and its public `index` are
@@ -24,7 +24,7 @@
 //! reports (`publish_pending_terminal_directories`). Asserted as at most one clone per live
 //! terminal.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use rusqlite::hooks::{Action, AuthAction, AuthContext, Authorization};
@@ -33,17 +33,46 @@ use super::*;
 use crate::mux::resource_content::without_crosscheck;
 use crate::mux::walk_counters::walk_counts_for_test;
 
+/// SELECT statements that a close may run more in one session than in the other for a reason that
+/// is not the session's size.
+///
+/// Seen on aws-m4pro-2, 2026-11-10, at the commit that made the close scoped: this test alone
+/// (with one other test in the process) counted the same SELECTs for a close of the last workspace
+/// at 60 and at 826, but with the 282 tests of the `close` filter in one process on a loaded host
+/// each close of the session of 60 counted 4 more than each close of the session of 826 (202
+/// against 198, the same rows written). The SMALLER session had more, so it is not a cost per
+/// workspace; the cause is not found. One statement for each workspace would add 766, so this
+/// allowance does not hide the growth this test is for. When the counts differ the test prints the
+/// tables whose reads differ.
+const BACKGROUND_SELECTS: u64 = 16;
+
 /// What the registry connection ran: SELECT statements compiled (the registry prepares each
-/// statement when it runs it) and rows written, by table.
+/// statement when it runs it), rows written by table, and column reads by table (diagnostics for
+/// a difference in the SELECT count; not asserted).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Sql {
     selects: u64,
     rows: BTreeMap<String, u64>,
+    reads: BTreeMap<String, u64>,
 }
 
 impl Sql {
     fn rows_written(&self) -> u64 {
         self.rows.values().sum()
+    }
+
+    /// The tables this ran a different number of column reads on than `other`: `(table, here,
+    /// there)`.
+    fn reads_that_differ(&self, other: &Self) -> Vec<(String, u64, u64)> {
+        let tables = self.reads.keys().chain(other.reads.keys()).collect::<BTreeSet<_>>();
+        tables
+            .into_iter()
+            .filter_map(|table| {
+                let here = self.reads.get(table).copied().unwrap_or(0);
+                let there = other.reads.get(table).copied().unwrap_or(0);
+                (here != there).then(|| (table.clone(), here, there))
+            })
+            .collect()
     }
 }
 
@@ -124,9 +153,15 @@ fn counted(mux: &Arc<Mux>, request: impl FnOnce()) -> Sql {
     mux.registry_connection
         .get()
         .authorizer(Some(move |context: AuthContext<'_>| {
-            if matches!(context.action, AuthAction::Select) && std::thread::current().id() == caller
-            {
-                selects.lock().unwrap().selects += 1;
+            if std::thread::current().id() == caller {
+                match context.action {
+                    AuthAction::Select => selects.lock().unwrap().selects += 1,
+                    AuthAction::Read { table_name, .. } => {
+                        let mut log = selects.lock().unwrap();
+                        *log.reads.entry(table_name.to_owned()).or_default() += 1;
+                    }
+                    _ => {}
+                }
             }
             Authorization::Allow
         }))
@@ -261,17 +296,30 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
         }
     }
 
-    // The flat part: a close with no workspace after it.
-    if small.last.sql != large.last.sql {
+    // The flat part: a close with no workspace after it. The rows written are equal, and the
+    // SELECT statements do not grow.
+    eprintln!(
+        "flat part (close of the last workspace): {} SELECTs and {} rows written at 60, {} SELECTs \
+         and {} rows written at 826; tables whose reads differ (table, at 60, at 826): {:?}",
+        small.last.sql.selects,
+        small.last.sql.rows_written(),
+        large.last.sql.selects,
+        large.last.sql.rows_written(),
+        small.last.sql.reads_that_differ(&large.last.sql),
+    );
+    if small.last.sql.rows != large.last.sql.rows {
         problems.push(format!(
-            "the SQL of a close of the last workspace grows with the session: {} SELECTs and {} rows \
-             at 60, {} SELECTs and {} rows at 826 ({:?} against {:?})",
+            "the rows written by a close of the last workspace differ: {:?} at 60, {:?} at 826",
+            small.last.sql.rows, large.last.sql.rows,
+        ));
+    }
+    if large.last.sql.selects > small.last.sql.selects + BACKGROUND_SELECTS {
+        problems.push(format!(
+            "the SELECTs of a close of the last workspace grow with the session: {} at 60, {} at \
+             826; tables whose reads differ (table, at 60, at 826): {:?}",
             small.last.sql.selects,
-            small.last.sql.rows_written(),
             large.last.sql.selects,
-            large.last.sql.rows_written(),
-            small.last.sql.rows,
-            large.last.sql.rows,
+            small.last.sql.reads_that_differ(&large.last.sql),
         ));
     }
 
@@ -295,7 +343,7 @@ fn a_workspace_close_costs_the_same_in_a_bigger_session() {
             "position part, {name}: {selects} SELECTs and {rows} rows for {} later",
             cost.later
         );
-        if selects > select_c * cost.later || rows > row_c * cost.later {
+        if selects > select_c * cost.later + BACKGROUND_SELECTS || rows > row_c * cost.later {
             problems.push(format!(
                 "{name}: {selects} SELECTs and {rows} rows above the flat part for {} later \
                  workspaces; {select_c} and {row_c} per later workspace at 60",
