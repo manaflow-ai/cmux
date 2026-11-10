@@ -53,9 +53,9 @@ fn with_snapshot_watch(request: impl FnOnce() -> Value) -> (Value, bool) {
 
 /// How many times `request` took the session's state lock on this thread.
 fn state_locks_of(request: impl FnOnce()) -> u64 {
-    let before = crate::mux::state_locks_taken_on_this_thread();
+    let before = state_locks_taken_on_this_thread();
     request();
-    crate::mux::state_locks_taken_on_this_thread() - before
+    state_locks_taken_on_this_thread() - before
 }
 
 /// Tables that no list of one collection has a use for.
