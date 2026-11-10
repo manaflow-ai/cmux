@@ -312,12 +312,37 @@ jobs:
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
+          # Every file under .git, by name and bytes (the check step below repeats it).
+          git_dir_digest() {
+            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
+          }
+          # First, so a step that fails before the fixer starts (npm, the prompt) still leaves the check a digest.
+          git_dir_digest > "$RUNNER_TEMP/git-dir.before"
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
-          claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
-            --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
-            --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
+          # .git is never the fixer's: a .git/config key (core.fsmonitor, a filter, http.proxy, url.*.insteadOf) or
+          # a hook would run or redirect the git commands after it, which hold APP_TOKEN (and actions/checkout's post
+          # step, which holds github.token). So the fixer works in a copy of the tracked files with no .git, its
+          # tools may not touch a .git, only its edits to tracked files come back, and the next step fails the run
+          # (and removes .git) when .git changed anyway.
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+          tree="$RUNNER_TEMP/fixer-tree"
+          rm -rf "$tree"
+          mkdir -p "$tree"
+          git ls-files -z > "$RUNNER_TEMP/tracked.z"
+          tar --null -T "$RUNNER_TEMP/tracked.z" -cf - | tar -xf - -C "$tree"
+          touch "$RUNNER_TEMP/fixer-start"
+          (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
+            --allowedTools "Read,Edit,Glob,Grep" \
+            --disallowedTools "Bash,WebFetch,WebSearch,Edit(.git/**),Write(.git/**)" \
+            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json"
+          (cd "$tree" && find . -type f -newer "$RUNNER_TEMP/fixer-start" -print0) | while IFS= read -r -d '' path; do
+            path="${path#./}"
+            grep -qxzF -- "$path" "$RUNNER_TEMP/tracked.z" || continue
+            [ -f "$path" ] && [ ! -L "$path" ] || continue
+            cp -- "$tree/$path" "$path"
+          done
           # Isolated (-I): the root, where the fixer writes, is not on the import path.
           python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
@@ -334,19 +359,39 @@ jobs:
           print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
           PY
 
+      # Runs whenever the fixer ran, even when it failed or timed out: a .git that
+      # changed while it ran is removed (actions/checkout's post step then
+      # leaves it alone), and the run uses nothing the fixer did.
+      - name: Check that the fixer left .git alone
+        id: gitdir
+        if: ${{ always() && steps.fixer.outcome != 'skipped' && steps.fixer.outcome != '' }}
+        run: |
+          set -euo pipefail
+          git_dir_digest() {
+            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
+          }
+          if [ ! -s "$RUNNER_TEMP/git-dir.before" ] || [ "$(git_dir_digest)" != "$(cat "$RUNNER_TEMP/git-dir.before")" ]; then
+            rm -rf .git
+            echo "::error::.git changed while the fixer ran (or was never measured); nothing the fixer did is used."
+            exit 1
+          fi
+
       # A fixer that did not finish (no token, an outage) decides nothing:
       # no fix and no revert, and the culprit comment still stands.
       # Every file git does not track goes first: a fix commits tracked files
       # only (commit -a), and a module the fixer added (json.py at the root or
       # beside a script) must not be imported by the python3 runs below, which
       # hold APP_TOKEN. They also run isolated (-I).
+      # Every git command from here on runs with no fsmonitor, no hook and no
+      # global or system config, whatever .git or HOME holds.
       - name: Keep only a small mechanical diff
         id: diff
-        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
+        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.gitdir.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
         env:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
           set -euo pipefail
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
           git clean -ffdxq
           changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
           files="$(git diff --name-only | wc -l | tr -d ' ')"
@@ -389,6 +434,8 @@ jobs:
           REVERT_LABEL: compile-revert
         run: |
           set -euo pipefail
+          # No fsmonitor and no hook in any git command here (the diff step above says why).
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
           python3 -I scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
             --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
           field() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }

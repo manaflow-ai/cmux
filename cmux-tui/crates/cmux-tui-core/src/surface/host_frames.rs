@@ -412,6 +412,31 @@ mod tests {
         assert_eq!(clear.recv().unwrap().kind, MessageKind::ClearHistoryAck);
     }
 
+    /// A cell-pixel request whose caller stopped waiting (a deferred waiter)
+    /// still owns its acknowledgement when that acknowledgement is queued at
+    /// the end of the stream: the surface's reader resolves it in order.
+    #[test]
+    fn end_of_stream_keeps_a_deferred_cell_pixel_waiter_whose_ack_is_queued() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let _deferred = responses.wait_for_test(7, MessageKind::CellPixelSizeAck);
+        assert!(responses.defer_cell_pixel(7, (9, 18)));
+        let queue = queue();
+        let stream = stream_of(&[
+            frame(MessageKind::CellPixelSizeAck, 7, version),
+            frame(MessageKind::Exit, 0, version),
+        ]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert!(
+            responses.has_waiter(7),
+            "the deferred cell-pixel waiter was failed before its queued acknowledgement"
+        );
+        let state = queue.state.lock().unwrap();
+        assert!(state.ended);
+        let queued = state.frames.front().expect("the CellPixelSizeAck frame was not queued");
+        assert!(responses.resolve(queued), "the queued acknowledgement found no waiter");
+    }
+
     /// After `abandon`, ordered frames are discarded instead of queued, so a
     /// backlog larger than the queue budget cannot delay an acknowledgement.
     #[test]

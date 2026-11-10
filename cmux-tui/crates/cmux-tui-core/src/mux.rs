@@ -8,6 +8,8 @@ mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+#[cfg(all(test, unix))]
+mod terminal_event_lock_order_tests;
 mod terminal_last_command;
 mod terminal_reap;
 
@@ -273,6 +275,16 @@ type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 #[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
+#[cfg(test)]
+type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) + Send + Sync>;
+
+/// The terminal event a [`TerminalEventPublishHook`] observes.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalEventPublication {
+    Title,
+    Bell,
+}
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
@@ -1639,13 +1651,33 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement (the unplaced-terminal reaper).
-    Unplaced,
+    /// The terminal has no tab placement and no client holds an attach
+    /// stream on it (the unplaced-terminal reaper). The close checks both
+    /// once it holds its locks, so an attach that lands before then keeps
+    /// the terminal (feat `UnplacedNotKeptAndDetached`).
+    UnplacedAndDetached,
+}
+
+impl TerminalCloseGuard {
+    /// The close needs the terminal without a placement.
+    pub(crate) fn requires_unplaced(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The close needs no attach stream on the terminal.
+    pub(crate) fn requires_detached(self) -> bool {
+        matches!(self, Self::UnplacedAndDetached)
+    }
 }
 
 /// The close guard did not hold, so nothing changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
+pub(crate) enum TerminalCloseGuardFailed {
+    /// The terminal has a placement.
+    Placed,
+    /// A client holds an attach stream on the terminal.
+    Attached,
+}
 
 impl fmt::Display for TerminalCloseGuardFailed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2652,6 +2684,10 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs when a terminal title or bell publication starts, before it
+    /// resolves placements under `state`.
+    #[cfg(test)]
+    terminal_event_publish_hook: Mutex<Option<TerminalEventPublishHook>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -3089,6 +3125,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            terminal_event_publish_hook: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -7658,12 +7696,16 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Title, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
         }
     }
 
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Bell, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));
         }
@@ -10212,6 +10254,20 @@ impl Mux {
     }
 
     #[cfg(test)]
+    fn set_terminal_event_publish_hook(&self, hook: Option<TerminalEventPublishHook>) {
+        *self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    #[cfg(test)]
+    fn run_terminal_event_publish_hook(&self, kind: TerminalEventPublication, surface: SurfaceId) {
+        let hook =
+            self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(hook) = hook {
+            hook(kind, surface);
+        }
+    }
+
+    #[cfg(test)]
     fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.client_resize_before_apply.lock().unwrap() = hook;
     }
@@ -10750,16 +10806,25 @@ impl Mux {
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if guard == TerminalCloseGuard::Unplaced {
-                let placed = {
+            if guard.requires_unplaced() {
+                let (placed, attached) = {
                     let state = self.state.lock().unwrap();
-                    state.surfaces.values().any(|surface| {
+                    let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
+                    };
+                    let placed = state.surfaces.values().any(&hosts);
+                    let attached = guard.requires_detached()
+                        && state.terminal_catalog.values().any(|runtime| {
+                            hosts(runtime) && self.terminal_view_attached(runtime.id)
+                        });
+                    (placed, attached)
                 };
                 if placed {
-                    return Err(TerminalCloseGuardFailed.into());
+                    return Err(TerminalCloseGuardFailed::Placed.into());
+                }
+                if attached {
+                    return Err(TerminalCloseGuardFailed::Attached.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;
