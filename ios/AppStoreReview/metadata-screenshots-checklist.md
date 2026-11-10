@@ -22,10 +22,9 @@ complete in App Store Connect or in the submitted binary.
 - [ ] ASC notes explain the Mailinator one-time-code flow when a Mailinator demo
       account is used. The exact demo email and public inbox URL live only in
       ASC.
-- [ ] The canonical pasteable notes block in `reviewer-setup.md` is pasted into
-      ASC notes with every placeholder replaced, keeping the manual pairing
-      fallback section whenever automatic discovery can fail. `review-notes.md`
-      is reference-only and is not pasted into ASC.
+- [ ] App Review notes come from `review-notes-asc.txt`; `ios-app-store.yml`
+      writes them every run (`asc_review_package.py sync-notes`), filling the
+      demo account, public inbox and contact from App Store Connect.
 - [ ] Backend services needed by the demo account are live before submission.
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
@@ -62,7 +61,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] `/api/billing/portal?cmux_distribution=appstore` redirects before resolving Stack users or creating Stripe portal state.
 - [ ] iOS purchases use StoreKit only (Go, Pro, Max in "cmux Plans") and the plans screen has Restore Purchases, Manage Subscription, auto-renewal terms, and working Terms of Use (`https://cmux.com/terms-of-service`) and Privacy Policy (`https://cmux.com/privacy-policy`) links.
 - [ ] The App Store description names the subscriptions and links the Terms of Use and Privacy Policy (Guideline 3.1.2).
-- [ ] Each subscription the app offers has an App Review screenshot of the plans screen and is attached to the version submission. Submit Go only while the production Go flag shows it in the app; a product the reviewer cannot find is a rejection.
+- [ ] Each subscription the app offers has an App Review screenshot of the plans screen and is attached to the version submission. `subscriptions.json` lists the submitted products; Go joins only when the production Go flag shows it to the review account, since a product the reviewer cannot find is a rejection. `verify-submission` checks exactly those entered review.
 - [ ] The demo account has no Stripe or team billing, so the plans screen offers purchases to the reviewer.
 
 ## Permissions and Privacy
@@ -76,10 +75,9 @@ complete in App Store Connect or in the submitted binary.
 - [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
 - [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
 - [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
-- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working
-      demo credentials, concrete Mailinator inbox, automatic review-Mac status,
-      concrete Tailscale fallback when needed, and monitored contact. These live
-      values stay out of git.
+- [ ] App Store Connect holds the demo account (a `@mailinator.com` address, or
+      notes that already carry its public inbox URL) and a monitored contact
+      email and phone; `sync-notes` fails naming any that is empty.
 
 ## ASC Validation Commands
 

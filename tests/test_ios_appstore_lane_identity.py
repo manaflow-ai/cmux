@@ -711,6 +711,11 @@ if args[:2] == ["versions", "list"]:
     print(json.dumps({"data": [{"id": "version-1.0.0"}]}))
     sys.exit(0)
 
+if args and args[0] == "validate" and "json" in args:
+    # The validation report the readiness gate reads (asc_review_package.py gate).
+    print(os.environ.get("CMUX_FAKE_ASC_VALIDATE_REPORT", json.dumps({"checks": []})))
+    sys.exit(0)
+
 sys.exit(0)
 """,
     )

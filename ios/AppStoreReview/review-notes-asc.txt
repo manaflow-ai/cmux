@@ -1,0 +1,35 @@
+cmux for iOS is a companion app for the cmux macOS terminal. You do not need a Mac, a VPN or any network setup to review it: the demo account opens a Demo Mac with sample workspaces, terminals and notifications right after sign-in.
+
+Prior review resolutions:
+- Guideline 2.5.2 (submission 99c2f5b0-5940-41d4-a02b-fd222d2eeeca): the app does not download or execute code on iPhone or iPad. It shows terminal UI and sends input to the user's own Mac, where commands run.
+- System VPN API (submission 40f744df-e0fc-4782-9dac-aa0c79281b9f): the App Store binary contains no packet tunnel extension and no Network Extension or VPN entitlement.
+- Guidelines 2.1(a) and 2.1(b), November 7: "Scan Pairing Code" now opens the scanner on a first install, the connect page has Skip, and the demo account goes straight from onboarding to its Demo Mac. The subscription plans are reachable from Settings > Account > Plan.
+- Guideline 1.5: the Support URL is https://cmux.com/support.
+
+Sign in:
+1. Launch cmux and sign in with email.
+2. Enter the demo account email, {{DEMO_ACCOUNT_EMAIL}} (also in the demo account field), and tap "Email me a code".
+3. There is no password. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no account or password needed). The newest email's subject contains the code. If no code arrives within two minutes, request a new one in the app.
+
+Review path:
+1. After sign-in, onboarding shows "Your Mac is connected". Tap Open Workspaces.
+2. Computers shows "Demo Mac". Open any workspace.
+3. The terminal accepts input. Type: echo app-review-ok
+   It prints: app-review-ok
+4. Notifications are optional. Enable phone notifications from Settings to see the opt-in prompt, then disable them from the same screen.
+
+Subscriptions:
+- cmux Pro and cmux Max are monthly auto-renewable subscriptions in the "cmux Plans" group, sold only through In-App Purchase.
+- Open Settings > Account > Plan. The plans screen shows each plan with its App Store price, Restore Purchases, Manage Subscription, the auto-renewal terms, and links to the Terms of Use (https://cmux.com/terms-of-service) and Privacy Policy (https://cmux.com/privacy-policy).
+- The demo account has no web subscription, so the purchase buttons are enabled. Purchases use the Sandbox Apple Account on the review device; the server verifies the signed transaction and grants the plan to the signed-in account.
+- The app has no external checkout or billing links.
+
+Permissions, each requested only when you start the feature:
+- Local Network: pairing with and syncing a user's own Mac.
+- Camera: scanning a pairing QR code.
+- Microphone and Speech Recognition: voice transcription in the message box.
+- Photos: attaching a selected photo to a message.
+
+Account deletion: Settings > Account > Delete Account.
+
+Contact during review: {{REVIEW_CONTACT_EMAIL}}, {{REVIEW_CONTACT_PHONE}}

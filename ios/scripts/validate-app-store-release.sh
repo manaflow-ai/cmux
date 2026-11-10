@@ -190,10 +190,21 @@ if [[ "$PREPARE_SUBMISSION" -eq 1 ]]; then
     "$build_flag" "$BUILD_ID"
 fi
 
-validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output table)
+# Reports go to JSON and through asc_review_package.py gate, which fails on every
+# blocking finding except the ones ios/AppStoreReview/subscriptions.json explains
+# (a product submitted with this version is READY_TO_SUBMIT until it is; a
+# product left out of this version is not reviewed). asc's own exit status is
+# not the verdict: in strict mode it is nonzero for those expected states too.
+REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-appstore-validate.XXXXXX")"
+trap '[[ -n "${build_json:-}" ]] && rm -f "$build_json"; rm -rf "$REPORT_DIR"' EXIT
+gate_args=(--app "$APP" gate)
+[[ "$STRICT" -eq 1 ]] && gate_args+=(--strict)
+
+validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output json)
 [[ "$STRICT" -eq 1 ]] && validate_args+=(--strict)
 note "running canonical App Store readiness validation for $APP $VERSION"
-asc "${validate_args[@]}"
+asc "${validate_args[@]}" > "$REPORT_DIR/version.json" || true
+gate_args+=(--report "$REPORT_DIR/version.json")
 
 if [[ -d "$METADATA_DIR" ]]; then
   note "validating local metadata at $METADATA_DIR"
@@ -215,10 +226,14 @@ fi
 if [[ "$VALIDATE_DIGITAL_GOODS" == "1" ]]; then
   note "validating IAP and subscription readiness"
   asc validate iap --app "$APP" --output table
-  asc validate subscriptions --app "$APP" --output table
+  asc validate subscriptions --app "$APP" --output json > "$REPORT_DIR/subscriptions.json" || true
+  gate_args+=(--report "$REPORT_DIR/subscriptions.json")
 else
   note "skipping IAP/subscription validation (CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS=0); the App Store build sells StoreKit subscriptions, so only skip for a dry run"
 fi
+
+note "readiness gate over every validation report"
+python3 "$SCRIPT_DIR/asc_review_package.py" "${gate_args[@]}"
 
 if [[ "$STAGE_DRY_RUN" -eq 1 ]]; then
   [[ -n "$BUILD_ID" ]] || die "--stage-dry-run requires --build-id or --build-number"
@@ -246,6 +261,10 @@ if [[ "$SUBMIT_DRY_RUN" -eq 1 || "$SUBMIT_REQUESTED" -eq 1 ]]; then
     note "submitting the prepared App Store version for review"
   fi
   asc "${submit_args[@]}"
+  if [[ "$SUBMIT_REQUESTED" -eq 1 ]]; then
+    note "checking that exactly the manifest's subscriptions entered review with the version"
+    python3 "$SCRIPT_DIR/asc_review_package.py" --app "$APP" verify-submission
+  fi
 fi
 
 note "validation package complete"

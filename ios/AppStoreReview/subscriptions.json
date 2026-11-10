@@ -1,0 +1,13 @@
+{
+  "_comment": "Which App Store subscriptions go to App Review with this version. ios/scripts/asc_review_package.py reads it: the strict readiness gate accepts READY_TO_SUBMIT only for submit_with_version products, and after a submission it checks that exactly those products entered review (and cancels the submission otherwise). A product the reviewer cannot find in the app is a rejection, so a product joins submit_with_version only when the app shows it to the review account.",
+  "group_id": "22433557",
+  "submit_with_version": {
+    "com.cmux.app.pro.monthly": "cmux Pro, shown to every signed-in account on Settings > Account > Plan",
+    "com.cmux.app.max.monthly": "cmux Max, shown to every signed-in account on Settings > Account > Plan"
+  },
+  "not_in_this_version": {
+    "com.cmux.app.go.monthly": "cmux Go is release-gated by the goPlan flag (web/services/billing/goPlanFlag.ts); the review account is not in the rollout, so the reviewer cannot find it",
+    "com.cmux.app.pro.trial.monthly": "the Pro trial is not offered by this app version (its client and server flow is not on main)"
+  },
+  "promotional_images": "subscription-images/<product id>.png, 1024x1024, uploaded when the product has none"
+}

@@ -26,7 +26,7 @@ Defaults:
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-appstore-release.entitlements` (VPN-free App Store build; beta keeps `Config/cmux-release.entitlements`)
-- Review submission: not automatic
+- Review submission: `ios-app-store.yml` with `submit_for_review` (and `release_when_approved` to go live on approval)
 
 The beta lane remains:
 
@@ -83,10 +83,14 @@ ios/scripts/validate-app-store-release.sh \
 
 ## Files
 
-- `reviewer-setup.md` contains the prepared Mac, automatic review-Mac route, and
-  manual fallback setup needed so App Review can test without owning a Mac. Its
-  pasteable notes block is the single canonical App Store Connect notes
-  template.
+- `review-notes-asc.txt` is the App Review notes template. `ios-app-store.yml`
+  writes it to App Store Connect on every run, filled with the live demo account
+  and contact values App Store Connect holds (`ios/scripts/asc_review_package.py`).
+- `subscriptions.json` names the subscriptions submitted with this version; the
+  readiness gate and the post-submit check read it.
+- `subscription-images/` holds the 1024x1024 subscription promotional images the
+  workflow uploads, and the script that renders them.
+- `reviewer-setup.md` explains the review path and where each live value lives.
 - `review-notes.md` is reference-only background on the review flow and
   permissions. Do not paste it into App Store Connect.
 - `metadata-screenshots-checklist.md` lists the metadata, screenshots, privacy, and payment gates that must be complete before submission.
