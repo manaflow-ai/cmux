@@ -62,7 +62,7 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
         }
         Err(error) => return Some(usage(error, global.output)),
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global) };
+    let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
     let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None));
     Some(report(&outcome, global.output))

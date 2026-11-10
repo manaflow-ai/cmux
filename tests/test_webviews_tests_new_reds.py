@@ -515,7 +515,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("id: head", count)
         self.assertIn("webviews_test_results.py --failed-files", count)
         self.assertIn("reds=unknown", count)
-        gate = "if: ${{ steps.head.outputs.reds != '0' }}"
+        gate = "if: ${{ steps.head.outputs.reds != '0'"
         for step in ("Setup Bun", "Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
                      "Setup Node", "Install webview dependencies", "Build base web bundles",
                      "Install headless engines"):
@@ -523,6 +523,8 @@ class Workflow(unittest.TestCase):
                 body = base[base.index(f"      - name: {step}\n"):]
                 body = body[: body.index("\n      - name:", 10)]
                 self.assertIn(gate, body)
+        # The install, the build and the browsers also wait on reds the base's push history cannot answer
+        # (tests/test_webviews_test_history.py, Known).
         compare = base[base.index("      - name: Run base reds and compare\n"):]
         compare = compare[: compare.index("\n      - name:", 10)]
         self.assertNotIn("steps.head.outputs.reds", compare)

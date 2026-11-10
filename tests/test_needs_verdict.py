@@ -52,6 +52,8 @@ TABLE = (
     ({"a": "something-new"}, (), nv.NONE),
     ({"a": "success", "b": "abandoned"}, (), nv.NONE),
     ({"a": "cancelled (route x=true)"}, (), nv.NONE),
+    ({"a": "abandoned", "b": "failure", "c": "skipped"}, ("b", "c"), nv.FAIL),  # a failure wins over no verdict
+    ({"a": "success", "b": "failure"}, ("b",), nv.FAIL),  # may skip, never may fail
 )
 
 # Steps that read needs results but are not a merge gate's summary, each with why the rule does not apply.
@@ -60,6 +62,7 @@ NOT_MERGE_GATES = {
     ("ci.yml", "macos-admission-gate"): "an admission, not a verdict: only a concluded failure declines",
     ("ci.yml", "linux-preflight"): "classic main CI only; skips feat-cmux-next",
     ("ci.yml", "ci-status"): "classic main CI only; skips feat-cmux-next",
+    ("cloud-chat-proof.yml", "verdict"): "a workflow_dispatch proof run on feat-cmux-next, not a merge gate",
     ("cloud-vm-image-roll.yml", "report"): "a roll's record, not a merge gate",
     ("cmux-next-fast-gates.yml", "post"): "a status poster: posts pending for no verdict (#39791)",
     ("cmux-next-media.yml", "hand-off"): "media comment, not a gate",
@@ -142,8 +145,7 @@ class Rule(unittest.TestCase):
     def test_the_shell_copy_answers_the_table(self):
         for results, may_skip, state in TABLE:
             with self.subTest(results=results):
-                pairs = " ".join(f"'{k}={'success' if k in may_skip and v == 'skipped' else v}'"
-                                 for k, v in results.items())
+                pairs = " ".join(f"'{k}{'?' if k in may_skip else ''}={v}'" for k, v in results.items())
                 done = run_bash(nv.SHELL_RULE + f"needs_verdict w {pairs}", {})
                 self.assertEqual(done.returncode, nv.exit_code(state), done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: w:" in done.stdout, state == nv.NONE, done.stdout)
@@ -197,6 +199,20 @@ class Copies(unittest.TestCase):
         self.assertEqual(listed, set(NOT_MERGE_GATES), "a NOT_MERGE_GATES entry that no longer exists")
         self.assertEqual(marked, set(MARKER_STEPS), "a MARKER_STEPS entry that no longer exists")
 
+    def test_a_step_calls_the_rule_once(self):
+        """A second call lets the first one's no verdict end the step before the second sees a failure, and a failure
+        always wins (cmux#39857 review: test-ios with detect-ios-changes abandoned and runner failed said no verdict)."""
+        calls = 0
+        for workflow, job, st in summary_steps():
+            body = st.get("run") or ""
+            own = body.replace(nv.SHELL_RULE, "").replace(nv.PYTHON_RULE, "")
+            count = len(re.findall(r"^\s*(?:needs_verdict\s|.*\bexit_with_verdict\()", own, re.M))
+            if count:
+                calls += 1
+                with self.subTest(workflow=workflow, job=job, step=st.get("name")):
+                    self.assertEqual(count, 1, "call the rule once, with every result and the jobs that may skip")
+        self.assertGreaterEqual(calls, 8)
+
     def test_no_summary_job_is_skipped_or_fed_by_a_needs_result(self):
         """A summary whose job-level `if:` reads a needs result is skipped, which reads as a pass, on exactly the
         results it should judge; one whose `with:` passes needs results judges them where this file cannot see."""
@@ -215,7 +231,64 @@ class Copies(unittest.TestCase):
         self.assertEqual(seen, set(JOB_IF_READS), "a JOB_IF_READS entry that no longer reads a needs result")
 
 
+def rule_jobs():
+    """(workflow, job id, step name) of every step that calls the rule."""
+    for workflow, job, st in summary_steps():
+        body = st.get("run") or ""
+        if nv.SHELL_RULE.splitlines()[0] in body or nv.PYTHON_RULE.splitlines()[0] in body:
+            yield workflow, job, st["name"]
+
+
+WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
+    "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
+# For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
+MIXED = {
+    ("rust-workspaces.yml", "summary", "Every planned workspace passed"): {"PLAN": "abandoned", "WORKSPACES": "failure"},
+    ("ios-e2e.yml", "ios-e2e-status", "Aggregate"): {
+        "IS_FORK": "false", "RUN_E2E": "", "RUN_CLIENTS": "", "BACKEND_TAG": "", "ROUTE_RESULT": "abandoned",
+        "BACKEND_RESULT": "failure", "MAC_IOS_RESULT": "skipped"},
+    ("test-ios.yml", "ios-tests", "Check iOS test routing"): {"IOS_NEEDS": json.dumps({
+        "detect-ios-changes": {"result": "abandoned"}, "runner": {"result": "failure"},
+        "package-conventions-lint": {"result": "skipped"}, "mobile-core-package": {"result": "skipped"},
+        "ios-simulator-build": {"result": "skipped"}})},
+    ("ci-guards.yml", "guard-status", "Check routed guard jobs"): {
+        "GUARD_INPUTS": json.dumps({"submodule_forward_only": "true", "linux_guard_tests": "true",
+                                    "linux_guard_test_groups": '["release-notary"]', "linux_guard_history": "false",
+                                    "linux_guard_cli": "false", "linux_guard_source": "false"}),
+        "GUARD_NEEDS": json.dumps({"workflow-guard-submodule-forward-only": {"result": "abandoned"},
+                                   "workflow-guard-tests": {"result": "failure"},
+                                   **{job: {"result": "skipped"} for job in (
+                                       "workflow-guard-history", "workflow-guard-cli-scripts",
+                                       "workflow-guard-source-lints")}})},
+    ("ci-web.yml", "react-apps-check", "Check webview test shards"): {
+        "WEB_INPUTS": json.dumps({"web": "true"}),
+        "WEB_NEEDS": json.dumps({"web-subarea-scope": WEB_SCOPE, "react-apps-check-shard": {"result": "abandoned"},
+                                 "react-doctor": {"result": "failure"}, "react-apps-base-check": {"result": "skipped"}})},
+    ("ci-web.yml", "web-status", "Check routed web jobs"): {
+        "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
+        "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
+                                 **{job: {"result": "skipped"} for job in (
+                                     "web-typecheck", "web-production-build", "web-instant-navigation",
+                                     "react-apps-check", "diff-sidecar-check", "web-db-migrations")}})},
+}
+# Rule jobs that judge one result, so no two can disagree.
+SINGLE_RESULT = {
+    ("backend-migrations.yml", "gate", "Plan succeeded"): "the plan job alone",
+    ("cmux-tui.yml", "valgrind-leak-check", "Require every Valgrind shard"): "the shard matrix's one result",
+}
+
+
 class Summaries(unittest.TestCase):
+    def test_every_rule_job_lets_a_failure_win_over_no_verdict(self):
+        self.assertEqual(set(rule_jobs()), set(MIXED) | set(SINGLE_RESULT),
+                         "give a new rule job a MIXED row (one result abandoned, one failed) or a SINGLE_RESULT reason")
+        for (workflow, job, name), env in MIXED.items():
+            with self.subTest(workflow=workflow, job=job):
+                done = run_bash(step(workflow, job, name)["run"], env)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("::error::summary red: ", done.stdout)
+                self.assertNotIn("no verdict", done.stdout)
+
     def test_the_marker_steps_read_their_job_output_by_the_rule(self):
         """MARKER_STEPS read a verdict output beside the result. A failed result is a red whatever the output says, one
         that judged nothing is no verdict (exit 3); the crash gate leaves a failed compile to the compile's own red."""
