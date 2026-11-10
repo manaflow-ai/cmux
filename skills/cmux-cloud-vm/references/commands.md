@@ -111,10 +111,13 @@ sidebar and palette run them, the CLI has no verb for them. From the CLI, open a
 `cmux cloud machine-status --target machine:vm-…`, and check its tools with
 `cmux cloud exec --target machine:vm-… --command '…'`.
 
-cmux Cloud pauses a machine after 30 idle minutes by default (no attached terminal, ssh or app,
-no running agent turn, no command still running in a terminal, no forwarded port). The
-machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
-resumes it. `set-idle-pause` changes the timeout per machine.
+cmux Cloud pauses an idle machine (no attached terminal, ssh or app, no running agent turn, no
+command still running in a terminal, no forwarded port). Production pauses it after 2 idle
+minutes, counted from 10 minutes after a chat's last turn; a machine whose daemon does not count
+agent turns falls back to its own idle policy (30 minutes unless set). The machine's record says
+`pauseReason: "idle"`; opening a workspace or terminal on it, or ssh, resumes it.
+`set-idle-pause` changes the timeout per machine; `--minutes off` (or `cmux vm new --persistent`)
+keeps it running, with only a 24-hour backstop.
 
 A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
 restart: `trusted` allows only GitHub, the package registries and the model providers the server

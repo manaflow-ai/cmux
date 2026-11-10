@@ -655,12 +655,15 @@ fn machine_new_help_with_other_options_prints_help() {
     assert!(!NEW_HELP.contains("cmux machine new ["), "{NEW_HELP}");
 }
 
-/// #32227 (4): a machine made with no flags does not pause when idle (the
-/// backend default is off), so the help must not say it does.
+/// A machine made with no flags pauses when idle: cmux Cloud gives it an idle
+/// policy (cmux-platform `DEFAULT_IDLE_SECONDS`) and production pauses an idle one
+/// after 2 minutes (`CLOUD_IDLE_PAUSE_SECONDS`). #32227's "keeps running when idle"
+/// sent people prepping a machine to find it paused; --persistent is the way to keep one.
 #[test]
-fn machine_new_help_does_not_say_a_default_machine_pauses() {
-    assert!(!NEW_HELP.contains("pauses when idle"), "{NEW_HELP}");
-    assert!(NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+fn machine_new_help_says_a_default_machine_pauses_and_persistent_keeps_it() {
+    assert!(!NEW_HELP.contains("keeps running when idle"), "{NEW_HELP}");
+    assert!(NEW_HELP.contains("pauses once idle"), "{NEW_HELP}");
+    assert!(NEW_HELP.contains("--persistent keeps it running"), "{NEW_HELP}");
 }
 
 /// A `--socket` that is a daemon's, not the app's, is no app for `machine new`: it takes the VM API

@@ -6,6 +6,11 @@ in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
 still missing, and four copy-paste folders that work as written.
 
+An extension of its own (an id `local/NAME` beside the customize app, built from
+TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code
+and errors ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app

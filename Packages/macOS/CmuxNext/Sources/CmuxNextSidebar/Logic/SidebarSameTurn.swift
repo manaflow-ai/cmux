@@ -39,6 +39,13 @@ public final class SidebarSameTurn {
         view.renderNow()
     }
 
+    /// Whether the sidebar still lists another space than `space`, the window's: the space changed in this
+    /// turn (a space switch, or a workspace of another space shown by id), so the rows pass must run with the
+    /// content swap. A workspace the window kept mounted ran no rows pass and drew beside the old space's rows.
+    public func listsAnotherSpace(than space: String) -> Bool {
+        view.model.activeProfileID.map { $0.rawValue != space } ?? false
+    }
+
     public func cancel() {
         for task in tasks { task.cancel() }
     }
