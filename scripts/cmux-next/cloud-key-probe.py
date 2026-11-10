@@ -171,15 +171,16 @@ PLAIN = re.compile(r"^\.?[a-z]+(?:[._-][a-z]+)*$")
 KNOWN_NAMES = {"arg0", "python3", "node", "x86_64", "aarch64", "lib64", "Library", "Documents", "Desktop", "Downloads"}
 EXTENSION = re.compile(r"(\.[a-z0-9]{1,5})$")
 LINE_NO = re.compile(r"^(.*?)(:\d+)?$", re.S)
-# What the probe itself writes in place of a value: kept.
-OWN_MARK = re.compile(r"^\[(?:a secret|a piece of a secret|a name|an? [A-Za-z ]+)\]")
+# What the probe itself writes in place of a value, kept only when it is the whole part (with a line number): any
+# other character beside a mark is the machine's and goes through the same rule as any name.
+OWN_MARKS = {"[a secret]", "[a piece of a secret]", "[a name]"} | {f"[{kind}]" for kind, _ in SHAPES}
 
 
 def shown_part(part):
     """One part of a name the machine controls, as it may be printed."""
-    if not part or part in KNOWN_NAMES or OWN_MARK.match(part):
-        return part
     name, line = LINE_NO.match(part).groups()
+    if not part or part in KNOWN_NAMES or name in OWN_MARKS:
+        return part
     if PLAIN.match(name) and len(name) <= 64:
         return part
     ext = EXTENSION.search(name)
@@ -268,6 +269,16 @@ def value_finding(value):
     return next((kind for kind, _ in SHAPES if kind in kinds), None)
 
 
+# An environment variable's name prints as itself only when it is a known key's name or upper-case words joined by
+# `_` (no digit, no lower case: `CODEX_AUTH_JSON`, `CACHE_DIR`); any other name may carry a credential (`CACHE_<token>`).
+PLAIN_VAR = re.compile(r"^[A-Z]+(?:_[A-Z]+)*$")
+
+
+def shown_var(name):
+    """An environment variable's name as it may be printed."""
+    return name if name in KEY_NAMES or (PLAIN_VAR.match(name) and len(name) <= 64) else "[a variable]"
+
+
 def scan_env(entries):
     """Findings in one environment: (NAME, kind) pairs. A key name with a real value counts; so does any
     variable whose value has a key's shape."""
@@ -282,7 +293,7 @@ def scan_env(entries):
         else:
             kind = value_finding(value)
             if kind:
-                out.append((name, kind))
+                out.append((shown_var(name), kind))
     return out
 
 

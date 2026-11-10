@@ -1013,7 +1013,7 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
         "file /home/cmux/aws.txt:2: an AWS access key id",
         "file /home/cmux/bin/blob: an OpenAI project key",
-        "file /home/cmux/cache/[a secret].env:1: MISTRAL_API_KEY",
+        "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
       ]);
@@ -1321,6 +1321,30 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/project/blob.bin: an OAuth refresh token",
       ]);
       expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a mark the probe wrote never shields the rest of a name, and a variable's name is shown only when plain", () => {
+    const OPAQUE = "c8Jp4k_W9q2Lt-v7X3aM_R6n8Ys";
+    const root = plant({
+      "proc/5/comm": "tool\n",
+      "proc/5/environ": `CACHE_${OPAQUE}=${PROJ}\0EXTRA_PATH=${PROJ}\0`,
+      "proc/5/cmdline": "tool\0",
+      "home/cmux/session.json": `{"access_token":"${OPAQUE}"}\n`,
+      [`home/cmux/${GEMINI_SHAPE}-${OPAQUE}/.codex/auth.json`]: "{}",
+      [`home/cmux/[a name]${OPAQUE}/.codex/auth.json`]: "{}",
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [OPAQUE, OPAQUE.slice(0, 15), GEMINI_SHAPE]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process tool (1 pid): EXTRA_PATH (an OpenAI project key)",
+        "env process tool (1 pid): [a variable] (an OpenAI project key)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
