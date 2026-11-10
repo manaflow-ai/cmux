@@ -4,6 +4,8 @@
 use super::*;
 use std::collections::HashMap;
 
+#[cfg(unix)]
+mod agent_activity;
 mod agent_hook_fences;
 mod agent_hook_retry;
 #[cfg(unix)]

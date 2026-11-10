@@ -51,20 +51,20 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// The provider announces `tab` (the list follows the store by one main-actor turn).
     private func lists(_ tab: TabModel) -> Bool { localBrowserTabs.contains { $0.model === tab } }
 
-    /// The listed tabs, each with its workspace's id.
+    /// The listed tabs with their workspace ids, one turn behind the store: the host's view (`providerTabs`, the waits).
     private var localBrowserTabs: [(model: TabModel, workspace: String)] {
         (listed?.observedItems ?? []).flatMap { entry in entry.tabs.map { (model: $0, workspace: entry.workspace) } }
     }
 
-    /// A tab the app announces: a browser tab of a local workspace, not incognito.
-    func isDrivable(_ targetID: String) -> Bool {
-        localBrowserTabs.contains { $0.model.id == targetID }
+    /// Tab `targetID` as the list will hold it, from the store's index for that one tab now (exact in the turn of
+    /// a create or a close; no session walk): a browser tab of a local workspace, not incognito.
+    private func announceable(_ targetID: String) -> (model: TabModel, workspace: String)? {
+        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !services.windows.isIncognito(workspace: found.workspace) else { return nil }
+        return (found.tab, found.workspace.id)
     }
-
+    func isDrivable(_ targetID: String) -> Bool { announceable(targetID) != nil }
     /// The workspace that holds an announced tab (agent input routing).
-    func workspaceID(ofTab targetID: String) -> String? {
-        localBrowserTabs.first { $0.model.id == targetID }?.workspace
-    }
+    func workspaceID(ofTab targetID: String) -> String? { announceable(targetID)?.workspace }
 
     // MARK: ProviderTabSource
 
@@ -103,7 +103,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         let cache: TabContentCache = services.cache
         let override = cache.agentMayUseExtensionTab(targetID)
         let page = cache.existingBrowser(targetID)?.tab
-        let model = announced[targetID] // as `providerTabs`: no id lookup in the session's tab list
+        let model = announced[targetID] // as `providerTabs`, same pass: no id lookup in the session; the list's turn on purpose (sent with the announce)
         let profile = page?.profileID ?? model.map { services.browserProfiles.engineProfile(for: $0, incognito: false) } ?? .default
         guard let store = (page as? any BrowserExtensionActionHosting)?.extensionStore ?? cache.cef.extensionStore(for: profile) else {
             accessMemo[targetID] = nil
@@ -134,7 +134,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
     }
 
-    // MARK: AutomationTabProvider (WebKit driver)
+    // MARK: AutomationTabProvider (WebKit driver). From the list, on purpose: the host calls a tab only after its announce.
 
     func automationTabs(all: Bool) -> [AutomationTab] {
         guard let services else { return [] }
@@ -266,7 +266,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
     /// tabs a session created and that no person holds (gap: the store does not check it).
     func endSessionTab(_ id: String) async -> Bool {
-        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
+        guard let services, let tab = announceable(id)?.model else { return false }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapability.closeReason.rawValue) else { return false }
         let surface = tab.surface
@@ -279,7 +279,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         cache.release(id)
         // The store's update can come after the close reply.
         _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
-            for await gone in ObservationStream({ self?.isDrivable(id) != true }) where gone { return true }
+            for await gone in ObservationStream({ self?.localBrowserTabs.contains { $0.model.id == id } != true }) where gone { return true } // the host's view: after its `tab.gone`
             return false
         }
         return true

@@ -29,4 +29,16 @@ import Testing
         let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])
         #expect(!switches.arguments.contains("disable-notifications"))
     }
+
+    /// A notification request in a Chromium tab ends at once with no answer (the shim's
+    /// permission_prompt_policy.h), so the permission stays `default` and a later real notification
+    /// feature finds no remembered refusal. Chromium counts unanswered prompts and blocks a site
+    /// for a week after a few of them (its embargo, a stored answer of its own); both counters
+    /// must be off, or a site that asks on every visit reads `denied` after the fourth.
+    @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"])
+    func unansweredPermissionRequestsNeverBlockTheSite(bundle: String) {
+        let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])
+        #expect(switches.arguments.contains("disable-features=BlockPromptsIfIgnoredOften"))
+        #expect(switches.arguments.contains("disable-features=BlockPromptsIfDismissedOften"))
+    }
 }
