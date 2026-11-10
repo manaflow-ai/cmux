@@ -196,14 +196,18 @@ final class SidebarUpdateCardView: NSView {
 
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
 
-    /// The card's height for `card` in `layout` (the tunable's when nil). Card: padding, title,
+    /// The card's height for `card` in `layout` (the tunable's, for the one-argument form). Card: padding, title,
     /// the detail line when present, the switch row, the button, padding. Compact: padding, title,
     /// one row of the detail and the button, padding. Button: padding, the button, the detail line
     /// when present, padding.
-    static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout? = nil) -> CGFloat {
+    static func height(for card: SidebarUpdateCard) -> CGFloat {
+        height(for: card, layout: SidebarTunables.updateCardLayout.value)
+    }
+
+    static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout) -> CGFloat {
         let title = ceil(titleFont.boundingRectForFont.height)
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
-        switch layout ?? SidebarTunables.updateCardLayout.value {
+        switch layout {
         case .card:
             return ceil(padding + title + detail + rowGap
                 + SidebarUpdateToggle.height + rowGap + SidebarUpdateButton.height + padding)
