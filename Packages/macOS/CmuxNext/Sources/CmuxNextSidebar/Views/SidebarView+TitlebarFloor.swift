@@ -15,12 +15,6 @@ extension SidebarViewComponents {
         [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
     }
 
-    /// The window root's titlebar row, each layout: whether the traffic lights are over this header,
-    /// where the row may start at rest (after the full band), and the band's edge on screen now.
-    public func followToolbarBand(windowControls: Bool, reserve: CGFloat, edgeInWindow: CGFloat?) {
-        (headerHasWindowControls, titlebarLeadingReserve, titlebarControlsFloor) = (windowControls, reserve, edgeInWindow)
-    }
-
     /// Moves the row's controls right by just enough that the leftmost starts at
     /// `titlebarControlsFloor` (window x), and back once the floor no longer reaches them. Runs in
     /// this view's layout and in the container's, which runs every frame of the width slide and
@@ -42,5 +36,13 @@ extension SidebarViewComponents {
         guard delta != 0 else { return }
         titlebarRowShift = shift
         for control in controls { control.frame.origin.x += delta }
+    }
+}
+
+extension SidebarView {
+    /// The window root's titlebar row, each layout: whether the traffic lights are over this header,
+    /// where the row may start at rest (after the full band), and the band's edge on screen now.
+    public func followToolbarBand(windowControls: Bool, reserve: CGFloat, edgeInWindow: CGFloat?) {
+        (headerHasWindowControls, titlebarLeadingReserve, titlebarControlsFloor) = (windowControls, reserve, edgeInWindow)
     }
 }
