@@ -10,20 +10,29 @@
 //!
 //! [`team_pair`] is that rule for an owner machine with that script (`codex_cloud_auth` has the
 //! same one for Codex): `CMUX_CLAUDE_AUTH=own|team` pins it, then `cr use`'s recorded choice; a
-//! sign-in of its own (`~/.claude/.credentials.json`, or a key or token the person set) keeps own;
+//! sign-in of its own keeps own. That is any source `claude_auth::find_in` sees in the launch's
+//! effective env (the login values, the vault, `machine.env`, then the profile, as
+//! `login_env::effective_for` layers them): a key or token, settings env or a helper, the
+//! `.claude.json` API key or the saved sign-in;
 //! no `https://` team origin, or one that does not resolve, keeps own. Otherwise team: the pair the
 //! shell set aside, read from the model-plane env file it was persisted to, or the origin and the
 //! public placeholder. A pair the person set themselves stays.
 
+use std::collections::BTreeMap;
+use std::path::Path;
+
 use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 
-/// The variables a person's own Claude sign-in can come from (`claude_auth.rs`).
-const OWN_KEYS: [&str; 3] =
-    ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
-
 /// The model-plane pair to add to a Claude launch in team mode, or None (own mode, a pair already
-/// set, or not an owner Cloud image). `resolves` answers whether the team origin's host resolves.
-pub async fn team_pair<F, Fut>(inputs: &Inputs<'_>, resolves: F) -> Option<[(String, String); 2]>
+/// set, or not an owner Cloud image). `env` is the launch's effective env (`inputs.var` reads the
+/// same), `cwd` its project for project settings, and `resolves` answers whether the team
+/// origin's host resolves.
+pub async fn team_pair<F, Fut>(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+    resolves: F,
+) -> Option<[(String, String); 2]>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = bool>,
@@ -46,12 +55,10 @@ where
             Some("own") => return None,
             Some(_) => {}
             None => {
-                let store = var("CLAUDE_CONFIG_DIR")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| inputs.home.join(".claude"));
-                if OWN_KEYS.iter().any(|k| var(k).is_some())
-                    || crate::agent_login::signed_in_at(crate::agent_login::Agent::Claude, &store)
-                {
+                let mut env = env.clone();
+                env.entry("HOME".to_owned())
+                    .or_insert_with(|| inputs.home.to_string_lossy().into_owned());
+                if crate::claude_auth::find_in(&env, cwd).signed_in() {
                     return None;
                 }
             }
@@ -107,16 +114,14 @@ mod tests {
         Machine { root, home }
     }
 
-    fn vars(pairs: &[(&str, &str)]) -> Box<dyn Fn(&str) -> Option<String> + Sync> {
-        let map: BTreeMap<String, String> =
-            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Box::new(move |k: &str| map.get(k).cloned())
-    }
-
     async fn pair(m: &Machine, var: &[(&str, &str)], dns: bool) -> Option<[(String, String); 2]> {
-        let var = vars(var);
-        let inputs = Inputs { root: &m.root, home: &m.home, var: &*var, broker: false };
-        team_pair(&inputs, |_| async move { dns }).await
+        let mut env: BTreeMap<String, String> =
+            var.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        env.insert("HOME".to_owned(), m.home.to_string_lossy().into_owned());
+        let map = env.clone();
+        let var = move |k: &str| map.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        team_pair(&inputs, &env, &m.home, |_| async move { dns }).await
     }
 
     #[tokio::test]
@@ -156,6 +161,17 @@ mod tests {
         assert_eq!(pair(&m, &[], true).await, None);
         // The env pin wins over it.
         assert!(pair(&m, &[("CMUX_CLAUDE_AUTH", "team")], true).await.is_some());
+        std::fs::remove_file(m.home.join(".claude/.credentials.json")).unwrap();
+        assert!(pair(&m, &[], true).await.is_some());
+        // A key from the vault or `machine.env` is in the effective env: own.
+        assert_eq!(pair(&m, &[("ANTHROPIC_AUTH_TOKEN", "t")], true).await, None);
+        // Settings credentials and helpers, and the `.claude.json` API key, keep own too.
+        std::fs::write(m.home.join(".claude/settings.json"), r#"{"apiKeyHelper":"/bin/key"}"#)
+            .unwrap();
+        assert_eq!(pair(&m, &[], true).await, None);
+        std::fs::remove_file(m.home.join(".claude/settings.json")).unwrap();
+        std::fs::write(m.home.join(".claude.json"), r#"{"primaryApiKey":"sk-own"}"#).unwrap();
+        assert_eq!(pair(&m, &[], true).await, None);
     }
 
     #[tokio::test]
