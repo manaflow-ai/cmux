@@ -56,10 +56,10 @@ export const MARK_FOOTER_SLOT = 7;
 /// the step and status rows beside it, as far from the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
 /// one gap above and one below).
 export const MARK_STATUS = 8;
-/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits between its words
-/// and the next row, so the room under the rule is the row's own (conversation.css
-/// `.cv-worked.has-divider.is-toggle`) and no stack gap follows it inside the turn (Lucas,
-/// 2026-11-07, Codex parity). Toward the rows above it, it is a step row.
+/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule opens the turn over its words
+/// (#40062: the previous turn's footer, the rule, then the line), and the room between the rule and
+/// the words is the row's own (conversation.css `.cv-worked.has-divider.is-toggle`). Toward the rows
+/// on either side it is a step row.
 export const MARK_WORKED = 9;
 /// An edited-files card (turnChanges/sessionRows.ts `isEditRow`): a bordered card, not a line. It
 /// stands the run gap from the one-line rows and the prose around it, the room it has under a reply,
@@ -110,7 +110,6 @@ export function rowMark(row: MarkedRow): number {
 export function transcriptGap(previous: number, next: number): number {
   if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
   previous = baseMark(previous);
-  if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>

@@ -1595,9 +1595,9 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
-/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
+/// The room between "Worked for"'s rule and its words: the rule opens the turn over the line (#40062),
+/// conversation.css `.cv-worked.has-divider.is-toggle`; the stack's gaps are a step row's (MARK_WORKED).
+const WORKED_GAP_PT = gridLength("gap-foot");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -2299,7 +2299,7 @@ function fallbackRowHeight(
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
-  // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
+  // Plus the room between its rule and its words (conversation.css `.cv-worked.has-divider.is-toggle`).
   if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
