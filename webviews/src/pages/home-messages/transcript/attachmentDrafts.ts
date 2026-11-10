@@ -23,6 +23,11 @@
 // delivered or discarded), so a send that fails and a relaunch still find the bytes for Retry
 // (`resend` reads them back from the app when this page no longer has them).
 //
+// Nothing leaves one owner before the next has said it saved it (round 11): a tray file counts as
+// kept, and so lets a web update's reload go, only once the app answered both its entry (`put`) and
+// its bytes (`write`); the native composer's file is let go of (`release`) only then; every call to
+// the keeper still unanswered holds the reload too (`holdReason`).
+//
 // Cost: one tray per conversation that has files; a change copies only that tray, and the keeper
 // hears one call per file that finished or left (not on upload progress), and the bytes of each
 // finished file once.
@@ -69,15 +74,19 @@ export interface KeptAttachments {
   files?: Record<string, Record<string, number>>;
 }
 
+/** What a keeper call answers: a promise resolves once the app holds the change (false or a
+ * rejection: it did not); nothing means it holds it already (an in-page keeper). */
+export type KeeperAck = Promise<unknown> | void;
+
 /** Where the staged files are kept across launches (the app's HomeStore, host.ts), one file each. */
 export interface AttachmentKeeper {
   load(): Promise<KeptAttachments>;
   /** Keeps one finished file as `conversation`'s (`at`: its place in the tray, ascending). */
-  put(conversation: string, part: HomeAttachment, at: number): void;
+  put(conversation: string, part: HomeAttachment, at: number): KeeperAck;
   /** Lets go of one of `conversation`'s files (sent, or removed from the tray). */
-  remove(conversation: string, hash: string): void;
+  remove(conversation: string, hash: string): KeeperAck;
   /** Lets go of the native composer's files the page took (their hashes). */
-  release(conversation: string, migrated: readonly string[]): void;
+  release(conversation: string, migrated: readonly string[]): KeeperAck;
   /** Keeps a finished file's bytes (by its part's hash); resolves false when the app did not. */
   write?(hash: string, file: Blob): Promise<boolean>;
   /** A kept file's bytes again; undefined when the app has none. */
@@ -125,6 +134,13 @@ export class AttachmentDrafts {
   /** The files a send took, by hash, with their tray's conversation, until the app's outbox keeps
    * that send (`handedOver`): their kept entries, and so their bytes, stay until then. */
   private readonly handing = new Map<string, string>();
+  /** Keeper calls not answered yet (entries, bytes, removals, releases): a reload waits for them. */
+  private unanswered = 0;
+  /** Finished files the app has said it holds, entry and bytes both (by hash): only these count
+   * as kept, and only these let the native composer's copy go. */
+  private readonly durable = new Set<string>();
+  /** Per hash, what the app has answered of it: its entry, its bytes. */
+  private readonly answered = new Map<string, { entry: boolean; bytes: boolean }>();
 
   constructor(private readonly keeper?: AttachmentKeeper) {
     this.loaded = !keeper;
@@ -138,6 +154,9 @@ export class AttachmentDrafts {
     this.loaded = true;
     for (const [conversation, parts] of Object.entries(kept.attachments)) {
       this.saved.set(conversation, new Set(parts.map((part) => part.hash)));
+      // The app holds these already: entry, and bytes when it has them (an entry it kept with
+      // none has nothing more the page could give it).
+      for (const part of parts) this.durable.add(part.hash);
       const tray = this.files(conversation);
       const back = parts
         .filter((part) => !tray.some((item) => item.part?.hash === part.hash))
@@ -264,8 +283,10 @@ export class AttachmentDrafts {
     this.legacy = undefined;
     for (const [conversation, files] of Object.entries(legacy)) {
       for (const kept of files) {
-        if (this.files(conversation).some((item) => item.part?.hash === kept.hash)) {
-          this.release(conversation, kept.hash);
+        const same = this.files(conversation).find((item) => item.part?.hash === kept.hash);
+        if (same) {
+          // Already the app's as the page's file: the native copy may go (else at a later launch).
+          if (this.durable.has(kept.hash)) this.release(conversation, kept.hash);
           continue;
         }
         const file = legacyFile(kept);
@@ -422,13 +443,6 @@ export class AttachmentDrafts {
       if (tray.length) this.trays.set(conversation, tray);
       else this.trays.delete(conversation);
     }
-    let uploading = false;
-    let unkept = false;
-    for (const items of this.trays.values()) {
-      if (items.some((item) => !item.part && !item.error)) uploading = true;
-      if (!this.keeper || items.some((item) => !item.part || this.bytesRefused.has(item.part.hash))) unkept = true;
-    }
-    this.hold = uploading ? "home.uploading" : unkept && this.trays.size ? "home.attachments" : null;
     if (this.loaded && this.keeper) {
       const changed =
         conversation !== undefined
@@ -436,7 +450,56 @@ export class AttachmentDrafts {
           : [...new Set([...this.trays.keys(), ...this.saved.keys(), ...this.released.keys()])];
       for (const id of changed) this.save(id);
     }
+    this.publish();
+  }
+
+  /** Works out the hold and tells the listeners. A file counts as kept only once the app answered
+   * its entry and its bytes (`durable`); until every keeper call is answered nothing is sure. */
+  private publish(): void {
+    let uploading = false;
+    let unkept = this.unanswered > 0;
+    for (const items of this.trays.values()) {
+      if (items.some((item) => !item.part && !item.error)) uploading = true;
+      if (!this.keeper || items.some((item) => !item.part || !this.durable.has(item.part.hash))) unkept = true;
+    }
+    this.hold = uploading
+      ? "home.uploading"
+      : unkept && (this.trays.size || this.unanswered)
+        ? "home.attachments"
+        : null;
     for (const listener of this.listeners) listener();
+  }
+
+  /** Waits for one keeper call's answer (holding the reload until it comes); `done` hears whether
+   * the app holds the change. */
+  private ack(call: KeeperAck, done?: (held: boolean) => void): void {
+    if (!call) {
+      done?.(true);
+      return;
+    }
+    this.unanswered += 1;
+    void call.then(
+      (answer) => {
+        this.unanswered -= 1;
+        done?.(answer !== false);
+        this.publish();
+      },
+      () => {
+        this.unanswered -= 1;
+        done?.(false);
+        this.publish();
+      },
+    );
+  }
+
+  /** The app answered part of `hash`'s keeping: once entry and bytes are both held it is durable,
+   * and the native composer's copy of it may go (`save` releases it then). */
+  private answer(conversation: string, hash: string, change: Partial<{ entry: boolean; bytes: boolean }>): void {
+    const now = { ...(this.answered.get(hash) ?? { entry: false, bytes: false }), ...change };
+    this.answered.set(hash, now);
+    if (!now.entry || !now.bytes || this.durable.has(hash)) return;
+    this.durable.add(hash);
+    this.save(conversation);
   }
 
   /** The app refused `hash`'s bytes: its kept entry goes, and the tray counts it as not kept. */
@@ -452,7 +515,8 @@ export class AttachmentDrafts {
     const tray = this.files(conversation);
     for (const item of tray) {
       const hash = this.legacyOf.get(item.id);
-      if (hash && item.part) this.release(conversation, hash);
+      // The native composer's copy goes only once the page's copy is the app's, entry and bytes.
+      if (hash && item.part && this.durable.has(item.part.hash)) this.release(conversation, hash);
     }
     const saved = this.saved.get(conversation) ?? new Set<string>();
     const now = new Set<string>();
@@ -461,23 +525,27 @@ export class AttachmentDrafts {
       now.add(item.part.hash);
       if (saved.has(item.part.hash)) continue;
       saved.add(item.part.hash);
-      keeper.put(conversation, item.part, this.at++);
+      const hash = item.part.hash;
+      this.ack(keeper.put(conversation, item.part, this.at++), (held) => {
+        if (held) this.answer(conversation, hash, { entry: true });
+      });
       // Its bytes too (after the entry, so the app never takes them for a page's leftovers). The app
       // keeps them within its own bound and refuses past it: then the entry goes too (below), so a
-      // relaunch never restores a file with no bytes, and the tray says it is not kept.
-      const hash = item.part.hash;
+      // relaunch never restores a file with no bytes, and the tray says it is not kept. Until the
+      // app answers, the file is not kept: the reload waits (round 11 F2).
       if (keeper.write && item.file.size === item.part.byteCount && item.file.size > 0)
-        void keeper
-          .write(hash, item.file)
-          .catch(() => false)
-          .then((kept) => {
-            if (!kept) this.refuseBytes(conversation, hash);
-          });
+        this.ack(keeper.write(hash, item.file), (kept) => {
+          if (kept) this.answer(conversation, hash, { bytes: true });
+          else this.refuseBytes(conversation, hash);
+        });
+      else if (!keeper.write) this.answer(conversation, hash, { bytes: true });
     }
     for (const hash of saved) {
       if (now.has(hash) || this.handing.has(hash)) continue;
       saved.delete(hash);
-      keeper.remove(conversation, hash);
+      this.durable.delete(hash);
+      this.answered.delete(hash);
+      this.ack(keeper.remove(conversation, hash));
     }
     if (saved.size) this.saved.set(conversation, saved);
     else this.saved.delete(conversation);
@@ -486,7 +554,7 @@ export class AttachmentDrafts {
     if (!migrated.length) return;
     for (const hash of migrated) sent.add(hash);
     this.releasedSent.set(conversation, sent);
-    keeper.release(conversation, migrated);
+    this.ack(keeper.release(conversation, migrated));
   }
 }
 

@@ -12,14 +12,15 @@
 import type { HomeConversation } from "../home-channels/types";
 import type { MessageRequest } from "./sheets/model";
 import { EMPTY_DRAFT, isDraftEmpty, type RecipientDraft } from "./sheets/recipients";
-import { AttachmentDrafts, type AttachmentKeeper } from "./transcript/attachmentDrafts";
+import { AttachmentDrafts, type AttachmentKeeper, type KeeperAck } from "./transcript/attachmentDrafts";
 
 /** Where the composer drafts are kept across launches (the app's HomeStore, host.ts). */
 export interface DraftKeeper {
   /** Every kept draft by conversation. */
   load(): Promise<Record<string, string>>;
-  /** Keeps `text` as `conversation`'s draft; empty text clears it. */
-  save(conversation: string, text: string): void;
+  /** Keeps `text` as `conversation`'s draft; empty text clears it. Resolves once the app holds it
+   * (false: it refused); nothing: it holds it already. */
+  save(conversation: string, text: string): KeeperAck;
 }
 
 /** Where files dragged over the conversation list go: the shown conversation's transcript, which
@@ -85,6 +86,11 @@ export class MessagesNav {
   /** Drafts typed since their last save, written after a pause (``DRAFT_SAVE_DELAY_MS``). */
   private readonly unsaved = new Set<string>();
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Each conversation's newest draft save handed to the keeper (its number), until the app answers it. */
+  private readonly saving = new Map<string, number>();
+  private saves = 0;
+  /** Drafts the app refused to keep (too long): they live only in this page. */
+  private readonly refusedDrafts = new Set<string>();
   /** The files attached per conversation (they outlive the composer that shows them). */
   readonly attachments: AttachmentDrafts;
   /** The conversation the page last showed: a reconnect's new store opens it again. */
@@ -217,9 +223,39 @@ export class MessagesNav {
   flushDrafts(): void {
     if (this.saveTimer !== undefined) clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
-    for (const conversation of this.unsaved) this.keeper?.save(conversation, this.drafts.get(conversation) ?? "");
+    for (const conversation of this.unsaved) {
+      const call = this.keeper?.save(conversation, this.drafts.get(conversation) ?? "");
+      if (!call) {
+        this.refusedDrafts.delete(conversation);
+        continue;
+      }
+      const save = ++this.saves;
+      this.saving.set(conversation, save);
+      const answered = (held: boolean) => {
+        if (this.saving.get(conversation) !== save) return;
+        this.saving.delete(conversation);
+        if (held) this.refusedDrafts.delete(conversation);
+        else this.refusedDrafts.add(conversation);
+      };
+      void call.then(
+        (answer) => answered(answer !== false),
+        () => answered(false),
+      );
+    }
     this.unsaved.clear();
   }
+
+  /** Why a web update's reload would lose something the page holds alone (pages/shared/webSwap.ts),
+   * or null: a draft typed but not yet saved, or saved but not yet answered, or refused by the
+   * app; a hidden New Message with people or text (the app keeps no New Message); a staged file
+   * the app does not hold yet (attachmentDrafts.ts). Nothing leaves this page for the app's copy
+   * before the app has said it holds it. */
+  holdReason = (): string | null => {
+    if (this.unsaved.size || this.saving.size || this.refusedDrafts.size) return "home.draft";
+    const compose = this.state.compose;
+    if (compose && !compose.shown && !this.composeIsEmpty()) return "home.newMessage";
+    return this.attachments.holdReason();
+  };
 
   /** Replaces `conversation`'s draft from outside: its composer starts again with `text`. */
   replaceDraft(conversation: string, text: string): void {

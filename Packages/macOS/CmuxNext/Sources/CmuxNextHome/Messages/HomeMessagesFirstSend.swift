@@ -13,8 +13,9 @@ import Foundation
 ///   and the reason under To: (NewMessage.tsx);
 /// - no answer (offline, lost, given up): the conversation opens with the send as the page keeps one
 ///   (`pending`, HomeMessagesOutbox.row: Not Delivered, Retry under its own key, so it never goes
-///   twice). It leaves the log unless it is in flight there (then the owner's echo settles the
-///   page's row, and a later failure moves over at the next outbox load).
+///   twice). The host's outbox keeps it before it leaves the log, so the handoff to the page never
+///   holds it only in flight. It leaves the log unless it is in flight there (then the owner's echo
+///   settles the page's row, and a later failure moves over at the next outbox load).
 ///
 /// The conversation is selected (`select`, HomeService.pendingSelection) only once the send's
 /// outcome is known, and only when it opened: a selection published before would let the page's
@@ -62,9 +63,14 @@ public struct HomeMessagesFirstSend {
             return outcome.pageOutcome
         } catch is HomeSendState {
             guard let send = store.cachedSend(key) else { return outcome.pageOutcome }
-            store.cancelSend(key)
+            let row = HomeMessagesOutbox.row(send)
+            // The outbox keeps it first, in the same cache as HomeStore's log (one snapshot writes
+            // both): only then does it leave the native queue, so a lost answer or a reload of the
+            // page before it puts the row itself never loses it. One the outbox refuses (past its
+            // cap) stays in the queue, which still sends it; the page's row says it is not kept.
+            if (try? HomeMessagesOutbox(store: store).put(row, for: send.conversation)) != nil { store.cancelSend(key) }
             return .object(["outcome": .object(["kind": .string("opened"), "conversation": .string(id.rawValue),
-                                                "pending": .array([HomeMessagesOutbox.row(send)])])])
+                                                "pending": .array([row])])])
         } catch {
             store.discardFailed(key)
             let naming = recipients.map(\.label).joined(separator: ", ")

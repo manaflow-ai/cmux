@@ -12,7 +12,9 @@ import Foundation
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
 /// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``);
 /// - `approval.decide`: a Chief's permission card, on the person's click (``HomeMessagesApprovals``);
-/// - `attachments.intake.read`: the bytes of a file the app hands the composer (``HomeMessagesIntake``).
+/// - `attachments.intake.read`: the bytes of a file the app hands the composer (``HomeMessagesIntake``);
+/// - `composing {conversation, typing}`: my typing indicator, through HomeStore's own throttled
+///   start and stop (``HomeStore/composing(_:in:)``, as the native composer reported it).
 @MainActor
 public final class HomeMessagesKept {
     /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
@@ -92,6 +94,12 @@ public final class HomeMessagesKept {
         case "attachments.release":
             let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
             HomeMessagesAttachmentDrafts(store: store).release(migrated, for: try Self.conversation(fields))
+            return .null
+        case "composing":
+            let id = try Self.conversation(fields)
+            // HomeStore throttles it: an `on` at most every refresh interval, an `off` after its idle
+            // time, when the field empties or the conversation closes.
+            if fields["typing"]?.boolValue == true { store.composing("typing", in: id) } else { store.stopTyping(in: id) }
             return .null
         case "outbox.load":
             return HomeMessagesOutbox(store: store).load()

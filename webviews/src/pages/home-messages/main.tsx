@@ -12,6 +12,7 @@ import "./paneStrings";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { holdWebSwap } from "../shared/webSwap";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -76,6 +77,10 @@ export function mountMessagesPage(
     ? new KeptPendingCarry(pageOutboxKeeper(client), (hashes) => nav.attachments.handedOver(hashes))
     : new PendingCarry();
   if (carry instanceof KeptPendingCarry) void carry.load();
+  // WEB-SWAP: a web update's reload waits while anything lives only in this page: a draft, a staged
+  // file or a send the app has not said it holds (nav.ts, attachmentDrafts.ts, outbox.ts). Each
+  // composer's own hold ends with it; this one is the page's whole life.
+  holdWebSwap(() => nav.holdReason() ?? (carry instanceof KeptPendingCarry ? carry.holdReason() : null));
   void nav.loadDrafts();
   void nav.attachments.load();
   // The page's whole life: what was typed in the last pause is kept before the document ends.
