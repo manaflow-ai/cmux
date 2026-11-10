@@ -212,10 +212,32 @@ impl LocalStore {
     /// ([`Self::write_kind_index`] keeps none without one). Read from the store's folder: a log
     /// lives on the same file system. Without copies a scan of these kinds reads the whole log, so a
     /// newest-first page reads back from the end instead (`Hub::events_page`).
-    pub(super) fn keeps_kind_copies(&self) -> bool {
+    pub(crate) fn keeps_kind_copies(&self) -> bool {
         std::fs::File::open(&self.root)
             .and_then(|dir| Ok(file_id(&dir, &dir.metadata()?).2 != 0))
             .unwrap_or(false)
+    }
+
+    /// Whether chat `id`'s scan for its indexed kinds reads copies, not its log: the file system
+    /// keeps them ([`Self::keeps_kind_copies`]) and every segment but the last has one. A chat whose
+    /// log no load has read yet (an open of `waitLogs: false` ahead of the restore) or that a cold
+    /// archive moved (its copies went with its folder's log) has none, and a scan would read its log
+    /// from the start. The last segment is the one written now: past its copy a scan reads at most
+    /// the segment. One listing of the copies' folder; a copy made for other kinds or of another
+    /// file is read past and made again by that scan.
+    pub(super) fn has_kind_copies(&self, id: &str) -> bool {
+        let Ok(segments) = self.segment_files(id) else { return false };
+        let Some(((_, _), sealed)) = segments.split_last() else { return false };
+        if sealed.is_empty() {
+            return self.keeps_kind_copies();
+        }
+        let Ok(dir) = std::fs::read_dir(self.dir(id).join(DIR)) else { return false };
+        let copies: std::collections::HashSet<std::ffi::OsString> =
+            dir.filter_map(|e| Some(e.ok()?.file_name())).collect();
+        sealed
+            .iter()
+            .all(|(index, _)| copies.contains(std::ffi::OsStr::new(&format!("{index:06}.ndjson"))))
+            && self.keeps_kind_copies()
     }
 
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {

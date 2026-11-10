@@ -682,8 +682,13 @@ impl Store for ForkView {
     fn writes_history(&self) -> bool {
         self.inner.writes_history()
     }
-    fn copies_kinds(&self) -> bool {
-        self.inner.copies_kinds()
+    /// A fork's scan reads its chat's history too (`scan_kinds`): both need copies.
+    fn copies_kinds(&self, id: &str) -> bool {
+        match self.reference(id) {
+            Ok(None) => self.inner.copies_kinds(id),
+            Ok(Some(r)) => self.inner.copies_kinds(id) && self.copies_kinds(&r.session),
+            Err(_) => false,
+        }
     }
     /// Under `dropping`, as a delete or compaction of the chat is: one that came first is seen
     /// here (the chat is gone, or its records trimmed as a copy made now would read them), and

@@ -1031,10 +1031,11 @@ pub trait Store: Send + Sync {
         })?;
         Ok((count, last))
     }
-    /// Whether [`Store::scan_kinds`] for [`INDEXED_KINDS`] reads their copies beside the log
-    /// (`store/kind_index.rs`) rather than the log. False: it reads the whole log, so a newest-first
-    /// page of those kinds reads back from the end instead (`Hub::events_page`).
-    fn copies_kinds(&self) -> bool {
+    /// Whether [`Store::scan_kinds`] for [`INDEXED_KINDS`] reads chat `id`'s copies of them beside
+    /// its log (`store/kind_index.rs`) rather than the log. False: it would read the log from its
+    /// start, so a newest-first page of those kinds reads back from the end instead
+    /// (`Hub::events_page`).
+    fn copies_kinds(&self, _id: &str) -> bool {
         false
     }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
@@ -1714,8 +1715,8 @@ impl Store for LocalStore {
         true
     }
 
-    fn copies_kinds(&self) -> bool {
-        self.keeps_kind_copies()
+    fn copies_kinds(&self, id: &str) -> bool {
+        self.has_kind_copies(id)
     }
 
     /// Segment `000000`, written beside the log under a temporary name and renamed in whole.

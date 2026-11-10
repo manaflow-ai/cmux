@@ -347,6 +347,56 @@ fn a_page_of_prompts_reads_the_copies_not_the_log() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A chat whose log no load has read yet has no copies (an open's attach asks `waitLogs: false`,
+/// ahead of the restore; a cold archive takes them with the log), and a scan of them would read the
+/// log from its start: its page of prompts reads back from the end, the newest turns only. Once a
+/// load made them, the page reads them (review of #40573).
+#[test]
+fn a_chat_with_no_copies_yet_reads_its_newest_prompts_back_from_the_end() {
+    let root = std::env::temp_dir().join(format!("acpmux-no-copies-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    // A long prefix of large turns, then 17 short ones: a page of 16 prompts is all in the tail.
+    let mut log = codex_chat(20, 200, 85, false);
+    log.extend(codex_chat(17, 2, 10, false));
+    for (n, rec) in log.iter_mut().enumerate() {
+        rec.seq = n as u64 + 1;
+    }
+    let writer = LocalStore::new(sessions.clone(), 64 << 10).unwrap();
+    writer.save(&meta("c")).unwrap();
+    for rec in &log {
+        writer.append("c", rec).unwrap();
+    }
+    writer.flush().unwrap();
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
+    assert!(!hub.store.copies_kinds("c"), "no load has made the copies");
+    let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
+    let r0 = read_bytes();
+    let page = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
+    let read = read_bytes() - r0;
+    let newest: Vec<_> =
+        log.iter().filter(|r| r.kind == "user_message").rev().take(16).rev().cloned().collect();
+    assert_eq!(page.events, newest);
+    assert!(page.has_more);
+    if cfg!(target_os = "linux") {
+        assert!(read < log_bytes / 4, "the page read {read} of {log_bytes} bytes");
+    }
+    // A log load makes the copies (`hub/log_load.rs`); the same page then reads them.
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    assert!(hub.store.copies_kinds("c") == hub_keeps_copies(&sessions));
+    let again = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
+    assert_eq!(again.events, page.events);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Whether this test file system names birth times, so a store keeps copies on it.
+fn hub_keeps_copies(dir: &std::path::Path) -> bool {
+    LocalStore::new(dir.to_path_buf(), 64 << 10).unwrap().keeps_kind_copies()
+}
+
 /// On a file system that names no birth time no copy is kept (`store/kind_index.rs`), so a page of
 /// prompts reads back from the log's end as before, not the whole log from its start (review of
 /// #40573).
@@ -370,7 +420,7 @@ fn a_page_of_prompts_reads_back_from_the_end_where_no_copy_is_kept() {
         .sum();
     let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
     crate::store::NO_BIRTH.with(|n| n.set(true));
-    assert!(!hub.store.copies_kinds(), "no birth time, no copies");
+    assert!(!hub.store.copies_kinds("c"), "no birth time, no copies");
     let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
     let r0 = read_bytes();
     let page = hub.events_page("c", 0, None, 1, Some(OPEN_BYTES), true, &prompts).unwrap();

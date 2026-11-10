@@ -564,7 +564,7 @@ impl Hub {
         // the end, a page of a chat's last 16 prompts walked its whole log when it had fewer, and
         // every open asked for one (`turn_opener.rs`), 4 s on a 1 GB chat. No record of these
         // kinds is ever superseded (`store/superseded.rs` touches tool calls only).
-        if self.store.copies_kinds()
+        if self.store.copies_kinds(id)
             && let Some(kinds) = filter.indexed_kinds()
         {
             return self.newest_of_copies(

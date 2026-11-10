@@ -977,8 +977,8 @@ impl Store for JournalStore {
     fn writes_history(&self) -> bool {
         Store::writes_history(&self.inner.local)
     }
-    fn copies_kinds(&self) -> bool {
-        Store::copies_kinds(&self.inner.local)
+    fn copies_kinds(&self, id: &str) -> bool {
+        Store::copies_kinds(&self.inner.local, id)
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Store::history_writer(&self.inner.local, id)
