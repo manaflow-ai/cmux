@@ -18,6 +18,19 @@ const begun: CloudStartProgress = {
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
+const copyProgress = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  machine: known.machine,
+  machineFinishedAt: 12_400,
+  clone: { state: "running", phase: "copy", progress: { filesDone: 1_204, filesTotal: 3_310 } },
+} satisfies Partial<CloudStartProgress>;
+const setupRunning = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  clone: { state: "done", ...timing },
+  setup: { state: "running", status: "building" },
+} satisfies Partial<CloudStartProgress>;
 
 const showStart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
@@ -36,6 +49,50 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 380,
   variants: {
+    // The quiet view a person sees while a start is on its way (no showSteps): one line that names the
+    // stage, then why the chat waits and about how long. `inline` is the shipped look; the
+    // `quiet-stacked-*`, `quiet-hint-*` and `quiet-thinking` variants show the other arms of
+    // `cloud-start-quiet-look` on the same stages.
+    "quiet-machine": {
+      note: "Just sent: the line says the Cloud machine is starting and that it usually takes under a minute.",
+      props: { start: { ...begun, step: "machine" } },
+    },
+    "quiet-copy": {
+      note: "The machine is up and the project copies; with no progress reported, the usual wait.",
+      props: { start: { ...begun, step: "folder", ...known } },
+    },
+    "quiet-copy-progress": {
+      note: "The copy reports its files: the line shows them in place of the usual wait.",
+      props: { start: { ...begun, ...copyProgress } },
+    },
+    "quiet-setup": {
+      note: "The environment's setup script runs for the first time: a few minutes the first time.",
+      props: { start: { ...begun, ...setupRunning } },
+    },
+    "quiet-agent": {
+      note: "Last stage: the agent starts on the machine, usually a few seconds.",
+      props: { start: { ...begun, step: "opening", agent: "Claude Code", ...known } },
+    },
+    "quiet-stacked-machine": {
+      note: "Arm stacked: the stage on the live line, the usual wait as a secondary line under it.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "stacked" },
+    },
+    "quiet-stacked-setup": {
+      note: "Arm stacked, the setup stage.",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "stacked" },
+    },
+    "quiet-hint-copy": {
+      note: "Arm hint: the inline line over one thin segment per stage this start runs (2 of 4).",
+      props: { start: { ...begun, ...copyProgress, setup: { state: "pending" } }, quietLook: "hint" },
+    },
+    "quiet-hint-setup": {
+      note: "Arm hint, the setup stage (3 of 4).",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "hint" },
+    },
+    "quiet-thinking": {
+      note: "Arm thinking (before this change): Thinking alone, no stage and no wait.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "thinking" },
+    },
     sent: {
       note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },

@@ -92,6 +92,32 @@ test("a start on its way reads as a local first turn: the message and the Thinki
   }
 });
 
+test("the quiet line names the stage, why it waits and about how long, and keeps Thinking as an arm", () => {
+  const html = renderToStaticMarkup(<CloudStartView start={{ ...start, step: "machine" }} />);
+  expect(html).toContain('data-stage="machine"');
+  expect(html).toContain("Starting your Cloud machine");
+  expect(html).toContain("usually under a minute");
+  expect(html).not.toContain('data-step-id="machine"');
+  // The copy stage, the hint arm's segments (machine done, copy current, agent next), and the arm
+  // that keeps the line as it was.
+  const hint = renderToStaticMarkup(<CloudStartView start={start} quietLook="hint" />);
+  expect(hint).toContain("Copying your project");
+  expect(hint.match(/data-step="(done|current|next)"/g)).toEqual([
+    'data-step="done"',
+    'data-step="current"',
+    'data-step="next"',
+  ]);
+  const stacked = renderToStaticMarkup(<CloudStartView start={start} quietLook="stacked" />);
+  expect(stacked).toContain('class="acpmux-cloud-start__eta-line"');
+  const thinking = renderToStaticMarkup(<CloudStartView start={start} quietLook="thinking" />);
+  expect(thinking).toContain("cv-thinking");
+  expect(thinking).not.toContain("acpmux-cloud-start__stage");
+  // Once the agent has started the line is Thinking again.
+  expect(renderToStaticMarkup(<CloudStartView start={{ ...start, initialized: true }} />)).not.toContain(
+    "acpmux-cloud-start__stage",
+  );
+});
+
 test("every arm shows the message and compact preparing status", () => {
   for (const name of ["chips", "rows", "steps"]) {
     arm(name);
