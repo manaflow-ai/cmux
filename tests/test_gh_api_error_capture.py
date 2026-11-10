@@ -26,7 +26,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
-OFFICIAL = WORKFLOWS / "ios-appstore-upload.yml"
+OFFICIAL = ROOT / ".github/workflows/ios-appstore-upload.yml"
 
 RATE_LIMIT_BODY = (
     '{\n\t"message": "API rate limit exceeded for installation.",\n'

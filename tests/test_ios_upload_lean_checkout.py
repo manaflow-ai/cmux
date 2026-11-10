@@ -52,6 +52,7 @@ def run_text(step):
     return step.get("run") or ""
 
 
+OFFICIAL_UPLOAD = ROOT / ".github/workflows/ios-appstore-upload.yml"
 # The decide step accepts only a 40-hex SHA as upload evidence.
 BASE_SHA = "b" * 40
 HEAD_SHA = "c" * 40
@@ -91,7 +92,7 @@ else:
             output = root / "output"
             summary = root / "summary"
             result = subprocess.run(
-                ["bash", "-c", load("ios-appstore-upload.yml")["jobs"]["decide"]["steps"][0]["run"]],
+                ["bash", "-c", yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"][0]["run"]],
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                      "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                      "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": HEAD_SHA, "PREVIOUS_SHA": PREVIOUS_SHA,
