@@ -529,7 +529,13 @@ pub(super) fn prepare_session_journal_stream(
     // refused request leaves nothing behind.
     let agent_rows = through_sequence
         .is_none()
-        .then(|| mux.follow_journal_agent_rows(|kind| filter.may_match_kind(kind)))
+        .then(|| {
+            // One follower count for every kind left out at rest: a reader
+            // of a plugin's rows or of `agent.report` keeps the hook rows too.
+            mux.follow_journal_agent_rows(|kind| {
+                filter.may_match_kind(kind) || filter.may_match_plugin_report_rows()
+            })
+        })
         .flatten();
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),

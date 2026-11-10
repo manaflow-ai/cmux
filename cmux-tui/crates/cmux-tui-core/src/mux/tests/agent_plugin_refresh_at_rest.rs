@@ -241,3 +241,38 @@ fn equal_plugin_refreshes_control_a_new_state_or_child_is_one_row() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A live journal follower whose kind filter matches the plugin's kind or
+/// `agent.report` reads the journal and nothing else: while it lives, and
+/// for the grace after it left, each refresh is a plugin row and its
+/// projection row, as for the hook rows (`agent_hooks_at_rest.rs`).
+#[test]
+fn equal_plugin_refreshes_are_rows_while_a_journal_follower_reads_them() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-plugin-refresh-follower-{}", crate::workspace_registry::new_uuid_v4()));
+    let (mux, agents) = session_with_a_visible_dialog(1, &root);
+    let agent = &agents[0];
+
+    let follower = mux.follow_journal_agent_rows(|_kind| true).expect("the follower is counted");
+    let before = written(&mux);
+    for _ in 0..3 {
+        tick();
+        let answer = screen(&mux, agent, "blocked", 1);
+        assert!(!answer.replayed, "a follower reads the row: {answer:?}");
+        settled(&mux);
+    }
+    let rows = kinds_after(&mux, before.journal_head);
+    assert_eq!(rows.get(&plugin_kind()), Some(&3), "{rows:?}");
+    assert_eq!(rows.get("agent.report"), Some(&3), "{rows:?}");
+
+    drop(follower);
+    mux.pass_journal_follower_grace_for_test();
+    let before = written(&mux);
+    tick();
+    let answer = screen(&mux, agent, "blocked", 1);
+    assert!(answer.replayed, "no reader is left: {answer:?}");
+    assert_eq!(written(&mux), before);
+    assert_eq!(roster_row(&mux, agent), Some(("blocked".into(), "plugin".into())));
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

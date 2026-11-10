@@ -258,6 +258,15 @@ impl JournalStreamFilter {
             || self.kind_prefixes.iter().any(|prefix| kind.starts_with(prefix))
     }
 
+    /// Whether the kind filter lets through a row of a plugin report that
+    /// repeats the roster: `agent.report`, or a kind under `plugin.`
+    /// (`plugin.<producer>.agent.state.changed`).
+    pub(super) fn may_match_plugin_report_rows(&self) -> bool {
+        self.may_match_kind("agent.report")
+            || self.exact_kinds.iter().any(|kind| kind.starts_with("plugin."))
+            || self.kind_prefixes.iter().any(|prefix| prefix.starts_with("plugin."))
+    }
+
     pub(super) fn matches(&self, document: &JournalDocument) -> bool {
         let record = &document.record;
         let kind_matches = (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())

@@ -5,6 +5,7 @@ mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
 mod agent_hooks_at_rest;
+mod agent_plugin_reports_at_rest;
 mod agent_reports_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
@@ -676,6 +677,8 @@ pub struct Mux {
     agent_hook_projection: Mutex<()>,
     /// Which hook reports change nothing the journal holds (`agent_hooks_at_rest.rs`).
     agent_hooks_at_rest: agent_hooks_at_rest::AgentHooksAtRest,
+    /// Which plugin reports repeat the roster (`agent_plugin_reports_at_rest.rs`).
+    agent_plugin_reports_at_rest: agent_plugin_reports_at_rest::AgentPluginReportsAtRest,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).

@@ -36,7 +36,9 @@
 //!   and nothing else. A bounded read (`follow: false`) does not count;
 //! - after a row of the terminal whose result is not known (its append
 //!   failed or timed out, or it was a retry the registry answered): the
-//!   table no longer knows what the journal holds.
+//!   table no longer knows what the journal holds;
+//! - while the projection of an earlier row of the terminal waits for a
+//!   retry: the next row's projection runs that retry.
 //!
 //! The table is memory only. After a restart the first report of each
 //! terminal is appended again, and the roster folds to the same state because
@@ -84,6 +86,11 @@ struct HookSlot {
     /// The highest sequence noted: commits can finish out of order.
     noted_sequence: u64,
     stored: Option<StoredHookFacts>,
+    /// A journal row of this terminal waits for its projection
+    /// (`enqueue_agent_hook_pending`). Until a retry finds none left, no
+    /// report of the terminal is answered from memory: each one goes the
+    /// path that runs the retry.
+    projection_pending: bool,
     /// The latest reports by origin and idempotency key, with the answer of
     /// each one that got no row (`None`: the report was appended, and the
     /// registry holds its receipt).
@@ -216,6 +223,11 @@ impl AgentHooksAtRest {
         self.terminals().remove(terminal);
     }
 
+    /// Whether a hook report of `terminal` is on its way to the journal.
+    pub(super) fn hook_in_flight(&self, terminal: &TerminalPublicId) -> bool {
+        self.terminals().get(terminal).is_some_and(|slot| slot.in_flight > 0)
+    }
+
     /// Terminals with a table entry.
     #[cfg(all(test, unix))]
     fn slots(&self) -> usize {
@@ -260,14 +272,44 @@ impl Drop for HookInFlight<'_> {
     }
 }
 
+/// The projection row of a plugin report (`agent_plugin_reports_at_rest.rs`).
+const REPORT_KIND: &str = "agent.report";
+/// The namespace of every plugin's kinds (`plugin.<producer>.agent.state.changed`).
+const PLUGIN_NAMESPACE: &str = "plugin";
+
+/// Whether a journal hook's kind filter matches a row the daemon leaves out
+/// at rest: `agent.state.changed`, and the two rows of a plugin report that
+/// repeats the roster (its own kind under `plugin.`, and `agent.report`).
+/// One rule for the three kinds: a reader of one keeps the rows of all.
 fn kind_filter_matches_at_rest_kind(kinds: &[String]) -> bool {
     kinds.is_empty()
         || kinds.iter().any(|kind| match kind.strip_suffix(".*") {
             Some(prefix) => {
-                AT_REST_KIND.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('.'))
+                [AT_REST_KIND, REPORT_KIND].iter().any(|at_rest| {
+                    at_rest.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('.'))
+                }) || prefix == PLUGIN_NAMESPACE
+                    || prefix
+                        .strip_prefix(PLUGIN_NAMESPACE)
+                        .is_some_and(|rest| rest.starts_with('.'))
             }
-            None => kind == AT_REST_KIND,
+            None => {
+                kind == AT_REST_KIND
+                    || kind == REPORT_KIND
+                    || kind.strip_prefix(PLUGIN_NAMESPACE).is_some_and(|rest| rest.starts_with('.'))
+            }
         })
+}
+
+/// The terminal a row of the hook producer is about.
+fn hook_row_terminal(ingress: &crate::JournalIngress) -> Option<TerminalPublicId> {
+    if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+        return None;
+    }
+    ingress
+        .subjects
+        .iter()
+        .find(|subject| subject.kind == "terminal")
+        .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
 }
 
 impl Mux {
@@ -327,9 +369,7 @@ impl Mux {
         {
             return None;
         }
-        if self.journal_hook_reads_at_rest_rows()
-            || self.agent_hooks_at_rest.journal_follower_reads_rows(Instant::now())
-        {
+        if self.journal_reader_keeps_agent_rows() {
             return None;
         }
         // Held through the presence change: a later row of this terminal (a
@@ -342,7 +382,8 @@ impl Mux {
         if let Some((_, answer)) = slot.recent.iter().find(|(recent, _)| *recent == key) {
             return answer.clone();
         }
-        let stored = slot.stored.as_ref().filter(|_| slot.in_flight == 0)?;
+        let stored =
+            slot.stored.as_ref().filter(|_| slot.in_flight == 0 && !slot.projection_pending)?;
         if !stored.holds(&facts) {
             return None;
         }
@@ -355,6 +396,45 @@ impl Mux {
         self.activity.note_agent_action();
         self.apply_live_agent_presence(ingress);
         Some(commit)
+    }
+
+    /// Whether a journal hook or a journal follower reads the rows left out
+    /// at rest (module doc): an enabled hook's kind filter matches one, a
+    /// matching follower is connected, or the last one left less than
+    /// [`FOLLOWER_GRACE`] ago. While it does, every report is a row.
+    pub(super) fn journal_reader_keeps_agent_rows(&self) -> bool {
+        self.journal_hook_reads_at_rest_rows()
+            || self.agent_hooks_at_rest.journal_follower_reads_rows(Instant::now())
+    }
+
+    /// The projection of a journal row of the hook producer failed and waits
+    /// for a retry. The retry runs when a later row of the terminal is
+    /// projected (`reconcile_preceding_agent_hooks`) and after a report that
+    /// reaches the registry (`retry_pending_agent_hooks_for_terminal`); an
+    /// answer from memory runs neither. So no report of the terminal is
+    /// answered from memory until a retry finds nothing left.
+    pub(super) fn note_agent_hook_projection_pending(&self, ingress: &crate::JournalIngress) {
+        let Some(terminal) = hook_row_terminal(ingress) else { return };
+        let mut terminals = self.agent_hooks_at_rest.terminals();
+        let Some(slot) = self.open_terminal_slot(&mut terminals, &terminal) else { return };
+        slot.stored = None;
+        slot.unknown_results += 1;
+        slot.projection_pending = true;
+    }
+
+    /// Whether a hook projection of `terminal` waits for a retry.
+    pub(super) fn agent_hook_projection_is_pending(&self, terminal: &TerminalPublicId) -> bool {
+        self.agent_hooks_at_rest
+            .terminals()
+            .get(terminal)
+            .is_some_and(|slot| slot.projection_pending)
+    }
+
+    /// A retry found no hook projection of `terminal` left.
+    pub(super) fn note_no_agent_hook_projection_pending(&self, terminal: &TerminalPublicId) {
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal) {
+            slot.projection_pending = false;
+        }
     }
 
     /// Marks a hook report as on its way to the journal until the guard drops.

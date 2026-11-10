@@ -50,6 +50,11 @@ impl Mux {
                 _ => return None,
             }
         };
+        // A hook projection of the terminal waits for a retry, which the
+        // registry path runs after the report.
+        if self.agent_hook_projection_is_pending(&terminal_id) {
+            return None;
+        }
         // The lock order of the registry path: fences, then records.
         let fences = self.agent_hook_fences.lock().ok()?;
         let fence = fences.get(&terminal_id);

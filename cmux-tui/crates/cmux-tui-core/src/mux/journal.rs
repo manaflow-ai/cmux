@@ -566,7 +566,15 @@ impl Mux {
         if let Some(commit) = self.answer_agent_hook_at_rest(ingress, origin, idempotency_key) {
             return Ok(commit);
         }
+        // So is a plugin report that repeats what the roster holds from it
+        // (`agent_plugin_reports_at_rest.rs`).
+        if let Some(commit) =
+            self.answer_agent_plugin_report_at_rest(ingress, origin, idempotency_key)
+        {
+            return Ok(commit);
+        }
         let in_flight = self.agent_hook_in_flight(ingress);
+        let plugin_in_flight = self.agent_plugin_report_in_flight(ingress);
         let appended = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
@@ -588,6 +596,7 @@ impl Mux {
         };
         let result = appended.as_ref().ok();
         self.note_agent_hook_result(ingress, result, in_flight.as_ref(), origin, idempotency_key);
+        self.note_agent_plugin_report_result(ingress, result, plugin_in_flight.as_ref());
         self.finish_journal_ingress(ingress, origin, idempotency_key, appended?)
     }
 
@@ -633,6 +642,9 @@ impl Mux {
                         "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
+                // The retry runs with the terminal's next row or report, so
+                // none of them is answered from memory until then.
+                self.note_agent_hook_projection_pending(ingress);
             }
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
