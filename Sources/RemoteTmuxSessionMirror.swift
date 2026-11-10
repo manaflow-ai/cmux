@@ -152,7 +152,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private let agentStatusProjector = RemoteTmuxAgentStatusProjector()
-    private let reconnectingIndicator = RemoteTmuxReconnectingIndicator()
+    let reconnectingIndicator = RemoteTmuxReconnectingIndicator()
     private var pendingExplicitFocusWindowId: Int?
     private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
@@ -268,6 +268,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
         ))
+        // A new observer gets no replay of the state, and the source may already be reconnecting.
+        reconnectingIndicator.connectionStateChanged(connection.connectionState, workspace: workspace)
         rebuild()
     }
 

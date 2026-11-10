@@ -61,4 +61,30 @@ import Testing
         indicator.connectionStateChanged(.ended, workspace: workspace)
         #expect(workspace.statusEntries[key] == nil)
     }
+
+    /// A mirror can attach to a source that is already reconnecting, such as a session opened
+    /// while a shared stream is down. No state change arrives until the drop ends, so the mirror
+    /// has to start the indicator from the state it finds.
+    @Test func aMirrorAttachedDuringAReconnectStartsTheIndicator() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "reconnecting-attach.test"), sessionName: "work"
+        )
+        connection.beginReconnecting()
+        defer { connection.stop() }
+        try #require(connection.connectionState == .reconnecting)
+
+        let mirror = RemoteTmuxSessionMirror(
+            host: connection.host, sessionName: "work", connection: connection,
+            tabManager: manager, workspace: workspace
+        )
+        defer {
+            mirror.detachObserver()
+            workspace.teardownAllPanels()
+        }
+
+        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
+    }
 }
