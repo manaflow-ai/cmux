@@ -43,7 +43,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        fillLayer.cornerRadius = Metrics.itemCornerRadius
+        fillLayer.cornerRadius = SidebarDensityTokens.rowCornerRadius
         fillLayer.cornerCurve = .continuous
         layer?.masksToBounds = false
         layer?.addSublayer(fillLayer)

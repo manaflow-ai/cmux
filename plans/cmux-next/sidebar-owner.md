@@ -97,6 +97,14 @@
   come (at most the 1.5 s settle). The room is unchanged from the first frame. Regression:
   `UpdatedCardFirstFrameTests.theCardDrawsNoBlankGlassBeforeItsPageReports`, webviews
   `updated-card-first-size`, `updated-card-loading-line`.
+- 2026-11-09: the workspace hover card is even left and right, with the sidebar row's corners. Lawrence (11:18 PM):
+  "right spacing is bad for the hover card, ensure padding on all sides is even, also roundness needs to match
+  roundness of the workspace row itself". With legacy scrollers the tab list kept a scroller's width though nothing
+  scrolled, so each row's fill stopped about 15 pt short of the card's right. The list now has a scroller only when it
+  scrolls; tab rows and "Show details" use `SidebarDensityTokens.rowCornerRadius`; the card's corners are concentric
+  (`WorkspaceHoverCardView.cardCornerRadius`: row radius + card edge to row fill). Regression:
+  `WorkspaceHoverCardEvenInsetTests`.
+
 - 2026-11-09: a workspace's color is a bar, not a dot before its name. Lawrence ("red dot on left feels weird", the
   selected row "Resize Chief sandboxes"): a colored text-only workspace drew its color as a dot before its name
   (`workspaceColors.indicatorStyle` `dot`, NEXT's default) and the dot's slot pushed that one title an icon column right.
