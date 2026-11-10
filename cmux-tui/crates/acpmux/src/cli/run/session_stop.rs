@@ -38,13 +38,17 @@ pub(super) async fn run(
         .into());
     }
     let done = if purge { "purged" } else { "closed" };
-    // One session: its answer and its error exactly as before.
+    // One session: its answer and its error as before, with how to continue it.
     if let [session] = sessions {
-        let v = stop(&client, session, purge, condition).await?;
-        if json_out {
-            print_json(&v)
-        } else {
-            println!("{done}")
+        let mut v = stop(&client, session, purge, condition).await?;
+        match (purge, json_out) {
+            (true, true) => print_json(&v),
+            (true, false) => println!("{done}"),
+            (false, true) => {
+                cmux_json::JsonSet::set(&mut v, "resume", json!(resume(session)));
+                print_json(&v)
+            }
+            (false, false) => println!("{done}; it stays resumable: {}", resume(session)),
         }
         return Ok(());
     }
@@ -54,10 +58,15 @@ pub(super) async fn run(
         match stop(&client, session, purge, condition).await {
             Ok(v) => {
                 if !json_out {
-                    println!("{session}: {done}");
+                    if purge {
+                        println!("{session}: {done}");
+                    } else {
+                        println!("{session}: {done}; it stays resumable: {}", resume(session));
+                    }
                 }
                 rows.push(
-                    json!({"session": session, "sessionId": v.get("sessionId"), "purged": purge}),
+                    json!({"session": session, "sessionId": v.get("sessionId"), "purged": purge,
+                           "resume": (!purge).then(|| resume(session))}),
                 );
             }
             Err(e) => {
@@ -90,6 +99,12 @@ pub(super) async fn run(
     )
     .with_data(json!({"failed": names}))
     .into())
+}
+
+/// The command that continues stopped session `session` in the same conversation: a prompt
+/// starts its agent again.
+fn resume(session: &str) -> String {
+    format!("acpmux send {session} \"text\"")
 }
 
 /// Stop one session: the daemon's answer, or why it refused.

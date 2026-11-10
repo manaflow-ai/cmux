@@ -933,7 +933,8 @@ pub enum SessionCmd {
     },
     /// Cancel the running turn.
     Cancel { session: String },
-    /// Stop the agent process of each named session. The session stays resumable. With several
+    /// Stop the agent process of each named session. The session stays resumable: `acpmux send
+    /// NAME "text"` continues it in the same conversation (the output says so). With several
     /// names, each is stopped in order; one that cannot be stopped is reported, and the rest
     /// are still stopped.
     #[command(alias = "kill")]
