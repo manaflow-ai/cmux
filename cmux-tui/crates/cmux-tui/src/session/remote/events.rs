@@ -454,9 +454,13 @@ impl RemoteSession {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
                         // The cache keeps what the tab shows (D2): a raw title
                         // would bring back a spinner frame on the next tree read.
-                        let shown = remote_shown_title(title, &value);
-                        let updated =
-                            self.tree.lock().unwrap().update_title(id, shown.text.to_string());
+                        let (shown, updated) = {
+                            let mut tree = self.tree.lock().unwrap();
+                            let kind = tree.view.surface(id).map(|tab| tab.kind);
+                            let shown = remote_shown_title(title, &value, kind);
+                            let updated = tree.update_title(id, shown.text.to_string());
+                            (shown, updated)
+                        };
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
@@ -724,11 +728,20 @@ impl RemoteSession {
 }
 
 /// What a remote daemon's `title-changed` shows: its `text` and `activity`
-/// when it sends them (D2), else the terminal rule over `title` (a daemon
-/// from before them).
-fn remote_shown_title(title: &str, value: &Value) -> cmux_tui_core::TabTitle {
+/// when it sends them (D2). A daemon from before them sends only `title`:
+/// the rule of the tab's `kind` then applies, as for a tree tab, so a page's
+/// title keeps its own leading mark. A tab the tree does not hold yet reads
+/// as a terminal; the tree refresh that follows applies its kind.
+fn remote_shown_title(
+    title: &str,
+    value: &Value,
+    kind: Option<SurfaceKind>,
+) -> cmux_tui_core::TabTitle {
     let Some(text) = value.get("text").and_then(Value::as_str) else {
-        return cmux_tui_core::TabTitle::terminal(title);
+        return match kind {
+            Some(SurfaceKind::Browser) => cmux_tui_core::TabTitle::page(title),
+            Some(SurfaceKind::Pty) | None => cmux_tui_core::TabTitle::terminal(title),
+        };
     };
     let activity = value
         .get("activity")
