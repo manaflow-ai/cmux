@@ -927,10 +927,12 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("Mint the autofix token", text)
         fail = next(step for step in jobs["generated-files"]["steps"]
                     if step.get("name") == "Fail on stale generated files")
-        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
-        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
-        self.assertIn("exit 1", fail["run"])
-        self.assertNotIn("autofix", fail["run"])
+        self.assertEqual(fail["run"], "scripts/cmux-next/generated-files-verdict.sh --fail")
+        script = (ROOT / "scripts/cmux-next/generated-files-verdict.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", script)
+        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", script)
+        self.assertIn("exit 1", script)
+        self.assertNotIn("autofix", script)
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -1715,7 +1717,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             with self.subTest(job=name):
                 job = self.jobs()[name]
                 self.assertIn("--receipt", self.tier_run(job))
-                upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
+                upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", ""))
+                              and "receipt" in step["with"]["name"])
                 # Always, unless the job reused a pass (JobsReuseAPassOnTheSameInputs) and wrote none, or
                 # the fast tier only reports its build-fleet client's verdict (GatewayRunsOnlyTheFleetClient).
                 guard = f"(always()) && {REUSE_GUARD}"
@@ -4042,6 +4045,18 @@ esac
                     self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": result}), result)
                 self.assertTrue(evaluate(job["if"], {**unplaced, f"needs.{client}.result": "skipped"}))
                 self.assertEqual(evaluate(job["timeout-minutes"], skipped), 20)
+                # The generated files fold (cmux-next generated files checked on the tier's own build) is off
+                # whenever the tier only reports: the generated-files job checks them then.
+                fold = job["env"].get("CMUX_NEXT_FOLD_GENERATED")
+                if fold:
+                    host = {**base, "needs.path_route.outputs.generated_host": tier}
+                    for result in ("success", "failure", "cancelled"):
+                        self.assertFalse(evaluate(fold, {**host, f"needs.{client}.result": result}))
+                        self.assertTrue(evaluate(fold, {**host, f"needs.{client}.result": result,
+                                                        f"needs.{client}.outputs.verdict": "queued"}))
+                    self.assertTrue(evaluate(fold, {**host, f"needs.{client}.result": "skipped"}))
+                    self.assertFalse(evaluate(fold, {**base, f"needs.{client}.result": "skipped"}))
+                    self.assertEqual(evaluate(job["timeout-minutes"], {**host, f"needs.{client}.result": "skipped"}), 40)
                 # In report mode the first step reports; every other step is off.
                 report, *rest = job["steps"]
                 self.assertEqual(report["if"], "env.CMUX_FAST_TIER_FLEET == 'report'")
@@ -4058,6 +4073,8 @@ esac
         if text.startswith("${{"):
             text = text[3:].rsplit("}}", 1)[0]
         text = text.replace("env.CMUX_FAST_TIER_FLEET", "'report'")
+        # Off in report mode (test_the_tier_keeps_its_name_and_only_reports_off_the_gateway evaluates it).
+        text = text.replace("env.CMUX_NEXT_FOLD_GENERATED", "'false'")
         text = re.sub(r"\bsteps\.[\w-]+\.outputs\.[\w-]+", "''", text)
         text = re.sub(r"\bsteps\.[\w-]+\.outcome", "'skipped'", text)
         text = text.replace("runner.name", repr(runner))
