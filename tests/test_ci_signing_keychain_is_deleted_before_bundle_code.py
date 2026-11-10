@@ -262,6 +262,12 @@ EPHEMERAL_POOL_KEYS = frozenset({
 })
 # Rule 7b: (workflow, job) -> (env variable, value that means "sign with the release key").
 GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
+# The waiver is a choice (it lets the job's other mode take any runner), so it stays a list; but every job with rule
+# 7b's shape (mode_gated_secret()) is in it or here with a reason, and every entry still has the shape
+# (check_gated_secret_classification). None today.
+GATED_SECRET_EXEMPT: dict[tuple[str, str], str] = {}
+# `${{ <condition> && '<value>' || '<other>' }}`: a job env mode variable, as secret_gate_failures() reads it.
+MODE_ENV_VALUE = re.compile(r"\$\{\{\s*(.+?)\s*&&\s*'([^']*)'\s*\|\|\s*'[^']*'\s*\}\}")
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 # `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
@@ -411,6 +417,72 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
         problems.append(f"{name}: job-level env reads a signing secret")
     return problems
 
+
+
+def mode_gated_secret(job: dict) -> tuple[str, str] | None:
+    """Rule 7b's shape: (VAR, value) when the job env sets VAR from a condition (MODE_ENV_VALUE) and a step reads a
+    signing secret under `env.VAR == 'value'` (its `if:` or the value itself); None otherwise."""
+    modes = {str(name): match.group(2) for name, raw in (job.get("env") or {}).items()
+             if (match := MODE_ENV_VALUE.fullmatch(str(raw).strip()))}
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+            continue
+        for variable, value in re.findall(r"\benv\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'", json.dumps(step)):
+            if modes.get(variable) == value:
+                return variable, value
+    return None
+
+
+def gated_secret_classification(documents: dict[str, dict]) -> tuple[list[str], int]:
+    """Every job with rule 7b's shape is in GATED_SECRET_JOBS (with the variable and value it is gated on) or in
+    GATED_SECRET_EXEMPT, and every entry of either names a job with that shape. Returns the failures and how many
+    jobs have the shape."""
+    failures, shaped, seen = [], 0, set()
+    for workflow, document in documents.items():
+        for name, job in ((document or {}).get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            key, label, gate = (workflow, name), f"{workflow} {name}", mode_gated_secret(job)
+            shaped += gate is not None
+            if key in GATED_SECRET_EXEMPT or key in GATED_SECRET_JOBS:
+                seen.add(key)
+            if key in GATED_SECRET_EXEMPT:
+                if key in GATED_SECRET_JOBS:
+                    failures.append(f"{label}: both in GATED_SECRET_JOBS and GATED_SECRET_EXEMPT")
+                elif gate is None:
+                    failures.append(f"{label}: in GATED_SECRET_EXEMPT but has no mode-gated signing secret; drop it")
+            elif key in GATED_SECRET_JOBS:
+                if gate != GATED_SECRET_JOBS[key]:
+                    failures.append(f"{label}: GATED_SECRET_JOBS says its signing secrets are gated on "
+                                    f"{GATED_SECRET_JOBS[key]}, but the workflow gates them on {gate}")
+            elif gate is not None:
+                failures.append(f"{label}: reads a signing secret only under env.{gate[0]} == '{gate[1]}' (rule 7b's "
+                                "shape) but is not in GATED_SECRET_JOBS or GATED_SECRET_EXEMPT with a reason")
+    for key in sorted((set(GATED_SECRET_JOBS) | set(GATED_SECRET_EXEMPT)) - seen):
+        failures.append(f"{key[0]} {key[1]}: listed for rule 7b, but no such job")
+    return failures, shaped
+
+
+def check_gated_secret_classification(documents: dict[str, dict], failures: list[str]) -> None:
+    """Rule 7b's list against the workflows, a non-empty scan, and a fixture: a copy of a listed job under a new id
+    that no list names must be named by the guard."""
+    found, shaped = gated_secret_classification(documents)
+    failures.extend(found)
+    if not GATED_SECRET_JOBS or shaped < len(GATED_SECRET_JOBS):
+        failures.append(f"rule 7b: found {shaped} mode-gated signing jobs for {len(GATED_SECRET_JOBS)} entries; "
+                        "is this the right tree?")
+    for reason in GATED_SECRET_EXEMPT.values():
+        if not reason.strip():
+            failures.append("rule 7b: a GATED_SECRET_EXEMPT entry gives no reason")
+    workflow, name = next(iter(sorted(GATED_SECRET_JOBS)))
+    fixture = {workflow: {"jobs": {name: documents[workflow]["jobs"][name],
+                                   "sign-split-fixture": documents[workflow]["jobs"][name]}}}
+    expected = (f"{workflow} sign-split-fixture: reads a signing secret only under env.{GATED_SECRET_JOBS[(workflow, name)][0]}"
+                f" == '{GATED_SECRET_JOBS[(workflow, name)][1]}' (rule 7b's shape) but is not in GATED_SECRET_JOBS or "
+                "GATED_SECRET_EXEMPT with a reason")
+    if gated_secret_classification(fixture)[0] != [expected]:
+        failures.append(f"rule 7b: the classification guard does not name an unlisted mode-gated job: "
+                        f"{gated_secret_classification(fixture)[0]}")
 
 def commands(run: str) -> list[str]:
     """The run script as logical commands: continuations joined, comments dropped."""
@@ -722,16 +794,19 @@ def main() -> int:
     check_literal_selectors(failures)
     check_live_runner_variables(failures)
     signing_jobs = 0
+    documents = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
+        documents[path.name] = document
         for job_name, job in (document.get("jobs") or {}).items():
             if not isinstance(job, dict):
                 continue
             if "keychain" in json.dumps(inline_step_scripts(job)):
                 signing_jobs += 1
             check_job(f"{path.name} {job_name}", job, failures)
+    check_gated_secret_classification(documents, failures)
     check_scripts(failures)
     if signing_jobs < 5:
         failures.append(f"found only {signing_jobs} keychain jobs; this guard is reading the wrong tree")

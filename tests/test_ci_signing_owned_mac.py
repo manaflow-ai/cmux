@@ -54,6 +54,7 @@ The claim script and the drained-mini pick are tested here too.
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import os
@@ -78,15 +79,30 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 
 # The jobs glaeda's job-started hook admits as the exclusive class (glaeda scripts/glaeda-cmux-runner-hook
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
-SIGNING_JOBS = {
-    ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
-    ("nightly.yml", "generate-nightly-deltas"),
-    ("nightly.yml", "publish-nightly"),
-    # Short secret jobs that ran on GitHub-hosted Ubuntu until glaeda's SIGNING_JOBS admitted them.
-    ("nightly.yml", "keep-published-dsyms"), ("nightly.yml", "republish-nightly-deltas"),
-    ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
-    ("cmux-next-dev-daily.yml", "sign"),
-}
+# signing_runner.SIGNING_JOBS is the one copy (its cap counts these jobs by display name); this is it as
+# (workflow, job id). OwnedPickClassificationTests fails on a job that reads the owned pick and is not in it.
+
+
+def picker_signing_jobs() -> tuple[set[tuple[str, str]], list[str]]:
+    """signing_runner.SIGNING_JOBS as (workflow, job id), and each display name that names no job or more than one.
+
+    A display name is the job's `name:` or its id, before any matrix suffix (" (...)"), as owned_signing_jobs()
+    compares it with a live job's name."""
+    found, unresolved = set(), []
+    for workflow, names in signing_runner.SIGNING_JOBS.items():
+        path = WORKFLOWS / workflow
+        jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {} if path.is_file() else {}
+        for name in names:
+            ids = [job_id for job_id, job in jobs.items() if isinstance(job, dict)
+                   and str(job.get("name") or job_id).split(" (", 1)[0] == name]
+            if len(ids) == 1:
+                found.add((workflow, ids[0]))
+            else:
+                unresolved.append(f"{workflow} {name!r}: names {len(ids)} jobs, not 1")
+    return found, unresolved
+
+
+SIGNING_JOBS, UNRESOLVED_SIGNING_JOBS = picker_signing_jobs()
 # glaeda's exclusive class, word for word (glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS): the jobs above
 # and nightly.yml's promote-nightly-next, which holds the release App key, makes no keychain and so is not a
 # signing job here (signing_job()), yet takes a whole owned Mac under its promotion lease
@@ -441,6 +457,115 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                 "scripts/ci/signing-keychain.sh delete")
     return failures, owned_jobs
 
+
+
+# Jobs with an exclusive-class trait (exclusive_trait()) that glaeda's exclusive class rightly leaves out, each with
+# why. Everything else with the trait is in GLAEDA_EXCLUSIVE_JOBS, so a job split out or added with the claim gate,
+# the claim script or a signing secret on an owned route is classified when it lands, not after it signs.
+EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
+    ("cmux-next-dev-daily.yml", "sign-blacksmith"):
+        "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    ("release.yml", "build-sign-notarize-blacksmith"):
+        "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    ("repair-v0-64-25-helper-rpaths.yml", "repair-blacksmith"):
+        "repair's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).
+    ("stable-next.yml", "sign"):
+        "rule 7b (keychain guard GATED_SECRET_JOBS): it reads its signing secrets only when SIGN is developer-id, "
+        "and that condition picks a literal Blacksmith label; its owned route runs the ad-hoc dry run with no key",
+}
+# Jobs that read signing_runner.py's owned pick and are not counted by its cap (signing_runner.SIGNING_JOBS), each
+# with why. None: every owned pick a job takes is a mini held whole, which MAX_OWNED_SIGNING must count.
+OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {
+    # Found by this guard on 2026-11-10 and reported, not fixed here: it holds no secret, so it is not glaeda's
+    # exclusive class and the cap rightly does not count it, but it reads find-nightly-next-recovery's sign_owned
+    # (the recovery signer's own runner pin) where verify-signed-nightly and verify-final-dmg-nightly read the
+    # verify pick (`owned`), which find-nightly-next-recovery does not publish.
+    ("nightly.yml", "verify-recovered-nightly-next"):
+        "secret-free verify of the recovered DMG; it follows recover-nightly-next-notarization (needs) onto the "
+        "runner that job's pick named, after the signer released it, and glaeda does not hold that mini whole for it",
+}
+
+
+def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:
+    """Each needs.<picker>.outputs.<x> in runs_on that is OWNED_PICKER's owned output (an owned mini's pin)."""
+    reads = []
+    for needed, output in dict.fromkeys(NEEDS_OUTPUT.findall(runs_on)):
+        if str(((jobs.get(needed) or {}).get("outputs") or {}).get(output, "")).strip() == ATTEMPT_OUTPUT:
+            continue
+        if OWNED_PICKER in picker_scripts(jobs, needed, output):
+            reads.append(f"needs.{needed}.outputs.{output}")
+    return reads
+
+
+def owned_route(jobs: dict, job: dict) -> bool:
+    """runs-on can put the job on an owned Mac: an owned pick, an owned pool variable that gives the label
+    (keychain_guard.OWNED_ROUTE_VARIABLES), a literal glaeda-* label, or no ephemeral route at all (owned_only())."""
+    runs_on = str(job.get("runs-on", ""))
+    if owned_pick_reads(jobs, runs_on) or owned_only(runs_on):
+        return True
+    text = keychain_guard.strip_literal_selectors(FORK_ROUTE.sub("", runs_on))
+    if any(label.startswith("glaeda-") for label in LABEL_LITERAL.findall(text)):
+        return True
+    return any(keychain_guard.owned_label(text, match) for match in keychain_guard.RUNNER_VARIABLE.finditer(text))
+
+
+def exclusive_trait(jobs: dict, job: dict) -> str:
+    """Why glaeda must give this job the whole mini, or "": it carries the claim gate, runs the claim script, or
+    holds a signing secret (a keychain, a Sparkle key or any SIGNING_SECRET_REFERENCE) on a route to an owned Mac."""
+    steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or [] if isinstance(step, dict)]
+    if any(str(step.get("id", "")) == CLAIM_GATE_ID for step in steps):
+        return f"carries the claim gate ({CLAIM_GATE_ID})"
+    if any(str(step.get("run", "")).strip() in keychain_guard.CLAIM_COMMANDS for step in steps):
+        return f"runs {CLAIM}"
+    if ((signing_job(job) or keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(job)))
+            and owned_route(jobs, job)):
+        return "holds a signing secret on a route to an owned Mac"
+    return ""
+
+
+def classification_failures(documents: dict[str, dict]) -> tuple[list[str], int, int]:
+    """Every job with exclusive_trait() is in GLAEDA_EXCLUSIVE_JOBS or EXCLUSIVE_EXEMPT, and every job that reads
+    the owned pick is in SIGNING_JOBS (signing_runner's cap) or OWNED_PICK_EXEMPT; each exempt entry is a job that
+    has the trait and, for EXCLUSIVE_EXEMPT, no route to an owned Mac. Returns the failures and how many jobs have
+    each trait, so an empty scan cannot pass."""
+    failures: list[str] = []
+    exclusive = picked = 0
+    seen: set[tuple[str, str]] = set()
+    for workflow, document in documents.items():
+        jobs = dotted(document).get("jobs") or {}
+        for name, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            key, label = (workflow, name), f"{workflow} {name}"
+            trait = exclusive_trait(jobs, job)
+            reads = owned_pick_reads(jobs, str(job.get("runs-on", "")))
+            exclusive += bool(trait)
+            picked += bool(reads)
+            if key in EXCLUSIVE_EXEMPT:
+                seen.add(key)
+                if key in GLAEDA_EXCLUSIVE_JOBS:
+                    failures.append(f"{label}: both in GLAEDA_EXCLUSIVE_JOBS and EXCLUSIVE_EXEMPT")
+                elif owned_route(jobs, job) and key not in keychain_guard.GATED_SECRET_JOBS:
+                    failures.append(f"{label}: in EXCLUSIVE_EXEMPT ({EXCLUSIVE_EXEMPT[key]}) but its runs-on can "
+                                    "reach an owned Mac, where glaeda would not give it the whole mini, and rule 7b "
+                                    "(GATED_SECRET_JOBS) does not prove it")
+                elif not trait:
+                    failures.append(f"{label}: in EXCLUSIVE_EXEMPT but has no exclusive-class trait; drop the entry")
+            elif trait and key not in GLAEDA_EXCLUSIVE_JOBS:
+                failures.append(f"{label}: {trait} but is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's "
+                                "SIGNING_JOBS) or EXCLUSIVE_EXEMPT with a reason")
+            if key in OWNED_PICK_EXEMPT:
+                seen.add(key)
+                if not reads:
+                    failures.append(f"{label}: in OWNED_PICK_EXEMPT but reads no owned pick; drop the entry")
+            elif reads and key not in SIGNING_JOBS:
+                failures.append(f"{label}: reads {OWNED_PICKER}'s owned pick ({', '.join(reads)}) but is not in "
+                                "signing_runner.SIGNING_JOBS, so MAX_OWNED_SIGNING never counts the mini it holds; "
+                                "add it there or to OWNED_PICK_EXEMPT with a reason")
+    for key in sorted((set(EXCLUSIVE_EXEMPT) | set(OWNED_PICK_EXEMPT)) - seen):
+        failures.append(f"{key[0]} {key[1]}: exempt, but no such job")
+    return failures, exclusive, picked
 
 def paired(picker: dict, name: str, job: dict) -> dict:
     """The jobs of a workflow with picker `pick`, the owned-routed signing job `name` and its Blacksmith twin."""
@@ -1024,14 +1149,13 @@ class SigningOwnedMacTests(unittest.TestCase):
 
 
     def test_the_cap_counts_every_signing_job_glaeda_holds_the_mini_for(self) -> None:
-        """signing_runner.SIGNING_JOBS names the jobs by display name; they must be this file's SIGNING_JOBS."""
-        import yaml  # noqa: PLC0415
-        named = set()
-        for workflow, job_id in SIGNING_JOBS:
-            job = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text())["jobs"][job_id]
-            named.add((workflow, str(job.get("name") or job_id)))
-        self.assertEqual(named, {(workflow, name) for workflow, names in signing_runner.SIGNING_JOBS.items()
-                                 for name in names})
+        """signing_runner.SIGNING_JOBS names the jobs by display name; each names exactly one job, and this file's
+        SIGNING_JOBS is read from it rather than kept beside it."""
+        self.assertEqual(UNRESOLVED_SIGNING_JOBS, [])
+        self.assertEqual(len(SIGNING_JOBS), sum(len(names) for names in signing_runner.SIGNING_JOBS.values()))
+        # Sanity: a parser regression that emptied the derived set would empty every check that reads it.
+        self.assertLessEqual({("release.yml", "build-sign-notarize"), ("nightly.yml", "build-sign-notarize-nightly"),
+                              ("cmux-next-dev-daily.yml", "sign")}, SIGNING_JOBS)
 
 
 class GlaedaExclusiveClassTests(unittest.TestCase):
@@ -1077,6 +1201,53 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
                     self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
                     self.assertFalse(str(steps[claim[0]].get("if", "")).strip(),
                                      f"{label}: takes an owned route, so its claim runs unconditionally")
+
+
+class ClassificationTests(unittest.TestCase):
+    """GLAEDA_EXCLUSIVE_JOBS and SIGNING_JOBS are glaeda's and the picker's choices, so they stay lists; but every job
+    with the trait each one is about is in it or named, with a reason, in its exempt set. The class #36559 hit
+    (a job split out and nobody lists it) fails here instead of slipping past check() and the cap."""
+
+    def test_every_job_with_the_trait_is_classified(self) -> None:
+        failures, exclusive, picked = classification_failures(workflows())
+        self.assertEqual(failures, [])
+        self.assertGreaterEqual(exclusive, len(GLAEDA_EXCLUSIVE_JOBS), "the trait scan found too few jobs")
+        self.assertGreaterEqual(picked, 3, "no job reads the owned pick: is this the right tree?")
+
+    @staticmethod
+    def _with(documents: dict, workflow: str, name: str, job: dict) -> dict:
+        documents = copy.deepcopy(documents)
+        documents[workflow]["jobs"][name] = job
+        return documents
+
+    def test_a_new_job_with_the_trait_and_no_entry_is_named(self) -> None:
+        documents = workflows()
+        base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
+        # A copy of an owned-routed signing job under a new id: the claim gate and the owned pick, on no list.
+        found, _, _ = classification_failures(self._with(documents, "release.yml", "sign-split-fixture", base))
+        named = [why for why in found if why.startswith("release.yml sign-split-fixture:")]
+        self.assertTrue(any("not in GLAEDA_EXCLUSIVE_JOBS" in why for why in named), found)
+        self.assertTrue(any("not in signing_runner.SIGNING_JOBS" in why for why in named), found)
+        self.assertEqual(len(found), len(named), found)
+        # No gate and no claim, only a Sparkle key on the trusted signer's literal label.
+        bare = {"runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}",
+                "steps": [{"run": "sign", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}"}}]}
+        found, _, _ = classification_failures(self._with(documents, "nightly.yml", "sparkle-fixture", bare))
+        self.assertEqual(found, ["nightly.yml sparkle-fixture: holds a signing secret on a route to an owned Mac but "
+                                 "is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's SIGNING_JOBS) or "
+                                 "EXCLUSIVE_EXEMPT with a reason"])
+
+    def test_an_exempt_twin_that_can_reach_an_owned_mac_is_named(self) -> None:
+        documents = workflows()
+        twin = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize-blacksmith"])
+        twin["runs-on"] = documents["release.yml"]["jobs"]["build-sign-notarize"]["runs-on"]
+        found, _, _ = classification_failures(self._with(documents, "release.yml", "build-sign-notarize-blacksmith", twin))
+        self.assertTrue(any(why.startswith("release.yml build-sign-notarize-blacksmith: in EXCLUSIVE_EXEMPT")
+                            and "can reach an owned Mac" in why for why in found), found)
+
+    def test_every_exempt_entry_gives_a_reason(self) -> None:
+        for key, reason in {**EXCLUSIVE_EXEMPT, **OWNED_PICK_EXEMPT}.items():
+            self.assertTrue(reason.strip(), key)
 
 
 class ClaimInvocationTests(unittest.TestCase):
