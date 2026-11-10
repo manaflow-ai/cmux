@@ -50,7 +50,20 @@ extension ConversationTranscriptCache {
         var fetched = page.messages
         var oldestFetched = page.messages.compactMap(\.seq).min() ?? newest
         var hasMore = page.hasMore
-        try await run(scope) { [rows = page.messages] in try $0.write(key, messages: rows) }
+        // Whether a fetched message in the stored range is one already stored: checked before
+        // each page is written (a page written first would always find itself).
+        let storedNewest = stored?.newestSeq
+        var foundStored = false
+        func keep(_ rows: [ConversationMessage]) async throws {
+            let overlap = storedNewest.map { newest in rows.filter { ($0.seq ?? .max) <= newest }.map(\.id) } ?? []
+            let found = try await run(scope) { db -> Bool in
+                let found = try !overlap.isEmpty && db.containsAny(key, ids: overlap)
+                try db.write(key, messages: rows)
+                return found
+            }
+            if found { foundStored = true }
+        }
+        try await keep(page.messages)
         if let current = stored {
             while hasMore, oldestFetched > current.newestSeq {
                 page = try await fetch(oldestFetched, pageSize)
@@ -62,7 +75,7 @@ extension ConversationTranscriptCache {
                 fetched += page.messages
                 oldestFetched = next
                 hasMore = page.hasMore
-                try await run(scope) { [rows = page.messages] in try $0.write(key, messages: rows) }
+                try await keep(page.messages)
             }
         }
         // The server's history no longer holds what is stored (a reset backend): the pages
@@ -70,13 +83,7 @@ extension ConversationTranscriptCache {
         // A newest message deleted on the server (a lower newest seq) is not a reset.
         var replaced = false
         if let current = stored {
-            let reached = oldestFetched <= current.newestSeq
-            let ids = fetched.filter { ($0.seq ?? .max) <= current.newestSeq }.map(\.id)
-            if reached {
-                replaced = try await run(scope) { try !$0.containsAny(key, ids: ids) }
-            } else {
-                replaced = !hasMore
-            }
+            replaced = oldestFetched <= current.newestSeq ? !foundStored : !hasMore
         }
         if replaced {
             let rows = fetched
