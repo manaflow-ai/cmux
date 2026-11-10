@@ -335,6 +335,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/register",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/offer_session",
       "params": true,
       "result": true
@@ -605,6 +611,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompt_coach",
+      "params": {
+        "$ref": "#/types/PromptCoachParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -731,6 +745,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/run_elsewhere/plan",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/goal/set",
       "params": true,
       "result": true
@@ -796,6 +822,12 @@
     {
       "kind": "request",
       "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/cold_archive",
       "params": true,
       "result": true
     },
@@ -4783,6 +4815,17 @@
           "type": "string"
         }
       ]
+    },
+    "PromptCoachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "coachId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "ProtocolParams": {
       "additionalProperties": false,

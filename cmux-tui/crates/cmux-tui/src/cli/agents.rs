@@ -960,6 +960,6 @@ pub(super) fn snapshot_tool() -> Value {
 }
 
 pub(super) mod chat;
-mod chat_control;
+pub(super) mod chat_control;
 #[cfg(test)]
 mod tests;

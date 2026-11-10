@@ -35,7 +35,7 @@
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 /* A pane without the keyboard (pageKey.ts marks the root data-page-inactive) keeps its tools quiet: an open panel's
-   toggle drops its filled square and lit ink at rest and keeps only its solid glyph, so the selected state shows at rest
+   toggle drops its filled square and lit ink at rest, so the selected state shows at rest
    in the focused pane alone (Leo 2026-11-07: "does it make sense for, like, when you're not highlighted on a thing to
    still ... be able to highlight whatever's going on down there?"). Hover and an open menu still light it, so it answers
    the pointer as in the focused pane. HeaderIcon's lit ink is an inline color, hence the important on the glyph; an animated header motion draws the plate

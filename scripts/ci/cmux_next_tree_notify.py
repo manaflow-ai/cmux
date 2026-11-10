@@ -66,6 +66,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -104,12 +105,61 @@ class Api(Protocol):
     def delete(self, path: str) -> int: ...
 
 
+# One call's longest wait for GitHub, from its start to the last byte of its answer. A caller that must
+# finish before a deadline budgets this much for each call it makes there, a write included.
+REQUEST_TIMEOUT_S = 30
+
+
+class RequestTimeout(TimeoutError):
+    """A call that did not finish within its whole-request bound. Its socket may still be open on the
+    abandoned worker thread, so a write (a dispatch, a cancel) may have reached GitHub, or may yet: the
+    caller treats it as unknown, never as done and never as refused."""
+
+
+def urlopen_within(request: urllib.request.Request, bound: float) -> tuple[int, bytes, dict[str, str]]:
+    """One HTTP call bounded as a whole: name lookup, connect, TLS, the status line, every header and the
+    body end within BOUND seconds on one monotonic clock, or RequestTimeout. urlopen's own timeout bounds
+    each socket wait, not the call: a server that sends a byte every few seconds holds it as long as it
+    likes (Codex review of #40530: a 204 after 0.293 s with a 0.1 s timeout). So the call runs on a
+    daemon thread joined with BOUND; its socket timeout is BOUND too, so an abandoned call ends soon after.
+    An HTTP error status is an answer, returned as (status, body, headers) like a success."""
+    outcome: list = []
+
+    def call() -> None:
+        try:
+            try:
+                # Read at call time: tests replace urllib.request.urlopen.
+                response = urllib.request.urlopen(request, timeout=bound)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                outcome.append((response.status, response.read(),
+                                {k.lower(): v for k, v in (response.headers or {}).items()}))
+        except BaseException as error:  # handed to the caller's thread
+            outcome.append(error)
+
+    started = time.monotonic()
+    worker = threading.Thread(target=call, name="github-request", daemon=True)
+    worker.start()
+    worker.join(bound)
+    if worker.is_alive() or not outcome:
+        raise RequestTimeout(f"{request.get_method()} {request.full_url}: no full answer within {bound:g} s "
+                             f"({time.monotonic() - started:.1f} s)")
+    if isinstance(outcome[0], BaseException):
+        raise outcome[0]
+    return outcome[0]
+
+
 class GitHub:
+    # Every call's whole-request bound (urlopen_within); a test sets a fraction of a second.
+    timeout: float = REQUEST_TIMEOUT_S
+
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
         self.token = token
         self.api_url = api_url.rstrip("/")
 
-    def _request(self, method: str, url: str, body: dict | None = None):
+    def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
+        """One call, with its response headers. RequestTimeout past self.timeout."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(url, data=data, method=method, headers={
             "Accept": "application/vnd.github+json",
@@ -118,11 +168,11 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
+        return urlopen_within(request, self.timeout)
+
+    def _request(self, method: str, url: str, body: dict | None = None):
+        status, payload, _ = self._send(method, url, body)
+        return status, payload
 
     def get(self, path: str):
         status, payload = self._request("GET", f"{self.api_url}/{path}")
@@ -148,8 +198,8 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
-            return json.loads(response.read())
+        status, payload, _ = urlopen_within(urllib.request.Request(url), REQUEST_TIMEOUT_S)
+        return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
 
@@ -406,7 +456,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
-    artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
+    artifacts = [artifact for artifact in listing.get("artifacts", [])
+                 if isinstance(artifact, dict) and not artifact.get("expired")]
+    # A fork's marker starts and cancels nothing (from_same_repository), so it is dropped before the MAX_MARKERS
+    # cut: newer fork markers (GitHub lists the newest first) must not hide a same-repository one.
+    foreign = [artifact for artifact in artifacts if not from_same_repository(artifact)]
+    if foreign:
+        log(f"{len(foreign)} marker(s) were uploaded by a fork pull request's run or have no run "
+            f"({', '.join(str(artifact.get('id')) for artifact in foreign[:10])}"
+            f"{', ...' if len(foreign) > 10 else ''}); a fork's marker starts and cancels nothing; ignored")
+        artifacts = [artifact for artifact in artifacts if from_same_repository(artifact)]
     dispatched = 0
     # Head branches a superseded marker already swept in this notify.
     swept: set[str] = set()
@@ -442,14 +501,17 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
     for artifact in artifacts[:MAX_MARKERS]:
-        run_id = artifact.get("workflow_run", {}).get("id")
-        if not from_same_repository(artifact):
-            log(f"marker {artifact.get('id')} (run {run_id}) was uploaded by a fork pull request's run (or its "
-                f"run is unknown); a fork's marker starts and cancels nothing; ignored")
-            continue
+        # from_same_repository (above) kept only artifacts whose workflow_run is an object.
+        run_id = artifact["workflow_run"].get("id")
         marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
+            continue
+        if marker["origin"] == "pull_request" and marker.get("head_ref") != artifact["workflow_run"].get("head_branch"):
+            # dispatch_refs reads the marker's head_ref; GitHub records the run's branch. A mismatch is a marker
+            # this run did not write for its own pull request: it starts nothing.
+            log(f"marker {artifact.get('id')} (run {run_id}) names head branch {marker.get('head_ref')!r}, but its "
+                f"run is on {artifact['workflow_run'].get('head_branch')!r}; ignored")
             continue
         pull = None
         try:

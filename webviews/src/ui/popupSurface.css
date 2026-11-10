@@ -206,10 +206,13 @@
    native gate sets to 0 when the area's animations are off (and :root[data-agent-motion="off"]
    stops them in the pane). A surface that travels its own size (a side panel) sets
    --ui-enter-distance: 100%. Under Reduce Motion a panel with presence keeps the fade and drops
-   the travel; an enter-only surface appears at once, as the page's other animations do. */
+   the travel; an enter-only surface appears at once, as the page's other animations do. The enter is
+   the fade-in token itself (micro, 120 ms) and the exit the fade-out (quick, 80 ms): a quarter more
+   of each (150 and 100 ms) put every popup off the one motion scale (Leo 2026-11-10: "the slow
+   animations ... we need to be holding ourselves to high standards"). */
 :root {
-  --ui-enter-duration: calc(var(--agent-motion-in, 120ms) * 1.25);
-  --ui-exit-duration: calc(var(--agent-motion-out, 80ms) * 1.25);
+  --ui-enter-duration: var(--agent-motion-in, 120ms);
+  --ui-exit-duration: var(--agent-motion-out, 80ms);
   --ui-enter-ease: cubic-bezier(0.2, 0, 0, 1);
   --ui-exit-ease: cubic-bezier(0.4, 0, 1, 1);
   --ui-enter-distance: 8px;

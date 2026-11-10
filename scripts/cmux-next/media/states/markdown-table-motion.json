@@ -1,0 +1,522 @@
+{
+ "title": "A wide Markdown table's motion (user 2026-11-08: \"this table thing needs better animation on appear/disappear\"): in the Markdown viewer and in a chat reply, light then dark, every display frame recorded (debug.window_record into launch/strip-NN) while the table scrolls right and back and while a reply's table arrives. Shows the edge fades and the sideways thumb coming and going. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/markdown-table-motion.json --mac (any commit: the state is read from this file).",
+ "launch_args": [
+  "--showcase"
+ ],
+ "fakeHarness": {
+  "id": "fake",
+  "name": "Fake"
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the table the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1280,
+      820
+     ]
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "A workspace for the Markdown viewer",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Table"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Table",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Write a Markdown file with a table wider than the pane",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Table",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf 'Retried rows by area, last 24 hours:\\n\\n| Area | File | Owner | State | Opened | Rows | p50 | p99 | Retries | Why |\\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\\n| Sidebar | webviews/src/agent-session/acpmux/sidebar/SidebarRowSnapshotList.tsx | Leo | open | Nov 3 | 4,120 | 12 ms | 88 ms | 3 | rows re-render on every typed key in the composer |\\n| Markdown | webviews/src/pages/markdown/tables.ts | Ana | fixed | Nov 5 | 980 | 8 ms | 41 ms | 0 | a wide table was cut hard at the right edge |\\n| Terminal | cmux-tui/crates/acpmux/src/scrollback/restore_journal.rs | Sam | review | Nov 6 | 15,300 | 3 ms | 19 ms | 1 | scrollback restore drops the last prompt line |\\n| Chat | webviews/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx | Kim | open | Nov 7 | 2,240 | 21 ms | 130 ms | 5 | streamed replies reflow the row under them |\\n' > /tmp/cmux-table-motion.md; clear\r"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open it in the Markdown viewer",
+   "cmux": [
+    "open",
+    "/tmp/cmux-table-motion.md"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "The table is drawn",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "wait",
+     "selector": ".md-prose .tableWrapper tr:first-child > :last-child",
+     "timeout_ms": 20000
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "A workspace for the chat",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Chat"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Chat",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "light: appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "light: the Markdown viewer",
+   "cmux": [
+    "workspace",
+    "name:Table",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "light: the table at its start",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (light viewer, scroll right)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 2.5
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light viewer: scroll to the last column (the left edge fade comes in, the right one goes)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :last-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 2.7,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (light viewer, scroll back)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 2.5
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light viewer: scroll back to the start (the left fade goes, the right one comes back)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 2.7,
+   "shot": false
+  },
+  {
+   "title": "light: the chat",
+   "cmux": [
+    "workspace",
+    "name:Chat",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "light: a fresh chat on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (light chat, the table appears)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light chat: a reply with a wide table arrives (the fake agent echoes the prompt)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Retried rows by area, last 24 hours:\n\n| Area | File | Owner | State | Opened | Rows | p50 | p99 | Retries | Why |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| Sidebar | webviews/src/agent-session/acpmux/sidebar/SidebarRowSnapshotList.tsx | Leo | open | Nov 3 | 4,120 | 12 ms | 88 ms | 3 | rows re-render on every typed key in the composer |\n| Markdown | webviews/src/pages/markdown/tables.ts | Ana | fixed | Nov 5 | 980 | 8 ms | 41 ms | 0 | a wide table was cut hard at the right edge |\n| Terminal | cmux-tui/crates/acpmux/src/scrollback/restore_journal.rs | Sam | review | Nov 6 | 15,300 | 3 ms | 19 ms | 1 | scrollback restore drops the last prompt line |\n| Chat | webviews/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx | Kim | open | Nov 7 | 2,240 | 21 ms | 130 ms | 5 | streamed replies reflow the row under them |"
+    }
+   },
+   "wait": 3.5,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (light chat, scroll right)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light chat: scroll the reply's table to its last column (thumb fades in and out, edge fades swap)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "scroll",
+     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :last-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 3.2,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (light chat, scroll back)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light chat: scroll back to the start",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "scroll",
+     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 3.2,
+   "shot": false
+  },
+  {
+   "title": "dark: appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "dark: the Markdown viewer",
+   "cmux": [
+    "workspace",
+    "name:Table",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "dark: the table at its start",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (dark viewer, scroll right)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 2.5
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark viewer: scroll to the last column (the left edge fade comes in, the right one goes)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :last-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 2.7,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (dark viewer, scroll back)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 2.5
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark viewer: scroll back to the start (the left fade goes, the right one comes back)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.markdown",
+     "action": "scroll",
+     "selector": ".md-prose .tableWrapper tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 2.7,
+   "shot": false
+  },
+  {
+   "title": "dark: the chat",
+   "cmux": [
+    "workspace",
+    "name:Chat",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "dark: a fresh chat on the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (dark chat, the table appears)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark chat: a reply with a wide table arrives (the fake agent echoes the prompt)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Retried rows by area, last 24 hours:\n\n| Area | File | Owner | State | Opened | Rows | p50 | p99 | Retries | Why |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| Sidebar | webviews/src/agent-session/acpmux/sidebar/SidebarRowSnapshotList.tsx | Leo | open | Nov 3 | 4,120 | 12 ms | 88 ms | 3 | rows re-render on every typed key in the composer |\n| Markdown | webviews/src/pages/markdown/tables.ts | Ana | fixed | Nov 5 | 980 | 8 ms | 41 ms | 0 | a wide table was cut hard at the right edge |\n| Terminal | cmux-tui/crates/acpmux/src/scrollback/restore_journal.rs | Sam | review | Nov 6 | 15,300 | 3 ms | 19 ms | 1 | scrollback restore drops the last prompt line |\n| Chat | webviews/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx | Kim | open | Nov 7 | 2,240 | 21 ms | 130 ms | 5 | streamed replies reflow the row under them |"
+    }
+   },
+   "wait": 3.5,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (dark chat, scroll right)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark chat: scroll the reply's table to its last column (thumb fades in and out, edge fades swap)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "scroll",
+     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :last-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 3.2,
+   "shot": false
+  },
+  {
+   "title": "Record every frame (dark chat, scroll back)",
+   "rpc": {
+    "method": "debug.window_record",
+    "params": {
+     "dir": "{strip}",
+     "seconds": 3
+    }
+   },
+   "record": true,
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark chat: scroll back to the start",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "scroll",
+     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :first-child",
+     "block": "nearest"
+    }
+   },
+   "record": true,
+   "wait": 3.2,
+   "shot": false
+  }
+ ]
+}

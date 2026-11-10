@@ -479,6 +479,17 @@ impl RouteAttempt<'_> {
             .dialers
             .get(index)
             .ok_or_else(|| Failure::fatal(Step::Relay, "the carrier has no such route"))?;
+        // A machine whose software predates the relay Register parks this link until the
+        // deadline: one that stays parked is looked at, and adopted when it needs it.
+        let _adopt = (!dialer.is_ssh()).then(|| {
+            super::adopt::watch(
+                plan.source.clone(),
+                plan.machine.clone(),
+                step.clone(),
+                plan.deadline,
+                plan.phases.clone(),
+            )
+        });
         let group = dialer.connect(request).await.map_err(|e| {
             let detail = e.to_string();
             if e.is_retryable_carrier_failure() || matches!(e, ProviderError::Transport(_)) {

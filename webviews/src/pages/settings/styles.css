@@ -469,7 +469,7 @@ mark {
   outline: none;
 }
 
-.field:not(.ui-input):focus {
+.field:not(.ui-input):focus-visible {
   border-color: var(--border-strong);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
@@ -656,7 +656,7 @@ mark {
   font-weight: 500;
 }
 
-.segment:focus-within {
+.segment:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid var(--border-strong);
   outline-offset: -1px;
 }
