@@ -38,7 +38,7 @@ SAFETY (each one is enforced here, not left to the caller):
      when its supervisor is gone.
   3. It runs only on a bench host and only inside the caller's own gui.lock hold: the marker file
      ~/perf-lead/tools/GUI-HOST must exist (aws-m4pro-7 and -8 have it; no build host and no laptop has it), and
-     ~/perf-lead/gui.lock/owner must start with --owner. The supervisor reads the lock each second and ends the
+     the first word of ~/perf-lead/gui.lock/owner must be --owner. The supervisor reads the lock each second and ends the
      load when the lock is gone or belongs to another owner.
   4. `stop` signals only a PID that it can prove is a busy_holder supervisor (state file + token on the command
      line); workers are the supervisor's own children.
@@ -63,10 +63,12 @@ import ctypes.util
 import hashlib
 import json
 import os
+import pwd
 import random
 import resource
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -87,12 +89,17 @@ QOS_NAME[0] = "unspecified"
 
 def perf_lead_root() -> str:
     """~/perf-lead, or the test folder (BUSY_HOLDER_TEST_ROOT: only for a load of at most 8 threads and 30 s)."""
-    return os.environ.get("BUSY_HOLDER_TEST_ROOT") or os.path.join(os.path.expanduser("~"), "perf-lead")
+    # The passwd home, not $HOME: a changed HOME must not move the bench-host and lock check to another folder.
+    return os.environ.get("BUSY_HOLDER_TEST_ROOT") or os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "perf-lead")
 
 
 def state_dir() -> str:
     d = os.path.join(os.environ.get("BUSY_HOLDER_STATE_DIR") or "/tmp", "busy-holder-%d" % os.getuid())
     os.makedirs(d, mode=0o700, exist_ok=True)
+    # /tmp is shared: a folder that another account made first (or a symlink) could point our writes at its files.
+    st = os.lstat(d)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise SystemExit("busy_holder: refused: the state folder %s is not a private folder of this user" % d)
     return d
 
 
@@ -267,6 +274,9 @@ def worker_main(threads: int, deadline: float, iters: int, supervisor: int) -> N
 # ---- supervisor ----
 
 def supervise(args) -> int:
+    refusal = limits_refusal(args) or ("--watch-pid must be above 1" if args.watch_pid <= 1 else "")
+    if refusal:
+        return fail(refusal)
     me = os.getpid()
     max_s = min(float(args.max_seconds), HARD_LIMIT_S)
     t_start = time.monotonic()
@@ -348,18 +358,30 @@ def supervise(args) -> int:
 
 # ---- commands ----
 
-def cmd_start(args) -> int:
+def limits_refusal(args) -> str:
+    """Why this load is not permitted, or "". `start` and the supervisor itself both ask: a direct `_supervise`
+    call gets no larger load than `start` gives."""
     test_root = bool(os.environ.get("BUSY_HOLDER_TEST_ROOT"))
-    if args.threads < 1 or args.threads > MAX_THREADS:
-        return fail("--threads must be 1..%d" % MAX_THREADS)
-    if args.procs < 1 or args.procs > args.threads:
-        return fail("--procs must be 1..threads")
-    if args.max_seconds < 1 or args.max_seconds > HARD_LIMIT_S:
-        return fail("--max-seconds must be 1..%d (hard limit)" % HARD_LIMIT_S)
+    if not 1 <= args.threads <= MAX_THREADS:
+        return "--threads must be 1..%d" % MAX_THREADS
+    if not 1 <= args.procs <= args.threads:
+        return "--procs must be 1..threads"
+    if not 1 <= args.max_seconds <= HARD_LIMIT_S:  # also refuses nan
+        return "--max-seconds must be 1..%d (hard limit)" % HARD_LIMIT_S
     if test_root and (args.threads > TEST_MAX_THREADS or args.max_seconds > TEST_MAX_S):
-        return fail("BUSY_HOLDER_TEST_ROOT allows at most %d threads and %d s" % (TEST_MAX_THREADS, TEST_MAX_S))
+        return "BUSY_HOLDER_TEST_ROOT allows at most %d threads and %d s" % (TEST_MAX_THREADS, TEST_MAX_S)
     if not test_root and sys.platform != "darwin":
-        return fail("a bench host is a Mac")
+        return "a bench host is a Mac"
+    if os.nice(0) != 0:
+        return ("refused: start it at nice 0 (it is %d; a zsh login shell gives a `&` job nice 5: start from bash); "
+                "no nice, no taskpolicy" % os.nice(0))
+    return ""
+
+
+def cmd_start(args) -> int:
+    refusal = limits_refusal(args)
+    if refusal:
+        return fail(refusal)
     owner = args.owner or os.environ.get("GUI_VD_OWNER") or ""
     if not owner:
         return fail("--owner TASK (or GUI_VD_OWNER) is required: the name in gui.lock/owner")
@@ -367,10 +389,9 @@ def cmd_start(args) -> int:
     if refusal:
         return fail("refused: " + refusal)
     qos, nice = current_qos(), os.nice(0)
-    if nice != 0:
-        return fail("refused: start it at nice 0 (it is %d; a zsh login shell gives a `&` job nice 5: start from bash); "
-                    "no nice, no taskpolicy" % nice)
     watch = args.watch_pid or os.getppid()
+    if watch <= 1:
+        return fail("--watch-pid must be a process of yours (pid %d never ends: rule 2 could not stop the load)" % watch)
     if not alive(watch):
         return fail("the watched process %d is not alive" % watch)
     iters = calibrate(PIECE_MS)
@@ -722,7 +743,7 @@ def cmd_selftest(args) -> int:
         now = json.loads(sout).get("now", {}) if rc2 == 0 and sout else {}
         ps = now.get("workers_ps", {})
         if sys.platform == "darwin":
-            check("4 busy threads, all at one default priority", ps.get("threads", 0) >= 4 and len(ps.get("pri", {})) >= 1,
+            check("4 busy threads, each with a priority read", ps.get("threads", 0) >= 4 and len(ps.get("pri", {})) >= 1,
                   json.dumps(ps))
         took = gone(pid, st, 25)
         end = state_of(pid)

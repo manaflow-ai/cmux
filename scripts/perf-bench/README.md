@@ -268,7 +268,7 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
 - It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
 - Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
   the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
-  `~/perf-lead/gui.lock/owner` starts with `--owner` (a bench host inside the caller's own GUI lock hold; never a
+  the first word of `~/perf-lead/gui.lock/owner` is `--owner` (a bench host inside the caller's own GUI lock hold; never a
   build host, never a laptop), and it ends when that lock is gone; `stop` signals only a PID it can prove is its
   own; it refuses to start at a changed nice value.
 - Priority trap: a process that ssh started has a QoS ceiling of utility (each thread at scheduler priority 20 for
