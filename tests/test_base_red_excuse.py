@@ -63,6 +63,8 @@ def status_answer(route, statuses):
     one compile status poster unless a status names another) or the combined status (no creator)."""
     statuses = copy.deepcopy(statuses)
     if "/statuses" in route:
+        if not route.endswith("&page=1"):  # one page here: every later page is empty
+            return []
         return [{"creator": dict(excuse.COMPILE_STATUS_POSTER), **status} for status in statuses]
     return {"statuses": [{key: value for key, value in status.items() if key != "creator"} for status in statuses]}
 
@@ -3625,7 +3627,7 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/commits/{HEAD}/check-runs" in route:
                 return [{"check_runs": copy.deepcopy(self.check_runs)}]
-            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100")):
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
                 return status_answer(route, self.statuses)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.actions_jobs[int(route.rsplit("/", 1)[1])])
@@ -3969,7 +3971,7 @@ class InheritedCompileRed(unittest.TestCase):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
             if route.endswith((f"commits/{self.PR_HEAD}/status?per_page=100",
-                               f"commits/{self.PR_HEAD}/statuses?per_page=100")):
+                               f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
                 return status_answer(route, [self.status])
             return original(route, paginate=paginate)
@@ -4055,7 +4057,7 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
                 return [{"sha": self.TIP}, {"sha": self.MERGE_BASE}, {"sha": self.OLDER}]
             for sha in (self.PR_HEAD, self.MERGE_BASE, self.TIP, self.OLDER):
                 if route.endswith((f"commits/{sha}/status?per_page=100", f"commits/{sha}/status",
-                                   f"commits/{sha}/statuses?per_page=100")):
+                                   f"commits/{sha}/statuses?per_page=100&page=1")):
                     self.gh.routes.append(route)
                     found = self.statuses.get(sha)
                     return status_answer(route, [] if found is None else [
@@ -4089,6 +4091,35 @@ class ReceiptDownGitHubDecides(unittest.TestCase):
         lane = ("creator", {"login": "some-lane", "id": 1234, "type": "User"})
         self.statuses[self.MERGE_BASE] = ("failure", self.FAIL, lane)
         with self.assertRaisesRegex(excuse.Refused, "neither path can decide"):
+            self.judge()
+
+    def test_receipt_down_and_a_flood_of_statuses_never_hides_the_merge_base_verdict(self):
+        """cmux#40609 review F1: 100 statuses under another context fill the statuses list's first page. The poster's
+        green at the merge-base is on page 2, so it is read there and the head's red stays its own; and when the
+        flood fills every page read, the read refuses instead of reading "none" and looking for a red on another
+        base commit (OLDER, which fails the same way)."""
+        self.statuses[self.MERGE_BASE] = ("success", "The app compiled and linked in SwiftPM Release (-Onone)")
+        self.statuses[self.OLDER] = ("failure", self.FAIL)
+        flood = [{"context": "noise", "state": "success", "creator": {"login": "some-lane", "id": 1234,
+                                                                       "type": "User"}}] * 100
+        original = self.gh.json
+        full_pages = {"n": 1}
+
+        def json(route, *, paginate=False):
+            if f"commits/{self.MERGE_BASE}/statuses?per_page=100&page=" in route:
+                page = int(route.rsplit("=", 1)[1])
+                if page <= full_pages["n"]:
+                    return copy.deepcopy(flood)
+                found = self.statuses[self.MERGE_BASE]
+                return [{"context": "cmux-next/compile", "state": found[0], "description": found[1],
+                         "creator": dict(excuse.COMPILE_STATUS_POSTER)}] if page == full_pages["n"] + 1 else []
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge()
+        full_pages["n"] = excuse.COMPILE_STATUS_PAGES
+        with self.assertRaisesRegex(excuse.Refused, "too many statuses"):
             self.judge()
 
     def test_receipt_down_and_the_red_also_on_base_is_excused(self):
@@ -4159,7 +4190,7 @@ class NoVerdictCompileStatus(InheritedCompileRed):
         def json(route, *, paginate=False):
             if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": self.mac_runs}]
-            if route.endswith((f"commits/{self.PR_HEAD}/status", f"commits/{self.PR_HEAD}/statuses?per_page=100")):
+            if route.endswith((f"commits/{self.PR_HEAD}/status", f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 return status_answer(route, [self.status])
             if route.endswith("actions/jobs/77"):
                 return {"head_sha": self.PR_HEAD, "name": self.MAC, "run_id": 70, "conclusion": "success",
@@ -5607,7 +5638,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
                 return {"status": self.case.compare}
-            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100")):
+            if route.endswith((f"/commits/{HEAD}/status", f"/commits/{HEAD}/statuses?per_page=100&page=1")):
                 return status_answer(route, self.case.statuses)
             return super().json(route, paginate=paginate)
 

@@ -1212,16 +1212,30 @@ def trusted_poster(status: dict) -> bool:
     return isinstance(creator, dict) and all(creator.get(key) == value for key, value in COMPILE_STATUS_POSTER.items())
 
 
+# Pages of a commit's statuses list read for its poster's compile status. GitHub keeps at most 1000 statuses per
+# context and commit, so ten full pages before it are anything but a real history: refused, never read as "none".
+COMPILE_STATUS_PAGES = 10
+
+
 def compile_status_at(repo: str, sha: str, github) -> dict | None:
-    """SHA's newest cmux-next/compile commit status its poster made (COMPILE_STATUS_POSTER), or None when it has none.
-    The commit's statuses list, newest first, names who posted each (the combined status does not), so a look-alike
-    posted by anyone else is skipped: it can neither pass a head nor stand for a base's red. One page: a commit with
-    more than 100 statuses newer than its compile status reads as none, never as a pass."""
-    statuses = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100") or []
-    if not isinstance(statuses, list):
-        raise Refused(f"the statuses of {sha[:12]} are not a list")
-    return next((found for found in statuses if isinstance(found, dict)
-                 and found.get("context") == COMPILE_PASS_STATUS and trusted_poster(found)), None)
+    """SHA's newest cmux-next/compile commit status its poster made (COMPILE_STATUS_POSTER), or None only when the
+    whole list has none. The commit's statuses list, newest first, names who posted each (the combined status does
+    not), so a look-alike posted by anyone else is skipped: it can neither pass a head nor stand for a base's red.
+    The list is read page by page until that status or a short page; COMPILE_STATUS_PAGES full pages without it
+    (a flood of other statuses) refuse, because "none" there would let a base red be looked for on another commit
+    (cmux#40609 review F1)."""
+    for page in range(1, COMPILE_STATUS_PAGES + 1):
+        statuses = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100&page={page}") or []
+        if not isinstance(statuses, list):
+            raise Refused(f"the statuses of {sha[:12]} are not a list")
+        found = next((status for status in statuses if isinstance(status, dict)
+                      and status.get("context") == COMPILE_PASS_STATUS and trusted_poster(status)), None)
+        if found is not None:
+            return found
+        if len(statuses) < 100:
+            return None
+    raise Refused(f"the statuses of {sha[:12]}: {COMPILE_STATUS_PAGES} full pages hold no {COMPILE_PASS_STATUS} "
+                  "from its poster; too many statuses to tell whether it has one")
 
 
 def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
