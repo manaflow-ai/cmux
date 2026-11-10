@@ -204,6 +204,12 @@ public struct CloudAPIClient: Sendable {
     /// same Run. Answers the Run's view as JSON; it holds no secrets. A non-empty `image` is refused (`run_image_invalid`).
     /// This client with the account the person is sending a Run under, read as they send it
     /// (``CloudAuth/runAccount``). Every sandboxed Run's create needs one: without it none is sent.
+    /// A Sandboxed send's client: the daemon's Runs under `account`, and classic Cloud (an incognito send, a Run from before
+    /// the upgrade) in `account`'s own Stack team, never this Worker client's team, which classic does not know (#39022 F1 at 1c13439a).
+    public func sending(as account: RunAccount, classic: CloudAPIClient) -> CloudAPIClient {
+        drainingClassic(classic).pinningTeam(account.team).runningAs(account)
+    }
+
     public func runningAs(_ account: RunAccount?) -> CloudAPIClient {
         var copy = self
         copy.runAccount = account

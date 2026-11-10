@@ -264,6 +264,23 @@ struct CloudAPIClientRunTests {
         #expect(Set(creates).count == 1 && creates.first != nil, "both creates carry one session: \(creates)")
     }
 
+    /// #39022 review at 1c13439a, F1: the send pinned the Worker client's team (`team_cmux`) as classic's, which classic refuses.
+    /// Classic Cloud gets the Stack team the person sent under, whatever the Worker client's team is.
+    @Test func classicCloudGetsTheStackTeamNeverTheWorkersTeam() async throws {
+        let daemon = FakeDaemon { _, _, _ in Self.created }
+        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_stack_now" },
+                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        let api = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
+        _ = try await api.createSandboxRun(task: "private", idempotencyKey: "k-team", incognito: true)
+        _ = try await api.waitRun("r-old", timeoutMs: 1_000)
+        for request in daemon.requests {
+            #expect((request["args"] as? [String: Any])?["classicTeam"] as? String == "team_stack")
+            #expect(request["team"] as? String == "team_cmux", "the daemon's own calls keep the Worker team")
+        }
+        #expect(daemon.requests.count == 2)
+    }
+
     nonisolated final class Counter: @unchecked Sendable {
         // @unchecked: `value` is read and written only under `lock`.
         private let lock = NSLock()

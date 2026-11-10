@@ -36,6 +36,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::{Failure, optional_int, optional_text};
 
@@ -490,7 +491,9 @@ impl Engine {
             ));
         }
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
-        if task.is_empty() || task.chars().count() > TASK_MAX_CHARS {
+        // Characters as the composer and classic Cloud count them (grapheme clusters, Swift's
+        // `count`), never Unicode scalars: a decomposed "é" is one (#39022 review at 1c13439a, F2).
+        if task.is_empty() || task.graphemes(true).count() > TASK_MAX_CHARS {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
         }
         let agent = optional_text(args, "agent").filter(|a| !a.is_empty()).unwrap_or(DEFAULT_AGENT);

@@ -181,8 +181,7 @@ final class AgentPageChats {
             // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
             // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudAPIClient.runSandbox).
             guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let team = await services.cloud.machineAPI.currentTeam()
-            let api = services.cloud.machineAPI.drainingClassic(services.cloud.api).pinningTeam(team).runningAs(account) // incognito: classic (no chat)
+            let team = account.team, api = services.cloud.machineAPI.sending(as: account, classic: services.cloud.api) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

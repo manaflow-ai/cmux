@@ -635,6 +635,23 @@ fn a_cleanup_never_gives_up_while_its_machine_can_still_be_made() {
     assert_eq!(fake.removes.load(Ordering::Acquire), 17, "read again until the create ended");
 }
 
+/// #39022 review at 1c13439a, F2: a task's length is counted in characters as the composer counts
+/// them (grapheme clusters): 9000 decomposed accented letters are 9000 characters, not 18000.
+#[test]
+fn a_tasks_length_is_counted_in_characters_the_composer_counts() {
+    let engine = Engine::open(None, Fake::new(None, vec![]), quick());
+    let mut ok = body("k-accents", "team_1");
+    ok["task"] = json!("e\u{301}".repeat(9_000));
+    assert!(engine.perform("runs.create", &args(ok)).is_ok());
+    let mut long = body("k-long", "team_1");
+    long["task"] = json!("e\u{301}".repeat(16_001));
+    let refused = engine.perform("runs.create", &args(long)).unwrap_err();
+    assert!(
+        matches!(&refused, Failure::Http { status: 400, code: Some(code), .. } if code == "run_task_required"),
+        "{refused:?}"
+    );
+}
+
 /// The same audit (P2): a store this build cannot read was written over with an empty list, and
 /// every Run's pending cleanup was forgotten. It is kept aside now.
 #[test]
