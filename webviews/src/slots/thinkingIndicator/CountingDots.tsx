@@ -15,7 +15,12 @@ export function CountingDots({ label, verbs, elapsedMs }: ThinkingIndicatorProps
   return (
     <span className="slot-thinking" data-variant="counting-dots">
       <ReservedLabel label={label} verbs={verbs} />
-      <span className="slot-thinking__mark slot-thinking__dots" data-long={long ? "" : undefined} aria-hidden="true" inert>
+      <span
+        className="slot-thinking__mark slot-thinking__dots"
+        data-long={long ? "" : undefined}
+        aria-hidden="true"
+        inert
+      >
         {DOTS.map((dot) => (
           <span key={dot} className="slot-thinking__dot" data-dot={dot} />
         ))}

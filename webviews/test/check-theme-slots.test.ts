@@ -35,9 +35,9 @@ test("a variant on tokens, transform and opacity, under the gate, passes", () =>
 });
 
 test("a raw duration fails, in the shorthand, a delay or a custom property", () => {
-  expect(kinds(`@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat 300ms linear infinite; } }`)).toEqual([
-    "raw-duration",
-  ]);
+  expect(
+    kinds(`@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat 300ms linear infinite; } }`),
+  ).toEqual(["raw-duration"]);
   expect(kinds(`.m { animation-delay: 1.5s; }`)).toEqual(["raw-duration"]);
   expect(kinds(`.m { --slot-period: 2s; }`)).toEqual(["raw-duration"]);
   expect(kinds(`.m { transition-duration: 0s; }`)).toEqual([]);
@@ -47,24 +47,32 @@ test("animating a layout or paint property fails", () => {
   expect(kinds(`@keyframes grow { to { width: 2em; } }`)).toEqual(["layout-property"]);
   expect(kinds(`@keyframes tint { to { background-color: red; } }`)).toEqual(["layout-property"]);
   expect(
-    kinds(`@media (prefers-reduced-motion: no-preference) { ${gate} .m { transition: all var(--cmux-motion-micro) var(--cmux-ease-out); } }`),
+    kinds(
+      `@media (prefers-reduced-motion: no-preference) { ${gate} .m { transition: all var(--cmux-motion-micro) var(--cmux-ease-out); } }`,
+    ),
   ).toEqual(["layout-property"]);
   expect(kinds(`.m { will-change: left; }`)).toEqual(["layout-property"]);
 });
 
 test("an easing that is not a token, linear or steps fails, as does an unknown --cmux token", () => {
   expect(
-    kinds(`@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat var(--cmux-spinner-period) ease-in-out infinite; } }`),
+    kinds(
+      `@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat var(--cmux-spinner-period) ease-in-out infinite; } }`,
+    ),
   ).toEqual(["easing"]);
   expect(
-    kinds(`@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat var(--cmux-made-up) linear infinite; } }`),
+    kinds(
+      `@media (prefers-reduced-motion: no-preference) { ${gate} .m { animation: beat var(--cmux-made-up) linear infinite; } }`,
+    ),
   ).toEqual(["unknown-token"]);
 });
 
 test("a loop outside the reduced-motion media query or the motion gate fails", () => {
   expect(kinds(`.m { animation: beat var(--cmux-spinner-period) linear infinite; }`)).toEqual(["ungated"]);
   expect(
-    kinds(`@media (prefers-reduced-motion: no-preference) { .m { animation: beat var(--cmux-spinner-period) linear infinite; } }`),
+    kinds(
+      `@media (prefers-reduced-motion: no-preference) { .m { animation: beat var(--cmux-spinner-period) linear infinite; } }`,
+    ),
   ).toEqual(["ungated"]);
   expect(kinds(`${gate} .m { animation: beat var(--cmux-spinner-period) linear infinite; }`)).toEqual(["ungated"]);
 });
@@ -79,7 +87,9 @@ test("a variant script with a frame loop or timer fails; one without passes", ()
   ].join("\n");
   expect(checkVariantScript("Bad.tsx", bad).map((problem) => problem.line)).toEqual([2, 3, 4]);
   // A mention in a comment is not a loop.
-  expect(checkVariantScript("Good.tsx", "// no requestAnimationFrame here\nexport const Good = () => null;\n")).toEqual([]);
+  expect(checkVariantScript("Good.tsx", "// no requestAnimationFrame here\nexport const Good = () => null;\n")).toEqual(
+    [],
+  );
 });
 
 test("the schema needs reduced motion, a stop condition, a box and token-only motion", () => {

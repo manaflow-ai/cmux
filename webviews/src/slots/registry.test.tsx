@@ -16,7 +16,11 @@ import {
   slotVariantIds,
 } from "./registry";
 import { Slot } from "./Slot";
-import { registerThinkingIndicatorVariants, thinkingIndicatorSlot, THINKING_INDICATOR_VARIANTS } from "./thinkingIndicator";
+import {
+  registerThinkingIndicatorVariants,
+  thinkingIndicatorSlot,
+  THINKING_INDICATOR_VARIANTS,
+} from "./thinkingIndicator";
 import { applyAgentTheme } from "../agent-session/shared/theme";
 
 let dom: JSDOM | undefined;
@@ -24,7 +28,18 @@ let root: Root | undefined;
 let container: HTMLElement;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "CustomEvent", "IS_REACT_ACT_ENVIRONMENT", "cmuxSlots", "cmuxTheme"];
+const KEYS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "CustomEvent",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "cmuxSlots",
+  "cmuxTheme",
+];
 
 const slot = thinkingIndicatorSlot;
 const props = { label: "Thinking", verbs: ["Thinking"], elapsedMs: 0 };
@@ -130,9 +145,9 @@ test("the gallery or dev override wins over the theme", () => {
       theme: { "chat.thinkingIndicator": "pulse" },
     }),
   ).toBe("caret");
-  expect(
-    selectedSlotVariant(slot, { overrides: {}, stored: { "chat.thinkingIndicator": "blocks" }, theme: {} }),
-  ).toBe("blocks");
+  expect(selectedSlotVariant(slot, { overrides: {}, stored: { "chat.thinkingIndicator": "blocks" }, theme: {} })).toBe(
+    "blocks",
+  );
 });
 
 test("a variant that throws draws the default in its place, and the rest of the tree keeps drawing", () => {

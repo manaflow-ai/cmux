@@ -46,7 +46,10 @@ declare global {
 }
 
 /** A slot by its schema entry: its id must be in slots.json, and its default comes from there. */
-export function defineSlot<Props>(id: string, schema: { slots: readonly SlotSpec[] } = slotsSchema): SlotDefinition<Props> {
+export function defineSlot<Props>(
+  id: string,
+  schema: { slots: readonly SlotSpec[] } = slotsSchema,
+): SlotDefinition<Props> {
   const spec = schema.slots.find((slot) => slot.id === id);
   if (!spec) throw new Error(`theme slot ${id}: no entry in schemas/theme/slots.json`);
   if (!SLOT_ID.test(id)) throw new Error(`theme slot ${id}: ids are dotted lower camel case (chat.thinkingIndicator)`);
@@ -70,7 +73,8 @@ export function registerSlotVariant<Props>(
   variantId: string,
   component: ComponentType<Props>,
 ): void {
-  if (!VARIANT_ID.test(variantId)) throw new Error(`theme slot ${slot.id}: variant ids are lower kebab case (${variantId})`);
+  if (!VARIANT_ID.test(variantId))
+    throw new Error(`theme slot ${slot.id}: variant ids are lower kebab case (${variantId})`);
   let byId = variants.get(slot.id);
   if (!byId) variants.set(slot.id, (byId = new Map()));
   byId.set(variantId, component as ComponentType<never>);

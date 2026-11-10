@@ -52,7 +52,14 @@ export type SlotsSchema = {
 
 export type Problem = { file: string; line: number; kind: string; detail: string };
 
-type Declaration = { property: string; value: string; line: number; selector: string; media: string[]; keyframes: boolean };
+type Declaration = {
+  property: string;
+  value: string;
+  line: number;
+  selector: string;
+  media: string[];
+  keyframes: boolean;
+};
 
 function lineAt(text: string, index: number): number {
   let line = 1;
@@ -119,7 +126,8 @@ function topLevelParts(value: string): string[] {
   return parts.filter(Boolean);
 }
 
-const MOTION_PROPERTY = /^(?:animation|transition)(?:-(?:duration|delay|timing-function|name|property|iteration-count|direction|fill-mode|play-state))?$/;
+const MOTION_PROPERTY =
+  /^(?:animation|transition)(?:-(?:duration|delay|timing-function|name|property|iteration-count|direction|fill-mode|play-state))?$/;
 const TIME_LITERAL = /(?<![-\w.])(\d*\.?\d+)(ms|s)\b/g;
 const EASE_KEYWORD = /(?<![-\w])(?:ease|ease-in|ease-out|ease-in-out|cubic-bezier)(?![-\w])/;
 const CSS_WIDE = new Set(["none", "initial", "inherit", "unset", "revert"]);
@@ -129,7 +137,10 @@ function rawTimes(value: string): string[] {
 }
 
 function normalizeSelector(selector: string): string {
-  return selector.replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").trim();
+  return selector
+    .replace(/\s+/g, " ")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
 }
 
 /** The problems with one variant stylesheet. */
@@ -142,7 +153,11 @@ export function checkVariantCss(file: string, css: string, schema: SlotsSchema):
   for (const decl of declarations(css)) {
     if (decl.keyframes) {
       if (!animated.has(decl.property))
-        add(decl.line, "layout-property", `@keyframes sets ${decl.property}; only ${[...animated].join(" and ")} run on the compositor`);
+        add(
+          decl.line,
+          "layout-property",
+          `@keyframes sets ${decl.property}; only ${[...animated].join(" and ")} run on the compositor`,
+        );
       continue;
     }
     if (decl.property.startsWith("--")) {
@@ -158,8 +173,10 @@ export function checkVariantCss(file: string, css: string, schema: SlotsSchema):
     if (!MOTION_PROPERTY.test(decl.property)) continue;
     const value = decl.value.trim();
     if (CSS_WIDE.has(value)) continue;
-    for (const time of rawTimes(value)) add(decl.line, "raw-duration", `${decl.property}: ${time}; use a duration token`);
-    if (EASE_KEYWORD.test(value)) add(decl.line, "easing", `${decl.property}: ${value}; use an easing token, linear or steps()`);
+    for (const time of rawTimes(value))
+      add(decl.line, "raw-duration", `${decl.property}: ${time}; use a duration token`);
+    if (EASE_KEYWORD.test(value))
+      add(decl.line, "easing", `${decl.property}: ${value}; use an easing token, linear or steps()`);
     for (const match of value.matchAll(/var\(\s*(--[\w-]+)/g)) {
       const name = match[1]!;
       if (name.startsWith("--cmux-") && !tokens.has(name))
@@ -185,7 +202,8 @@ export function checkVariantCss(file: string, css: string, schema: SlotsSchema):
   return problems;
 }
 
-const FRAME_LOOPS = /\b(requestAnimationFrame|setInterval|setTimeout|requestIdleCallback|usePageNow|useTicking)\b|\.animate\(|ui\/pageClock/g;
+const FRAME_LOOPS =
+  /\b(requestAnimationFrame|setInterval|setTimeout|requestIdleCallback|usePageNow|useTicking)\b|\.animate\(|ui\/pageClock/g;
 
 /** The problems with one variant script: no frame loop or timer of its own. */
 export function checkVariantScript(file: string, source: string): Problem[] {
@@ -199,7 +217,11 @@ export function checkVariantScript(file: string, source: string): Problem[] {
 }
 
 /** The problems with the schema itself and, read from disk under `root`, every variant's files. */
-export function checkSlots(schema: SlotsSchema, root = repo, read = (file: string) => readFileSync(file, "utf8")): Problem[] {
+export function checkSlots(
+  schema: SlotsSchema,
+  root = repo,
+  read = (file: string) => readFileSync(file, "utf8"),
+): Problem[] {
   const problems: Problem[] = [];
   const at = path.relative(repo, SCHEMA_PATH);
   const add = (kind: string, detail: string) => problems.push({ file: at, line: 0, kind, detail });
@@ -212,14 +234,17 @@ export function checkSlots(schema: SlotsSchema, root = repo, read = (file: strin
     ids.add(slot.id);
     if (!slot.docs?.trim()) add("schema", `${slot.id}: no docs`);
     if (!slot.props || Object.keys(slot.props).length === 0) add("schema", `${slot.id}: no props contract`);
-    if (!slot.box?.block?.trim() || !slot.box.inline?.trim()) add("schema", `${slot.id}: the box needs block and inline`);
+    if (!slot.box?.block?.trim() || !slot.box.inline?.trim())
+      add("schema", `${slot.id}: the box needs block and inline`);
     const motion = slot.motion;
     if (!motion?.reducedMotion?.trim()) add("schema", `${slot.id}: the motion spec needs its reduced-motion behavior`);
     if (!motion?.stop?.trim()) add("schema", `${slot.id}: the motion spec needs its stop condition`);
     for (const [role, token] of Object.entries(motion?.durations ?? {}))
-      if (!durations.has(token)) add("raw-duration", `${slot.id}: motion.durations.${role} is ${token}, not a duration token`);
+      if (!durations.has(token))
+        add("raw-duration", `${slot.id}: motion.durations.${role} is ${token}, not a duration token`);
     for (const [role, token] of Object.entries(motion?.easings ?? {}))
-      if (!easings.has(token) && !keywords.has(token)) add("easing", `${slot.id}: motion.easings.${role} is ${token}, not an easing token`);
+      if (!easings.has(token) && !keywords.has(token))
+        add("easing", `${slot.id}: motion.easings.${role} is ${token}, not an easing token`);
     const variants = slot.variants ?? [];
     if (!variants.some((variant) => variant.id === slot.defaultVariant))
       add("schema", `${slot.id}: the default ${slot.defaultVariant} is not one of its variants`);
@@ -233,7 +258,9 @@ export function checkSlots(schema: SlotsSchema, root = repo, read = (file: strin
           continue;
         }
         const text = read(full);
-        problems.push(...(file.endsWith(".css") ? checkVariantCss(file, text, schema) : checkVariantScript(file, text)));
+        problems.push(
+          ...(file.endsWith(".css") ? checkVariantCss(file, text, schema) : checkVariantScript(file, text)),
+        );
       }
     }
   }

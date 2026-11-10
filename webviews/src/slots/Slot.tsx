@@ -3,12 +3,7 @@
 // other than the default draws inside an error boundary of this slot alone: if it throws, the
 // default draws in its place and the rest of the surface (the chat) keeps going.
 import { Component, type ReactNode } from "react";
-import {
-  reportSlotFailure,
-  slotVariant,
-  useSlotVariant,
-  type SlotDefinition,
-} from "./registry";
+import { reportSlotFailure, slotVariant, useSlotVariant, type SlotDefinition } from "./registry";
 
 type BoundaryProps = { slotId: string; variant: string; fallback: ReactNode; children: ReactNode };
 
