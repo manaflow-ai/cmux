@@ -335,6 +335,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/register",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/offer_session",
       "params": true,
       "result": true
@@ -594,6 +600,14 @@
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompt_coach",
+      "params": {
+        "$ref": "#/types/PromptCoachParams"
       },
       "result": true
     },
@@ -4795,6 +4809,17 @@
           "type": "string"
         }
       ]
+    },
+    "PromptCoachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "coachId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "ProtocolParams": {
       "additionalProperties": false,

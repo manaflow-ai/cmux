@@ -27,8 +27,8 @@ function composer(offered = true) {
   const compose: AutomationCompose = {
     async send(text) {
       sent.push(text);
-      // A Cloud start keeps the prompt until its chat opens on the machine.
-      return mode !== "cloud";
+      // A Cloud start takes the prompt as a local send does; its start runs until the chat opens.
+      return true;
     },
     runMode: () => mode,
     setRunMode(next) {
@@ -45,7 +45,7 @@ test("compose_send sends through the composer and reports where it went", async 
   const { compose, sent } = composer();
   expect(runMode(host(compose), "cloud")).toEqual({ runMode: "cloud", cloudStart: null });
   expect(await composeSend(host(compose), "reply with CLOUD_OK")).toEqual({
-    sent: false,
+    sent: true,
     runMode: "cloud",
     cloudStart: { state: "starting" },
   });

@@ -377,6 +377,9 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
+    /// (`hub/register.rs`). Local unix socket only.
+    pub const MUX_REGISTER: &str = "_acpmux/register";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
@@ -567,6 +570,8 @@ pub mod method {
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
+    /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
+    pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

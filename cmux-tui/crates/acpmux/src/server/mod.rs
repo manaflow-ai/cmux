@@ -2195,6 +2195,7 @@ mod new_worktree;
 mod outbound;
 mod plan_build;
 mod project_new;
+mod prompt_coach;
 mod review_queue;
 mod run_elsewhere;
 use outbound::{

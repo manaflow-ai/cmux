@@ -144,3 +144,42 @@ fn agent_history_save_does_not_wait_for_the_workspace_registry_lock() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// cmux#38186: an agent clear the app queued while the daemon was away
+/// carries its click time (`until_ms`). A session active after the click
+/// still lists when the clear arrives; a clear without it (an older caller)
+/// hides everything active until the delivery.
+#[test]
+fn a_queued_agent_clear_keeps_a_session_active_after_its_click() {
+    let session = "history-agent-clear-until";
+    let root = std::env::temp_dir().join(format!(
+        "cmux-history-agent-clear-until-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let mux = open_persistent_test_mux(session, &root);
+    let click_ms = crate::history_ops::now_ms() - 60_000;
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("history-agent-after-click"));
+    assert_eq!(list_agent_session_ids(&mux), vec!["history-agent-after-click".to_owned()]);
+
+    let mut fields = Map::new();
+    fields.insert("kinds".into(), serde_json::json!(["agent"]));
+    fields.insert("range".into(), serde_json::json!("all"));
+    fields.insert("until_ms".into(), serde_json::json!(click_ms.to_string()));
+    crate::history_ops::mutate_for_test(&mux, "clear-until-click", "history.clear", &fields)
+        .expect("the clear answers");
+    assert_eq!(
+        list_agent_session_ids(&mux),
+        vec!["history-agent-after-click".to_owned()],
+        "a session active after the click was hidden by a clear delivered later"
+    );
+
+    fields.remove("until_ms");
+    crate::history_ops::mutate_for_test(&mux, "clear-until-now", "history.clear", &fields)
+        .expect("the clear answers");
+    assert!(list_agent_session_ids(&mux).is_empty(), "a clear until now left the session");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -54,7 +54,7 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
 
     private func update(from content: WorkspaceContentController) {
         model.update(columns: content.layoutModel.activeScreen?.layout.columns ?? []) {
-            content.paneController(key: $0.rawValue)?.selectedTab?.title
+            content.paneController(key: $0.rawValue)?.selectedTab?.titleText
         }
     }
 }

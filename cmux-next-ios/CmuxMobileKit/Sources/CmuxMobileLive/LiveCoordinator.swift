@@ -304,7 +304,7 @@ public final class LiveCoordinator {
             // one controller asks the dialer, the others only redial a failed link.
             focused.link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
             for session in sessions.values where session !== focused {
-                if case .waiting = session.link.phase { session.link.send(.foreground) }
+                session.link.send(.networkChanged)
             }
         }
     }
