@@ -164,5 +164,48 @@ class ProcessTests(unittest.TestCase):
         self.assertIn("2 s deadline", result.stdout + result.stderr)
 
 
+class WrapperTests(unittest.TestCase):
+    """scripts/ci/cargo-test-deadline.sh, the one place workflows run cargo test through."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp(prefix="cargo-test-deadline."))
+        (self.dir / "fake_libtest.py").write_text(FAKE, encoding="utf-8")
+        cargo = self.dir / "cargo"
+        # The fake cargo records its arguments and plays the libtest run that FAKE_MODE names.
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf "%s\\n" "$*" > "$(dirname "$0")/cargo-args"\n'
+            f'exec "{sys.executable}" -I "$(dirname "$0")/fake_libtest.py" "$FAKE_MODE"\n',
+            encoding="utf-8")
+        cargo.chmod(0o755)
+
+    def run_wrapper(self, mode: str, **env: str) -> tuple[int, str, float]:
+        started = time.monotonic()
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "ci" / "cargo-test-deadline.sh"), "-p", "cmux-tui-core", "--lib"],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "PATH": f"{self.dir}:{os.environ['PATH']}", "FAKE_MODE": mode, **env},
+        )
+        return result.returncode, result.stdout + result.stderr, time.monotonic() - started
+
+    def test_the_wrapper_passes_its_arguments_to_cargo_test_and_keeps_the_status(self):
+        code, out, _ = self.run_wrapper("fail", CMUX_TEST_DEADLINE_SECONDS="5")
+        self.assertEqual(code, 101, out)
+        self.assertEqual((self.dir / "cargo-args").read_text(encoding="utf-8").strip(), "test -p cmux-tui-core --lib")
+
+    def test_the_wrapper_ends_a_hung_test_at_the_env_deadline(self):
+        code, out, took = self.run_wrapper("sequential-hang", CMUX_TEST_DEADLINE_SECONDS="2")
+        self.assertEqual(code, deadline.DEADLINE_EXIT, out)
+        self.assertIn("test b_hangs ran past its 2 s deadline", out)
+        self.assertLess(took, 30, out)
+
+    def test_the_wrapper_reads_slow_overrides_from_the_env(self):
+        code, out, took = self.run_wrapper("sequential-hang", CMUX_TEST_DEADLINE_SECONDS="1",
+                                           CMUX_TEST_DEADLINE_SLOW="other=9 b_hangs=3")
+        self.assertEqual(code, deadline.DEADLINE_EXIT, out)
+        self.assertIn("3 s deadline", out)
+        self.assertGreaterEqual(took, 2.5, out)
+
+
 if __name__ == "__main__":
     unittest.main()
