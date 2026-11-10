@@ -152,8 +152,66 @@ export const GroupList = def({
   mcp: { expose: "default", group: "groups" }
 })
 
+/** One member of a cloud group (cloud-groups-DESIGN.md 6.1): owner manages members; edit may change rows; view reads. */
+export const CloudGroupMember = Schema.Struct({
+  user: UserId,
+  role: GroupRole,
+  /** The member's name in the team directory; null once they left the team (they keep no access). */
+  display_name: Schema.NullOr(Schema.String),
+  /** False once they left the team or became a guest: the group answers them nothing. */
+  active: Schema.Boolean
+}).annotate({ identifier: "CloudGroupMember" })
+
+export const GroupMemberSet = def({
+  name: "group.members.set",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ group: GroupId, user: UserId, role: GroupRole }),
+  result: Schema.Struct({ group: GroupId, members: Schema.Array(CloudGroupMember) }),
+  errors: [...mutationErrors, "selector.not_found", "group.member_not_in_team", "group.last_owner"],
+  docs: "Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted.",
+  cli: { path: "group cloud member set", visible: true },
+  mcp: { expose: "default", group: "groups" }
+})
+
+export const GroupMemberRemove = def({
+  name: "group.members.remove",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ group: GroupId, user: UserId }),
+  result: Schema.Struct({ group: GroupId, members: Schema.Array(CloudGroupMember) }),
+  errors: [...mutationErrors, "selector.not_found", "group.last_owner"],
+  docs: "Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op.",
+  cli: { path: "group cloud member remove", visible: true },
+  mcp: { expose: "default", group: "groups" }
+})
+
+export const GroupMembersList = def({
+  name: "group.members.list",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ group: GroupId }),
+  result: Schema.Struct({ group: GroupId, members: Schema.Array(CloudGroupMember) }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
+  docs: "A cloud group's members and their roles (any member of the group reads it).",
+  cli: { path: "group cloud member list", visible: true },
+  mcp: { expose: "default", group: "groups" }
+})
+
+/** Members one group holds; more is refused, never truncated. */
+export const GROUP_MAX_MEMBERS = 200
+
 export const GROUP_LINK_PREFIX = "cmux://group/"
 /** The hand-off page (API Worker GET /g/<id>): it carries no group data, only the cmux:// link, so any id works on it. */
 export const GROUP_WEB_LINK_PREFIX = "https://cloud-api.cmux.dev/g/"
 
-export const teamGroupOps = [GroupCreate, GroupRename, GroupAddWorkspace, GroupArchive, GroupGet, GroupList] as const
+export const teamGroupOps = [GroupCreate, GroupRename, GroupAddWorkspace, GroupArchive, GroupGet, GroupList, GroupMemberSet, GroupMemberRemove, GroupMembersList] as const

@@ -395,6 +395,22 @@ pub struct CloudGroupItem {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudGroupMember {
+    pub user: UserId,
+    pub role: CloudGroupMemberRole,
+    pub display_name: Option<String>,
+    pub active: bool,
+}
+
+wire_enum! {
+    CloudGroupMemberRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachine {
     pub id: MachineId,
     pub team: TeamId,
@@ -494,6 +510,76 @@ pub struct CloudPlanUsage {
     pub vm_hours_used: Option<WireNumber>,
     pub period_end: i64,
 }
+
+wire_enum! {
+    CloudSessionActivity {
+        Working = "working",
+        NeedsAttention = "needs_attention",
+        Idle = "idle",
+    }
+}
+
+/// The chat's acpmux session id, or the workspace's id on its VM.
+pub type CloudSessionId = String;
+
+wire_enum! {
+    CloudSessionKind {
+        Workspace = "workspace",
+        Chat = "chat",
+    }
+}
+
+wire_enum! {
+    CloudSessionMachineState {
+        Running = "running",
+        Asleep = "asleep",
+        Waking = "waking",
+        Unresponsive = "unresponsive",
+        Gone = "gone",
+    }
+}
+
+wire_enum! {
+    CloudSessionScope {
+        Mine = "mine",
+        Team = "team",
+        Following = "following",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSessionView {
+    pub key: String,
+    pub team: TeamId,
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub kind: CloudSessionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<CloudSessionId>,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    pub owner: UserId,
+    pub owner_name: Option<String>,
+    pub assignee: UserId,
+    pub assignee_name: Option<String>,
+    pub machine_state: CloudSessionMachineState,
+    pub activity: CloudSessionActivity,
+    pub last_activity_at: i64,
+    pub created_at: i64,
+    pub archived: bool,
+    pub followers: Vec<UserId>,
+    pub follower_count: i64,
+    pub following: bool,
+    pub assigned_to_you: bool,
+    pub viewers: Vec<UserId>,
+    pub can_reassign: bool,
+    pub can_archive: bool,
+    pub link: String,
+}
+
+/// The Cloud machine the session runs on.
+pub type CloudSessionVm = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudSnapshot {
@@ -782,122 +868,4 @@ pub struct FeedFilter {
     pub workspace: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<FeedKind>,
-}
-
-/// One notice or request in a user's feed.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItem {
-    pub id: FeedItemId,
-    pub home: String,
-    pub r#type: FeedItemType,
-    pub kind: FeedKind,
-    pub title: String,
-    pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub prompt: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub answer_schema: Option<Value>,
-    pub priority: FeedPriority,
-    pub dedupe_key: Option<String>,
-    pub thread: Option<String>,
-    pub context: FeedContext,
-    pub attachments: Vec<FeedAttachment>,
-    pub actions: Vec<FeedAction>,
-    pub open: Option<FeedOpen>,
-    pub poster: FeedPoster,
-    pub state: FeedState,
-    pub answer: Option<FeedItemAnswer>,
-    pub cancel: Option<FeedItemCancel>,
-    pub needs_mac: bool,
-    pub expires_at: i64,
-    pub read_at: Option<i64>,
-    pub seen_at: Option<i64>,
-    pub archived_at: Option<i64>,
-    pub snoozed_until: Option<i64>,
-    pub push_due_at: Option<i64>,
-    pub pushed_at: Option<i64>,
-    pub count: i64,
-    pub order: i64,
-    pub revision: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub closed_at: Option<i64>,
-}
-
-wire_enum! {
-    FeedItemType {
-        Notice = "notice",
-        Request = "request",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItemAnswer {
-    pub value: Value,
-    pub by: String,
-    pub device: Option<String>,
-    pub at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedItemCancel {
-    pub reason: FeedCancelReason,
-    pub by: String,
-    pub at: i64,
-    pub note: Option<String>,
-}
-
-/// A feed item; stable when its home moves from a local owner to the cloud.
-pub type FeedItemId = String;
-
-/// notice, a built-in request kind, or a custom kind x-<publisher>.<name>.
-pub type FeedKind = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedOpen {
-    pub action: FeedOpenAction,
-    pub args: FeedOpenArgs,
-}
-
-wire_enum! {
-    FeedOpenAction {
-        TabFocus = "tab.focus",
-        WorkspaceFocus = "workspace.focus",
-        BrowserOpen = "browser.open",
-        BrowserDuplicateRight = "browser.duplicateRight",
-        UrlOpen = "url.open",
-        TaskOpen = "task.open",
-        AcpSessionOpen = "acp.session.open",
-        AppOpen = "app.open",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedOpenArgs {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPoster {
-    pub kind: FeedPosterKind,
-    pub scope: String,
-    pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-}
-
-wire_enum! {
-    FeedPosterKind {
-        Agent = "agent",
-        Harness = "harness",
-        App = "app",
-        Server = "server",
-        Vm = "vm",
-        Automation = "automation",
-        Integration = "integration",
-        System = "system",
-        User = "user",
-    }
 }

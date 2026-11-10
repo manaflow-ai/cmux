@@ -209,6 +209,131 @@ wire_errors! {
 }
 
 wire_op! {
+    /// A cloud group's members and their roles (any member of the group reads it).
+    GroupMembersListOp {
+        name: "group.members.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: GroupMembersListParams,
+        result: GroupMembersListResult,
+        error: GroupMembersListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersListParams {
+    pub group: GroupId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersListResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.list declares.
+    GroupMembersListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op.
+    GroupMembersRemoveOp {
+        name: "group.members.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GroupMembersRemoveParams,
+        result: GroupMembersRemoveResult,
+        error: GroupMembersRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersRemoveParams {
+    pub group: GroupId,
+    pub user: UserId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersRemoveResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.remove declares.
+    GroupMembersRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        GroupLastOwner = "group.last_owner",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted.
+    GroupMembersSetOp {
+        name: "group.members.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GroupMembersSetParams,
+        result: GroupMembersSetResult,
+        error: GroupMembersSetError,
+    }
+}
+
+wire_enum! {
+    GroupMembersSetParamsRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersSetParams {
+    pub group: GroupId,
+    pub user: UserId,
+    pub role: GroupMembersSetParamsRole,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersSetResult {
+    pub group: GroupId,
+    pub members: Vec<CloudGroupMember>,
+}
+
+wire_errors! {
+    /// The error codes group.members.set declares.
+    GroupMembersSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        GroupLastOwner = "group.last_owner",
+        GroupMemberNotInTeam = "group.member_not_in_team",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Rename a cloud group (its owner only).
     GroupRenameOp {
         name: "group.rename",
@@ -773,132 +898,5 @@ wire_op! {
         params: InboxMarkUnreadParams,
         result: HomeInboxEntry,
         error: InboxMarkUnreadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMarkUnreadParams {
-    pub conversation: ConversationId,
-    pub unread: bool,
-}
-
-wire_errors! {
-    /// The error codes inbox.mark_unread declares.
-    InboxMarkUnreadError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Mute a conversation (until a time in ms, or until unmuted). Approvals still notify.
-    InboxMuteOp {
-        name: "inbox.mute",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: InboxMuteParams,
-        result: HomeInboxEntry,
-        error: InboxMuteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMuteParams {
-    pub conversation: ConversationId,
-    pub muted: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub until: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes inbox.mute declares.
-    InboxMuteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Pin or unpin a conversation in your Home list.
-    InboxPinOp {
-        name: "inbox.pin",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: InboxPinParams,
-        result: HomeInboxEntry,
-        error: InboxPinError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxPinParams {
-    pub conversation: ConversationId,
-    pub pinned: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes inbox.pin declares.
-    InboxPinError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the caller's installs and grants.
-    InstallListOp {
-        name: "install.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: InstallListParams,
-        result: InstallListResult,
-        error: InstallListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallListResult {
-    pub user: Option<UserProfile>,
-    pub installs: Vec<Install>,
-    pub grants: Vec<Grant>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes install.list declares.
-    InstallListError {
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

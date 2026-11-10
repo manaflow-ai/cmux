@@ -20,6 +20,7 @@ import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
+import { CLOUD_SESSION_OPS, reduceCloudSession } from "./team-cloud-sessions.ts"
 import { memberAuthorityWrites } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
@@ -101,6 +102,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
     const p = ctx.principal
     // Cloud groups (cloud-groups-DESIGN.md): rows only, in team-groups.ts.
     if (GROUP_OPS.has(op)) return reduceGroup(state, op, params, ctx)
+    // Team-visible Cloud sessions (cloud multiplayer): rows only, in team-cloud-sessions.ts.
+    if (CLOUD_SESSION_OPS.has(op)) return reduceCloudSession(state, op, params, ctx)
     switch (op) {
       case "team.rows_migrate": {
         // (f) An old head's members and hosts move to rows in one commit; the maps leave the head.

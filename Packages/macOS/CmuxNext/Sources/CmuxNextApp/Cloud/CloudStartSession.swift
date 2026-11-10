@@ -271,6 +271,8 @@ struct CloudStartSession {
         }
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
+        // The team sees the new chat now (TeamDO `team.cloud.session.publish`), not on its tab's next change.
+        services.cloudTeam.chatStarted()
         return [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
