@@ -37,6 +37,7 @@ cloud
 cloud-progress
 coderouter
 debug-settings
+feed
 files
 github
 group-editor
@@ -54,7 +55,6 @@ overlay
 passwords
 server-cards
 settings
-setup-card
 stash
 stats
 tasks
@@ -63,6 +63,8 @@ tasks
 PAGES="$PAGES page-info site-settings site-data certificate"
 # The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
 PAGES="$PAGES cookie-import"
+# The bookmarks bar (CmuxNextBookmarks BookmarksBarPages: one page per bar on screen).
+PAGES="$PAGES bookmarks-bar"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

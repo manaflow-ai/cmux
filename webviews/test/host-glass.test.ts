@@ -11,6 +11,7 @@ import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
+  HOST_GLASS_MAX,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
   reportHostGlass,
@@ -542,4 +543,18 @@ test("a surface the App had answered for, opened again during its fade, still fa
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
+
+test("a surface past what one report carries keeps the page's own glass", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const all = Array.from({ length: HOST_GLASS_MAX + 1 }, () => surface(doc));
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(HOST_GLASS_MAX);
+  const drawn = all.map((element) => element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE));
+  expect(drawn.slice(0, HOST_GLASS_MAX)).toEqual(Array(HOST_GLASS_MAX).fill("1"));
+  // The one past the cap is never reported, so it shows the page's glass at once, not content on no glass.
+  expect(drawn.at(-1)).toBe("0");
 });

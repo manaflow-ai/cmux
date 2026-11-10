@@ -15,6 +15,13 @@ pub const MACHINE_UPDATE_TIMEOUT_SECONDS: u64 = 45 * 60;
 /// How long one run may take unless its verb says otherwise; past it the run is killed.
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30 * 60;
 
+/// A chat start's ledger verbs (`link start-chat pin|create-begin|create-sent|create-refused|
+/// target-pane|import`): a read and write of this Mac's ledger file under its lock, which each
+/// holder keeps only for an in-memory change (cmux-tui `start_chat_cli/ledger.rs` `update`), no
+/// network. A minute is far past any of them; without it a stuck one held a Cloud start for the
+/// 30 minutes of [`DEFAULT_TIMEOUT_SECONDS`], with the composer's start card silent all along.
+pub const START_CHAT_LEDGER_TIMEOUT_SECONDS: u64 = 60;
+
 /// One CLI's answer line.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -481,6 +488,11 @@ pub fn agent_move_flags(
 pub fn invocation(call: &Call) -> Invocation {
     let plain =
         |args: Vec<String>| Invocation { args, timeout_seconds: None, min_timeout_seconds: None };
+    let ledger = |args: Vec<String>| Invocation {
+        args,
+        timeout_seconds: Some(START_CHAT_LEDGER_TIMEOUT_SECONDS),
+        min_timeout_seconds: None,
+    };
     match call {
         Call::SeedPush { socket, local, remote } => {
             plain(words(&["link", "seed", "push", "--socket", socket, local, remote]))
@@ -561,9 +573,9 @@ pub fn invocation(call: &Call) -> Invocation {
             if let Some(workspace) = workspace {
                 args.extend(words(&["--workspace", workspace]));
             }
-            plain(args)
+            ledger(args)
         }
-        Call::StartChatCreateBegin { key, account, name, create_key } => plain(words(&[
+        Call::StartChatCreateBegin { key, account, name, create_key } => ledger(words(&[
             "link",
             "start-chat",
             "create-begin",
@@ -576,7 +588,7 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatCreateSent { key, account, team, create_key } => plain(words(&[
+        Call::StartChatCreateSent { key, account, team, create_key } => ledger(words(&[
             "link",
             "start-chat",
             "create-sent",
@@ -589,7 +601,7 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatCreateRefused { key, account, create_key } => plain(words(&[
+        Call::StartChatCreateRefused { key, account, create_key } => ledger(words(&[
             "link",
             "start-chat",
             "create-refused",
@@ -600,7 +612,7 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatTargetPane { key, account, machine, pane } => plain(words(&[
+        Call::StartChatTargetPane { key, account, machine, pane } => ledger(words(&[
             "link",
             "start-chat",
             "target-pane",
@@ -614,7 +626,7 @@ pub fn invocation(call: &Call) -> Invocation {
             pane,
         ])),
         Call::StartChatImport { entries } => {
-            plain(words(&["link", "start-chat", "import", "--entries", entries]))
+            ledger(words(&["link", "start-chat", "import", "--entries", entries]))
         }
         Call::StartChatCopy {
             key,
