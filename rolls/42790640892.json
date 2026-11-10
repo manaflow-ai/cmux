@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42790640892",
+  "recorded_at": "2026-11-10T09:28:03Z",
+  "reason": "cmux-tui bc570c7cf41a changes the image's cmux-tui (pinned ef0756a57759)",
+  "dry_run": false,
+  "cmux_tui": "bc570c7cf41a0b13643b5bde4ba6dbb5e70846f8",
+  "fixes": [
+    {
+      "sha": "bc570c7cf41a0b13643b5bde4ba6dbb5e70846f8",
+      "mergedAt": "2026-11-10T01:08:42-08:00",
+      "subject": "Cloud: automatic machine cleanup in the app (dates, Keep, Archive and delete, archives, cap offer, settings, CLI) (#40128)"
+    },
+    {
+      "sha": "32f5ff1e833ada43c3825b5cc2d30bc609cccd6c",
+      "mergedAt": "2026-11-10T00:55:08-08:00",
+      "subject": "cmux-action-catalog: the Feed page's Open Feed Item and GitHub action (port of #37378) (#40262)"
+    },
+    {
+      "sha": "0ab2109db08959f28efd982047292ec2ad4c9634",
+      "mergedAt": "2026-11-10T08:42:16Z",
+      "subject": "chore(next): base autofix at ef0756a57759"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T09:28:03Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
