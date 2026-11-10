@@ -10662,7 +10662,7 @@ enum BrowserDataImporter {
                 warnings.append(
                     safariCookiesTooLargeWarning(
                         path: reader.displayPath(for: url),
-                        limit: parser.maximumDecodedBytes
+                        limit: reader.maximumStoreBytes
                     )
                 )
                 continue
