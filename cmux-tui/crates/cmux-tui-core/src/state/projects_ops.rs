@@ -183,7 +183,8 @@ impl Mux {
     }
 
     /// `project.source.update`: the user turns a source on or off. Turning
-    /// an editor or app source on reads it again at once.
+    /// an editor or app source on reads it again at once, and so does a
+    /// chat-index source (`mux/project_chats.rs`).
     pub(crate) fn state_project_source_update(
         &self,
         mutation: &WorkspaceMutation,
@@ -199,18 +200,26 @@ impl Mux {
         };
         let refusals = store::refusals();
         let now = now_ms();
-        self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
-            let mut changed: std::collections::BTreeSet<String> = projects
-                .set_source_enabled(source, enabled)
-                .map_err(rejected)?
-                .into_iter()
-                .collect();
-            for scan in &scans {
-                let observed = projects.observe(scan.source, &scan.entries, true, now, &refusals);
-                changed.extend(observed.map_err(rejected)?);
-            }
-            Ok(changed.into_iter().collect())
-        })
+        let commit =
+            self.commit_projects(mutation, "project.source.update", &fingerprint, |projects| {
+                let mut changed: std::collections::BTreeSet<String> = projects
+                    .set_source_enabled(source, enabled)
+                    .map_err(rejected)?
+                    .into_iter()
+                    .collect();
+                for scan in &scans {
+                    let observed =
+                        projects.observe(scan.source, &scan.entries, true, now, &refusals);
+                    changed.extend(observed.map_err(rejected)?);
+                }
+                Ok(changed.into_iter().collect())
+            })?;
+        // A chat-index source comes back from acpmux's list, which the daemon reads again.
+        if enabled {
+            #[cfg(unix)]
+            self.reimport_project_chats(source);
+        }
+        Ok(commit)
     }
 
     /// The daemon's own import of `scans` (startup, a source file changed):

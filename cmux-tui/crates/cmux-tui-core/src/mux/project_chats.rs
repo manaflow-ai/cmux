@@ -22,7 +22,10 @@
 //! socket watch and never wakes on a timer. A connection that ends waits for
 //! the next time the chat watch reaches acpmux. While the daemon runs, each
 //! harness's last imported list is kept, so a reconnect imports only what
-//! changed.
+//! changed. A source the user turns on again (`project.source.update`) is the
+//! exception: the store dropped its folders when it went off and skipped its
+//! lists since, so its kept list is forgotten and a new connection reads the
+//! index again.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
@@ -52,6 +55,8 @@ pub(super) struct ProjectChatsWake(Mutex<Wakes>);
 struct Wakes {
     wake: Option<SyncSender<()>>,
     connection: Option<UnixStream>,
+    /// The sources turned on again since the last import: their kept lists are forgotten.
+    forget: Vec<String>,
     stopped: bool,
 }
 
@@ -109,6 +114,20 @@ impl Mux {
         }
     }
 
+    /// The user turned `source` on again (`project.source.update`). The store dropped its
+    /// folders when it went off and skipped its lists since, so the list kept as imported no
+    /// longer says what the store holds: forget it and read the index again. The read comes
+    /// from a new connection (its watch answer), so no second writer shares the one in use.
+    pub(crate) fn reimport_project_chats(&self, source: &str) {
+        let mut wakes = self.project_chats.lock();
+        let Some(wake) = wakes.wake.clone() else { return };
+        wakes.forget.push(source.to_owned());
+        if let Some(connection) = wakes.connection.take() {
+            let _ = connection.shutdown(std::net::Shutdown::Both);
+        }
+        let _ = wake.try_send(());
+    }
+
     /// Ends the thread, whether it waits for a wake or for acpmux (shutdown).
     pub(super) fn stop_project_chats(&self) {
         self.project_chats.lock().stop();
@@ -127,6 +146,11 @@ impl Mux {
 
     fn release_project_chats_connection(&self) {
         self.project_chats.lock().connection = None;
+    }
+
+    /// The sources turned on again since the last call.
+    fn take_project_chats_to_forget(&self) -> Vec<String> {
+        std::mem::take(&mut self.project_chats.lock().forget)
     }
 }
 
@@ -170,6 +194,10 @@ enum Signal {
 /// `asked` is the id of the `_acpmux/chat_projects` read in flight.
 fn signal(message: &Value, asked: Option<u64>) -> Signal {
     if let Some(id) = message.get("id").and_then(Value::as_u64) {
+        // A request from acpmux numbers its own ids: one equal to the read's is not its answer.
+        if message.get("method").is_some() {
+            return Signal::Other;
+        }
         return if Some(id) == asked {
             Signal::Projects
         } else if id == WATCH_ID && message.get("result").is_some_and(Value::is_object) {
@@ -235,6 +263,9 @@ fn batches(result: &Value, imported: &Imported) -> Vec<(String, Vec<Observation>
 /// Imports each changed harness list as its own commit, so a list the store
 /// refuses (a bad harness id, too many folders) holds up no other harness.
 fn import(mux: &Mux, result: &Value, imported: &mut Imported) {
+    for source in mux.take_project_chats_to_forget() {
+        imported.remove(&source);
+    }
     for (source, entries) in batches(result, imported) {
         match mux.state_project_import_lists(&[(source.as_str(), entries.as_slice())]) {
             Ok(_) => {

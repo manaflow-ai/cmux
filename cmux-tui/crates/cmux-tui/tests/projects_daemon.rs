@@ -40,6 +40,9 @@ impl Daemon {
             Some(acpmux) => command.env("ACPMUX_SOCKET", acpmux),
             None => command.env_remove("ACPMUX_SOCKET"),
         };
+        // Never the acpmux of the person or agent that runs the tests: without the
+        // socket above, the daemon would find it through this home.
+        command.env_remove("ACPMUX_HOME");
         let child = command
             .args(["--headless", "--socket"])
             .arg(&socket)
@@ -900,4 +903,27 @@ fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
         assert_eq!(codex["first_seen_ms"], first_seen, "{idle}: codex left and came back");
         assert_eq!(codex["last_used_ms"], "30", "{idle}");
     }
+
+    // A source turned off in Settings loses its folders, and its lists are
+    // skipped while it is off. The pi marker of the same read shows that the
+    // codex list of that read was handled (harnesses are imported in order).
+    daemon.mutate("project.source.update", json!({"source": "codex", "enabled": false}), "c-2");
+    acpmux.set(answer(vec![row("codex", "app", 40), row("pi", "marker-off", 1)]));
+    acpmux.changed("upsert");
+    let marker = format!("{root}/marker-off");
+    let projects = wait_for("the list read while codex is off", &|projects| {
+        projects.iter().any(|project| project["path"] == marker.as_str())
+    });
+    assert!(
+        projects.iter().all(|project| project["sources"]["codex"].is_null()),
+        "codex is off: {projects:?}"
+    );
+
+    // Turned on again, its folders come back at once: no index change, no
+    // daemon restart. The list read while it was off is not taken as imported.
+    daemon.mutate("project.source.update", json!({"source": "codex", "enabled": true}), "c-3");
+    let projects = wait_for("the folders of a source turned on again", &|projects| {
+        projects.iter().any(|project| project["sources"]["codex"]["last_used_ms"] == "40")
+    });
+    assert_eq!(find(&projects, &app)["name"], "Mine");
 }

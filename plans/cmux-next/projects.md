@@ -52,7 +52,7 @@ The editor adapters (VS Code family, Zed, JetBrains, later t3code and Conductor)
 
 - At daemon start: one full scan of every enabled source.
 - File watches (`state::project_watch`, landed): one `notify` watch, non-recursive, on each folder the editor and app sources read (VS Code family `globalStorage`, Zed `db/0-stable`, `$CODEX_HOME`, `~/.t3/userdata`, Conductor's folder). An event on a source file name (`state.vscdb*`, `storage.json`, `db.sqlite*`, `.codex-global-state.json`, `statev2.sqlite*`, `state.sqlite*`, `conductor.db*`; an atomic rename counts) drains the queued burst, rescans, and commits only the sources whose list changed since the last import. No quiet-period timer: the drain is the coalescing. A folder that does not exist at daemon start is read on the next daemon start or `project.sync`. acpmux pushes chat changes as they happen, and the daemon follows them (section 3).
-- On app activation: the app rescans only the sources whose files changed since the last scan (mtime + size check), so a project made in the ChatGPT app while cmux was in the background shows on the next switch to cmux, and sends `project.sync {existing, gone}`: the disk facts it checked with its own privacy rules (PrivacyFolder; a protected folder is never stat'ed unasked). The store reads no disk for observed paths: a read inside a privacy-protected folder raises a macOS prompt attributed to cmux, and a stale network mount would stall the store's locks.
+- `project.sync {existing, gone}` stays a daemon verb: a client's disk facts, checked with its own privacy rules (PrivacyFolder; a protected folder is never stat'ed unasked), and a fresh read of the editor sources. The app no longer sends it on launch or activation (A14, it went with the relay): the start scan and the file watches above keep the editor sources current. The store reads no disk for observed paths: a read inside a privacy-protected folder raises a macOS prompt attributed to cmux, and a stale network mount would stall the store's locks.
 - No polling interval anywhere.
 
 ## 5. Merge rules (the reducer, invariant-tested)
@@ -71,7 +71,7 @@ The editor adapters (VS Code family, Zed, JetBrains, later t3code and Conductor)
 
 - `project.list {query?, include_hidden?, limit?}` -> projects (section 2 shape).
 - `project.observe {source, entries: [{path, last_used_ms}], complete?}` (outside reporters such as the CLI; the daemon imports the chat index and the editor adapters itself; at most 10000 entries, a `complete` source sends everything in one batch; a re-observe with the same times changes nothing).
-- `project.sync {existing?, gone?}` (app activation; the app's disk facts, at most 10000 paths).
+- `project.sync {existing?, gone?}` (a client's disk facts, at most 10000 paths; the app sends none since A14).
 - `project.add {path}` (source `user`), `project.update {path, rename?, pinned?, hidden?, order?}`, `project.remove {path}` (drops `user`, sets `hidden` for a path a source still reports, so it does not come back).
 - `project.source.update {source, enabled}` (landed): per-source on/off lives in the store (table `project_sources_off`), and `project.list` returns `sources: [{id, enabled, projects}]` for the Settings page. Off: the source leaves every project (one with no other source and no user edit goes) and its reports are ignored. On: an editor or app source is read again at once; a chat-index source returns with the next change of its acpmux list (or the next daemon start). Decision: the store, not `settings.projects.sources`, because the off state must hold against every writer (the app relay, the daemon's own import, a CLI `project.observe`) at the one place that merges; the Settings page writes it through this op.
 - Typed rejects: `invalid_path`, `refused_path`, `unknown_project`.
@@ -92,6 +92,6 @@ Local only: the table lives in the daemon store; nothing is sent to Cloud, telem
 
 1. Store + ops + reducer (CORE window): table, `project.list/observe/add/update/remove/sync`, merge invariants, capability, generated types. Red tests: reducer invariants (rules 1-7), protocol tests.
 2. Adapters: chat-index harness sources via acpmux `project.observe`; editor adapters (VS Code family, Zed, JetBrains), then t3code and Conductor once fixtures are verified. Red test per adapter with fixture dirs.
-3. Resync: daemon-start scan, editor file watches, app activation `project.sync`.
+3. Resync: daemon-start scan, editor file watches, `project.sync` (the app's send on activation went with the relay, A14).
 4. UI: Swift `project.list` reads the store (scan becomes an adapter only); Settings Projects page; acpmux web drops its localStorage list.
    - 4a (pickers): the New Tab handler (also the agent pane `project.list`, Start Agent and the acpmux New Tab list) reads the daemon `project.list`; Choose Folder sends `project.add`. A daemon without `project-list-v1` or a failed read falls back to the old scan. Remains: Settings Projects page (settings slot), onboarding scan, acpmux web localStorage list.
