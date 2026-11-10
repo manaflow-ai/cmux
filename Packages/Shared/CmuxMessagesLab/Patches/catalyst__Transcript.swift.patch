@@ -96,7 +96,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -694,10 +725,21 @@
+@@ -694,12 +725,23 @@
          key = ""
          // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
          if liveKept { liveKept = false; spec = nil }
@@ -105,8 +105,8 @@
          markdownOverlay?.detach()
          CustomRows.host?.detach(self)
          dropWant()
-+    }
-+
+     }
+ 
 +    /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
 +    /// coordinates.
 +    func setSelectionHighlight(_ path: CGPath?) {
@@ -115,9 +115,11 @@
 +        if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
 +        selectionHighlight.path = path
 +        CATransaction.commit()
-     }
- 
++    }
++
      func clearAnimations() {
+         layer.removeAllAnimations()
+         contentView.layer.removeAllAnimations()
 @@ -719,10 +761,11 @@
              guard let spec else { return nil }
              switch spec.kind {
@@ -255,7 +257,27 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1357,6 +1425,7 @@
+@@ -1224,11 +1292,14 @@
+ 
+     /// Messages' pop of my new tapback (macOS 27, lossless tapback-menu-heart-take1, times from
+     /// our react commit, which Messages' rows follow 90 ms later): the badge grows from a dot at
+-    /// +86 ms (spring 0.247 s, bounce 0.087; rms 0.025 of full size), with the glyph inside it;
+-    /// at +136 ms the glyph starts again from nothing and grows with an overshoot to 1.24 and
+-    /// back (spring 0.63 s, bounce 0.596; rms 0.016). Keyframes sampled at 240 Hz.
+-    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2466, bounce: 0.087))
+-    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
++    /// +86 ms, with the glyph inside it; at +136 ms the glyph starts again from nothing and grows
++    /// to its size. Keyframes sampled at 240 Hz.
++    /// cmux: no bounce (2026-11-10). Both springs are critically damped (bounce 0) and never pass
++    /// full size; each keeps its time to 95 % of full size (disc 161 ms, glyph 206 ms): duration =
++    /// that time / 0.75501. Messages' fits were 0.2466 s with bounce 0.087 (0.09 % past full size)
++    /// and 0.6298 s with bounce 0.596 (the glyph grew to 1.25 and came back).
++    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2134, bounce: 0))
++    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.2731, bounce: 0))
+     private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
+         func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
+             let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range
+@@ -1357,6 +1428,7 @@
      /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
      /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
      /// every pass.
@@ -263,7 +285,7 @@
      static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
          guard abs(k) > 1e-6 else { return 0 }
          let r = o + k * v
-@@ -1386,7 +1455,7 @@
+@@ -1386,7 +1458,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -272,7 +294,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1402,7 +1471,7 @@
+@@ -1402,7 +1474,7 @@
      /// Moves the content to the snapped place; true when the snap changed.
      @discardableResult private func snapRow() -> Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
@@ -281,7 +303,7 @@
          let x = RowCell.anchorX(spec, layer.frame)
          guard windowY.isFinite, x.isFinite else { return false }
          let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
-@@ -1451,6 +1520,16 @@
+@@ -1451,6 +1523,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -298,7 +320,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1550,12 @@
+@@ -1471,10 +1553,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -314,7 +336,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1568,7 @@
+@@ -1487,7 +1571,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -323,7 +345,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1647,8 @@
+@@ -1566,6 +1650,8 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -332,7 +354,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1659,8 @@
+@@ -1576,6 +1662,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -341,7 +363,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1610,8 +1695,10 @@
+@@ -1610,8 +1698,10 @@
          // 0 after snapTyping), read from the window's layer tree.
          let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
          let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
@@ -353,7 +375,7 @@
              guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
              let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
              return abs(f) > 1e-6 ? f : 0
-@@ -1674,7 +1761,8 @@
+@@ -1674,7 +1764,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

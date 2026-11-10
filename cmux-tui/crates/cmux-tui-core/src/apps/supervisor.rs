@@ -131,6 +131,11 @@ pub struct Config {
     /// wait for the user such as a file panel (default 10 min).
     pub provider_deadline: Duration,
     pub provider_user_deadline: Duration,
+    /// The safe mode flag file (`crate::safe_mode_flag`), read once here
+    /// and written when safe mode changes; `None` keeps safe mode in memory.
+    pub safe_mode_file: Option<PathBuf>,
+    /// `CMUX_SAFE_MODE` asked for safe mode when the daemon started.
+    pub safe_mode_env: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -196,6 +201,10 @@ pub(super) struct Host {
     /// App calls being worked on (at most the VM's 64; the supervisor checks
     /// again because the VM is untrusted).
     pub inflight: usize,
+    /// A local app's folder fingerprint when this process loaded it: a
+    /// mount without an error keeps those files as the last good version
+    /// (`rollback.rs`). `None` for other apps.
+    pub print: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -242,6 +251,19 @@ pub(super) struct Inner {
     /// so within a daemon run a read the person turned off is never granted
     /// again by a broken save or one that drops and re-adds it.
     pub customize_reads_offered: Option<BTreeSet<String>>,
+    /// Safe mode (`safe_mode.rs`): `Some` while it is on.
+    pub safe_mode: Option<crate::safe_mode_flag::Flag>,
+    /// The crash loop record (`safe_mode.rs`).
+    pub launches: super::safe_mode::Launches,
+    /// Apps whose host failed (an init error, repeated crashes), with why;
+    /// cleared when a host of theirs is ready again.
+    pub failed: HashMap<String, String>,
+    /// The local apps' folder fingerprints the catalog was last read with.
+    pub local_prints: HashMap<String, u64>,
+    /// Each local app's last good copy (`rollback.rs`), and the fingerprint
+    /// last tried, so one version is copied once.
+    pub last_good: HashMap<String, super::rollback::Good>,
+    pub good_tried: HashMap<String, u64>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -255,6 +277,14 @@ pub(super) enum Out {
     Broadcast(Value),
     Respond(Responder, Result<Value, ApiError>),
     StartEvents,
+    /// Keep a local app's loaded files as its last good version
+    /// (`rollback.rs`): a file copy, so it runs outside the lock.
+    KeepGood {
+        app: String,
+        dir: PathBuf,
+        version: String,
+        print: u64,
+    },
 }
 
 pub struct Supervisor {
@@ -268,6 +298,11 @@ pub struct Supervisor {
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
     pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
+    /// App host processes spawned (`safe_mode.rs` `host_spawns`).
+    pub(super) host_spawns: AtomicU64,
+    /// Keeping a last good copy and rolling back, serialized per app
+    /// (`rollback.rs`).
+    pub(super) rollback_locks: super::rollback::AppLocks,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
@@ -298,6 +333,10 @@ impl Supervisor {
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
+        let safe_mode =
+            super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
+        let launches = super::safe_mode::load_launches(config.state_dir.as_deref());
+        let last_good = super::rollback::load(config.state_dir.as_deref());
         // Snapshot before startup seeds: an existing install must not change the
         // person's layout on upgrade, but a newly appearing customize app may.
         let existing_sections = catalog
@@ -378,6 +417,12 @@ impl Supervisor {
                 kept_servers_told: 0,
                 calls: Default::default(),
                 customize_reads_offered: None,
+                safe_mode,
+                launches,
+                failed: HashMap::new(),
+                local_prints: local_prints.clone(),
+                last_good,
+                good_tried: HashMap::new(),
             }),
             config,
             router,
@@ -387,6 +432,8 @@ impl Supervisor {
             me: me.clone(),
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
+            host_spawns: AtomicU64::new(0),
+            rollback_locks: Default::default(),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
@@ -445,10 +492,25 @@ impl Supervisor {
             .map(|id| {
                 let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
                 row.set("instance", self.instance_json(id));
+                let (run_state, can_rollback) = Self::run_facts(&inner, id);
+                if let Some(run_state) = run_state {
+                    row.set("run_state", json!(run_state));
+                }
+                row.set("can_rollback", json!(can_rollback));
                 row
             })
             .collect();
-        json!({ "revision": inner.mirror.revision, "apps": apps })
+        // `local_dir`: the local development folder this daemon watches
+        // (`<state>/apps/local`, local_reload.rs), so `cmux ext dev` puts an
+        // extension where this daemon loads it.
+        let local_dir =
+            self.config.sources.local.as_ref().map(|d| d.to_string_lossy().into_owned());
+        json!({
+            "revision": inner.mirror.revision,
+            "apps": apps,
+            "local_dir": local_dir,
+            "safe_mode": super::safe_mode::flag_json(inner.safe_mode.as_ref()),
+        })
     }
 
     /// `apps-set`: one validated commit of the install mirror. Every request
@@ -657,6 +719,14 @@ impl Supervisor {
                     }
                 }
                 Out::Respond(responder, result) => responder(result),
+                // Up to 16 MiB of copying: never on the emitting thread.
+                Out::KeepGood { app, dir, version, print } => {
+                    if let Some(me) = self.me.upgrade() {
+                        let _ = std::thread::Builder::new()
+                            .name("cmux-apps-keep-good".into())
+                            .spawn(move || me.keep_good(&app, &dir, &version, print));
+                    }
+                }
                 Out::StartEvents => {
                     let me = self.me.clone();
                     self.router.start_events(Box::new(move |stream| {
