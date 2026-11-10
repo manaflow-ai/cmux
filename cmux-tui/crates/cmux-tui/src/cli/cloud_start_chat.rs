@@ -126,6 +126,9 @@ pub(super) struct Request {
     pub make_room: bool,
 }
 
+// One `Parsed` is made per command line and taken apart at once, so the size gap between `Help`
+// and `Run` costs nothing; boxing `Run` would only add `*` at its two dozen match sites.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
