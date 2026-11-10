@@ -9,6 +9,16 @@
  *   REDO     the same machine fresh again, as after breaking it.
  *   CLEANUP  the machine gone with everything it left (snapshots, preview links), checked with list calls.
  *
+ * And two degenerate legs, because long-running reliability is proven by breaking it fast and repeatedly, never by a
+ * soak (Leo, 2026-11-10: "I hate soaks ... synthetically just break it fast and repeatedly ... under constraint,
+ * under load, under degenerate cases"). Nothing here keeps a machine running for its own sake.
+ *
+ *   REDO UNDER FAULT  configured machines with an agent session, each broken on purpose at once (the agent daemon
+ *                     killed, the disk filled, the machine config's state corrupted; FAULTS), then the path's REDO
+ *                     steps; --fault-rounds N repeats it (default 1, at most 5). Steps and seconds as p50 / max.
+ *   CLEANUP AFTER INTERRUPTED SETUP  `cmux vm new` cancelled mid-create (the client stops listening 1.5 s in, so no
+ *                     id), then the person's cleanup: find it by name, rm, check it is gone; leftovers counted.
+ *
  *   bun scripts/cmux-next/vm-hassle.ts --documented                     # the counted paths only, no network
  *   bun scripts/cmux-next/vm-hassle.ts --backend staging --out DIR       # measured, both paths (before, after)
  *   bun scripts/cmux-next/vm-hassle.ts --backend staging --path before   # one path
@@ -181,7 +191,7 @@ export function configState(stdout: string): { state: string; detail: string } |
 }
 
 export type Row = {
-  flow: Flow;
+  flow: Flow | "redo under fault" | "cleanup after interrupted setup";
   path: PathName;
   /** Counted from the code (every step, conditional ones included). */
   documented_steps: number;
@@ -192,9 +202,13 @@ export type Row = {
   leftovers: string[];
   source: "staging" | "code";
   error?: string;
+  /** REDO under fault: how many runs passed; `steps` and `seconds` are then their p50, these their max. */
+  runs?: number;
+  steps_max?: number;
+  seconds_max?: number;
 };
 
-export type Measured = { flow: Flow; path: PathName; step: string; kind: StepKind; ops: OpName; counted: boolean; ms: number; status: "pass" | "fail" | "skip"; detail: string };
+export type Measured = { flow: string; path: PathName; step: string; kind: StepKind; ops: OpName; counted: boolean; ms: number; status: "pass" | "fail" | "skip"; detail: string };
 
 /** The leftovers of `ids` in the list answers: machines not deleted, their snapshots, their preview links. */
 export function leftoversOf(ids: Set<string>, machines: any[], snapshots: any[], previews: any[]): string[] {
@@ -217,7 +231,11 @@ export function summaryTable(rows: Row[]): string {
   const lines = ["| flow | path | steps (code) | steps (measured) | seconds | leftovers | source |", "|---|---|---:|---:|---:|---|---|"];
   for (const r of rows) {
     const left = r.error ? `run failed: ${r.error}` : r.source === "code" ? "n/a" : r.leftovers.length ? r.leftovers.join("; ") : "none";
-    lines.push(`| ${r.flow} | ${r.path} | ${r.documented_steps} | ${r.steps ?? "-"} | ${r.seconds === null ? "-" : r.seconds.toFixed(1)} | ${cell(left).slice(0, 600)} | ${r.source} |`);
+    const many = r.runs !== undefined;
+    const steps = r.steps === null ? "-" : many ? `${r.steps} / ${r.steps_max} (p50 / max, ${r.runs} runs)` : `${r.steps}`;
+    const seconds = r.seconds === null ? "-" : many ? `${r.seconds.toFixed(1)} / ${(r.seconds_max ?? 0).toFixed(1)}` : r.seconds.toFixed(1);
+    const shownLeft = many && !r.error ? "n/a (each run's machines deleted by the harness)" : left;
+    lines.push(`| ${r.flow} | ${r.path} | ${r.documented_steps} | ${steps} | ${seconds} | ${cell(shownLeft).slice(0, 600)} | ${r.source} |`);
   }
   return lines.join("\n");
 }
@@ -231,6 +249,9 @@ export function pathsMarkdown(): string {
       out.push("");
     }
   }
+  out.push(`**cleanup after interrupted setup, both paths** (${documentedSteps(INTERRUPTED_CLEANUP)} steps)`, "");
+  INTERRUPTED_CLEANUP.forEach((s, i) => out.push(`${i + 1}. [${s.kind}] \`${s.command}\``));
+  out.push("", `**redo under fault**: the path's redo steps, after one of: ${Object.keys(FAULTS).join(", ")}`, "");
   out.push(`**redo by snapshot, before** (${documentedSteps(REDO_BY_SNAPSHOT)} steps, leaves the snapshot)`, "");
   REDO_BY_SNAPSHOT.forEach((s, i) => out.push(`${i + 1}. [${s.kind}] \`${s.command}\``));
   out.push("");
@@ -239,7 +260,11 @@ export function pathsMarkdown(): string {
 
 export function documentedRows(): Row[] {
   const rows: Row[] = [];
-  for (const p of ["before", "after"] as PathName[]) for (const f of FLOWS) rows.push({ flow: f, path: p, documented_steps: documentedSteps(PATHS[p][f]), steps: null, seconds: null, leftovers: [], source: "code" });
+  for (const p of ["before", "after"] as PathName[]) {
+    for (const f of FLOWS) rows.push({ flow: f, path: p, documented_steps: documentedSteps(PATHS[p][f]), steps: null, seconds: null, leftovers: [], source: "code" });
+    rows.push({ flow: "redo under fault", path: p, documented_steps: documentedSteps(PATHS[p].redo), steps: null, seconds: null, leftovers: [], source: "code" });
+    rows.push({ flow: "cleanup after interrupted setup", path: p, documented_steps: documentedSteps(INTERRUPTED_CLEANUP), steps: null, seconds: null, leftovers: [], source: "code" });
+  }
   return rows;
 }
 
@@ -441,58 +466,165 @@ async function listLeftovers(ctx: Ctx, ids: Set<string>): Promise<string[]> {
   return leftoversOf(ids, machines, snaps, previews);
 }
 
+type StepsRun = { steps: number; seconds: number; error?: string; ids: Set<string> };
+
+/** One flow's steps on `ctx`, each timed; a wait for a running machine counts only past the create's 30 s answer. */
+async function runSteps(label: string, p: PathName, steps: PersonStep[], ctx: Ctx, measured: Measured[], log: (s: string) => void): Promise<StepsRun> {
+  const run: StepsRun = { steps: 0, seconds: 0, ids: new Set() };
+  const t0 = Date.now();
+  try {
+    for (const s of steps) {
+      if (ctx.machine) run.ids.add(ctx.machine);
+      if (s.ops === "waitRunning") {
+        const pending = ctx.waited;
+        const m: Measured = { flow: label, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: pending, ms: 0, status: pending ? "pass" : "skip", detail: pending ? "the create answered pending" : "running within the create's answer" };
+        measured.push(m);
+        if (pending) run.steps++;
+        log(`${p} ${label}: ${m.status} ${s.command} :: ${m.detail}`);
+        continue;
+      }
+      run.steps++;
+      if (s.ops === "none") {
+        measured.push({ flow: label, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms: 0, status: "skip", detail: "counted, not timed (a person's Keychain or GitHub)" });
+        continue;
+      }
+      const s0 = Date.now();
+      try {
+        const detail = scrub(await OPS[s.ops](ctx), ctx.secrets);
+        const ms = Date.now() - s0;
+        if (s.ops === "create" || s.ops === "createWait" || s.ops === "redo") ctx.waited = Date.now() - ctx.createdAt > CREATE_ANSWER_MS;
+        measured.push({ flow: label, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms, status: "pass", detail });
+        log(`${p} ${label}: pass ${s.command} ${ms} ms :: ${detail}`);
+      } catch (e) {
+        const detail = scrub(String((e as Error).message ?? e), ctx.secrets).slice(0, 600);
+        measured.push({ flow: label, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms: Date.now() - s0, status: "fail", detail });
+        log(`${p} ${label}: FAIL ${s.command} :: ${detail}`);
+        throw new Error(`${s.command}: ${detail}`);
+      }
+      if (ctx.machine) run.ids.add(ctx.machine);
+    }
+  } catch (e) {
+    run.error = String((e as Error).message).slice(0, 300);
+  }
+  run.seconds = (Date.now() - t0) / 1000;
+  return run;
+}
+
 /** One path's three flows on one backend; rows plus every step's timing. */
 async function runPath(p: PathName, ctx: Ctx, measured: Measured[], log: (s: string) => void): Promise<Row[]> {
   const rows: Row[] = [];
   const flowIds = new Set<string>();
   for (const flow of FLOWS) {
     const steps = PATHS[p][flow];
-    const row: Row = { flow, path: p, documented_steps: documentedSteps(steps), steps: 0, seconds: 0, leftovers: [], source: "staging" };
-    rows.push(row);
-    const t0 = Date.now();
     if (flow === "redo" && ctx.machine) await use(ctx, log);
-    const flowStart = Date.now();
-    try {
-      for (const s of steps) {
-        if (ctx.machine) flowIds.add(ctx.machine);
-        // A wait for a running machine applies only past the create's 30 s answer.
-        if (s.ops === "waitRunning") {
-          const pending = ctx.waited;
-          const m: Measured = { flow, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: pending, ms: 0, status: pending ? "pass" : "skip", detail: pending ? "the create answered pending" : "running within the create's answer" };
-          measured.push(m);
-          if (pending) row.steps!++;
-          log(`${p} ${flow}: ${m.status} ${s.command} :: ${m.detail}`);
-          continue;
-        }
-        row.steps!++;
-        if (s.ops === "none") {
-          measured.push({ flow, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms: 0, status: "skip", detail: "counted, not timed (a person's Keychain or GitHub)" });
-          continue;
-        }
-        const s0 = Date.now();
-        try {
-          const detail = await OPS[s.ops](ctx);
-          const ms = Date.now() - s0;
-          if (s.ops === "create" || s.ops === "createWait" || s.ops === "redo") ctx.waited = Date.now() - ctx.createdAt > CREATE_ANSWER_MS;
-          measured.push({ flow, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms, status: "pass", detail: scrub(detail, ctx.secrets) });
-          log(`${p} ${flow}: pass ${s.command} ${ms} ms :: ${scrub(detail, ctx.secrets)}`);
-        } catch (e) {
-          const detail = scrub(String((e as Error).message ?? e), ctx.secrets).slice(0, 600);
-          measured.push({ flow, path: p, step: s.command, kind: s.kind, ops: s.ops, counted: true, ms: Date.now() - s0, status: "fail", detail });
-          log(`${p} ${flow}: FAIL ${s.command} :: ${detail}`);
-          throw new Error(`${s.command}: ${detail}`);
-        }
-        if (ctx.machine) flowIds.add(ctx.machine);
-      }
-    } catch (e) {
-      row.error = String((e as Error).message).slice(0, 300);
-    }
-    row.seconds = (Date.now() - flowStart) / 1000;
+    const run = await runSteps(flow, p, steps, ctx, measured, log);
+    for (const id of run.ids) flowIds.add(id);
+    const row: Row = { flow, path: p, documented_steps: documentedSteps(steps), steps: run.steps, seconds: run.seconds, leftovers: [], source: "staging", ...(run.error ? { error: run.error } : {}) };
     if (flow === "cleanup") row.leftovers = await listLeftovers(ctx, flowIds);
-    log(`${p} ${flow}: ${row.steps} steps, ${row.seconds.toFixed(1)} s${t0 !== flowStart ? ` (+${((flowStart - t0) / 1000).toFixed(0)} s in use, not counted)` : ""}${row.error ? `, failed: ${row.error}` : ""}`);
+    rows.push(row);
+    log(`${p} ${flow}: ${row.steps} steps, ${run.seconds.toFixed(1)} s${row.error ? `, failed: ${row.error}` : ""}`);
     if (row.error) break;
   }
   return rows;
+}
+
+/**
+ * The faults REDO is measured under (Leo, 2026-11-10: "synthetically just break it fast and repeatedly ... under
+ * constraint, under load, under degenerate cases"): each breaks a configured machine with a running agent session,
+ * on a machine this run made, before the path's REDO steps bring it back.
+ */
+export const FAULTS: Record<string, string> = {
+  // The agent daemon dies hard: the process holding acpmux's socket, by the pid the socket names.
+  "kill the agent daemon": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; s=/home/cmux/.acpmux/acpmux.sock; pid=$(root ss -xlpn 2>/dev/null | grep -F "$s" | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); [ -n "$pid" ] && root kill -9 "$pid"; echo "killed \${pid:-none}"`,
+  // The disk full: one file takes all but ~20 MB of the home volume.
+  "fill the disk": `f=/home/cmux/vm-hassle-fill; avail=$(df --output=avail -k /home/cmux | tail -1); fallocate -l $(( (avail - 20000) * 1024 )) "$f" 2>/dev/null || dd if=/dev/zero of="$f" bs=1M count=$(( avail / 1024 - 20 )) 2>/dev/null; df -h /home/cmux | tail -1`,
+  // The machine config's state corrupted: status, setup state and the applied machine.toml are garbage.
+  "corrupt the machine config state": `${'root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }'}; d=/home/cmux/.cmux/machine-config; for f in status.json state.json machine.toml; do printf 'garbage{\\0[' | root tee "$d/$f" >/dev/null; done; echo corrupted`,
+};
+
+export function percentile(values: number[], p: number): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1))];
+}
+
+/** REDO under fault: `rounds` rounds, each every fault at once on its own machine; steps and seconds as p50/max. */
+async function faultLeg(p: PathName, rounds: number, newCtx: (name: string) => Ctx, measured: Measured[], log: (s: string) => void): Promise<Row> {
+  const runs: StepsRun[] = [];
+  const failures: string[] = [];
+  for (let round = 0; round < rounds; round++) {
+    const done = await Promise.all(Object.entries(FAULTS).map(async ([fault, command], i) => {
+      const ctx = newCtx(`${p} fault ${round}${i}`);
+      const label = `redo under fault (${fault})`;
+      try {
+        // Not counted: a configured machine with an agent session, the state REDO has to bring back.
+        log(`${p} ${label}: prep ${await OPS.create(ctx)}; ${await OPS.waitConfig(ctx)}; ${await OPS.deliverSecrets(ctx)}; ${await OPS.startSession(ctx)}`);
+        const r = await ctx.exec!(command, 120_000);
+        log(`${p} ${label}: broke it (exit ${r.code}) ${r.stdout.trim().slice(-200)}`);
+      } catch (e) {
+        failures.push(`${fault}: prep ${String((e as Error).message).slice(0, 200)}`);
+        return null;
+      }
+      const run = await runSteps(label, p, PATHS[p].redo, ctx, measured, log);
+      if (run.error) failures.push(`${fault}: ${run.error}`);
+      return run;
+    }));
+    for (const r of done) if (r && !r.error) runs.push(r);
+  }
+  const steps = runs.map((r) => r.steps);
+  const seconds = runs.map((r) => r.seconds);
+  return {
+    flow: "redo under fault",
+    path: p,
+    documented_steps: documentedSteps(PATHS[p].redo),
+    steps: runs.length ? percentile(steps, 50) : null,
+    steps_max: runs.length ? Math.max(...steps) : undefined,
+    seconds: runs.length ? percentile(seconds, 50) : null,
+    seconds_max: runs.length ? Math.max(...seconds) : undefined,
+    runs: runs.length,
+    leftovers: [],
+    source: "staging",
+    ...(failures.length ? { error: `${failures.length} of ${rounds * Object.keys(FAULTS).length} runs failed: ${failures.join("; ")}` } : {}),
+  };
+}
+
+/** The steps to clean up after `cmux vm new` was cancelled mid-create: it answered no id, and the create goes on. */
+export const INTERRUPTED_CLEANUP: PersonStep[] = [
+  { kind: "wait", command: "cmux vm ls (the cancelled create answered no id: find the VM by its name, still being made)", ops: "none" },
+  { kind: "command", command: "cmux vm rm NAME --confirm", ops: "delete" },
+  { kind: "wait", command: "cmux vm ls (until it is gone)", ops: "verifyGone" },
+];
+
+/** CLEANUP after an interrupted SETUP: the create cut off by the client mid-flight, then the person's cleanup. */
+async function interruptedLeg(p: PathName, ctx: Ctx, measured: Measured[], log: (s: string) => void): Promise<Row> {
+  const row: Row = { flow: "cleanup after interrupted setup", path: p, documented_steps: documentedSteps(INTERRUPTED_CLEANUP), steps: 0, seconds: 0, leftovers: [], source: "staging" };
+  // Ctrl-C on `cmux vm new`: the request goes out and the client stops listening 1.5 s in.
+  const cut = await http("POST", `${ctx.api.origin}/v1/ops`, { op: "cloud.machine.create", params: { name: ctx.name, size: MACHINE_SIZE }, idempotency_key: keyOf(ctx, "cut") }, { authorization: `Bearer ${ctx.api.bearer}`, ...(ctx.api.team ? { "x-cmux-team": ctx.api.team } : {}) }, 1500).then((r) => `answered ${r.status} before the cut`, (e) => `cut off (${String((e as Error).name ?? e)})`);
+  log(`${p} interrupted setup: create ${cut}`);
+  const t0 = Date.now();
+  // Step 1: find it by name, as `vm ls` would; a create the server never took shows nothing.
+  row.steps!++;
+  let found: any = null;
+  while (Date.now() - t0 < 120_000 && !found) {
+    const rows = await listAllMachines((q) => ctx.api.read("cloud.machine.list", q)).catch(() => []);
+    found = rows.find((m) => m?.name === ctx.name && m.status !== "deleted") ?? null;
+    if (!found) await sleep(2000);
+  }
+  measured.push({ flow: row.flow, path: p, step: INTERRUPTED_CLEANUP[0].command, kind: "wait", ops: "none", counted: true, ms: Date.now() - t0, status: found ? "pass" : "skip", detail: found ? `${found.id} ${found.status}` : "no machine by that name after 120 s" });
+  if (found) {
+    ctx.machine = String(found.id);
+    ctx.made.add(ctx.machine);
+    const rest = await runSteps(row.flow, p, INTERRUPTED_CLEANUP.slice(1), ctx, measured, log);
+    row.steps! += rest.steps;
+    if (rest.error) row.error = rest.error;
+  }
+  row.seconds = (Date.now() - t0) / 1000;
+  const rows = await listAllMachines((q) => ctx.api.read("cloud.machine.list", q)).catch(() => []);
+  const ids = new Set(rows.filter((m) => m?.name === ctx.name).map((m) => String(m.id)));
+  for (const id of ids) ctx.made.add(id);
+  row.leftovers = await listLeftovers(ctx, ids);
+  log(`${p} cleanup after interrupted setup: ${row.steps} steps, ${row.seconds.toFixed(1)} s, leftovers ${row.leftovers.join("; ") || "none"}`);
+  return row;
 }
 
 /** Delete everything a run made: preview links, snapshots, machines; each by its exact id, leak-safe. */
@@ -512,6 +644,9 @@ async function cleanupAll(ctx: Ctx, log: (s: string) => void): Promise<string[]>
       else failed.push(`snapshot ${id}: ${String((e as Error).message).slice(0, 200)}`);
     }
   }
+  // A create whose answer was cut off has no id here: find it by this context's name.
+  const listed = await listAllMachines((q) => ctx.api.read("cloud.machine.list", q)).catch(() => []);
+  for (const m of listed) if (m?.name === ctx.name && m.status !== "deleted") ctx.made.add(String(m.id));
   for (const id of [...ctx.made]) {
     try {
       await ctx.api.deleteMachine(id, `${ctx.tag}-cleanup-${id}`);
@@ -633,10 +768,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   process.on("SIGINT", onSignal);
   let failedCleanup: string[] | undefined = [];
   try {
-    for (const p of paths) {
-      const ctx: Ctx = { api, tag, secrets, made: new Set(), snapshots: new Set(), links: [], machine: null, name: `vm hassle auto ${tag} ${p}`, createdAt: 0, exec: null, waited: false };
+    const newCtx = (suffix: string): Ctx => {
+      const ctx: Ctx = { api, tag, secrets, made: new Set(), snapshots: new Set(), links: [], machine: null, name: `vm hassle auto ${tag} ${suffix}`, createdAt: 0, exec: null, waited: false };
       contexts.push(ctx);
-      rows.push(...(await runPath(p, ctx, measured, log)));
+      return ctx;
+    };
+    const rounds = Math.max(0, Math.min(5, Number(argValue("--fault-rounds", argv) ?? 1)));
+    for (const p of paths) {
+      rows.push(...(await runPath(p, newCtx(p), measured, log)));
+      if (rounds) rows.push(await faultLeg(p, rounds, newCtx, measured, log));
+      rows.push(await interruptedLeg(p, newCtx(`${p} cut`), measured, log));
     }
   } finally {
     process.off("SIGTERM", onSignal);

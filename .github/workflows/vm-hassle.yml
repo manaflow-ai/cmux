@@ -4,7 +4,9 @@ name: Long-running VM hassle (staging)
 # seconds (scripts/cmux-next/vm-hassle.ts; Leo, 2026-11-10: "are they a hassle to set up? Are they a hassle to
 # redo? Are they a hassle to clean up?"). It walks each flow's steps on staging as the agent test account, today's
 # path and the path with the CLI cuts, and writes the {flow, steps, seconds, leftovers} table to the job summary.
-# A measurement, not a gate: it runs on a pull request that changes the script or this file, and by hand.
+# Also REDO under fault (machines broken on purpose, in parallel) and CLEANUP after a cancelled create: reliability
+# by breaking it fast and repeatedly, never a soak. A measurement, not a gate: it runs on a pull request that
+# changes the script or this file, and by hand.
 #
 # Every machine, snapshot and preview link the run made is deleted at its end, pass, fail or cancel (the script's
 # own cleanup and SIGTERM handler, each delete retried under one key while the API says it was cut off); the
@@ -26,6 +28,10 @@ on:
         description: "before, after or both"
         required: false
         default: both
+      fault_rounds:
+        description: "REDO-under-fault rounds (each breaks 3 machines at once), 0 to 5"
+        required: false
+        default: "1"
 
 permissions:
   contents: read
@@ -41,7 +47,7 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -59,11 +65,12 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
           HASSLE_PATH: ${{ inputs.path || 'both' }}
           HASSLE_TAG: ${{ steps.tag.outputs.tag }}
+          HASSLE_FAULT_ROUNDS: ${{ inputs.fault_rounds || '1' }}
         run: |
           set -o pipefail
           out="$RUNNER_TEMP/vm-hassle"
           status=0
-          bun scripts/cmux-next/vm-hassle.ts --backend staging --path "$HASSLE_PATH" --tag "$HASSLE_TAG" --out "$out" </dev/null || status=$?
+          bun scripts/cmux-next/vm-hassle.ts --backend staging --path "$HASSLE_PATH" --tag "$HASSLE_TAG" --fault-rounds "$HASSLE_FAULT_ROUNDS" --out "$out" </dev/null || status=$?
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
       - name: Delete what a cut-off run left

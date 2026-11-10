@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { configState, documentedRows, leftoversOf, machineToml, PATHS, requestId, summaryTable } from "./vm-hassle";
+import { configState, documentedRows, FAULTS, leftoversOf, machineToml, PATHS, percentile, requestId, summaryTable } from "./vm-hassle";
 
 describe("vm-hassle", () => {
   test("the documented paths count every step, and the cuts shorten setup and redo only", () => {
     const steps = Object.fromEntries(documentedRows().map((r) => [`${r.flow}/${r.path}`, r.documented_steps]));
-    expect(steps).toEqual({ "setup/before": 8, "redo/before": 8, "cleanup/before": 4, "setup/after": 5, "redo/after": 4, "cleanup/after": 4 });
+    expect(steps).toEqual({
+      "setup/before": 8, "redo/before": 8, "cleanup/before": 4, "redo under fault/before": 8, "cleanup after interrupted setup/before": 3,
+      "setup/after": 5, "redo/after": 4, "cleanup/after": 4, "redo under fault/after": 4, "cleanup after interrupted setup/after": 3,
+    });
     expect(PATHS.after.setup.some((s) => s.command.includes("--wait"))).toBe(true);
     expect(PATHS.after.redo[0].command.startsWith("cmux vm redo NAME")).toBe(true);
   });
@@ -41,5 +44,20 @@ describe("vm-hassle", () => {
   test("the table says when a run failed and escapes pipes", () => {
     const md = summaryTable([{ flow: "setup", path: "before", documented_steps: 8, steps: 3, seconds: 12.34, leftovers: [], source: "staging", error: "a|b" }]);
     expect(md).toContain("| setup | before | 8 | 3 | 12.3 | run failed: a\\|b | staging |");
+  });
+
+  test("the fault leg's table cell is p50 / max, and the faults break the agent, the disk and the config state", () => {
+    expect(percentile([30, 10, 20], 50)).toBe(20);
+    expect(percentile([5], 50)).toBe(5);
+    const md = summaryTable([{ flow: "redo under fault", path: "after", documented_steps: 4, steps: 4, steps_max: 4, seconds: 80.04, seconds_max: 120.5, runs: 3, leftovers: [], source: "staging" }]);
+    expect(md).toContain("| 4 / 4 (p50 / max, 3 runs) | 80.0 / 120.5 |");
+    expect(Object.keys(FAULTS)).toEqual(["kill the agent daemon", "fill the disk", "corrupt the machine config state"]);
+    expect(FAULTS["kill the agent daemon"]).toContain("kill -9");
+    expect(FAULTS["kill the agent daemon"]).toContain("${pid:-none}");
+  });
+
+  test("no step keeps a machine running for its own sake (no soak)", () => {
+    const all = Object.values(PATHS).flatMap((p) => Object.values(p).flat());
+    expect(all.some((s) => /soak|hours|sleep/i.test(s.command))).toBe(false);
   });
 });
