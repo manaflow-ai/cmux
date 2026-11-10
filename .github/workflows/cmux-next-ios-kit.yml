@@ -236,12 +236,6 @@ jobs:
       - name: swift test (macOS)
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
 
-      # Small vs god fixtures, budgets and the 1.2x rule: cmux-next-ios/design/instant-perf.md.
-      - name: Instant list bench (macOS swift test)
-        if: ${{ !cancelled() }}
-        env:
-          CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
       # their tests run only here. A simulator destination builds the arm64 slice
@@ -300,6 +294,14 @@ jobs:
           print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
           ' || echo "::warning::could not read the result bundle"
           exit "$status"
+
+      # The bench runs after both test runs, so a bench red never skips the iOS tests.
+      # Small vs god fixtures, budgets and the 1.2x rule: cmux-next-ios/design/instant-perf.md.
+      - name: Instant list bench (macOS swift test)
+        if: ${{ !cancelled() }}
+        env:
+          CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
       # The same bench on the simulator, alone, on the build above (TEST_RUNNER_ passes the
       # variable through to the test process).

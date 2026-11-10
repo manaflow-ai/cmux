@@ -38,7 +38,7 @@ on every PR that touches `cmux-next-ios/**`):
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
 working, one preview in ten a long Markdown reply, six months of dates; the chat
 has tool outputs up to 2 MB (logs and diffs), subagents nested 5 deep, 200 image
-parts and six months of timestamps, and its newest turn ends in a 2 MB log.
+parts and six months of timestamps, and its newest turns hold the last 2 MB log.
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
 `maxBytes` of whole records, `beforeSeq` / `afterSeq`) with index arithmetic, so

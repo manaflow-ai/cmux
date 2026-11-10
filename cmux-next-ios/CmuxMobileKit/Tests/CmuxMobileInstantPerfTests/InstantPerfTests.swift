@@ -111,6 +111,8 @@ struct InstantPerfTests {
         let godRefresh = InstantPerfReport.median(try await refresh(.god))
         InstantPerfReport.record(
             "home_list_one_row_update", target: 4, small: small, god: god,
+            knownRed: [.ratio],
+            why: "the memo compares every row with the last rows and rebuilds the whole list on any change, so one row costs O(N)",
             note: String(format: "row N/2 changes in place; the feed's full re-read of home-inbox on that change (parse + compare + memo): small %.3f ms, god %.3f ms",
                          smallRefresh, godRefresh))
     }
@@ -175,7 +177,7 @@ struct InstantPerfTests {
         InstantPerfReport.record(
             "chat_open_last_messages", target: 150, small: small, god: god,
             knownRed: [.ratio],
-            why: "the open page is byte-capped (128 KiB) but sends whole records: the god chat's newest turn ends in a 2 MB log, decoded before the first draw",
+            why: "the open decodes a full 128 KiB page of heavy records (tool logs, diffs, images) where the small chat is 0.1 MB in all; the first draw waits for the whole page",
             note: "small \(AgentChatFixture.small.count) records (\(Self.mb(AgentChatFixture.small.totalBytes))) vs god \(AgentChatFixture.god.count) records (\(Self.mb(AgentChatFixture.god.totalBytes)))")
     }
 

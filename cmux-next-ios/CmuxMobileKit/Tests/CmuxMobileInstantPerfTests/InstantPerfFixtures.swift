@@ -10,8 +10,8 @@ import Foundation
 // - Agent chat (acpmux records, the exact `{sessionId, seq, at, dir, kind, msg}` shape the fake
 //   hubs in CmuxMobileLiveTests use): ~40 records vs 50,000 records with tool outputs up to
 //   2 MB (logs and diffs), subagents nested 5 deep, 200 image parts and timestamps across six
-//   months. The newest turn of the god chat ends in a 2 MB log: a long session's last command
-//   is often the one that printed the most.
+//   months. The newest turns of the god chat hold the last 2 MB log: a long session's last
+//   command is often the one that printed the most.
 //
 // Run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
