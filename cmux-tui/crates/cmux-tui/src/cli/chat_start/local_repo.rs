@@ -114,17 +114,16 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
     let Some(reference) = reference else { return Ok(Ready::Reused) };
     let commit = |name: &str| git(Some(dir), ["rev-parse", "--verify", "--quiet", name]).ok();
     let head = commit("HEAD^{commit}");
-    // A branch is where the chat's commits go: `@topic` reuses a clone on `topic`, never one on
-    // another branch at the same commit (git checkout would have switched to `topic`).
-    let names_branch = commit(&format!("refs/heads/{reference}^{{commit}}")).is_some()
-        || commit(&format!("refs/remotes/origin/{reference}^{{commit}}")).is_some();
+    // A branch is where the chat's commits go: when checkout would pick a branch for `@REF`, the
+    // clone must be on `refs/heads/REF` (the full name, so a tag of that name cannot shorten it),
+    // never on another branch at the same commit. A tag or commit is decided by the commit alone.
     let on_branch = || {
-        git(Some(dir), ["symbolic-ref", "--quiet", "--short", "HEAD"]).ok().as_deref()
-            == Some(reference)
+        git(Some(dir), ["symbolic-ref", "--quiet", "HEAD"]).ok()
+            == Some(format!("refs/heads/{reference}"))
     };
-    if head.is_some()
-        && head == checkout_target(reference, commit)
-        && (!names_branch || on_branch())
+    if let Some(Target { commit: target, branch }) = checkout_target(reference, commit)
+        && head.as_deref() == Some(target.as_str())
+        && (!branch || on_branch())
     {
         return Ok(Ready::Reused);
     }
@@ -146,14 +145,22 @@ fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value>
 pub(super) fn checkout_target(
     reference: &str,
     commit: impl Fn(&str) -> Option<String>,
-) -> Option<String> {
+) -> Option<Target> {
     [
-        format!("refs/heads/{reference}^{{commit}}"),
-        format!("{reference}^{{commit}}"),
-        format!("refs/remotes/origin/{reference}^{{commit}}"),
+        (format!("refs/heads/{reference}^{{commit}}"), true),
+        (format!("{reference}^{{commit}}"), false),
+        (format!("refs/remotes/origin/{reference}^{{commit}}"), true),
     ]
-    .iter()
-    .find_map(|name| commit(name))
+    .into_iter()
+    .find_map(|(name, branch)| commit(&name).map(|commit| Target { commit, branch }))
+}
+
+/// What [`checkout_target`] found: the commit, and whether checkout puts HEAD on a branch for it
+/// (a local branch, or the one it makes from origin's) rather than detached at a tag or commit.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Target {
+    pub commit: String,
+    pub branch: bool,
 }
 
 /// Whether two remote URLs name one repository: equal once a trailing `/` and `.git` are dropped

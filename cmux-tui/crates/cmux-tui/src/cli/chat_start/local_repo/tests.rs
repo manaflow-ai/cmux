@@ -189,9 +189,34 @@ fn a_ref_is_read_the_way_git_checkout_reads_it() {
         super::checkout_target(reference, |name| {
             names.iter().find(|(n, _)| *n == name).map(|(_, c)| (*c).to_owned())
         })
+        .map(|target| (target.commit, target.branch))
     };
     let both = [("refs/heads/v1^{commit}", "branch"), ("v1^{commit}", "tag")];
-    assert_eq!(pick(&both, "v1").as_deref(), Some("branch"));
+    assert_eq!(pick(&both, "v1"), Some(("branch".to_owned(), true)));
     let remote = [("refs/remotes/origin/topic^{commit}", "remote")];
-    assert_eq!(pick(&remote, "topic").as_deref(), Some("remote"));
+    assert_eq!(pick(&remote, "topic"), Some(("remote".to_owned(), true)));
+    // A tag shadowing origin's branch: checkout takes the tag, detached.
+    let shadow = [("t^{commit}", "tag"), ("refs/remotes/origin/t^{commit}", "remote")];
+    assert_eq!(pick(&shadow, "t"), Some(("tag".to_owned(), false)));
+}
+
+#[test]
+fn a_branch_and_a_tag_of_one_name_reuse_what_checkout_picked() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let source = root.path().join("source");
+    // `same` is both a branch and a tag in the origin.
+    git(&source, &["branch", "same"]);
+    git(&source, &["tag", "same"]);
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, Some("same"), &dir), Ok(Ready::Cloned));
+    // Whatever checkout picked (git shortens HEAD to `heads/same` here), a retry reuses it.
+    assert_eq!(ensure(&url, Some("same"), &dir), Ok(Ready::Reused));
+    // A tag of the name only, beside origin's branch of it: checkout detaches at the tag.
+    git(&source, &["tag", "shadow"]);
+    git(&source, &["branch", "-q", "shadow"]);
+    let other = root.path().join("other");
+    git(root.path(), &["clone", "-q", &url, other.to_str().unwrap()]);
+    git(&other, &["checkout", "-q", "shadow"]);
+    assert_eq!(ensure(&url, Some("shadow"), &other), Ok(Ready::Reused));
 }
