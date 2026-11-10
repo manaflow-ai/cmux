@@ -723,6 +723,10 @@ class Journey:
                         break
                     time.sleep(0.005)  # poll the page's readiness, a few ms apart
                 reply["interactive_polls"], reply["interactive_last"] = polls, got if isinstance(got, dict) else str(got)[:200]
+                # Whether this open adopted the New Tab spare (NewTabSparePool's last opening), after the timing.
+                st = self.app.rpc("debug.new_tab", {"action": "state"}) or {}
+                reply["newtab_opening"] = ((st.get("openings") or [None])[-1]) if isinstance(st, dict) else None
+                reply["newtab_spares"] = [{k: s.get(k) for k in ("ready", "window")} for s in st.get("spares") or []] if isinstance(st, dict) else None
             hangs = self.app.rpc("debug.hangs", {"limit": 8}) if step.get("hangs") else None
             if step.get("cpu"):
                 reply["main_cpu"] = self.app.rpc("debug.main_cpu", {"action": "stop"})
