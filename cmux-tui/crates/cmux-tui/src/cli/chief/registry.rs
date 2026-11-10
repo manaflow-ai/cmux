@@ -464,7 +464,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             Ok(socket) => (socket, true),
             Err(error) => return fail("usage.invalid", error.to_string(), 2),
         },
-        Err((code, message)) => return fail("chief.unavailable", message.to_string(), code),
+        Err((code, message)) => return fail("chief.unavailable", message, code),
     };
     let mut link = match Link::connect(&socket.0, socket.1) {
         Ok(link) => link,

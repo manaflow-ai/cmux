@@ -565,8 +565,8 @@ const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
 /// leading `--json` moves to just after the scope word, where that scope's
 /// own parser reads it, so `cmux --json chats list` is `cmux chats --json
 /// list` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
-/// `link` prints JSON only, so a leading `--json` or `--jsonl` there is
-/// dropped. Any other leading option stays where it is, and the parser's
+/// `link` prints JSON only: a leading `--json` or `--jsonl` there becomes
+/// one `--json` after the word, which only shapes a refusal. Any other leading option stays where it is, and the parser's
 /// refusal names the right form. `device` keeps its own handling
 /// (devices::device_args).
 pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
@@ -578,7 +578,10 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         return;
     }
     if scope == "link" {
+        // `link` prints JSON only and ignores `--json`, which still asks for
+        // the error object on a refusal.
         args.drain(..lead);
+        args.insert(1, "--json".to_owned());
     } else if scope == "host" && args[..lead].iter().all(|w| w == "--json") {
         // The supervisor's verbs read `--json` after their own words
         // (`host status --json`): it goes last, before any `--`.

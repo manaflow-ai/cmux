@@ -581,7 +581,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         Err(message) => {
             return super::wire::print_local_error(
-                &json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+                &json!({"code": "usage.invalid", "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
                 global.output,
                 2,
             );

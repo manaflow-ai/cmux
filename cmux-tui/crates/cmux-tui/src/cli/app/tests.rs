@@ -1117,6 +1117,12 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
             json!({ "path": "a.b", "confirm": true }),
         ),
         (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
+        // `--yes` is the CLI's confirm word; `--confirm` is its old spelling.
+        (
+            &["settings", "reset", "a.b", "--yes"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
     ];
     for (words, method, params) in cases {
         let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
@@ -1124,7 +1130,7 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
     }
     assert!(parse(&args(&["settings", "set", "a.b"])).is_err());
     assert!(parse(&args(&["settings", "reset"])).is_err());
-    assert!(parse(&args(&["settings", "reset", "a.b", "--yes"])).is_err());
+    assert!(parse(&args(&["settings", "reset", "a.b", "--yeah"])).is_err());
 }
 
 /// RED: a user-only key the app refuses (`setting_user_only`) ends the
