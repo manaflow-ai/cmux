@@ -361,6 +361,10 @@ mod warm;
 mod watch_events;
 pub(crate) mod watches;
 
+/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
+/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
+pub const MAX_MATCH_BYTES: usize = 2 * 1024;
+
 impl Hub {
     /// Run durable watches: the loop that reconciles them on hub events and the
     /// `REMOTE_WORKERS` that page peer chats. The daemon starts them once at startup; a test
