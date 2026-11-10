@@ -150,8 +150,8 @@ extension SidebarListViewComponents {
         var end = headerIndex + 1
         while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
         let block = Array(new.rows[headerIndex..<end])
-        let own = SidebarGroupLine.lines(block, colors: lineColors) { frame(for: $0) }
-        let start = SidebarGroupLine.lines(block, colors: lineColors) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) }
+        let own = styled(SidebarGroupLine.lines(block, colors: lineColors) { frame(for: $0) })
+        let start = styled(SidebarGroupLine.lines(block, colors: lineColors) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) })
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {

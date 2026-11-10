@@ -52,9 +52,14 @@ pub enum MuxEvent {
         surface: SurfaceId,
         status: Option<crate::program_status::ShownProgramStatus>,
     },
+    /// What a tab shows of a surface's title changed: its text or its
+    /// activity (plans/cmux-next/main-thread-scheduling.md, D2). A terminal
+    /// spinner frame changes neither and sends nothing. `title` is the raw
+    /// title at that moment, for clients that read only it.
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
+        shown: crate::TabTitle,
     },
     /// The latest agent state for one surface changed.
     AgentChanged {
@@ -222,6 +227,20 @@ pub enum MuxEvent {
     TasksChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
+}
+
+impl MuxEvent {
+    /// A terminal's new title: the tab shows it without its status glyphs.
+    pub fn terminal_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::terminal(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
+
+    /// A page's new title, shown as is (no glyph split).
+    pub fn page_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::page(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
 }
 
 /// Machine-level model spend for the machine hosting this daemon, as
