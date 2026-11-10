@@ -3184,14 +3184,17 @@ impl SidebarOrder {
                     .map(|(rank, id)| (id.as_str(), rank))
                     .collect::<HashMap<_, _>>();
                 rows.sort_by_key(|row| {
-                    row["id"].as_str().and_then(|id| rank.get(id).copied()).unwrap_or(usize::MAX)
+                    row.get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| rank.get(id).copied())
+                        .unwrap_or(usize::MAX)
                 });
             }
         }
         let first = rows
             .iter()
             .take(limit)
-            .filter_map(|row| row["index"].as_u64())
+            .filter_map(|row| row.get("index").and_then(Value::as_u64))
             .map(|i| i as usize)
             .collect();
         (first, rows.len())
