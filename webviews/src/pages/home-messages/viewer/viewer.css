@@ -11,7 +11,9 @@
   --mv-field: rgb(255 255 255 / 90%);
   --mv-pill: rgb(0 0 0 / 55%);
   --mv-split: white;
-  --mv-split-shadow: 0 0 4px rgb(0 0 0 / 40%);
+  /* The compare divider's dark rim, so the white line reads over a light picture: a crisp 1px edge,
+     never a blurred glow (subtle-elevation.test.ts: no drop shadow blurs except through the scale). */
+  --mv-split-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
   --mv-top: 44px;
   position: absolute;
   inset: 0;
