@@ -423,6 +423,47 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
         return None
 
 
+TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
+
+
+def _importers(stem: str, root: Path) -> set[str]:
+    """tests/*.py files that import the sibling module `stem`, directly or through another
+    sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
+    found: set[str] = set()
+    pending = [stem]
+    while pending:
+        module = pending.pop()
+        pattern = re.compile(
+            rf"^\s*(?:from\s+{module}\s+import\b|import\s+(?:[\w.]+\s*,\s*)*{module}\b)", re.M
+        )
+        for candidate in sorted((root / "tests").glob("*.py")):
+            relative = f"tests/{candidate.name}"
+            if relative in found:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if pattern.search(text):
+                found.add(relative)
+                pending.append(candidate.stem)
+    return found
+
+
+def import_owners(path: str, derived: dict[str, frozenset[str]], root: Path | None = None) -> set[str]:
+    """Groups whose guard steps run a test that imports this tests/ module. A shared helper such
+    as tests/workflow_jobs.py is never run by a step itself, so without this an edit to it would
+    run none of the suites that read it."""
+    match = TEST_MODULE.fullmatch(path)
+    if match is None:
+        return set()
+    root = root or GUARD_WORKFLOW.parents[2]
+    owners: set[str] = set()
+    for importer in _importers(match.group(1), root):
+        owners.update(derived.get(importer, ()))
+    return owners
+
+
 def groups_for_path(path: str) -> tuple[str, ...] | None:
     """Return current observers for path, or None when ownership is unknown."""
     if path in ROUTING_POLICY_PATHS:
@@ -437,6 +478,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         # A test registry area fragment is read like tests/test-execution.toml was.
         owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
+    owners.update(import_owners(path, derived))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of
         # the serial preflight bucket, whose other steps install and exercise

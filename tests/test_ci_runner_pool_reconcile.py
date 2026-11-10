@@ -87,6 +87,10 @@ class SecretRouteBoundary(unittest.TestCase):
             ("deploy-dashboard-fixture", "    steps:\n      - run: vercel deploy --token \"${{ secrets.VERCEL_TOKEN }}\"\n"),
             ("deploy-env-fixture", "    environment: cmux-next-staging\n    steps:\n      - run: true\n"),
             ("deploy-inherit-fixture", "    uses: ./.github/workflows/deploy.yml\n    secrets: inherit\n"),
+            ("deploy-bracket-fixture", "    steps:\n      - run: sentry-cli upload\n        env:\n          SENTRY_AUTH_TOKEN: ${{ secrets['SENTRY_AUTH_TOKEN'] }}\n"),
+            ("deploy-double-bracket-fixture", "    steps:\n      - run: vercel deploy --token \"${{ secrets[\"VERCEL_TOKEN\"] }}\"\n"),
+            ("deploy-lowercase-fixture", "    steps:\n      - run: vercel deploy --token \"${{ Secrets.vercel_token }}\"\n"),
+            ("deploy-tojson-fixture", "    steps:\n      - run: echo \"$ALL\" | jq -r .VERCEL_TOKEN\n        env:\n          ALL: ${{ toJSON(secrets) }}\n"),
         ):
             with self.subTest(job=name):
                 fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: {fleet}\n{body}"
