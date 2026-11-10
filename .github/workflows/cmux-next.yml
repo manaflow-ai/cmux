@@ -5794,10 +5794,10 @@ jobs:
             state=""
             # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
             # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
-            # retrying the 530 for the whole deadline (20 min while the controller was down, 2026-11-10).
+            # retrying the 530 for the whole deadline (20 min with the controller down, 2026-11-10).
             for probe in 1 2; do
               code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
-                "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)"
+                "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)" || true
               [[ "$code" =~ ^(000|52[0-9]|530)$ ]] || break
               (( probe == 2 )) && { state="results service down (HTTP $code)"; deadline=$SECONDS; } || sleep "${PROBE_GAP:-30}"
             done

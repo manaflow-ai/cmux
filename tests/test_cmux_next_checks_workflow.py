@@ -2878,7 +2878,8 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
                    "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
                    "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
             started = time.monotonic()
-            result = subprocess.run(["bash", "-c", run], env=env, capture_output=True, text=True, timeout=60)
+            # GitHub runs a `run:` step as `bash -e {0}`.
+            result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
             elapsed = time.monotonic() - started
             calls = (Path(temp) / "calls").read_text() if (Path(temp) / "calls").exists() else ""
             return output.read_text() if output.exists() else "", result.stdout + calls, elapsed
