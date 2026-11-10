@@ -381,10 +381,8 @@ pub fn ssh_move_outcome(stdout: &str, stderr: &str, status: i32) -> Result<(), S
     let error = envelope.as_ref().and_then(|e| e.get("error"));
     let said = error
         .and_then(|e| {
-            e.get("message")
-                .or_else(|| e.get("detail"))
-                .and_then(|m| m.as_str())
-                .or_else(|| e.as_str())
+            let text = |key: &str| e.get(key).and_then(serde_json::Value::as_str);
+            text("message").or_else(|| text("detail")).or_else(|| e.as_str())
         })
         .unwrap_or_else(|| last.strip_prefix("Error: ").unwrap_or(last));
     Err(said.to_owned())
