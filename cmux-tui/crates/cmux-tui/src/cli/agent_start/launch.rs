@@ -109,20 +109,6 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
     Some(args)
 }
 
-/// `args` without a resume tail a former `resume` appended, so resuming a
-/// resumed agent does not pile up `--resume` arguments.
-pub(in crate::cli) fn strip_resume(harness: &str, args: &[String]) -> Vec<String> {
-    let Some(shape) = resume_args(harness, "") else { return args.to_vec() };
-    // The tail is the shape's fixed words, then one session id.
-    let Some((_, fixed)) = shape.split_last() else { return args.to_vec() };
-    if let Some((_, rest)) = args.split_last()
-        && let Some(kept) = rest.strip_suffix(fixed)
-    {
-        return kept.to_vec();
-    }
-    args.to_vec()
-}
-
 /// Whether `id` can be a harness session id: what the daemon publishes
 /// (letters, digits, `.`, `_`, `:`, `-`), not starting with `-`.
 pub(in crate::cli) fn valid_session_id(id: &str) -> bool {

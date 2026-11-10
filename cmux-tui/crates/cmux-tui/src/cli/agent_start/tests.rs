@@ -171,13 +171,6 @@ fn w3h_launch_argv_keeps_each_argument_out_of_the_shell_and_resumes_per_harness(
     assert_eq!(launch::resume_args("opencode", "s1"), Some(strings(&["--session", "s1"])));
     assert_eq!(launch::resume_args("amp", "t1"), Some(strings(&["threads", "continue", "t1"])));
     assert_eq!(launch::resume_args("muse", "s1"), None);
-    let resumed = strings(&["--model", "opus", "--resume", "old"]);
-    assert_eq!(launch::strip_resume("claude", &resumed), strings(&["--model", "opus"]));
-    assert_eq!(launch::strip_resume("codex", &strings(&["resume", "x"])), Vec::<String>::new());
-    assert_eq!(
-        launch::strip_resume("claude", &strings(&["--model", "opus"])),
-        strings(&["--model", "opus"])
-    );
     assert!(launch::valid_session_id(SESSION));
     assert!(!launch::valid_session_id("--dangerously-skip-permissions"));
     assert!(!launch::valid_session_id("a b"));
