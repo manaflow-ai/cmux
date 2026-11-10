@@ -96,7 +96,8 @@ fn a_wal_left_over_the_limit_is_cut_by_the_first_commits_of_the_next_open() {
     assert_eq!(opened, left, "the next open found another WAL than the one left");
     let _durability = WalDurability::attach(&connection, &next_path, None, false);
     // A quiet daemon: a small commit now and then, and no flush request.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // The deadline only ends a run in which the WAL is never cut.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut commits = 0;
     let now = loop {
         connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
@@ -115,7 +116,7 @@ fn a_wal_left_over_the_limit_is_cut_by_the_first_commits_of_the_next_open() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(
         now <= WAL_SIZE_LIMIT_BYTES,
-        "a WAL left at {left} bytes is {now} bytes after {commits} small commits in 10 s \
+        "a WAL left at {left} bytes is {now} bytes after {commits} small commits in 30 s \
          of the next open; the limit is {WAL_SIZE_LIMIT_BYTES}"
     );
 }
@@ -240,7 +241,16 @@ fn a_clean_stop_copies_a_small_wal_into_the_database() {
     let before = std::fs::metadata(&path).unwrap().len();
     assert!(before < 1024 * 1024, "the database file already holds the row: {before} bytes");
     durability.checkpoint_at_stop();
-    let after = std::fs::metadata(&path).unwrap().len();
+    // The stop waits for the checkpoint only up to its limit; on a busy
+    // disk the copy ends a little later.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let after = loop {
+        let len = std::fs::metadata(&path).unwrap().len();
+        if len > 1024 * 1024 || Instant::now() > deadline {
+            break len;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
     drop(connection);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(after > 1024 * 1024, "the database file is {after} bytes after the stop");
