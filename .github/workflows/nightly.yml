@@ -2273,6 +2273,9 @@ jobs:
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
+          # A deltas or signing job's sparse checkout stays in this kept clone, and a build reads
+          # every file (run 42822119868: no .xcode-version, with a clean `git status`).
+          if [ "$(git config --get core.sparseCheckout || true)" = true ]; then git sparse-checkout disable; fi
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
@@ -2290,6 +2293,11 @@ jobs:
             git repack -a -d -l -q
           fi
           test "$(git rev-parse HEAD)" = "$BUILD_SHA"
+          sparse_left="$(git ls-files -t | awk '/^S /{print $2; exit}')"
+          if [ -n "$sparse_left" ]; then
+            echo "::error title=warm checkout::the workspace is still a sparse checkout ($sparse_left is not checked out)" >&2
+            exit 1
+          fi
           git status --short | head -20
 
       - name: Select Xcode
@@ -6551,6 +6559,22 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
+      # A kept clone remembers the last checkout's sparse mode. After a signing job's pattern checkout
+      # (core.sparseCheckout=true, no cone setting) git reads the cone request below as the one pattern
+      # `scripts`, so the root .xcode-version is not checked out: Select Xcode failed here in runs
+      # 42819750253 and 42829570644, and the next build inherited the clone (42822119868, 42833135477).
+      - &forget-kept-sparse-mode
+        name: Forget the kept clone's sparse-checkout mode
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          [ -d "$ws/.git" ] || exit 0
+          for key in core.sparseCheckout core.sparseCheckoutCone extensions.worktreeConfig; do
+            git -C "$ws" config --local --unset-all "$key" 2>/dev/null || true
+          done
+          rm -f "$ws/.git/config.worktree" "$ws/.git/info/sparse-checkout"
+
       # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
       # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
       - &legacy-route-shared-3
@@ -6694,6 +6718,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *forget-kept-sparse-mode
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
