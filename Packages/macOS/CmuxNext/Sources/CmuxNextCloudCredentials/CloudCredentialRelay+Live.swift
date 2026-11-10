@@ -69,7 +69,7 @@ public struct CloudPreApproval: Sendable {
         let transport = InstallHTTPTransport(baseURL: platform)
         // task-owner: fire and forget; bounded by the transport's own timeout, and its answer only reaches Rust.
         Task { [headers] in
-            let answer = (try? await transport.post("v1/cloud/capability", json: Data("{}".utf8), bearer: installToken, headers: headers)) ?? (0, Data())
+            let answer: (status: Int, body: Data) = (try? await transport.post("v1/cloud/capability", json: Data("{}".utf8), bearer: installToken, headers: headers)) ?? (status: 0, body: Data())
             struct Reply: Decodable { var outcome: String }
             let body = (try? JSONDecoder().decode(JSONValue.self, from: answer.body)) ?? .null
             let request: JSONValue = .object(["team": .string(team), "sentMs": .number(sent), "nowMs": .number(Self.nowMs()),
