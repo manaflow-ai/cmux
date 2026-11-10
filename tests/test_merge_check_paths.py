@@ -431,7 +431,9 @@ class CheckPathGate(unittest.TestCase):
 
         api = GitHub()
         self.assertEqual(api.dispatch("42", gate.BRANCH), 42687)
-        self.assertIn("-F", api.calls[0])
+        # -F (typed: a JSON boolean), not -f (a string GitHub rejects for this field), sends the flag.
+        args = api.calls[0]
+        self.assertEqual(args[args.index("return_run_details=true") - 1], "-F", args)
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
