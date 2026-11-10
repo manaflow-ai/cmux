@@ -8,6 +8,8 @@ name: Cloud machine count probe (staging)
 # machine it made by id, pass or fail. Production is out of scope (its ledger is off by design).
 #
 # Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev, which admits feat-cmux-next only.
+# Runs on feat-cmux-next only: a push there that changes .github/cloud-machine-count-probe/request (land a PR that
+# edits it; 6 machines), or a manual dispatch once this file is on the default branch.
 
 on:
   workflow_dispatch:
@@ -17,6 +19,10 @@ on:
         required: true
         type: number
         default: 6
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/cloud-machine-count-probe/request
 
 permissions:
   contents: read
@@ -49,7 +55,7 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          COUNT: ${{ inputs.count }}
+          COUNT: ${{ inputs.count || 6 }}
         run: bun scripts/cmux-next/cloud-machine-count-probe.ts --backend staging --count "$COUNT" --out "$RUNNER_TEMP/count-probe"
       - name: Summary
         if: always()
