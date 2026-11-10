@@ -85,18 +85,19 @@ CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow 
 Also wherever the scanners run (the hook, a plain run and CI's --base/--head and --commits modes): "Crash ratchet"
 (crash_ratchet_findings), the Rust part of the crash ratchet with exactly CI's verdict (lead rule after the BLOCK of
 #39853): CI's own crash_ratchet_compare.py and crash_ratchet.py judge two trees that hold every .rs file of each crate
-the push touches, at the base and the head, each with its own baseline's Rust rows. So a crate under its row passes,
-a crate pushed over it is refused, a hit moved into another crate passes only when the head's baseline carries its row,
-and test code is told from the whole crate (`#[cfg(test)] mod`, `#[path]`), as in CI (2026-11-08: #39304's first head
-added two non-test `.lock().unwrap()` to a crate at its row, passed the hook and CI refused it). A crate the push does
-not touch has the same verdict on both sides. The scanner's own Rust ratchet lines are dropped (part of a crate
-against its whole row). The ratchet and comparison code are CI's, never a copy of their rules; the hook reads the
-installed crash_ratchet.py and origin/feat-cmux-next's crash_ratchet_compare.py, never the pushed ones, and the
-pushed baseline, which the comparison judges against the base's as CI does. A main-based push (its tree has no
-CmuxNext app entry, or it left origin/main after feat-cmux-next did) skips check-crash-safety.sh, which reads that
-feat-only file, and runs main's crash ratchet: origin/main's scripts when main has them, else feat's (main's CI has
-none today); main keeps no baseline, so there every crate is judged against zero rows and a push that adds a hit,
-waived or not, is refused.
+the push touches (a changed or deleted .rs file, or a Rust row of crash-safety-baseline.json the push changes, also
+with no crate file changed), at the base and the head, each with its own baseline's Rust rows. So a crate under its
+row passes, a crate pushed over it is refused, a raised row is refused, a hit moved into another crate passes only
+when the head's baseline carries its row, and test code is told from the whole crate (`#[cfg(test)] mod`,
+`#[path]`), as in CI (2026-11-08: #39304's first head added two non-test `.lock().unwrap()` to a crate at its row,
+passed the hook and CI refused it). A crate the push does not touch has the same verdict on both sides. The scanner's
+own Rust ratchet lines are dropped (part of a crate against its whole row). The ratchet and comparison code are CI's,
+never a copy of their rules; the hook reads the installed crash_ratchet.py and origin/feat-cmux-next's
+crash_ratchet_compare.py, never the pushed ones, and the pushed baseline, which the comparison judges against the base's
+as CI does. A main-based push (its tree has no CmuxNext app entry, or it left origin/main after feat-cmux-next did)
+skips check-crash-safety.sh, which reads that feat-only file, and this layer: main's CI has no crash ratchet and main
+keeps no baseline, so the gate passes what main's CI passes (lead decision on #39853; the layer refused 6 of the last 40
+main ports).
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -291,7 +292,7 @@ RATCHET_BASELINES = {
 }
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips
-# that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
+# that scanner and the crash ratchet layer (crash_ratchet_findings), as main's CI has no crash ratchet.
 CRASH_SAFETY_CHECK = "Crash safety"
 APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
 MAIN_REF = "origin/main"
@@ -1130,22 +1131,11 @@ def main_based(repo: Path, head: str, head_tree: Path) -> bool:
                                          capture_output=True).returncode == 1
 
 
-def load_crash_ratchet(repo: Path, head_tree: Path, trusted_scripts: Path | None, on_main: bool, work: Path):
-    """CI's crash ratchet (crash_ratchet.py) as a module, never the pushed copy on a hook run: origin/main's for a
-    main-based push when main has one, else the installed reviewed copy (HEAD_TREE's scripts on a hook run; the head's,
-    else this checkout's, on a plain run). A hook install without it refuses."""
-    candidates: list[Path] = []
-    if on_main:
-        source = blob_at(repo, MAIN_REF, f"{SCRIPTS}/{CRASH_RATCHET}")
-        if source is not None:
-            folder = work / "main-crash-ratchet"
-            folder.mkdir(parents=True, exist_ok=True)
-            (folder / CRASH_RATCHET).write_bytes(source)
-            allowlist = blob_at(repo, MAIN_REF, f"{SCRIPTS}/crash-allowlist.json")
-            if allowlist is not None:
-                (folder / "crash-allowlist.json").write_bytes(allowlist)
-            candidates.append(folder / CRASH_RATCHET)
-    candidates.append(head_tree / SCRIPTS / CRASH_RATCHET)
+def load_crash_ratchet(head_tree: Path, trusted_scripts: Path | None):
+    """CI's crash ratchet (crash_ratchet.py) as a module, never the pushed copy on a hook run: the installed reviewed
+    copy (HEAD_TREE's scripts on a hook run; the head's, else this checkout's, on a plain run). A hook install without
+    it refuses."""
+    candidates = [head_tree / SCRIPTS / CRASH_RATCHET]
     if trusted_scripts is None:
         candidates.append(Path(__file__).with_name(CRASH_RATCHET))
     for script in candidates:
@@ -1187,13 +1177,11 @@ def without_rust_ratchet(output: str) -> str:
     return "\n".join(lines)
 
 
-def load_crash_compare(repo: Path, trusted_scripts: Path | None, on_main: bool, work: Path) -> Path:
+def load_crash_compare(repo: Path, trusted_scripts: Path | None, work: Path) -> Path:
     """CI's crash ratchet comparison (scripts/ci/crash_ratchet_compare.py, the cmux-next-guards "crash ratchet" step
-    and the fast gates), never the pushed copy on a hook run: origin/main's for a main-based push when main has one,
-    else origin/feat-cmux-next's (the ref the installed checks come from); a plain or CI run reads the head's, else
-    this checkout's. The hook refuses without one."""
-    refs = ([MAIN_REF] if on_main else []) + [DEFAULT_BASE_REFS[0]]
-    for ref in refs:
+    and the fast gates), never the pushed copy on a hook run: origin/feat-cmux-next's (the ref the installed checks
+    come from); a plain or CI run reads the head's, else this checkout's. The hook refuses without one."""
+    for ref in DEFAULT_BASE_REFS[:1]:
         source = blob_at(repo, ref, CRASH_COMPARE)
         if source is not None and trusted_scripts is not None:
             script = work / "crash-compare" / ref.replace("/", "-") / Path(CRASH_COMPARE).name
@@ -1256,11 +1244,12 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
     rows. Whole crates, as CI reads them: a crate under its row passes, a hit moved into a crate whose row the head
     does not carry is refused, and test code is told from every file of the crate. A crate the push does not touch
     gives the same verdict on both sides, so leaving it out changes nothing. Swift crash rows stay the Crash safety
-    scanner's. On a refusal, each hit line the head adds in a red row is named at its place in a changed file."""
+    scanner's. On a refusal, each hit line the head adds in a red row is named at its place in a changed file. A
+    main-based push gets no verdict ([]): main's CI has no crash ratchet and main keeps no baseline."""
     started = time.monotonic()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        # Which ratchet (main's or feat's) is a merge-base question; the trees do not depend on it.
-        main_job = pool.submit(main_based, repo, head, head_tree)
+    if main_based(repo, head, head_tree):
+        return [], time.monotonic() - started
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
                                   "--", RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
         blobs = [blob_at(repo, rev, f"{SCRIPTS}/crash-safety-baseline.json") for rev in (base, head)]
@@ -1277,9 +1266,8 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
         base_dir, head_dir = work / "crash-base", work / "crash-head"
         trees = ([pool.submit(crash_tree, repo, base, touched, base_dir, baselines[0], False),
                   pool.submit(crash_tree, repo, head, touched, head_dir, baselines[1], True)] if touched else [])
-        on_main = main_job.result()
-        ratchet = load_crash_ratchet(repo, head_tree, trusted_scripts, on_main, work)
-        compare = load_crash_compare(repo, trusted_scripts, on_main, work)
+        ratchet = load_crash_ratchet(head_tree, trusted_scripts)
+        compare = load_crash_compare(repo, trusted_scripts, work)
         for job in trees:
             job.result()
     if ratchet.WAIVED != waived:
@@ -1874,7 +1862,16 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    if not changed and not dropped and not deleted:
+    # The crash ratchet layer also judges a push that only deletes .rs files (a deleted `#[cfg(test)] mod` line makes
+    # its module count) or only changes crash-safety-baseline.json: CI judges the head's baseline against the base's.
+    crash_wanted = only is None or bool(only & {"scanners", "crash-ratchet"})
+    status = git(repo, "diff", "--name-status", "--no-renames", "-z", base, head, "--", RUST_CRATES,
+                 CRASH_BASELINE).decode().split("\0") if crash_wanted else []
+    crash_moves = [(kind, path) for kind, path in zip(status[0::2], status[1::2])
+                   if restrict is None or path in restrict]
+    crash_deleted = [path for kind, path in crash_moves if kind == "D" and path.endswith(".rs")]
+    crash_data = any(path == CRASH_BASELINE for _, path in crash_moves)
+    if not changed and not dropped and not deleted and not crash_deleted and not crash_data:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
@@ -1899,7 +1896,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             if not script.is_file():
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
-                continue  # a main-based push: its crash rule is the crash ratchet below
+                continue  # a main-based push: main's CI has no crash check
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
         if (dropped or deleted) and DEPS_CHECK not in jobs:
@@ -1941,7 +1938,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             return code, out, time.monotonic() - t0
 
         # Wherever the scanners run (CI's modes too): it is the Crash safety scanner's Rust judgement (RUST_RATCHET_LINE).
-        crash_layer = bool(crates) and (only is None or bool(only & {"scanners", "crash-ratchet"}))
+        crash_layer = crash_wanted and bool(crates or crash_deleted or crash_data)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
