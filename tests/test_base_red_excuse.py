@@ -1412,6 +1412,11 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "nothing to compare"):
             self.judge()
 
+    def test_a_red_run_with_no_failed_job_listed_blocks(self):
+        self.gh.jobs[1]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
+            self.judge()
+
     def with_checks(self, checks):
         self.gh.check_runs = [{"check_runs": checks}]
         original = self.gh.json
@@ -1440,6 +1445,16 @@ class Excusing(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
         self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_check_whose_job_was_retried_green_blocks(self):
+        # The check-run can stay failed while its exact job was re-run green: never rescan the run and excuse
+        # its child reds then, as for a routed rollup (the Guard status).
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "exact aggregate job is success, not failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
     def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
         # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
@@ -2056,6 +2071,16 @@ class JoblessStatusChecks(unittest.TestCase):
             self.judge()
         self.base[self.OLDER] = [dict(self.head)]
         self.assertEqual(self.judge(), [f"excused 'Vercel': base {self.OLDER} status failure \"{self.LIMITED}\""])
+
+    def test_another_description_on_the_base_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, description="Deployment failed")]
+        with self.assertRaisesRegex(excuse.Refused, "has it failure: Deployment failed"):
+            self.judge()
+
+    def test_another_state_on_the_base_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, state="error")]
+        with self.assertRaisesRegex(excuse.Refused, "has it error"):
+            self.judge()
 
     def test_a_status_the_base_does_not_have_is_refused(self):
         self.base = {self.TIP: [], self.OLDER: [dict(self.head, context="Vercel – other-project")]}
@@ -2796,6 +2821,13 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_no_base_run_dispatches_once_on_the_base_tip(self):
+        gh = SignedHostGitHub()
+        with self.assertRaisesRegex(excuse.Refused, f"no feat-cmux-next run of its workflow has a verdict.*"
+                                    f"dispatched {SIGNED_HOST_FILE} run 77 on the feat-cmux-next tip"):
+            self.judge(gh)
+        self.assertEqual(gh.dispatched, [(REPO, SIGNED_HOST_FILE, "feat-cmux-next")])
 
     def test_a_running_dispatch_is_waited_on_not_repeated(self):
         gh = SignedHostGitHub()
@@ -5738,6 +5770,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "never a base red"):
             self.judge()
         self.assertEqual(self.graphql, [])
+
+    def test_another_failed_step_with_no_error_line_is_not_hidden(self):
+        # Review F2 (9cac2029): a step that failed without printing a recognized error still leaves the rule out.
+        self.gh.jobs[1]["steps"].insert(1, {"name": "Localized strings are complete", "status": "completed",
+                                            "conclusion": "failure"})
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)  # the path rule passed first
 
     def test_a_swift_change_is_refused_even_when_another_red_is_shared_with_the_base(self):
         # Review of d5c11dd8: beside a failing test the base shares, the base comparison sets error lines aside, so
