@@ -70,6 +70,34 @@ struct SpaceSwitchCostTests {
         }
     }
 
+    /// Not a check: where the same-turn switch of a window the app holds spends its main-thread time, at 200
+    /// workspaces in each space. Opt-in with `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`).
+    @Test(.enabled(if: SelfSampler.enabled, "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
+    func profileOfASameTurnSpaceSwitch() async throws {
+        let bench = try await SpaceSwitchBench(total: 400, registered: true)
+        defer { bench.close() }
+        _ = try await bench.run(rounds: 1)
+        try await bench.profile(rounds: 150, seconds: 9, minimum: 60)
+    }
+
+    /// "changing spaces in sidebar also feels kinda slow" (Lawrence 2026-11-10), the part a switch still paid after
+    /// it moved into the input's turn: the rows feed forgot every row of the space the window left and mapped
+    /// every row of the space it showed again (`row_maps` 200 for a list that draws about 29 rows), each with its
+    /// own observation, on every switch. A space the window showed before maps only the rows that changed while
+    /// it was hidden: a switch back builds no more rows than the list draws.
+    @Test func aSwitchBackToASpaceBuildsNoMoreRowsThanTheListDraws() async throws {
+        let bench = try await SpaceSwitchBench(total: 400, registered: true)
+        defer { bench.close() }
+        let samples = try await bench.run(rounds: 12)
+        print(SpaceSwitchBench.summary(400, samples) + " | registered revisit")
+        for (round, sample) in samples.enumerated() {
+            let count = { (name: String) in sample.counters[name] ?? 0 }
+            #expect(count("row_frames") > 0 && count("row_frames") < 60, "switch \(round): the list drew \(count("row_frames")) rows")
+            #expect(count("row_maps") <= count("row_frames") + 8,
+                    "switch \(round): built \(count("row_maps")) rows of a space shown before; the list draws \(count("row_frames"))")
+        }
+    }
+
     /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a
     /// switch must not wake every parked workspace. 60 workspaces (30 per space) do not fill the
     /// sidebar and 120 do, so the check is the main-thread cost per realized row.
