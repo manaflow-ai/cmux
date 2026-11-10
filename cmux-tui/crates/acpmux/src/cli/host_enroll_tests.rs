@@ -1254,21 +1254,17 @@ fn enroll_never_takes_the_port_another_daemon_holds() {
 }
 
 #[test]
-fn doctor_refuses_to_move_a_healthy_daemon_to_the_peers_port() {
-    // The peer names 47811 but the daemon runs healthy on 47921: no config
-    // change and no restart, even with --fix; the fix points the peer at it.
+fn doctor_leaves_a_healthy_daemon_on_its_recorded_port() {
+    // The peer names 47811 but this build's daemon runs healthy on 47921, the free port it
+    // moved to and saved: the link dials the port its listener record names and proves it
+    // there (`Peer::prove_tunnel`), so the step passes, with no config change and no
+    // restart, even with --fix.
     let fake = two_daemon_host(Some(47921));
     let local = Local { harness_dir: None, home: None };
     let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {}).0;
-    assert_eq!(results[2].state, StepState::Fail, "{results:?}");
-    assert!(
-        results[2]
-            .fix
-            .as_deref()
-            .unwrap()
-            .contains("`acpmux machine add box ssh://leo@box.tail:47921`"),
-        "{results:?}"
-    );
+    assert_eq!(results[2].state, StepState::Ok, "{results:?}");
+    assert!(results[2].detail.contains("on port 47921"), "{results:?}");
+    assert!(results[2].detail.contains("follows its listener record"), "{results:?}");
     assert_read_only(&fake);
 }
 

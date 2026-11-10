@@ -329,10 +329,9 @@ pub struct Peer {
     presented: StdMutex<Option<String>>,
     /// The remote's tokens from the last ssh read, for the next connect (`peer_tokens.rs`).
     read_tokens: tokens::TokenCache,
-    /// The remote daemon's listener record from the last ssh read: the port the tunnel dials
-    /// and the key that proves the listener there before any token is sent on it. None when
-    /// the remote has none (an older daemon): the URL's port, unproven, as before.
-    listener: StdMutex<Option<crate::listener_record::Remote>>,
+    /// What the last ssh read found of the remote daemon's listener record: the port the
+    /// tunnel dials and the key that proves the listener there before any token is sent.
+    listener: StdMutex<Listener>,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
@@ -544,7 +543,7 @@ impl Peer {
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             read_tokens: tokens::TokenCache::default(),
-            listener: StdMutex::new(None),
+            listener: StdMutex::new(Listener::Unread),
             linked_once: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
@@ -831,36 +830,63 @@ impl Peer {
         Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
-    /// The remote daemon's listener record from the last ssh read, if it had one.
-    fn remote_listener(&self) -> Option<crate::listener_record::Remote> {
+    /// What the last ssh read found of the remote daemon's listener record.
+    fn remote_listener(&self) -> Listener {
         self.listener.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn set_listener(&self, listener: Listener) {
+        *self.listener.lock().unwrap_or_else(|e| e.into_inner()) = listener;
     }
 
     /// The remote port a tunnel dials: the recorded listener's (a daemon whose configured
     /// port was taken listens on another, `daemon.rs`), else the URL's.
     pub(super) fn tunnel_port(&self) -> u16 {
         let url_port = self.ssh_parts().map_or(SSH_PEER_PORT, |(_, port)| port);
-        self.remote_listener().map_or(url_port, |listener| listener.listen.port())
+        match self.remote_listener() {
+            Listener::Recorded(listener) => listener.listen.port(),
+            _ => url_port,
+        }
     }
 
     /// Prove, before any token goes into a tunnel to `port`, that the listener at its far end
     /// is the daemon that wrote the remote's listener record (`listener_record.rs`). Another
     /// process on that port (another user's daemon on a shared host, a service that took a
-    /// freed port) gets one random challenge and nothing else. A remote with no record (an
-    /// older daemon) is dialed unproven, as before. On a refusal the record and the kept
-    /// tokens are forgotten, so the next connect reads both again.
+    /// freed port) gets one random challenge and nothing else. Only a remote an ssh read found
+    /// without a record (an older daemon) is dialed unproven, as before; one not read yet, or
+    /// with a record this build cannot use, gets nothing. On a refusal the record and the kept
+    /// tokens are forgotten, so the next connect (or ssh probe) reads both again.
     pub(super) async fn prove_tunnel<S>(&self, stream: &mut S, port: u16) -> Result<(), String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
-        let Some(listener) = self.remote_listener() else { return Ok(()) };
+        let listener = match self.remote_listener() {
+            Listener::Absent => return Ok(()),
+            Listener::Recorded(listener) => listener,
+            Listener::Unread => {
+                self.read_tokens.forget();
+                return Err(format!(
+                    "the listener record of the acpmux daemon on {} was not read yet; no token was sent",
+                    self.name
+                ));
+            }
+            Listener::Unusable => {
+                self.set_listener(Listener::Unread);
+                self.read_tokens.forget();
+                return Err(format!(
+                    "the listener record of the acpmux daemon on {} is not one this build can prove \
+                     (not loopback, or not readable); no token was sent",
+                    self.name
+                ));
+            }
+        };
         let proven = if listener.listen.port() == port {
             listener.prove(stream, self.timings.connect).await
         } else {
             Err(crate::listener_record::NotLive::WrongListener)
         };
         proven.map_err(|why| {
-            *self.listener.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.set_listener(Listener::Unread);
             self.read_tokens.forget();
             match why {
                 crate::listener_record::NotLive::Unreachable => {
@@ -905,9 +931,8 @@ impl Peer {
     /// read over the same ssh access at each connect.
     async fn remote_tokens(&self) -> Result<(String, Option<String>), String> {
         let (host, _) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
-            return Ok((t.clone(), Some(p.clone())));
-        }
+        // Read even when both tokens are configured: the listener record decides where they
+        // may be sent (`prove_tunnel`).
         let mut child = self
             .ssh_command()
             .args(read_config_argv(&host, self.ssh_connect_secs()))
@@ -947,7 +972,7 @@ impl Peer {
             ));
         }
         let (config, peer, listener) = split_remote_read(&out.stdout);
-        *self.listener.lock().unwrap_or_else(|e| e.into_inner()) = listener;
+        self.set_listener(listener);
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
@@ -1002,7 +1027,7 @@ impl Peer {
         if old.url == self.url && old.token == self.token && old.peer_token == self.peer_token {
             self.read_tokens.carry(&old.read_tokens);
             // The record goes with the tokens: kept tokens are never sent to an unproven port.
-            *self.listener.lock().unwrap_or_else(|e| e.into_inner()) = old.remote_listener();
+            self.set_listener(old.remote_listener());
         }
     }
 
@@ -3283,16 +3308,31 @@ pub fn carries_peer_token(url: &str) -> bool {
     }
 }
 
+/// What an ssh read found of the remote daemon's listener record (`Peer::prove_tunnel`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Listener {
+    /// Not read yet, or forgotten after its listener did not prove it: no token is sent.
+    #[default]
+    Unread,
+    /// The remote has none of this user's (an older daemon): the URL's port, unproven.
+    Absent,
+    /// The remote has one that does not parse, or not on loopback: no token is sent.
+    Unusable,
+    /// The record: the port to dial and the key that proves its listener.
+    Recorded(crate::listener_record::Remote),
+}
+
 /// The output of `read_config_argv`: the config bytes, the peer token
-/// (None when absent or not a 64-digit hex token) and the listener record
-/// (None when absent, not the user's, or not a current loopback one).
-pub fn split_remote_read(
-    out: &[u8],
-) -> (&[u8], Option<String>, Option<crate::listener_record::Remote>) {
+/// (None when absent or not a 64-digit hex token) and the listener record.
+pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>, Listener) {
     let mut parts = out.splitn(3, |b| *b == 0);
     let config = parts.next().unwrap_or_default();
     let peer = parts.next().and_then(peer_token_text);
-    let listener = parts.next().and_then(crate::listener_record::Remote::parse);
+    let listener = match parts.next().filter(|b| !b.trim_ascii().is_empty()) {
+        None => Listener::Absent,
+        Some(bytes) => crate::listener_record::Remote::parse(bytes)
+            .map_or(Listener::Unusable, Listener::Recorded),
+    };
     (config, peer, listener)
 }
 
@@ -3480,6 +3520,29 @@ mod remote_config_tests {
         assert_eq!(peer_token_text("a".repeat(63).as_bytes()), None);
         let read = [br#"{"websocket":{"token":"t"}}"#.as_slice(), b"\0", good.as_bytes()].concat();
         assert_eq!(split_remote_read(&read).1, Some(good));
+    }
+
+    #[test]
+    fn the_read_says_whether_the_remote_has_no_record_an_unusable_one_or_which() {
+        let record = |listen: &str| {
+            format!(r#"{{"version":2,"listen":"{listen}","pid":1,"key":"{}"}}"#, "b".repeat(64))
+        };
+        let read = |listener: &str| [b"{}\0\0".as_slice(), listener.as_bytes()].concat();
+        // An older remote prints nothing for it, or the file is absent or not the user's.
+        assert_eq!(split_remote_read(b"{}\0").2, Listener::Absent);
+        assert_eq!(split_remote_read(&read("")).2, Listener::Absent);
+        // One that is there but cannot be proven sends nothing, never falls back to unproven.
+        assert_eq!(split_remote_read(&read("not json")).2, Listener::Unusable);
+        assert_eq!(split_remote_read(&read(&record("10.0.0.1:47811"))).2, Listener::Unusable);
+        let Listener::Recorded(at) = split_remote_read(&read(&record("127.0.0.1:47812"))).2 else {
+            panic!("a loopback record")
+        };
+        assert_eq!(at.listen.port(), 47812);
+        // A daemon bound to every address answers on loopback, where the tunnel dials.
+        let Listener::Recorded(any) = split_remote_read(&read(&record("0.0.0.0:47813"))).2 else {
+            panic!("an all-addresses record")
+        };
+        assert_eq!(any.listen, "127.0.0.1:47813".parse().unwrap());
     }
 }
 

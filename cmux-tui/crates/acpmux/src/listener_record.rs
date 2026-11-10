@@ -216,13 +216,21 @@ impl std::fmt::Debug for Remote {
 }
 
 impl Remote {
-    /// The record in `bytes`, when it is a current one naming a loopback port.
+    /// The record in `bytes`, when it is a current one naming a loopback port. A daemon bound to
+    /// every address (`0.0.0.0`, `::`) answers on loopback too, which is where a tunnel dials.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
         let record = parse(bytes)?;
-        if !record.listen.ip().is_loopback() || record.listen.port() == 0 {
+        let mut listen = record.listen;
+        if listen.ip().is_unspecified() {
+            listen.set_ip(match listen {
+                SocketAddr::V4(_) => std::net::Ipv4Addr::LOCALHOST.into(),
+                SocketAddr::V6(_) => std::net::Ipv6Addr::LOCALHOST.into(),
+            });
+        }
+        if !listen.ip().is_loopback() || listen.port() == 0 {
             return None;
         }
-        Some(Self { listen: record.listen, key: unhex(&record.key)? })
+        Some(Self { listen, key: unhex(&record.key)? })
     }
 
     /// Prove that `stream` (an ssh `-W` channel to [`Remote::listen`]) reaches the

@@ -902,8 +902,10 @@ impl Peer {
         // `_tunnel` (an ssh probe's own process) ends here.
     }
 
-    /// A probe's own WebSocket on `via`, with the credentials already known (a probe never
-    /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
+    /// A probe's own WebSocket on `via`, with the credentials already known, and its ssh
+    /// process for an ssh path. An ssh probe reads the tokens and listener record again when a
+    /// refusal forgot them (`prove_tunnel`), so a backup path recovers while another path
+    /// carries the link.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
             Via::Wireguard | Via::Link => {
@@ -922,9 +924,13 @@ impl Peer {
                 Ok((ws, None))
             }
             Via::Ssh => {
-                let (token, peer_token) = self
+                let known = self
                     .direct_credentials(None)
-                    .ok_or_else(|| "no token for the peer yet".to_owned())?;
+                    .filter(|_| self.remote_listener() != super::Listener::Unread);
+                let (token, peer_token) = match known {
+                    Some(known) => known,
+                    None => self.remote_tokens_settled().await?,
+                };
                 let (child, mut stream, remote_port, errors) = self.spawn_tunnel()?;
                 self.prove_tunnel(&mut stream, remote_port).await?;
                 let req = self.ws_request(
