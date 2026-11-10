@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42897604623",
+  "recorded_at": "2026-11-10T20:48:11Z",
+  "reason": "cmux-tui a7a376e766bb changes the image's cmux-tui (pinned 1ae781e81e9d)",
+  "dry_run": false,
+  "cmux_tui": "a7a376e766bbe2c1797c5a4af77a70287eb463da",
+  "fixes": [
+    {
+      "sha": "00d620a0a2b25e6cd159cf066123a25e0cc04c19",
+      "mergedAt": "2026-11-10T12:12:45-08:00",
+      "subject": "acpmux: a synthetic stress suite for the outbox and chat store (growth per operation, compressed day, restarts, torn appends) (#40689)"
+    },
+    {
+      "sha": "a27e84d63967f50915d65953db61cb98974e3d15",
+      "mergedAt": "2026-11-10T20:12:11Z",
+      "subject": "cmux-tui: a terminal journal record never waits for room in its lane (port of #39865, the wait-free part) (#40690)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T20:48:11Z",
+    "snapshot_id": "sh-3b2bca84e9934fd9b31f5ec56f80cc41",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42897604623): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "300f41e03b5f2fc237dc24dccf02ba19b38387b3",
+    "image": "cloud-native-auto-a7a376e7-42897604623-1",
+    "revision": "ci-42897604623-1",
+    "at": "2026-11-10T20:48:11Z"
+  },
+  "rolled_back": false
+}
