@@ -407,8 +407,7 @@ export function withSubagentLines(
   // The rows drawn other than as they are: the groups (their cards, or nothing) and the reports
   // of a reported subagent (its line); and where the done lines go.
   const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
-  for (const index of groups)
-    if (!isRunGroup(rows[index]!)) changed.set(index, () => cards.get(index) ?? NO_ROWS);
+  for (const index of groups) if (!isRunGroup(rows[index]!)) changed.set(index, () => cards.get(index) ?? NO_ROWS);
   reportPass.items.forEach((origin, at) => {
     const agent = reported.get(origin);
     if (agent) {

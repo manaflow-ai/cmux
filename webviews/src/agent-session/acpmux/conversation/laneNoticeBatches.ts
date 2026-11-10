@@ -453,13 +453,10 @@ function holdsInbox(row: AcpmuxRow): boolean {
 const flatInboxMarks = new PrefixFilter<AcpmuxRow>(holdsInbox);
 const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
   (row, index, rows) =>
-    holdsInbox(row) || (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
+    holdsInbox(row) ||
+    (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
 );
-const identityOffsets = (length: number) => {
-  const offsets = new Array<number>(length + 1);
-  for (let index = 0; index <= length; index += 1) offsets[index] = index;
-  return offsets;
-};
+const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
 
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,

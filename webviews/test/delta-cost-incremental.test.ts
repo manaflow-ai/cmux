@@ -221,7 +221,12 @@ function mixedHistory(count: number): AcpmuxRow[] {
           plan: [{ content: "step", status: index % 24 === 1 ? "pending" : "completed" }],
         } as Partial<AcpmuxRow>);
       case 2:
-        return row(`g${index}`, { kind: "subagents", at, text: undefined, subagents: [agent(index)] } as Partial<AcpmuxRow>);
+        return row(`g${index}`, {
+          kind: "subagents",
+          at,
+          text: undefined,
+          subagents: [agent(index)],
+        } as Partial<AcpmuxRow>);
       case 3:
         return row(`b${index}`, {
           kind: "backgroundTurn",
@@ -271,7 +276,10 @@ function readsOnlyTheTail<T>(
     [row("live", { text: "x" })],
     [row("live", { text: "x y" })],
     [row("live", { text: "x y" }), row("call", { kind: "activity", text: undefined, items: [] } as Partial<AcpmuxRow>)],
-    [row("u-new", { kind: "user", text: "next" }), row("p-new", { kind: "plan", plan: [{ content: "a", status: "pending" }] } as Partial<AcpmuxRow>)],
+    [
+      row("u-new", { kind: "user", text: "next" }),
+      row("p-new", { kind: "plan", plan: [{ content: "a", status: "pending" }] } as Partial<AcpmuxRow>),
+    ],
   ];
   pass([...history.rows, ...tails[0]!]);
   history.reads.count = 0;
@@ -301,11 +309,26 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   const ids = (rows: readonly AcpmuxRow[]) => rows.map((each) => each.id);
   // The chat's start (its first row after the session start) is read once per update.
   readsOnlyTheTail("composerRows", composerRows, 3, ids);
-  readsOnlyTheTail("subagentsIn", (rows) => subagentsIn(rows), 0, (agents) => [...agents.keys()]);
+  readsOnlyTheTail(
+    "subagentsIn",
+    (rows) => subagentsIn(rows),
+    0,
+    (agents) => [...agents.keys()],
+  );
   readsOnlyTheTail("withSubagentRows", (rows) => withSubagentRows(rows, new Set()), 0, ids);
-  readsOnlyTheTail("pendingToolCalls", (rows) => pendingToolCalls({ rows: rows as AcpmuxRow[] }), 0, (calls) => [...calls]);
+  readsOnlyTheTail(
+    "pendingToolCalls",
+    (rows) => pendingToolCalls({ rows: rows as AcpmuxRow[] }),
+    0,
+    (calls) => [...calls],
+  );
   readsOnlyTheTail("heldPairs", heldPairs, 0, (pairs) => pairs.map((pair) => pair.peer));
-  readsOnlyTheTail("failedRuns", (rows) => failedRuns(rows), 0, (runs) => [...runs].map(([id, run]) => [id, run.rowIds]));
+  readsOnlyTheTail(
+    "failedRuns",
+    (rows) => failedRuns(rows),
+    0,
+    (runs) => [...runs].map(([id, run]) => [id, run.rowIds]),
+  );
   readsOnlyTheTail("liveTurnPlan", liveTurnPlan, 0, (plan) => plan?.id);
   readsOnlyTheTail("earlierTurnPlan", earlierTurnPlan, 0, (plan) => plan?.id);
   readsOnlyTheTail("flattenInboxRows", flattenInboxRows, 0, ids);
@@ -316,7 +339,10 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   // placed again per update (its group, its agent and the rows right after it: about a dozen
   // fields per group, 333 groups here), never the rows between groups. Grows with groups, not rows.
   const lines = new Map();
-  readsOnlyTheTail("withSubagentLines", (rows) => withSubagentLines(rows, lines), 333 * 3 * 13, (rows) =>
-    rows.map((each) => [each.id, each.kind]),
+  readsOnlyTheTail(
+    "withSubagentLines",
+    (rows) => withSubagentLines(rows, lines),
+    333 * 3 * 13,
+    (rows) => rows.map((each) => [each.id, each.kind]),
   );
 });
