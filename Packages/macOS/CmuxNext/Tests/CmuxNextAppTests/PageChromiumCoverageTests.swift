@@ -26,7 +26,7 @@ import Testing
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.appScene, .standard),
         (.serverCards, WebCardPanel.engineOptions),
     ]
 

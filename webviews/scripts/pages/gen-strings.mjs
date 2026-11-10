@@ -495,6 +495,20 @@ export const PAGES = {
       },
     ],
   },
+  // An app's pane (cmux-page://cmux.app-scene/): the scene's failure row, as the agent pane says it
+  // (the app platform's `apps.failure.` and Reload keys), installed as the pane's table.
+  "app-scene": {
+    out: "webviews/src/pages/app-scene/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
+          ),
+      },
+    ],
+  },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",

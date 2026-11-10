@@ -65,7 +65,10 @@ export class MockAppPanelsClient implements PageClient {
         result = { panels: this.panels };
         break;
       case "cmux.apps.panels.mount": {
-        const panel = this.panels.find((entry) => entry.app === params.app && entry.section === params.section);
+        // An app pane names no section: the app's first panel stands in for its pane.
+        const panel = this.panels.find(
+          (entry) => entry.app === params.app && (params.surface === "pane" || entry.section === params.section),
+        );
         if (!panel) throw pageError("cmux.apps.not_found", "Unknown app section");
         const mountId = `mock-panel-${++this.nextMount}`;
         this.mounts.set(mountId, { panel, context: params.context as MountContext });

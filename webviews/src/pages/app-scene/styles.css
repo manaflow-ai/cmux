@@ -1,0 +1,26 @@
+/* An app's pane: the scene fills the page and scrolls when taller. The scene draws in the agent
+   pane's tokens (apps/scene/scene.css), mapped here to the page theme. */
+html[data-cmux-page="app-scene"],
+.app-scene-page {
+  --agent-text: var(--page-text);
+  --agent-muted: var(--page-text-2);
+  --agent-soft: var(--page-text-3);
+  --agent-border: var(--page-separator);
+  --agent-accent: var(--cmux-accent, var(--page-text));
+  --agent-accent-soft: var(--page-selection);
+  --agent-control-hover: var(--page-hover);
+  --agent-danger: var(--cmux-app-danger, #e5484d);
+  --acpmux-session-info-row-radius: 6px;
+}
+html[data-cmux-page="app-scene"],
+html[data-cmux-page="app-scene"] body,
+html[data-cmux-page="app-scene"] #root {
+  height: 100%;
+}
+.app-scene-page {
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  /* No inset of its own: as in the native pane, the app's scene sets its own padding. */
+  padding: 0;
+}

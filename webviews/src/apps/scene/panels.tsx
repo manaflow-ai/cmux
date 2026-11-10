@@ -6,7 +6,7 @@ import type { PageClient } from "../../pages/shared/pageClient";
 import { SceneFailure } from "./SceneFailure";
 import { SceneRenderer } from "./SceneRenderer";
 import { appSceneIcon } from "./SceneSymbol";
-import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext, type MountedPanel } from "./panelsClient";
+import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext, type MountedScene } from "./panelsClient";
 export type { AppPanel, MountContext } from "./panelsClient";
 export type AppPanelSection = { id: SessionInfoSectionId; title: string; symbol?: string; node: ReactNode };
 
@@ -64,7 +64,7 @@ export function useAppPanelSections(
 /** One mounted scene as the host's model draws it: nothing while loading, the scene once ready, and
  * the failure row (Reload, Copy Error, Details) or the disconnected line in its place. Reports its
  * drawn height to the host (`layout`) whenever it changes. */
-export function SceneMount({ mounted }: { mounted: MountedPanel }) {
+export function SceneMount({ mounted }: { mounted: MountedScene }) {
   const { store, dispatch, reload, layout, resolveAsset } = mounted;
   const status = useSyncExternalStore(store.subscribeStatus, store.getStatus, store.getStatus);
   const box = useRef<HTMLDivElement>(null);

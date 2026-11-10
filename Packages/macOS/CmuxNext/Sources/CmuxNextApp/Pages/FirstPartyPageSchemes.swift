@@ -57,6 +57,7 @@ enum FirstPartyPageSchemes {
     static let descriptors: [PageDescriptor] = [
         .agent,
         .agentActivity,
+        .appScene,
         .apps,
         .artifacts,
         .bookmarks,

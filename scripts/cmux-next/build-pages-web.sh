@@ -26,6 +26,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 PAGES="
+app-scene
 apps
 artifacts
 bookmarks
