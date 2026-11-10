@@ -225,7 +225,14 @@ enum StoredCursorStyle {
     Underline,
 }
 
-impl WorkspaceRegistry {
+/// Reads the durable public projections on one connection: the registry's own (under its lock) or the read-only
+/// one in a read transaction (`resource_api`'s committed snapshot rows), so one code path serves both.
+pub(crate) struct ProjectionReader<'a> {
+    pub(crate) db: &'a Connection,
+    pub(crate) session_id: &'a SessionPublicId,
+}
+
+impl ProjectionReader<'_> {
     /// Reconstruct public auxiliary state while the registry is the sole
     /// writer. Missing or tombstoned terminals remove notification links, while
     /// agent reports remain durable historical projections keyed by terminal.
@@ -271,7 +278,7 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT public_id
              FROM resource_terminals
@@ -288,7 +295,7 @@ impl WorkspaceRegistry {
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT outcome_json, idempotency_key
              FROM resource_effect_receipts
@@ -322,7 +329,7 @@ impl WorkspaceRegistry {
             })
             .collect::<HashSet<String>>();
         reads.retain(|id, _| retained_ids.contains(id));
-        let acked = self.acked_notification_ids()?;
+        let acked = super::presentation_store::acked_notification_ids_in(db)?;
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
@@ -342,7 +349,7 @@ impl WorkspaceRegistry {
                 )
             })?;
             anyhow::ensure!(
-                stored.session_id == self.session_id,
+                stored.session_id == *self.session_id,
                 "notification {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
@@ -406,7 +413,7 @@ impl WorkspaceRegistry {
     /// unique. Rows for notifications the ledger evicted are pruned at the
     /// next acknowledgement, so this stays bounded.
     fn durable_notification_reads(&self) -> anyhow::Result<HashMap<String, Vec<String>>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT notification_id, client_id
              FROM resource_notification_reads
@@ -427,7 +434,7 @@ impl WorkspaceRegistry {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "WITH selected AS MATERIALIZED (
                SELECT projection.terminal_id,
@@ -461,7 +468,7 @@ impl WorkspaceRegistry {
                 stored.terminal_id
             );
             anyhow::ensure!(
-                stored.session_id == self.session_id,
+                stored.session_id == *self.session_id,
                 "agent {} belongs to session {}, expected {}",
                 stored.id,
                 stored.session_id,
@@ -501,7 +508,7 @@ impl WorkspaceRegistry {
     }
 
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms
              FROM resource_agent_hook_state
@@ -536,8 +543,7 @@ impl WorkspaceRegistry {
 
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {
         let stored = self
-            .connection
-            .get()
+            .db
             .query_row(
                 "SELECT result_json, idempotency_key
                  FROM resource_mutations
@@ -589,7 +595,7 @@ impl WorkspaceRegistry {
     /// Every native frontend's projections (the resource API's own rows
     /// excluded), for the launch snapshot (`launch-snapshot-v1`).
     pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT frontend, scope, subject_key, schema_version,
                     projection_revision, payload
@@ -627,7 +633,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
-        let db = self.connection.get();
+        let db = self.db;
         let mut statement = db.prepare(
             "SELECT frontend, scope, subject_key, schema_version,
                     projection_revision, payload
@@ -686,6 +692,56 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
+    }
+}
+
+impl WorkspaceRegistry {
+    pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }.public_projections()
+    }
+
+    pub(crate) fn public_agent_projections(
+        &self,
+        terminal: Option<&TerminalPublicId>,
+        state: Option<&str>,
+    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }
+            .public_agent_projections(terminal, state)
+    }
+
+    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }.live_terminal_public_ids()
+    }
+
+    pub(super) fn durable_notifications(
+        &self,
+        live_terminals: &HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }
+            .durable_notifications(live_terminals)
+    }
+
+    pub(crate) fn durable_notification_read_clients(
+        &self,
+        notification_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }
+            .durable_notification_read_clients(notification_id)
+    }
+
+    pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }.native_frontend_projections()
+    }
+
+    pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
+        let db = self.connection.get();
+        ProjectionReader { db: &*db, session_id: &self.session_id }.public_frontend_projections()
     }
 
     #[cfg(test)]

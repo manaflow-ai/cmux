@@ -1382,20 +1382,7 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT terminal_id, public_id
-             FROM resource_terminals
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .map(|row| {
-                let (terminal_id, public_id) = row?;
-                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
-            })
-            .collect()
+        super::terminal_snapshot_read::live_terminal_resource_ids_in(&self.connection.get())
     }
 
     /// Resolve the immutable resource-to-host relationship, including after

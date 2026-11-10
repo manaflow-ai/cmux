@@ -537,6 +537,9 @@ pub struct Mux {
     /// The registry's id and generation, fixed when it opened: read without
     /// its lock, which durable commits hold.
     registry_identity: (String, String),
+    /// The session snapshot's committed rows and their read-only connection
+    /// (`resource_api/committed_snapshot.rs`); `None` for an in-memory registry.
+    pub(crate) committed_snapshots: Option<crate::resource_api::CommittedSnapshots>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -971,6 +974,24 @@ impl Mux {
                 focused_at: 0,
             },
         ))
+    }
+
+    /// The routing tables as of the last finished change of the session state, for a read that walks them with no
+    /// lock (the session snapshot). With stage S1 off they are not published: one short state lock hold copies
+    /// the tables' `Arc`s, never a walk.
+    #[track_caller]
+    pub(crate) fn published_routes(
+        &self,
+    ) -> anyhow::Result<Arc<crate::route_table::RouteSnapshot>> {
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return Ok(arc_swap::Guard::into_inner(routes));
+            }
+        }
+        let state =
+            self.state.lock().map_err(|_| anyhow::anyhow!("the session state is poisoned"))?;
+        Ok(Arc::new(crate::route_table::RouteSnapshot::of(&state)))
     }
 
     #[track_caller]

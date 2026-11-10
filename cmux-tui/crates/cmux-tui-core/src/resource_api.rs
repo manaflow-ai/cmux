@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
+mod committed_snapshot;
 mod machines;
 mod terminal_extra;
 
@@ -25,7 +26,6 @@ use crate::resource::{
     ResourceOperation, ScreenPublicId, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
     WorkspacePublicId,
 };
-use crate::resource_screen::{public_screen_value, tabs_by_pane};
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
@@ -33,6 +33,8 @@ use crate::workspace_registry::{
     ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
+
+pub(crate) use committed_snapshot::CommittedSnapshots;
 
 #[cfg(test)]
 thread_local! {
@@ -559,21 +561,20 @@ fn session_snapshot_with_journal_head(
     };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
-    mux.with_resource_projection(|registry, state| {
-        let journal_head = registry.session_journal_head()?;
-        let registry_snapshot = registry.snapshot()?;
-        let topology = registry.resource_topology_snapshot()?;
-        let terminal_registry = registry.terminal_snapshot()?;
-        let terminal_resource_ids = registry.live_terminal_resource_ids()?;
-        let public_projections = registry.public_projections()?;
-        anyhow::ensure!(
-            registry_snapshot.generation == topology.generation
-                && registry_snapshot.resource_revision == topology.revision,
-            "resource projection changed while snapshotting"
-        );
+    // No registry lock and no state lock across this walk: the durable rows are one committed revision
+    // (`committed_snapshot.rs`), the live surfaces are the published route tables.
+    (|| -> anyhow::Result<(Value, u64)> {
+        let committed = committed_snapshot::committed_snapshot(mux)?;
+        let routes = mux.published_routes()?;
+        let browser_surfaces = routes.browser_surfaces_by_content();
+        let journal_head = committed.rows.journal_head;
+        let topology = &committed.rows.topology;
+        let terminal_registry = &committed.rows.terminals;
+        let terminal_resource_ids = committed.rows.terminal_resource_ids.clone();
+        let public_projections = committed.rows.projections.clone();
         let context = LocalResourceContext {
-            machine_id: registry.machine_id().clone(),
-            session_id: registry.session_id().clone(),
+            machine_id: mux.machine_public_id.clone(),
+            session_id: mux.session_public_id.clone(),
             session_name: mux.session.clone(),
             generation: topology.generation.clone(),
             revision: topology.revision,
@@ -590,14 +591,6 @@ fn session_snapshot_with_journal_head(
             Vec::new()
         };
 
-        let tabs_by_pane = tabs_by_pane(&topology.tabs);
-        let panes_by_id =
-            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
-        let screens_by_id = topology
-            .screens
-            .iter()
-            .map(|screen| (&screen.public_id, screen))
-            .collect::<HashMap<_, _>>();
         let terminals_by_id = terminal_registry
             .terminals
             .iter()
@@ -609,16 +602,6 @@ fn session_snapshot_with_journal_head(
             .into_iter()
             .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
-
-        let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
-
-        let screens = topology
-            .screens
-            .iter()
-            .map(|screen| public_screen_value(&topology, screen, &tabs_by_pane, &panes_by_id))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        let (panes, tabs) = public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
 
         let mut terminal_order = Vec::new();
         let mut seen_terminals = HashSet::new();
@@ -674,7 +657,7 @@ fn session_snapshot_with_journal_head(
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
-                let surface = state.terminal_catalog.get(&terminal_id);
+                let surface = routes.catalog_terminal(&terminal_id);
                 let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
                     format!("terminal {terminal_id} omitted its durable identity")
                 })?;
@@ -710,7 +693,10 @@ fn session_snapshot_with_journal_head(
                     return None;
                 };
                 let durable = *browsers_by_id.get(browser_id)?;
-                let surface = state.surface_by_content_public_id(&tab.content_id);
+                let surface = match browser_surfaces.get(&tab.content_id).map(Vec::as_slice) {
+                    Some([surface]) => Some(*surface),
+                    _ => None,
+                };
                 Some(public_browser_snapshot(tab, durable, surface))
             })
             .collect::<Vec<_>>();
@@ -783,10 +769,10 @@ fn session_snapshot_with_journal_head(
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
-            "workspaces": workspaces,
-            "screens": screens,
-            "panes": panes,
-            "tabs": tabs,
+            "workspaces": committed.workspaces,
+            "screens": committed.screens,
+            "panes": committed.panes,
+            "tabs": committed.tabs,
             "terminals": terminals,
             "browsers": browsers,
             "clients": [],
@@ -799,15 +785,9 @@ fn session_snapshot_with_journal_head(
                 "revision": topology.revision.to_string(),
             },
         });
-        registry.read_state(|connection| {
-            crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot.set("extra", json!({
-                "state": crate::state::store::state_snapshot(connection)?,
-            }));
-            Ok(())
-        })?;
+        snapshot.set("extra", json!({"state": committed.state}));
         Ok((snapshot, journal_head))
-    })
+    })()
     .map_err(operation_failed)
 }
 

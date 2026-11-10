@@ -65,8 +65,9 @@ fn call(mux: &Arc<Mux>, operation: &str, fields: Value, key: Option<&str>) -> Va
     response["result"].clone()
 }
 
-/// Run `hook` for every statement that either registry connection (the
-/// writer's and the read-only one) compiles; `None` removes it.
+/// Run `hook` for every statement that a registry connection (the writer's,
+/// the read-only one and the snapshot readers' own) compiles; `None` removes
+/// it.
 fn watch_statements(mux: &Mux, hook: Option<Arc<dyn Fn(&AuthContext<'_>) + Send + Sync>>) {
     let install = |connection: &rusqlite::Connection| match hook.clone() {
         Some(hook) => connection.authorizer(Some(move |context: AuthContext<'_>| {
@@ -80,6 +81,9 @@ fn watch_statements(mux: &Mux, hook: Option<Arc<dyn Fn(&AuthContext<'_>) + Send 
         .read_committed(|connection| Ok(install(connection)?))
         .expect("a file registry has a reader")
         .unwrap();
+    if let Some(snapshots) = &mux.committed_snapshots {
+        snapshots.with_reader_for_test(|connection| install(connection)).unwrap();
+    }
 }
 
 /// What `reads` cost this thread: (registry lock takes, state lock takes,
