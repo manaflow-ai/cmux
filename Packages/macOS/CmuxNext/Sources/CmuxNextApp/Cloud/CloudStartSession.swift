@@ -397,7 +397,7 @@ struct CloudStartSession {
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
                 let made = try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
-                CloudStartChat.warmSpare(services, claimed: made.machineID) // the create's machine gets the login copy beside the connect, as a start-chat claim's does
+                if request.login.allowsEarlyCopy(harness: request.agent) { CloudStartChat.warmSpare(services, claimed: made.machineID) } // the login copy beside the connect, as a start-chat claim's
                 return made
             }
         } catch is CancellationError {

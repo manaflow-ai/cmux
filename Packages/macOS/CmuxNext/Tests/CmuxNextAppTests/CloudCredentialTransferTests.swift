@@ -202,6 +202,16 @@ struct CloudCredentialTransferTests {
         #expect(lost.writes.isEmpty)
     }
 
+    /// A start-session's early claim copy runs only for a Claude run that asks for no other login: never for `--login none`
+    /// or `--login machine`, nor for a Codex or pi run, which the start itself would give no Claude login.
+    @Test func theEarlyCopyFollowsTheRunsLoginAndAgent() {
+        #expect(CloudHarnessLoginAsk().allowsEarlyCopy(harness: "claude") && CloudHarnessLoginAsk().allowsEarlyCopy(harness: nil))
+        #expect(CloudHarnessLoginAsk(requested: .pass).allowsEarlyCopy(harness: "Claude"))
+        #expect(!CloudHarnessLoginAsk(requested: CloudHarnessLoginDecision.Choice.none).allowsEarlyCopy(harness: "claude"))
+        #expect(!CloudHarnessLoginAsk(requested: .machine).allowsEarlyCopy(harness: "claude"))
+        #expect(!CloudHarnessLoginAsk().allowsEarlyCopy(harness: "codex") && !CloudHarnessLoginAsk().allowsEarlyCopy(harness: "pi"))
+    }
+
     /// The owner check still runs again before the write, cached login or not: it is local and costs no round trip.
     @Test func aCachedLoginStillChecksTheOwnerBeforeTheWrite() async {
         let r = Recorder(); r.cached = Self.token
