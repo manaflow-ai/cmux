@@ -94,7 +94,12 @@ try {
               const m = shot.margin ?? 24;
               const x = Math.max(0, box.x - m);
               const y = Math.max(0, box.y - m);
-              clip = { x, y, width: Math.min(vp.width - x, box.width + 2 * m), height: Math.min(vp.height - y, box.height + 2 * m) };
+              clip = {
+                x,
+                y,
+                width: Math.min(vp.width - x, box.width + 2 * m),
+                height: Math.min(vp.height - y, box.height + 2 * m),
+              };
             }
           }
           await page.screenshot({ path: file, clip });
