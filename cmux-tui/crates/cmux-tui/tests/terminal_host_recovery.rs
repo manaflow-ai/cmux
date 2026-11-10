@@ -5355,6 +5355,9 @@ mod answers_before_adoption;
 #[path = "terminal_host_recovery/adoption_startup_state.rs"]
 mod adoption_startup_state;
 
+#[path = "terminal_host_recovery/stalled_daemon_reader.rs"]
+mod stalled_daemon_reader;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;

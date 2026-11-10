@@ -701,6 +701,16 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             break;
         }
     }
+    // This connection sends no more frames: shut the shared socket down
+    // before the clean-up, so the client's reader sees the end of the stream
+    // and attaches again from a new atomic Snapshot. A write that timed out
+    // may have sent only a part of a frame, and the frames behind it are
+    // lost. The input thread above holds a clone of the socket and may wait
+    // in a read or a PTY write, so the end of the stream must never depend
+    // on that thread: without this shut-down a client that only reads (a
+    // daemon that stalled for longer than the write time-out) waited for
+    // ever and showed an old picture. The same close as main's #26717.
+    tap.close();
     host.remove_client(client);
     Ok(())
 }
