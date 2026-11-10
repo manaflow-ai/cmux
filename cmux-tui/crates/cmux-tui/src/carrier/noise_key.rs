@@ -23,7 +23,13 @@ const ACCOUNT: &str = "device";
 pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
-        device_identity()
+        match keychain::load_or_create(SERVICE, ACCOUNT) {
+            Ok(key) => Ok(StaticIdentity::from_private(key)),
+            Err(keychain::Refused::NeedsUi) => {
+                Err("the Keychain carrier key needs approval this process may not ask for".into())
+            }
+            Err(keychain::Refused::Other(why)) => Err(why),
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -35,7 +41,17 @@ pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
-        keychain::load_or_create(SERVICE, ACCOUNT).map(StaticIdentity::from_private)
+        match keychain::load_or_create(SERVICE, ACCOUNT) {
+            Ok(key) => Ok(StaticIdentity::from_private(key)),
+            // The item exists but this binary may not read it without a
+            // Keychain dialog (another build made it, or a new signature):
+            // never show one. Dial with a key made for this one dial, as
+            // elsewhere; the grant names that key.
+            Err(keychain::Refused::NeedsUi) => {
+                StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
+            }
+            Err(keychain::Refused::Other(why)) => Err(why),
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -54,7 +70,47 @@ mod keychain {
     use security_framework_sys::access_control::kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
     use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess};
     use security_framework_sys::item::kSecValueData;
+    use security_framework_sys::keychain::SecKeychainSetUserInteractionAllowed;
     use security_framework_sys::keychain_item::SecItemAdd;
+
+    /// errSecInteractionNotAllowed: the item exists, but reading it would
+    /// need the Keychain's approval dialog.
+    const INTERACTION_NOT_ALLOWED: i32 = -25308;
+    const AUTH_FAILED: i32 = -25293;
+
+    /// Why the Keychain gave no key.
+    pub(super) enum Refused {
+        /// Only a Keychain dialog could give it (never shown).
+        NeedsUi,
+        Other(String),
+    }
+
+    fn refused(code: i32) -> Refused {
+        if code == INTERACTION_NOT_ALLOWED || code == AUTH_FAILED {
+            Refused::NeedsUi
+        } else {
+            Refused::Other(format!("the Keychain refused the carrier key ({code})"))
+        }
+    }
+
+    /// Turns Keychain UI off for this process while held. A `cmux` process
+    /// is a CLI or daemon: a login-Keychain approval dialog from it is
+    /// never something the person asked for (an item made by
+    /// another build's signature prompted on every dial).
+    struct NoUi;
+    impl NoUi {
+        fn new() -> Self {
+            // SAFETY: plain setter, no pointers.
+            unsafe { SecKeychainSetUserInteractionAllowed(0) };
+            NoUi
+        }
+    }
+    impl Drop for NoUi {
+        fn drop(&mut self) {
+            // SAFETY: as above.
+            unsafe { SecKeychainSetUserInteractionAllowed(1) };
+        }
+    }
 
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
@@ -67,23 +123,24 @@ mod keychain {
         options
     }
 
-    fn read(service: &str, account: &str) -> Result<Option<[u8; 32]>, String> {
+    fn read(service: &str, account: &str) -> Result<Option<[u8; 32]>, Refused> {
         match generic_password(options(service, account)) {
             Ok(bytes) => bytes
                 .try_into()
                 .map(Some)
-                .map_err(|_| "the Keychain carrier key is not 32 bytes".to_owned()),
+                .map_err(|_| Refused::Other("the Keychain carrier key is not 32 bytes".to_owned())),
             Err(e) if e.code() == errSecItemNotFound => Ok(None),
-            Err(e) => Err(format!("the Keychain refused the carrier key ({})", e.code())),
+            Err(e) => Err(refused(e.code())),
         }
     }
 
-    pub(super) fn load_or_create(service: &str, account: &str) -> Result<[u8; 32], String> {
+    pub(super) fn load_or_create(service: &str, account: &str) -> Result<[u8; 32], Refused> {
+        let _no_ui = NoUi::new();
         if let Some(key) = read(service, account)? {
             return Ok(key);
         }
         let identity = cmux_remote::crypto::StaticIdentity::generate()
-            .map_err(|e| format!("no Noise key: {e}"))?;
+            .map_err(|e| Refused::Other(format!("no Noise key: {e}")))?;
         let key = *identity.private_key();
         let mut add = options(service, account);
         // SAFETY: all three are static CFStrings the Security framework exports.
@@ -104,11 +161,12 @@ mod keychain {
         // SAFETY: `attributes` is a live dictionary; no result is asked for.
         let status = unsafe { SecItemAdd(attributes.as_concrete_TypeRef(), std::ptr::null_mut()) };
         if status == errSecDuplicateItem {
-            return read(service, account)?
-                .ok_or_else(|| "the Keychain carrier key vanished while it was stored".to_owned());
+            return read(service, account)?.ok_or_else(|| {
+                Refused::Other("the Keychain carrier key vanished while it was stored".to_owned())
+            });
         }
         if status != errSecSuccess {
-            return Err(format!("the Keychain refused the carrier key ({status})"));
+            return Err(refused(status));
         }
         Ok(key)
     }
