@@ -45,18 +45,15 @@ extension NSMenu {
     /// menu's team rows: "this is too big at the left i think", "at the very least it's awkward
     /// looking"). So:
     /// - a menu with an icon column never shows the checkmark column: a checked or mixed row draws
-    ///   its mark in its own icon slot, in place of its icon (`MenuMetrics.iconX`), and gets its icon
-    ///   back when it is no longer checked;
+    ///   its mark in its own icon slot, in place of its icon (`MenuMetrics.iconX`; see
+    ///   `MenuStateMark.fit` for why its state then reads off and its mark carries it);
     /// - a menu without icons shows the column only when a row is checked or mixed, as a macOS menu
     ///   with no icons does (`MenuMetrics.stateX`, the text at `MenuMetrics.stateIconX`).
-    /// The row's `state` is left as it is, so VoiceOver still reads it as checked.
     public func fitStateColumn() {
         let rows = items.filter { !$0.isSeparatorItem && !$0.isHidden && $0.view == nil }
-        let marked = rows.contains { $0.state != .off }
         let iconColumn = rows.contains { $0.image != nil }
-        showsStateColumn = marked && !iconColumn
-        guard iconColumn else { return }
-        for row in rows { MenuStateMark.fit(row) }
+        if iconColumn { for row in rows { MenuStateMark.fit(row) } }
+        showsStateColumn = rows.contains { $0.state != .off }
     }
 
     /// Every native row's image, its submenus' too, in the grid's icon box.
@@ -107,7 +104,7 @@ extension NSImage {
 /// mixed row) in the grid's icon box. The row itself keeps the icon the mark stands in for (an
 /// associated object), so it gets that icon back when it is no longer checked; nothing outside the
 /// row holds it.
-enum MenuStateMark {
+public enum MenuStateMark {
     /// What a marked row drew before its mark, and the mark it draws now.
     final class Replaced {
         let icon: NSImage?
@@ -128,20 +125,23 @@ enum MenuStateMark {
         return kept
     }
 
-    /// Puts `row`'s mark in its icon slot when it is checked or mixed, and its icon back when not.
-    /// A caller that set a new image since the mark went in owns the slot again.
+    /// Puts a checked or mixed `row`'s mark in its icon slot. AppKit draws a row's state mark in its
+    /// own column, and opens that column for any row whose state is not off, whatever
+    /// `showsStateColumn` says (measured on the profile menu: the text stayed at 47 with the column
+    /// switched off). So the marked row's state goes to off and its mark is its image, which names
+    /// the state for VoiceOver ("Checked", "Mixed"). A caller that sets the state again re-marks it;
+    /// a caller that sets a new image owns the slot.
     static func fit(_ row: NSMenuItem) {
+        guard row.state != .off, let mark = image(for: row.state) else { return }
         let kept = replaced(row)
-        guard row.state != .off else {
-            if let kept { row.image = kept.icon }
-            objc_setAssociatedObject(row, key(), nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            return
-        }
-        guard kept?.state != row.state, let mark = image(for: row.state) else { return }
         let icon = if let kept { kept.icon } else { row.image?.fittedToMenuIconBox() }
         objc_setAssociatedObject(row, key(), Replaced(icon: icon, mark: mark, state: row.state), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         row.image = mark
+        row.state = .off
     }
+
+    /// The state a row's slot mark shows (`.on` or `.mixed`), or nil for a row that draws no mark.
+    public static func markedState(_ row: NSMenuItem) -> NSControl.StateValue? { replaced(row)?.state }
 
     /// AppKit's own mark for `state`, a checkmark or a dash, as a template in the grid's icon box.
     static func image(for state: NSControl.StateValue) -> NSImage? {

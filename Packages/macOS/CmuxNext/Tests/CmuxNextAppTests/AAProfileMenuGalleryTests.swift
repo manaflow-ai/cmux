@@ -133,7 +133,10 @@ import Testing
         menu.themeRows(in: ThemeScope(level: .room))
         if check == .before {
             // What feat-cmux-next drew: the checked row keeps its icon and AppKit's checkmark column opens.
-            menu.items.filter { $0.state != .off }.forEach { $0.image = NSImage.menuSymbol("person.2")?.fittedToMenuIconBox() }
+            menu.items.filter { MenuStateMark.markedState($0) != nil }.forEach {
+                $0.image = NSImage.menuSymbol("person.2")?.fittedToMenuIconBox()
+                $0.state = .on
+            }
             menu.showsStateColumn = true
         }
         menu.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

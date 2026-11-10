@@ -71,7 +71,8 @@ struct SidebarAccountMenuTests {
         #expect(!menu.showsStateColumn, "a checkmark column left of every icon")
         let teams = menu.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
         let plainTeams = unchecked.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
-        #expect(teams.map(\.state) == [.on, .off, .off])
+        #expect(teams.map { MenuStateMark.markedState($0) } == [.on, nil, nil])
+        #expect(menu.items.allSatisfy { $0.state == .off }, "a row left checked makes AppKit open its column")
         let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
         #expect(teams.allSatisfy { $0.image?.size == box })
         #expect(teams[0].image?.accessibilityDescription == "Checked", "the active team's slot draws the checkmark")

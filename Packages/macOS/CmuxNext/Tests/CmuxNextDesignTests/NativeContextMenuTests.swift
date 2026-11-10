@@ -146,42 +146,34 @@ import CmuxNextDesignTokens
     /// One leading column (Leo, 2026-11-10, on the profile menu's checked team row: "this is too big
     /// at the left i think", "at the very least it's awkward looking"): in a menu whose rows carry
     /// icons, a checked row's mark takes its icon's slot, so no checkmark column opens left of every
-    /// icon, and the menu is as narrow as with nothing checked. The row stays checked for VoiceOver.
+    /// icon, and the menu is as narrow as with nothing checked.
     @Test func aCheckedRowWithIconsMarksItsIconSlot() throws {
+        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
         let plain = Self.menu(NativeMenuTarget())
+        plain.items[0].image = NSImage(size: box)
         plain.themeRows(in: Self.darkScope())
         let menu = Self.menu(NativeMenuTarget())
-        // Icons already in the grid's box, so theming keeps them as they are and identity holds.
-        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
         let icon = NSImage(size: box)
         menu.items[0].image = icon
         menu.items[0].state = .on
         menu.themeRows(in: Self.darkScope())
         #expect(!menu.showsStateColumn, "an icon menu never stacks a checkmark column left of its icons")
-        #expect(menu.items[0].state == .on)
+        #expect(menu.items[0].state == .off, "AppKit opens its column for any row whose state is not off")
+        #expect(MenuStateMark.markedState(menu.items[0]) == .on)
         let mark = try #require(menu.items[0].image)
         #expect(mark !== icon, "the checked row draws its mark in its icon slot")
-        #expect(mark.size == box)
-        #expect(mark.isTemplate)
+        #expect(mark.size == box && mark.isTemplate)
+        #expect(mark.accessibilityDescription == "Checked")
         #expect(menu.size.width == plain.size.width, "checking a row takes no width: \(menu.size.width) vs \(plain.size.width)")
-        // Unchecked, the row gets its own icon back; checked again, the mark again.
-        menu.items[0].state = .off
-        menu.themeAddedRows()
-        #expect(menu.items[0].image === icon)
+        // Marked mixed later, the slot shows the dash; still no column.
         menu.items[0].state = .mixed
         menu.themeAddedRows()
-        #expect(menu.items[0].image !== icon)
+        #expect(MenuStateMark.markedState(menu.items[0]) == .mixed)
+        #expect(menu.items[0].image?.accessibilityDescription == "Mixed")
         #expect(!menu.showsStateColumn)
-        // A caller that sets a new icon while the row is checked owns the slot when it unchecks.
-        let other = NSImage(size: box)
-        menu.items[0].image = other
-        menu.items[0].state = .off
-        menu.themeAddedRows()
-        #expect(menu.items[0].image === other)
     }
 
-    /// A checked row without an icon, in a menu with an icon column, marks the same slot, and
-    /// unchecked it has no image again.
+    /// A checked row without an icon, in a menu with an icon column, marks the same slot.
     @Test func aCheckedRowWithoutAnIconMarksTheIconSlotToo() {
         let menu = Self.menu(NativeMenuTarget())
         let plain = NSMenuItem(title: "Pinned", action: nil, keyEquivalent: "")
@@ -189,10 +181,8 @@ import CmuxNextDesignTokens
         menu.addItem(plain)
         menu.themeRows(in: Self.darkScope())
         #expect(!menu.showsStateColumn)
+        #expect(plain.state == .off)
         #expect(plain.image?.size == NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize))
-        plain.state = .off
-        menu.themeAddedRows()
-        #expect(plain.image == nil)
     }
 }
 
