@@ -32,7 +32,10 @@ _cmux() {
   candidates=("${(@f)$(command cmux __complete -- "${(@)words[2,CURRENT]}" 2>/dev/null)}")
   compadd -Q -- "${(@)candidates:#}"
 }
-if (( $+functions[compdef] )); then
+# Autoloaded from $fpath, this file's body is the first completion: run it.
+if [[ "${funcstack[1]}" == _cmux ]]; then
+  _cmux "$@"
+elif (( $+functions[compdef] )); then
   compdef _cmux cmux
 fi
 "#;
@@ -55,6 +58,21 @@ const GLOBAL_VALUED: &[&str] =
 
 /// Words the root help names outside its scope rows.
 const EXTRA_SCOPES: &[&str] = &["attach", "completion", "help", "logout", "whoami"];
+
+/// Set on the process that reads a help for a Tab: it prints a help or exits.
+const HELP_READER_ENV: &str = "CMUX_COMPLETE_HELP";
+
+/// In a help reader, `Some(2)` for anything but a help: a launcher (which runs a checkout's
+/// script before it reads `--help`) or words that do not end in `--help` never run.
+pub(crate) fn refuse_in_help_reader(args: &[String]) -> Option<i32> {
+    std::env::var_os(HELP_READER_ENV)?;
+    let Some(words) = args.strip_suffix(&["--help".to_owned()][..]) else { return Some(2) };
+    #[cfg(unix)]
+    if super::dev::is_requested(words) {
+        return Some(2);
+    }
+    (words.len() > 2 || words.iter().any(|word| word.starts_with('-'))).then_some(2)
+}
 
 /// `Some(exit code)` for `cmux completion …` and `cmux __complete …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -127,6 +145,19 @@ pub(super) fn candidates(
             scopes
         }
         ["completion"] => ["zsh", "bash", "fish"].map(str::to_owned).to_vec(),
+        // Only a help the root help lists is read, and only a verb that help lists: a Tab
+        // never runs words it has not seen in a help.
+        [scope, ..]
+            if !help(&[]).is_some_and(|root| rows(&root).iter().any(|row| row == scope)) =>
+        {
+            Vec::new()
+        }
+        [scope, verb, ..]
+            if !help(&[scope])
+                .is_some_and(|text| verbs(scope, &text).iter().any(|v| v == verb)) =>
+        {
+            help(&[scope]).map(|text| options(&text)).unwrap_or_default()
+        }
         [scope] if !partial.starts_with('-') => {
             help(&[scope]).map(|text| verbs(scope, &text)).unwrap_or_default()
         }
@@ -157,6 +188,7 @@ fn read_help(args: &[&str]) -> Option<String> {
         .args(args)
         .arg("--help")
         .env("CMUX_CLI_STEP", "1")
+        .env(HELP_READER_ENV, "1")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()

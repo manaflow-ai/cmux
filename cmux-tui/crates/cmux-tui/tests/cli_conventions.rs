@@ -85,7 +85,14 @@ impl Cli {
     /// `cmux <args>` with no session, no app and no network setup: every
     /// probe here is a refusal, so nothing it runs changes anything.
     fn run(&self, args: &[&str]) -> Output {
+        self.run_in(args, &self.dir, &[])
+    }
+
+    /// [`Cli::run`] from `cwd`, with `env` added.
+    fn run_in(&self, args: &[&str], cwd: &std::path::Path, env: &[(&str, &str)]) -> Output {
         Command::new(self.dir.join("cmux"))
+            .current_dir(cwd)
+            .envs(env.iter().copied())
             .args(args)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -553,4 +560,31 @@ fn chat_follow_ups_need_no_session_id() {
     // `-w` is `--wait` in the chat help, so the short-option check holds it to that.
     let help = text(&cli.run(&["chat", "--help"]).stdout);
     assert!(short_options(&help).contains(&("-w".to_owned(), "--wait".to_owned())), "{help}");
+}
+
+/// A Tab only reads helps: completing a launcher's words (`cmux preview open`, which runs the
+/// checkout's own script) runs nothing, and a help reader refuses anything but a help.
+#[test]
+fn completion_runs_nothing_but_helps() {
+    let cli = Cli::new();
+    let checkout = cli.dir.join("checkout");
+    let marker = cli.dir.join("ran");
+    for script in ["Prototypes/ViewShell/launch.sh", "Prototypes/UiLayerHost/launch.sh"] {
+        let path = checkout.join(script);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, format!("#!/bin/sh\ntouch {}\n", marker.display())).unwrap();
+        fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    fs::create_dir_all(checkout.join(".git")).unwrap();
+    for words in [&["preview", "open", ""][..], &["dev", "ui-host", ""], &["preview", ""]] {
+        let mut args = vec!["__complete", "--"];
+        args.extend(words);
+        let out = cli.run_in(&args, &checkout, &[]);
+        assert!(out.status.success(), "cmux {args:?}: {}", text(&out.stderr));
+    }
+    for args in [&["preview", "open", "--help"][..], &["dev", "ui-host", "--help"], &["vm", "ls"]] {
+        let out = cli.run_in(args, &checkout, &[("CMUX_COMPLETE_HELP", "1")]);
+        assert_eq!(out.status.code(), Some(2), "a help reader ran `cmux {args:?}`");
+    }
+    assert!(!marker.exists(), "a Tab ran a checkout's launcher");
 }

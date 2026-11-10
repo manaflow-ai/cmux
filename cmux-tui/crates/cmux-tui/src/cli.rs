@@ -88,6 +88,7 @@ mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
+pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod dev;
 mod docs;
