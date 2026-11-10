@@ -73,7 +73,6 @@ struct SidebarGroupPinPlacedTintTests {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: groups.map { .group($0) })],
                                  activeWorkspaceID: nil)
-        model.groupPinMark = .shelf
         let sidebar = SidebarView(model: model, design: DesignSettings())
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -82,6 +81,7 @@ struct SidebarGroupPinPlacedTintTests {
         window.contentView = sidebar
         sidebar.renderNow()
         sidebar.list.reload(animated: false)
+        model.groupPinMark = .shelf // after the render, which applies the settings' look
         let ws = SidebarWorkspace(id: WorkspaceID("b-1"), title: "b")
         let row = SidebarRow(key: .workspace(ws.id), y: 0, height: 28, section: .pinned, group: GroupID("b"), siblingIndex: 0,
                              parentIndex: nil, isLastInGroup: true, isCollapsed: false, childCount: 0, groupColor: nil,
