@@ -138,7 +138,8 @@ own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
 attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
-3 is the exception: it keeps macos-placement's mini label, so it is watched
+3 is the exception: a re-run of failed jobs keeps attempt 2's mini label, and
+a placement re-run (long_owned_wait()) places it afresh, so it is watched
 for refusals only and a refused one goes to Blacksmith as attempt 4
 (REFUSAL_RESCUE_ATTEMPT), three re-runs at most.
 
@@ -670,8 +671,8 @@ REFUSAL_SECONDS = 360
 # is watched whatever its attempt (owned_rerun()); the rescue's re-run of it is
 # the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
-# cmux-next's bot attempt 3 keeps macos-placement's mini label (a re-run reuses
-# attempt 1's outputs), so a lend drain can refuse it too, and before 2026-10-07
+# cmux-next's bot attempt 3 keeps macos-placement's mini label when it re-runs failed jobs (it reuses the earlier
+# outputs), or is placed afresh after a placement re-run (long_owned_wait()); either way a lend drain can refuse it too, and before 2026-10-07
 # nothing re-ran it (#18147's scheme compile, 02:23Z). It is watched for
 # refusals only: when every failed job of it was refused, its failed jobs are
 # re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
