@@ -104,7 +104,11 @@ jobs:
         with:
           ref: nightly-next
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          # stable_next.py loads publish-nightly-next-r2.py by path, which loads upload-r2-object.py.
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/upload-r2-object.py
           sparse-checkout-cone-mode: false
 
       - name: Is this the night window
@@ -264,7 +268,11 @@ jobs:
         with:
           persist-credentials: false
           path: .stable-tooling
-          sparse-checkout: scripts/ci/stable_next.py
+          # stable_next.py loads publish-nightly-next-r2.py by path, which loads upload-r2-object.py.
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/upload-r2-object.py
           sparse-checkout-cone-mode: false
       - name: Crash-class concurrency rules
         run: scripts/ci/crash-class-gate.sh
@@ -642,7 +650,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          # stable_next.py loads publish-nightly-next-r2.py by path, which loads upload-r2-object.py.
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/upload-r2-object.py
           sparse-checkout-cone-mode: false
       # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
       # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
