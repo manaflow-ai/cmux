@@ -275,11 +275,11 @@ fn a_resume_checks_again_each_terminal_a_replayed_batch_upserts() {
     terminals[0].report_program_status_for_test(ghostty_vt::ProgramStatusState::Working, clock);
     terminals[0].publish_pending_state();
     let committed = first.drain();
-    assert_eq!(committed.terminal_records(), [terminal.clone()], "the edge is one batch");
+    assert_eq!(committed.terminal_records(), [terminal.as_str()], "the edge is one batch");
     // Then a newer live fact.
     print(&terminals[..1], &mut clock);
     let live = first.drain();
-    assert_eq!(live.terminal_records(), [terminal.clone()], "one live record");
+    assert_eq!(live.terminal_records(), [terminal.as_str()], "one live record");
     let held = last_cursor(&live);
     let progress =
         |message: &Value| message["item"]["changes"][0]["value"]["extra"]["progress"].clone();
