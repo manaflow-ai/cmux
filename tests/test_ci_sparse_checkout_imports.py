@@ -44,8 +44,8 @@ Two gaps in ModuleFinder are filled here, both in _Finder below:
 
 Dynamic imports fail closed. A sys.path change, importlib.import_module, importlib.__import__,
 importlib.util.spec_from_file_location, runpy or __import__ anywhere in a listed script's closure
-(found in each module's AST) makes the step unverifiable, unless DYNAMIC_IMPORT_AUDIT names that file
-and call with a one-line reason; an audit entry whose file or call is gone fails too. Only exact,
+(found in each module's AST) makes the step unverifiable, unless DYNAMIC_IMPORT_AUDIT names that file,
+call and argument text with a one-line reason; an audit entry that matches no live call fails too. Only exact,
 provable forms are learned instead (the comment above DYNAMIC_CALLS lists them): sys.path.insert(0, P)
 and sys.path.append(P) of a fixed repo folder join both runs' search path in order, and
 spec_from_file_location(name, P) of a fixed repo file joins the closure and must be checked out, in
@@ -77,31 +77,38 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# (file, call) -> why the modules it loads need no listing, or (file, loaded file) -> why a load this
-# check learned is optional. One line each; an entry naming a file, a call or a load that is gone
-# fails (see stale_audit_entries).
-DYNAMIC_IMPORT_AUDIT: dict[tuple[str, str], str] = {
-    ("scripts/ci/merge_main_resolver.py", "importlib.util.spec_from_file_location"): (
+# (file, call, argument text) -> why the modules that call loads need no listing; or (loading file,
+# loaded file) -> why a load this check learned is optional. The argument text is the call's
+# arguments as written (whitespace and quote style do not matter; a sys.path assignment gives its
+# whole statement), so each call needs its own entry, and an entry whose call is edited or gone
+# matches nothing and fails (see stale_audit_entries). One line of reason each.
+DYNAMIC_IMPORT_AUDIT: dict[tuple[str, ...], str] = {
+    ("scripts/ci/merge_main_resolver.py", "importlib.util.spec_from_file_location", "'merge_main_xcstrings', path"): (
         "loads scripts/merge-xcstrings.py under its tools_root argument; the catch-up checkout lists it"
     ),
-    ("scripts/ci/stable_next.py", "importlib.util.spec_from_file_location"): (
-        "_ratchet_module() loads scripts/cmux-next/crash_ratchet.py from the --head-tree archive it compares, "
-        "not from this checkout"
-    ),
+    (
+        "scripts/ci/stable_next.py",
+        "importlib.util.spec_from_file_location",
+        "'crash_ratchet', head_tree / 'scripts/cmux-next/crash_ratchet.py'",
+    ): "loads crash_ratchet.py from the --head-tree archive it compares, not from this checkout",
     ("scripts/ci/web_subareas.py", "scripts/cmux-next/web-bundle-key.py"): (
         "optional: web_bundle_input_matcher() returns None when the key script is missing, and callers fall back"
     ),
-    ("scripts/ci/next_macos_cascade.py", "__import__"): (
-        '__import__("os") of the stdlib, only to build the sys.path insert of its own folder'
+    ("scripts/ci/next_macos_cascade.py", "__import__", "'os'"): (
+        "the stdlib's os, only to build the sys.path insert of its own folder"
     ),
-    ("scripts/ci/next_macos_cascade.py", "sys.path.insert"): (
-        "inserts its own folder (dirname of abspath(__file__)), which is already sys.path[0]"
+    (
+        "scripts/ci/next_macos_cascade.py",
+        "sys.path.insert",
+        "0, __import__('os').path.dirname(__import__('os').path.abspath(__file__))",
+    ): "inserts its own folder, which is already sys.path[0]",
+    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location", "'pr_runner_pool', path"): (
+        "path is pr_runner_pool.py beside it (a name bound in two functions); the decide checkout lists it"
     ),
-    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location"): (
-        "loads pr_runner_pool.py and next_macos_cascade.py beside it (a `path` name bound in two functions); "
-        "the decide checkout lists both"
+    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location", "'next_macos_cascade', path"): (
+        "path is next_macos_cascade.py beside it (a name bound in two functions); the decide checkout lists it"
     ),
-    ("scripts/ci/portable_job_placement.py", "importlib.util.spec_from_file_location"): (
+    ("scripts/ci/portable_job_placement.py", "importlib.util.spec_from_file_location", "name, path"): (
         "_load() takes the literal names pr_runner_pool and side_lane_placement, files beside it the decide "
         "checkout lists"
     ),
@@ -365,8 +372,8 @@ def find_modules(
 #
 # ModuleFinder follows import statements only. A module that changes sys.path, or loads modules by
 # a name or path it computes, can need files this check never sees. Each such call in a listed
-# script's import closure is reported as unverifiable unless DYNAMIC_IMPORT_AUDIT names its file and
-# call with a reason. The check learns only forms it can prove, and only these:
+# script's import closure is reported as unverifiable unless DYNAMIC_IMPORT_AUDIT names its file,
+# call and argument text with a reason. The check learns only forms it can prove, and only these:
 #   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
 #     in front of everything before it (so the last one wins), each append at the end;
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
@@ -517,12 +524,34 @@ class _FixedPath:
         return None
 
 
+def _call_text(node: ast.AST) -> str:
+    """A dynamic call's arguments (a sys.path assignment's whole statement) as ast.unparse writes them,
+    so whitespace, line breaks and quote style do not change it."""
+    if not isinstance(node, ast.Call):
+        return ast.unparse(node)
+    return ", ".join([*(ast.unparse(a) for a in node.args), *(ast.unparse(k) for k in node.keywords)])
+
+
+def normal_audit_key(key: tuple[str, ...]) -> tuple[str, ...]:
+    """An audit key as the check compares it: (file, call, argument text) with the text normalized the
+    way _call_text writes it, or (loading file, loaded file) for an optional load, unchanged."""
+    if len(key) == 2:
+        return key
+    if len(key) != 3:
+        raise ValueError(f"DYNAMIC_IMPORT_AUDIT key {key!r}: use (file, call, argument text) or (file, loaded file)")
+    rel, call, text = key
+    if call == SYS_PATH_ASSIGNMENT:
+        return rel, call, ast.unparse(ast.parse(text).body[0])
+    return rel, call, _call_text(ast.parse(f"f({text})", mode="eval").body)
+
+
 @lru_cache(maxsize=None)
 def dynamic_calls(
     root: Path, rel: str
 ) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
     """What a file's dynamic imports do, in source order: (("insert" or "append", folder) for each
-    learned sys.path change, files learned spec_from_file_location calls load, unresolved (call, line))."""
+    learned sys.path change, files learned spec_from_file_location calls load, unresolved (call, line,
+    argument text)). The argument text is _call_text's, so the audit can name the exact call."""
     try:
         tree = ast.parse((root / rel).read_bytes())
     except (OSError, SyntaxError, ValueError):
@@ -531,7 +560,7 @@ def dynamic_calls(
     fixed = _FixedPath(root / rel, root, aliases, _bound_once(tree))
     path_ops: list[tuple[str, str]] = []
     loads: list[str] = []
-    unresolved: list[tuple[str, int]] = []
+    unresolved: list[tuple[str, int, str]] = []
 
     def in_repo(node: ast.AST, want_dir: bool) -> str | None:
         found = fixed(node)
@@ -551,7 +580,7 @@ def dynamic_calls(
                 if isinstance(target, ast.Subscript):
                     target = target.value
                 if _dotted(target, aliases) == "sys.path":
-                    unresolved.append((SYS_PATH_ASSIGNMENT, node.lineno))
+                    unresolved.append((SYS_PATH_ASSIGNMENT, node.lineno, _call_text(node)))
             continue
         name = _dotted(node.func, aliases)
         if name not in DYNAMIC_CALLS:
@@ -576,7 +605,7 @@ def dynamic_calls(
                     if file not in loads:
                         loads.append(file)
                     continue
-        unresolved.append((name, node.lineno))
+        unresolved.append((name, node.lineno, _call_text(node)))
     return tuple(path_ops), tuple(loads), tuple(unresolved)
 
 
@@ -585,7 +614,7 @@ def full_run(
     root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None, audited: frozenset = frozenset()
 ) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
-    path as (file, loader), unresolved dynamic calls as (file, call, line)). Learned sys.path changes
+    path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). Learned sys.path changes
     in the closure (the script first, then modules as ModuleFinder meets them, each in source order)
     build the search path, and learned loads join the closure unless `audited` holds (loader, file);
     the run repeats until neither changes."""
@@ -614,26 +643,31 @@ def full_run(
             for file in loads:
                 if (rel, file) not in audited:
                     new_loaded.setdefault(file, rel)
-            unresolved += [(rel, call, line) for call, line in calls]
+            unresolved += [(rel, call, line, text) for call, line, text in calls]
         if (new_front, new_back, new_loaded) == (front, back, loaded):
             return places, importer, search, tuple(loaded.items()), tuple(unresolved)
         front, back, loaded = new_front, new_back, new_loaded
     raise RuntimeError(f"{script}: the dynamic imports in its closure never settle")
 
 
-def stale_audit_entries(root: Path, audit: dict[tuple[str, str], str]) -> list[str]:
-    """Audit entries naming a file that is gone, a call it no longer makes unresolved or a file it no
-    longer loads, or with no reason."""
+def stale_audit_entries(root: Path, audit: dict[tuple[str, ...], str]) -> list[str]:
+    """Audit entries that match nothing live: a file that is gone, no unresolved call of that kind with
+    that argument text (so editing an audited call needs a fresh look), or a load the file no longer
+    makes; and entries with no reason."""
     out = []
-    for (rel, call), reason in sorted(audit.items()):
+    for key, reason in sorted(audit.items()):
+        rel, what = key[0], key[1]
+        label = f"{rel} {what}" + (f"({key[2]})" if len(key) == 3 else "")
         if not (root / rel).is_file():
-            out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: the file is gone, drop the entry")
+            out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: the file is gone, drop the entry")
             continue
         _, loads, calls = dynamic_calls(root, rel)
-        if call not in {c for c, _ in calls} and call not in loads:
-            out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: {rel} no longer makes that call, drop the entry")
+        normal = normal_audit_key(key)
+        live = what in loads if len(key) == 2 else (what, normal[2]) in {(c, t) for c, _, t in calls}
+        if not live:
+            out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: no call in {rel} matches it; re-check the call and the entry")
         elif not str(reason).strip():
-            out.append(f"DYNAMIC_IMPORT_AUDIT: {rel} {call}: give a one-line reason")
+            out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: give a one-line reason")
     return out
 
 
@@ -843,12 +877,13 @@ def non_cone_sparse_steps(root: Path):
 UNVERIFIABLE = "which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
 
 
-def find_misses(root: Path, audit: dict[tuple[str, str], str] | None = None) -> list[str]:
+def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> list[str]:
     """One line per (step, missing module), naming the module that imports it; one per (step, file,
     call) for an unaudited dynamic import in a listed script's closure, and per (step, script,
     entry) for a PYTHONPATH entry that cannot be resolved; one per stale audit entry."""
     root = root.resolve()
     audit = audit or {}
+    audited = {normal_audit_key(key) for key in audit}
     misses = []
     for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
         listed = listed_ci_scripts(entries, root)
@@ -876,15 +911,15 @@ def find_misses(root: Path, audit: dict[tuple[str, str], str] | None = None) -> 
             tuple((run, full[run][2], run[1][0] if run[1] else None, full[run][3]) for run in runs),
         )
         found: dict[str, tuple[str, str]] = {}  # missing place -> (importer's place, listed script)
-        unverifiable: dict[tuple[str, str], tuple[int, str]] = {}  # (file, call) -> (line, listed script)
+        unverifiable: dict[tuple[str, str, str], tuple[int, str]] = {}  # (file, call, args) -> (line, script)
         for run in runs:
             script = run[0]
             if sparse[run] is None:
                 continue  # excluded by a "!" entry: not checked out, nothing to run
             places, importer, _, _, calls = full[run]
-            for rel, call, line in calls:
-                key = (rel, call)
-                if key not in audit and (key not in unverifiable or (rel == script and unverifiable[key][1] != rel)):
+            for rel, call, line, text in calls:
+                key = (rel, call, text)
+                if key not in audited and (key not in unverifiable or (rel == script and unverifiable[key][1] != rel)):
                     unverifiable[key] = (line, script)
             lost = {}
             for name, place in places.items():
@@ -908,9 +943,10 @@ def find_misses(root: Path, audit: dict[tuple[str, str], str] | None = None) -> 
                 f"{prefix}{by_place} imports {place}, not in its sparse checkout"
                 + ("" if by_place == script else f" (via {script})")
             )
-        for (rel, call), (line, script) in sorted(unverifiable.items()):
+        for (rel, call, text), (line, script) in sorted(unverifiable.items()):
+            what = f"assigns sys.path ({text})" if call == SYS_PATH_ASSIGNMENT else f"calls {call}({text})"
             misses.append(
-                f"{prefix}{rel} calls {call} (line {line}), {UNVERIFIABLE}" + ("" if rel == script else f" (via {script})")
+                f"{prefix}{rel} {what} (line {line}), {UNVERIFIABLE}" + ("" if rel == script else f" (via {script})")
             )
         misses += sorted(set(bad_paths))
     return misses + stale_audit_entries(root, audit)
@@ -963,6 +999,10 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ),
             "scripts/toplib.py": "",
             "scripts/ci/varpath.py": "import sys, os\nsys.path.append(os.environ['X'])\n",
+            "scripts/ci/dyn2.py": (
+                "import importlib\na = importlib.import_module('helper')\nb = importlib.import_module('extra')\n"
+            ),
+            "scripts/ci/dyn_ws.py": 'import importlib\nmod = importlib.import_module(  "helper"  )\n',
             "scripts/ci/loader.py": (
                 "import importlib.util\nfrom pathlib import Path\n"
                 "spec = importlib.util.spec_from_file_location('k', Path(__file__).with_name('loaded-by-path.py'))\n"
@@ -1166,26 +1206,66 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(
             self._misses(listed),
             [
-                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module (line 2), which this check "
-                "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('helper') (line 2), which "
+                "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
-        audit = {("scripts/ci/dyn.py", "importlib.import_module"): "loads helper.py, listed beside it"}
+        audit = {("scripts/ci/dyn.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it"}
         self.assertEqual(self._misses(listed, audit=audit), [])
+
+    def test_fixture_audit_names_one_call_not_a_kind(self) -> None:
+        # dyn2.py makes two import_module calls; the entry for one leaves the other unverifiable.
+        listed = self.block("scripts/ci/dyn2.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+        audit = {("scripts/ci/dyn2.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it"}
+        self.assertEqual(
+            self._misses(listed, audit=audit),
+            [
+                "w.yml run Check out: scripts/ci/dyn2.py calls importlib.import_module('extra') (line 3), which "
+                "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+            ],
+        )
+
+    def test_fixture_an_edited_audited_call_makes_its_entry_stale(self) -> None:
+        # The entry was written for import_module('other'); the file now calls import_module('helper').
+        listed = self.block("scripts/ci/dyn.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+        audit = {("scripts/ci/dyn.py", "importlib.import_module", "'other'"): "loads other.py"}
+        self.assertEqual(
+            self._misses(listed, audit=audit),
+            [
+                "w.yml run Check out: scripts/ci/dyn.py calls importlib.import_module('helper') (line 2), which "
+                "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/dyn.py importlib.import_module('other'): no call in "
+                "scripts/ci/dyn.py matches it; re-check the call and the entry",
+            ],
+        )
+
+    def test_fixture_whitespace_and_quotes_do_not_change_the_audit_match(self) -> None:
+        # dyn.py writes import_module('helper'), dyn_ws.py import_module(  "helper"  ); one spelling
+        # of the entry matches both, and so does a spelling with other spaces and quotes.
+        for script in ("scripts/ci/dyn.py", "scripts/ci/dyn_ws.py"):
+            for text in ("'helper'", '  "helper" '):
+                with self.subTest(script=script, text=text):
+                    listed = self.block(script, "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+                    audit = {(script, "importlib.import_module", text): "loads helper.py, listed beside it"}
+                    self.assertEqual(self._misses(listed, audit=audit), [])
 
     def test_fixture_stale_audit_entries_fail(self) -> None:
         listed = self.block("scripts/ci/dyn.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
         audit = {
-            ("scripts/ci/dyn.py", "importlib.import_module"): "loads helper.py, listed beside it",
-            ("scripts/ci/dyn.py", "runpy.run_path"): "a call the file does not make",
-            ("scripts/ci/gone.py", "importlib.import_module"): "a file that does not exist",
+            ("scripts/ci/dyn.py", "importlib.import_module", "'helper'"): "loads helper.py, listed beside it",
+            ("scripts/ci/dyn.py", "runpy.run_path", "'x.py'"): "a call the file does not make",
+            ("scripts/ci/dyn.py", "scripts/ci/nothing.py"): "a load the file does not make",
+            ("scripts/ci/gone.py", "importlib.import_module", "'helper'"): "a file that does not exist",
         }
         self.assertEqual(
             self._misses(listed, audit=audit),
             [
-                "DYNAMIC_IMPORT_AUDIT: scripts/ci/dyn.py runpy.run_path: scripts/ci/dyn.py no longer makes that "
-                "call, drop the entry",
-                "DYNAMIC_IMPORT_AUDIT: scripts/ci/gone.py importlib.import_module: the file is gone, drop the entry",
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/dyn.py runpy.run_path('x.py'): no call in scripts/ci/dyn.py "
+                "matches it; re-check the call and the entry",
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/dyn.py scripts/ci/nothing.py: no call in scripts/ci/dyn.py "
+                "matches it; re-check the call and the entry",
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/gone.py importlib.import_module('helper'): the file is gone, "
+                "drop the entry",
             ],
         )
 
@@ -1200,8 +1280,8 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(
             self._misses(self.block("scripts/ci/varpath.py")),
             [
-                "w.yml run Check out: scripts/ci/varpath.py calls sys.path.append (line 2), which this check "
-                "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                "w.yml run Check out: scripts/ci/varpath.py calls sys.path.append(os.environ['X']) (line 2), which "
+                "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
 
@@ -1310,8 +1390,8 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(
             self._misses(self.block("scripts/ci/rebind.py", "scripts/a/rbmod.py")),
             [
-                "w.yml run Check out: scripts/ci/rebind.py calls sys.path.insert (line 4), which this check cannot "
-                "follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                "w.yml run Check out: scripts/ci/rebind.py calls sys.path.insert(0, P) (line 4), which this check "
+                "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
             ],
         )
 
