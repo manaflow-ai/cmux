@@ -49,7 +49,6 @@ final class HomeMessagesHostProvider: PageProvider {
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance", "approval.", HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
-    private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle"]  // a click only
 
     private weak var services: AppServices?
     /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
@@ -71,10 +70,8 @@ final class HomeMessagesHostProvider: PageProvider {
     } }
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
-    private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     /// The observation of what the streams read; runs only while one has a listener.
-    private var appearanceWatch: Task<Void, Never>?
     private var panelsWatch: Task<Void, Never>?
     /// The window the page is in (the header panels read it).
     var window: () -> NSWindow? = { nil }
@@ -85,7 +82,6 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     nonisolated deinit {
-        appearanceWatch?.cancel()
         panelsWatch?.cancel()
     }
 
@@ -97,7 +93,7 @@ final class HomeMessagesHostProvider: PageProvider {
         if let answer = try await kept(home).call(name, fields, context: context) { return answer }
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
-        if let userOnly, Self.personOnly.contains(name) { throw userOnly }
+        if let userOnly, HomeMessagesPageRoute.needsPerson(name, fields) { throw userOnly }
         if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) { return answer }
         switch name {
         case "selected":
@@ -193,14 +189,7 @@ final class HomeMessagesHostProvider: PageProvider {
         let key = UUID()
         switch stream {
         case HomeMessagesPageRoute.prefix + "appearance":
-            appearanceListeners[key] = onEvent
-            onEvent(appearance())
-            if appearanceWatch == nil { watchAppearance() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                appearanceListeners[key] = nil
-                if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
-            }
+            return HomeMessagesFollow.start({ [weak self] in self?.appearance() ?? .null }, onEvent: onEvent)
         case HomeMessagesPageRoute.prefix + "group.follow":
             guard let actions = services?.home.groupActions else { throw PageError.unavailable("cmux is closing") }
             let id = try conversation(filter.objectValue ?? [:])
@@ -238,19 +227,6 @@ final class HomeMessagesHostProvider: PageProvider {
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }
         return HomeChatColorStore.pageAppearance(home.chatColors, spellChecking: services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false)
-    }
-
-    private func watchAppearance() {
-        guard let chats = services?.home.chatColors else { return }
-        // task-owner: lives while the page listens to `appearance` (cancelled with its last listener); event-driven (Observation)
-        appearanceWatch = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed,
-                                                                   self?.services?.settings?.snapshot.agentPaneComposer.spellChecking) }) {
-                guard let self else { return }
-                let value = appearance()
-                for listener in appearanceListeners.values { listener(value) }
-            }
-        }
     }
 
     /// What the header's toggles read: the page's window and its open conversation's Chief.

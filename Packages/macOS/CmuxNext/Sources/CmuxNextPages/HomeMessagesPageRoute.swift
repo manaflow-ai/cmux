@@ -145,3 +145,13 @@ public final class HomeMessagesPageRoute: PageProvider {
         return .object(fields)
     }
 }
+
+extension HomeMessagesPageRoute {
+    /// Whether an app op under ``prefix`` (`name` after it, with its params) runs only on the person's own
+    /// click or key: a create, an invite, a link out, a header panel, a request's Block and removing a group
+    /// member (cmux#37736 round 9), never a page script's call on its own.
+    public static func needsPerson(_ name: String, _ params: [String: JSONValue]) -> Bool {
+        ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "group.remove"].contains(name)
+            || (name == "requests.answer" && params["answer"]?.stringValue == "block")
+    }
+}

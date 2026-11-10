@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -73,6 +74,7 @@ extension PageFactory {
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
             + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)] + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
+            + [PageRoute(prefix: SetupCardRoute.prefix, provider: SetupCardRoute(setup: app.onboarding.setup, agents: { [weak app] in app?.onboarding.signInHarnesses }, environment: .app(app)))]
         guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)
