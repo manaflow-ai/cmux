@@ -21,7 +21,17 @@ import Testing
     static let start = CGSize(width: 1280, height: 800), end = CGSize(width: 1040, height: 640)
     static let steps = 20
 
-    @MainActor final class Asks { var count = 0 }
+    @MainActor final class Asks {
+        var count = 0
+        /// What the window server says: this window is on top under the pointer.
+        var reaches = true
+        /// The ask (by its number) that gets the other answer; none by default.
+        var otherAt = -1
+        func ask() -> Bool {
+            count += 1
+            return count == otherAt ? !reaches : reaches
+        }
+    }
 
     /// `body` runs with a live-resize tracker on a private center in place of the app's.
     private static func tracked(_ body: (NotificationCenter) throws -> Void) rethrows {
@@ -42,10 +52,7 @@ import Testing
         // The pointer stays on the divider, as it stays on the window's corner (and the handle there) in a real drag.
         probe.root.context.hoverPointer = { _ in screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil) }
         let asks = Asks()
-        probe.root.context.hoverReachesWindow = { _ in
-            asks.count += 1
-            return true
-        }
+        probe.root.context.hoverReachesWindow = { _ in asks.ask() }
         probe.root.refreshDividerHover()
         try #require(handle.isHovered && asks.count == 1, "fixture: the divider under the pointer is not hovered (asks \(asks.count))")
 
@@ -53,6 +60,10 @@ import Testing
             center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
             try #require(Motion.isLiveResizing(window), "fixture: the window is not in a live resize")
             let before = asks.count, place = handle.frame
+            // Review of #40659 (finding 3): the first ask of a drag comes from the layout pass, before the page windows
+            // and the catcher panels of that step are in their places, so it can meet a window that is on top only
+            // until the step ends. That answer must not stay for the drag: the ask after the first catcher sync does.
+            asks.otherAt = before + 1
             for step in 1...Self.steps {
                 let t = CGFloat(step) / CGFloat(Self.steps)
                 let size = CGSize(width: Self.start.width + (Self.end.width - Self.start.width) * t,
@@ -65,7 +76,7 @@ import Testing
             try #require(handle.frame != place, "fixture: the divider did not move in the resize")
             let inDrag = asks.count - before
             print("WORK case=window-resize-hover steps=\(Self.steps) hover_queries=\(inDrag)")
-            #expect(inDrag <= 1, "\(inDrag) window server asks in \(Self.steps) steps of a live resize (one at most: the first step's)")
+            #expect(inDrag <= 2, "\(inDrag) window server asks in \(Self.steps) steps of a live resize (two at most, both in the first step)")
             #expect(handle.isHovered, "the divider under the pointer lost its hover in the resize")
 
             // The drag ends: the held answer ends with it, and the next refresh asks again.
@@ -73,6 +84,45 @@ import Testing
             let after = asks.count
             probe.root.refreshDividerHover()
             #expect(asks.count == after + 1, "after the resize the hover asks the window server again")
+        }
+    }
+
+    /// Review of #40659 (finding 1): the held answer ends with its resize, also when nothing asks between two resizes
+    /// (no handle is under the pointer then) and when the first one is a full screen transition, which ends with no
+    /// `viewDidEndLiveResize`. The first ask of the next resize goes to the window server.
+    @Test func aSecondResizeDoesNotUseTheAnswerOfTheFirst() throws {
+        let columns = (0..<2).map { PaneMotionBench.column($0, rows: 3, width: 0.5) }
+        let probe = LayoutWorkProbe(.columns(columns), size: Self.start, focused: PaneID("p0-0"))
+        defer { probe.close() }
+        let screen = probe.screen, window = probe.window
+        let handle = try #require(screen.dividerViews[.split("s1-0")], "fixture: no divider")
+        probe.root.context.hoverPointer = { _ in screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil) }
+        let asks = Asks()
+        probe.root.context.hoverReachesWindow = { _ in asks.ask() }
+        let firsts = [(NSWindow.willEnterFullScreenNotification, NSWindow.didEnterFullScreenNotification),
+                      (NSWindow.willStartLiveResizeNotification, NSWindow.didEndLiveResizeNotification)]
+        try Self.tracked { center in
+            for (began, ended) in firsts {
+                // The first one: this window is on top under the pointer, and the divider is hovered.
+                asks.reaches = true
+                center.post(name: began, object: window)
+                try #require(Motion.isLiveResizing(window), "fixture: \(began.rawValue) did not start a live resize")
+                probe.root.refreshDividerHover()
+                probe.root.refreshDividerHover()
+                try #require(handle.isHovered, "fixture: the divider under the pointer is not hovered")
+                center.post(name: ended, object: window)
+                try #require(!Motion.isLiveResizing(window), "fixture: \(ended.rawValue) did not end the live resize")
+
+                // Nothing asks between the two. Now another window is on top under the pointer.
+                asks.reaches = false
+                let before = asks.count
+                center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+                // A step's layout pass asks for the hover with no word that the windows changed.
+                screen.refreshDividerHover()
+                #expect(asks.count == before + 1, "after \(began.rawValue): the next resize asked the window server \(asks.count - before) times at its first step")
+                #expect(!handle.isHovered, "after \(began.rawValue): the next resize shows the hover of the one before")
+                center.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+            }
         }
     }
 
@@ -85,10 +135,7 @@ import Testing
         let handle = try #require(screen.dividerViews[.split("s1-0")], "fixture: no divider")
         probe.root.context.hoverPointer = { _ in screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil) }
         let asks = Asks()
-        probe.root.context.hoverReachesWindow = { _ in
-            asks.count += 1
-            return true
-        }
+        probe.root.context.hoverReachesWindow = { _ in asks.ask() }
         Self.tracked { _ in
             for _ in 0..<3 { probe.root.refreshDividerHover() }
         }
