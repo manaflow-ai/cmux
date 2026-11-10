@@ -60,12 +60,16 @@ installs it; the load check runs as a preview meanwhile.
 2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
-   `dist/main.js` needs no build.
+   `dist/main.js` needs no build. A build may run 120 s (`--build-timeout SECS` changes it);
+   past that it and what it started are stopped, and the reload ends at phase build.
 4. The files cmux loads (the manifest and its `files`) are copied into the local apps folder
    cmux watches (`<state>/apps/local/<name>`, which `apps-list` names as `local_dir`). cmux
    reloads only that app; a script that does not load while its view is open is refused and the
    last good one stays on screen.
 5. `ext dev` mounts the app's view once to see the new script render, then unmounts it.
+
+Only the folder's own files are copied: a file that is a symbolic link, or a `files` path that
+leads out of the folder, is refused by name.
 
 `ext dev` refuses a folder in the local apps folder that it did not make, and an id that is not
 `local/NAME` (`local/customize` is `~/.config/cmux/customize`, which reloads on save already).
