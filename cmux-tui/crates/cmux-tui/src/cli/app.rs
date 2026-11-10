@@ -15,7 +15,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -126,9 +126,9 @@ pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// An app that says the run never started (`busy`, an early `timeout`, a
-/// reconnecting daemon) is asked again this many times, after the delay it
-/// names (`retry_after_ms`, else this default, doubled each time).
-const BUSY_RETRIES: u32 = 5;
+/// reconnecting daemon) is asked again after the delay it names
+/// (`retry_after_ms`, else this default, doubled each time), until the
+/// request's deadline (`run::not_run_deadline`), never a fixed count of tries.
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -514,27 +514,34 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path`, `out` or `cwd` argument as the app must read it: a relative
-/// path names a folder or file of the caller's working directory, and the app
-/// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
-/// non-string value is sent unchanged.
+/// An action's `path`, `out`, `cwd` or `fromFolder` argument as the app must read it: a
+/// relative path names a folder or file of the caller's working directory, and the app
+/// runs elsewhere, so it is made absolute here ([`caller_absolute`]). An absolute path,
+/// `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a non-string value is sent
+/// unchanged.
 fn caller_path(value: Value) -> Value {
-    let Some(text) = value.as_str() else { return value };
-    if text == "-" {
-        return value;
+    match value.as_str().and_then(caller_absolute) {
+        Some(path) => json!(path),
+        None => value,
     }
+}
+
+/// A relative path of the caller's, joined to this process's working directory (`.` parts
+/// dropped); `None` for an absolute path, `~/…`, `-`, the empty text, or no working directory.
+/// The one place a CLI path argument of this Mac becomes absolute: [`caller_path`] for app
+/// actions, and `cloud start-chat --from-folder` (`cloud_start_chat::local_folder`).
+pub(in crate::cli) fn caller_absolute(text: &str) -> Option<String> {
     let path = Path::new(text);
-    if text.is_empty() || path.is_absolute() || text.starts_with('~') {
-        return value;
+    if text == "-" || text.is_empty() || path.is_absolute() || text.starts_with('~') {
+        return None;
     }
-    let Ok(cwd) = std::env::current_dir() else { return value };
+    let cwd = std::env::current_dir().ok()?;
     let joined: PathBuf = cwd
         .join(path)
         .components()
         .filter(|part| !matches!(part, std::path::Component::CurDir))
         .collect();
-    json!(joined.to_string_lossy())
+    Some(joined.to_string_lossy().into_owned())
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
@@ -665,8 +672,9 @@ pub(super) fn run_action(
         };
         index += 1;
         match name.as_str() {
+            // `--target vm:ID` is the app's `machine:ID` (vm_words.rs).
             "target" => {
-                params.insert("target".into(), value);
+                params.insert("target".into(), super::vm_words::app_target(value));
             }
             "arg" => {
                 let text = value.as_str().unwrap_or_default();
@@ -693,13 +701,23 @@ pub(super) fn run_action(
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }
+            // `--yes` is the CLI's one word for "I confirm" (`device remove
+            // --yes`); an action whose argument is `confirm` (`settings set`,
+            // `cloud kill-machine`) takes it as `--confirm`.
+            "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
+                arguments.insert("confirm".into(), value);
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
-                let file =
-                    matches!(key.as_str(), "path" | "out" | "bootstrapScript" | "machineConfig")
-                        || (key == "cwd" && cwd_is_callers(action));
+                // `fromFolder` (`cloud start-session`) is always a folder of this Mac to copy.
+                let file = matches!(
+                    key.as_str(),
+                    "path" | "out" | "bootstrapScript" | "machineConfig" | "fromFolder"
+                ) || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
+                let value =
+                    if key == "machine" { super::vm_words::app_target(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -1342,19 +1360,43 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    request_by(stream, method, params, timeout, None)
+}
+
+/// [`request`] that gives up at `deadline`, however long the app keeps answering its liveness
+/// ping: past it the answer is a `timeout` refusal ([`deadline_passed`]) and nothing is resent.
+/// `None` waits as long as the app lives.
+pub(super) fn request_by(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+    deadline: Option<Instant>,
+) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let (with, added) = with_caller(method, params.clone());
-    let mut response = exchange(stream, method, with_read_barrier(method, with.clone()), timeout)?;
+    let mut response =
+        exchange_by(stream, method, with_read_barrier(method, with.clone()), timeout, deadline)?;
     // On a loaded machine the app's 2 s request deadline (mostly its daemon
     // read barrier) can pass while both are healthy. A read changes nothing,
     // so it is asked once more; a mutation is never resent.
-    if is_retryable_read(method) && timed_out(&response) {
-        response = exchange(stream, method, with_read_barrier(method, with), timeout)?;
+    if is_retryable_read(method) && timed_out(&response) && !passed(deadline) {
+        response = exchange_by(stream, method, with_read_barrier(method, with), timeout, deadline)?;
     }
-    if added && refused_caller(&response) {
-        return exchange(stream, method, with_read_barrier(method, params), timeout);
+    if added && refused_caller(&response) && !passed(deadline) {
+        return exchange_by(stream, method, with_read_barrier(method, params), timeout, deadline);
     }
     Ok(response)
+}
+
+fn passed(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+/// The answer to a request whose caller's deadline passed before the app replied: the same
+/// `timeout` refusal the app gives when its own request deadline passes.
+fn deadline_passed(method: &str) -> Value {
+    json!({ "code": "timeout", "message": format!("no reply to {method} before the deadline") })
 }
 
 /// An app method that only reads state: safe to send again after a timeout.
@@ -1377,10 +1419,20 @@ pub(super) fn exchange(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    exchange_by(stream, method, params, timeout, None)
+}
+
+fn exchange_by(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+    deadline: Option<Instant>,
+) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
-    read_reply(stream, method, timeout, app_answers_ping)
+    read_reply(stream, method, timeout, deadline, app_answers_ping)
 }
 
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
@@ -1388,24 +1440,62 @@ pub(super) fn exchange(
 /// and failing the request then shows the caller a timeout for an app that was only busy. While
 /// `alive` says the app answers, the read goes on, with a note on stderr for a person; an app
 /// that does not answer ends it as before. The same request keeps waiting: nothing is resent.
+/// A `deadline` ends the wait however the app answers pings: past it the reply is the
+/// [`deadline_passed`] refusal.
 fn read_reply(
     stream: &UnixStream,
     method: &str,
     timeout: Option<Duration>,
+    deadline: Option<Instant>,
     alive: impl Fn(&UnixStream, Duration) -> bool,
 ) -> Result<Result<Value, Value>, String> {
-    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
+    // Socket reads one at a time, not `read_until`: that keeps reading while bytes trickle in,
+    // each read with a fresh window, so a reply sent in chunks could run past the deadline.
     loop {
-        match reader.read_until(b'\n', &mut response) {
-            Ok(_) => break,
+        // Each socket read waits one window, or less when the deadline is nearer.
+        let Some(window) = window_before(timeout, deadline) else {
+            return Ok(Err(deadline_passed(method)));
+        };
+        stream.set_read_timeout(window).map_err(|error| error.to_string())?;
+        let read = match reader.fill_buf() {
+            Ok(available) => {
+                let newline = available.iter().position(|byte| *byte == b'\n');
+                let taken = newline.map_or(available.len(), |at| at.saturating_add(1));
+                response.extend(available.iter().take(taken));
+                Ok((taken, newline.is_some() || available.is_empty()))
+            }
+            Err(error) => Err(error),
+        };
+        match read {
+            Ok((taken, done)) => {
+                reader.consume(taken);
+                if done {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if is_read_timeout(&error) && passed(deadline) => {
+                return Ok(Err(deadline_passed(method)));
+            }
             Err(error) => match timeout {
-                Some(window) if is_read_timeout(&error) && alive(stream, window) => {
+                Some(window) if is_read_timeout(&error) => {
+                    // The ping is held to the same deadline as the request.
+                    let Some(probe) = window_before(Some(window), deadline).flatten() else {
+                        return Ok(Err(deadline_passed(method)));
+                    };
+                    let answers = alive(stream, probe);
+                    if passed(deadline) {
+                        return Ok(Err(deadline_passed(method)));
+                    }
+                    if !answers {
+                        return Err(read_error(&error, timeout));
+                    }
                     note_busy(method, started.elapsed());
                 }
                 _ => return Err(read_error(&error, timeout)),
@@ -1413,6 +1503,17 @@ fn read_reply(
         }
     }
     parse_response(&String::from_utf8_lossy(&response))
+}
+
+/// How long the next wait may take: `timeout`, cut to what is left before `deadline`. `None` once
+/// the deadline has passed; `Some(None)` waits without a limit.
+fn window_before(timeout: Option<Duration>, deadline: Option<Instant>) -> Option<Option<Duration>> {
+    let Some(deadline) = deadline else { return Some(timeout) };
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return None;
+    }
+    Some(Some(timeout.map_or(left, |window| window.min(left))))
 }
 
 fn is_read_timeout(error: &std::io::Error) -> bool {

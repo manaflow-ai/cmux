@@ -740,3 +740,51 @@ fn a_chat_whose_events_folder_does_not_list_keeps_the_forks_reference() {
         "the reference was dropped"
     );
 }
+
+/// Third review of #39141 (F2): the chat's delete writes its history into the fork; a cold
+/// archive's commit of the fork that landed between the write's rehydrate of the fork's log and
+/// its write into `events/` moved the fork's own records into the archive, and the write made a
+/// new `events/` with the history alone, so the fork's own turns were never read again. The
+/// commit waits for the write, finds the log changed, and leaves it.
+#[test]
+fn a_cold_commit_waits_for_the_forks_history_write() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view =
+        std::sync::Arc::new(forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4));
+    view.close_log("fork");
+    let staged = view.stage_cold("fork").unwrap().expect("the fork has a log to archive");
+    // The delete: it stops right after the fork's rehydrate check, holding `dropping`.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let delete = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            let (arrived_tx, arrived) = std::sync::mpsc::channel();
+            let (release, release_rx) = std::sync::mpsc::channel();
+            super::super::cold::HOLD_AFTER_HISTORY_REHYDRATE
+                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            tx.send((arrived, release)).unwrap();
+            view.delete("chat").unwrap();
+        })
+    };
+    let (arrived, release): (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) =
+        rx.recv().unwrap();
+    arrived.recv().unwrap();
+    // The commit: it says when it waits for `dropping`, or that it is done.
+    let (said, heard) = std::sync::mpsc::channel::<&'static str>();
+    let commit = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            NOTE_DROPPING_WAIT.with(|note| *note.borrow_mut() = Some(said.clone()));
+            let committed = view.commit_cold("fork", staged);
+            let _ = said.send("done");
+            committed.unwrap()
+        })
+    };
+    assert_eq!(heard.recv().unwrap(), "waits", "the commit waits for the history's write");
+    release.send(()).unwrap();
+    delete.join().unwrap();
+    assert!(!commit.join().unwrap(), "the log changed since it was staged");
+    assert!(!view.is_cold("fork"));
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
