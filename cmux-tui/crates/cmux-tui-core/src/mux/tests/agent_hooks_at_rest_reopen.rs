@@ -54,7 +54,7 @@ fn agents_at_rest_after_a_reopen_the_first_report_is_a_row_and_the_next_are_not(
             reopened.next_surface_id_for_test(),
             SurfaceOptions::default(),
             Arc::downgrade(&reopened),
-            crate::terminal_host_runtime::TerminalHostIdentity {
+            TerminalHostIdentity {
                 terminal_id: format!("00000000000040008000{:012x}", 0xb00 + index),
                 incarnation: format!("10000000000040008000{:012x}", 0xb00 + index),
             },

@@ -265,8 +265,8 @@ struct JournalRowFollowers {
     keep_all_until: Option<Instant>,
 }
 
-impl std::fmt::Debug for JournalRowFollowers {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for JournalRowFollowers {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("JournalRowFollowers")
             .field("followers", &self.followers.len())

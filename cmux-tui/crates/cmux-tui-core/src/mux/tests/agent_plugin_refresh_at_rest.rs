@@ -254,7 +254,7 @@ fn equal_plugin_refreshes_are_rows_while_a_journal_follower_reads_them() {
     let agent = &agents[0];
 
     // A follower that is never sent the plugin's rows keeps none.
-    let stream = |kinds: &[&str]| crate::mux::JournalFollowerFilter {
+    let stream = |kinds: &[&str]| JournalFollowerFilter {
         client: 0,
         stream_id: "stream_test".into(),
         remote: false,
