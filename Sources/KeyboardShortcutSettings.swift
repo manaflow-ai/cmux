@@ -1656,13 +1656,14 @@ struct ShortcutStroke: Equatable, Hashable {
     static func isEscapeCancelEvent(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown || event.type == .keyUp else { return false }
 
-        if event.keyCode == 53 {
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+
+        if event.keyCode == 53, normalizedFlags.isEmpty {
             return true
         }
 
         let escapeScalar = UnicodeScalar(0x1B)!
-        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.capsLock, .function, .numericPad])
         let shouldTreatEscapeCharacterAsCancel = normalizedFlags.isEmpty || event.keyCode == 36 || event.keyCode == 76
 
         if shouldTreatEscapeCharacterAsCancel,

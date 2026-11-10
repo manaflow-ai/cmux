@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import CmuxSettings
 import Testing
 @testable import CmuxSettingsUI
@@ -6,6 +7,39 @@ import Testing
 @MainActor
 @Suite("Shortcut recorder view")
 struct ShortcutRecorderViewTests {
+    @Test func CarbonEscapeAssistRegistersOnlyCommandEscape() {
+        let modifierSets = RecorderHostButton.carbonEscapeModifierSets()
+
+        #expect(modifierSets.contains(UInt32(cmdKey)))
+        #expect(!modifierSets.contains(UInt32(cmdKey | optionKey)))
+    }
+
+    @Test func CarbonModifierFlagsMapToAppKitModifiers() {
+        let modifiers = UInt32(cmdKey | shiftKey | controlKey)
+
+        #expect(
+            RecorderHostButton.modifierFlags(fromCarbonModifiers: modifiers)
+                == [.command, .shift, .control]
+        )
+    }
+
+    @Test func commandEscapeRecordsThroughTheStandardRecorderPath() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer { button.cancelRecordingIfActive() }
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+
+        button.handleRecordingEvent(try keyDownEvent(
+            key: "\u{1b}",
+            keyCode: UInt16(kVK_Escape),
+            modifierFlags: [.command]
+        ))
+
+        #expect(recordedStroke == ShortcutStroke(key: "escape", command: true, keyCode: UInt16(kVK_Escape)))
+        #expect(!button.isRecording)
+    }
+
     @Test func bareFirstStrokeCanBeAcceptedWhenModifierRequirementIsDisabled() throws {
         let button = RecorderHostButton(frame: .zero)
         defer {

@@ -142,6 +142,12 @@ public final class RecorderHostButton: NSButton {
     /// installing event monitors and racing for keystrokes.
     private static weak var activeRecorder: RecorderHostButton?
 
+    /// A recorder-only Carbon signature. It deliberately differs from the app's
+    /// system-wide hotkey signature so both handlers can share the application target.
+    private static let carbonEscapeHotKeySignature: OSType = 0x434D5243 // "CMRC"
+    private static var carbonEscapeHotKeyHandler: EventHandlerRef?
+    private static var carbonEscapeHotKeyRefs: [EventHotKeyRef] = []
+
     /// Whether a recorder is currently armed and capturing keystrokes for
     /// rebinding.
     ///
@@ -226,6 +232,9 @@ public final class RecorderHostButton: NSButton {
     }
 
     deinit {
+        if isRecording {
+            Self.unregisterCarbonEscapeHotKeys()
+        }
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -329,10 +338,18 @@ public final class RecorderHostButton: NSButton {
         installEventMonitor()
         refreshTitle()
         Self.postActiveRecordingDidChange()
+        // Register on the next main-loop turn: the app's system-wide hotkey stands
+        // down from a `.main`-queue observer of the notification above, and Carbon
+        // rejects a second registration of the same combo while that one is live.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isRecording, Self.activeRecorder === self else { return }
+            Self.registerCarbonEscapeHotKeys(for: self)
+        }
     }
 
     func stopRecording() {
         guard isRecording else { return }
+        Self.unregisterCarbonEscapeHotKeys()
         isRecording = false
         if Self.activeRecorder === self {
             Self.activeRecorder = nil
@@ -355,6 +372,123 @@ public final class RecorderHostButton: NSButton {
 
     private static func postActiveRecordingDidChange() {
         NotificationCenter.default.post(name: activeRecordingDidChangeNotification, object: nil)
+    }
+
+    /// Carbon modifier sets that supplement normal event delivery while recording.
+    /// macOS delivers Shift-Command-Escape normally; only Command-Escape was
+    /// measured as withheld, so this keeps the registration to that minimal set.
+    static func carbonEscapeModifierSets() -> [UInt32] {
+        [UInt32(cmdKey)]
+    }
+
+    /// Converts the Carbon modifiers reported by a registered hotkey into AppKit flags.
+    static func modifierFlags(fromCarbonModifiers modifiers: UInt32) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        return flags
+    }
+
+    private static func registerCarbonEscapeHotKeys(for recorder: RecorderHostButton) {
+        guard recorder.isRecording,
+              recorder.window?.isKeyWindow == true else { return }
+
+        installCarbonEscapeHotKeyHandlerIfNeeded()
+        unregisterCarbonEscapeHotKeys()
+
+        for (index, modifiers) in carbonEscapeModifierSets().enumerated() {
+            var hotKeyRef: EventHotKeyRef?
+            let hotKeyID = EventHotKeyID(
+                signature: carbonEscapeHotKeySignature,
+                id: UInt32(index + 1)
+            )
+            let status = RegisterEventHotKey(
+                UInt32(kVK_Escape),
+                modifiers,
+                hotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &hotKeyRef
+            )
+            if status == noErr, let hotKeyRef {
+                carbonEscapeHotKeyRefs.append(hotKeyRef)
+            }
+        }
+    }
+
+    private static func unregisterCarbonEscapeHotKeys() {
+        for hotKeyRef in carbonEscapeHotKeyRefs {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+        carbonEscapeHotKeyRefs.removeAll()
+    }
+
+    private static func installCarbonEscapeHotKeyHandlerIfNeeded() {
+        guard carbonEscapeHotKeyHandler == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            carbonEscapeHotKeyEventHandler,
+            1,
+            &eventType,
+            nil,
+            &carbonEscapeHotKeyHandler
+        )
+        guard status == noErr else {
+            carbonEscapeHotKeyHandler = nil
+            return
+        }
+    }
+
+    private static let carbonEscapeHotKeyEventHandler: EventHandlerUPP = { _, event, _ in
+        guard let event else { return OSStatus(eventNotHandledErr) }
+
+        var hotKeyID = EventHotKeyID()
+        let status = GetEventParameter(
+            event,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &hotKeyID
+        )
+        guard status == noErr,
+              hotKeyID.signature == carbonEscapeHotKeySignature,
+              hotKeyID.id > 0 else {
+            return OSStatus(eventNotHandledErr)
+        }
+
+        let modifierSets = carbonEscapeModifierSets()
+        let index = Int(hotKeyID.id - 1)
+        guard modifierSets.indices.contains(index),
+              let recorder = activeRecorder,
+              recorder.isRecording,
+              recorder.window?.isKeyWindow == true,
+              recorder.window?.firstResponder === recorder,
+              let recordingEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifierFlags(fromCarbonModifiers: modifierSets[index]),
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: recorder.window?.windowNumber ?? 0,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: UInt16(kVK_Escape)
+              ) else {
+            return OSStatus(eventNotHandledErr)
+        }
+
+        recorder.handleRecordingEvent(recordingEvent)
+        return OSStatus(noErr)
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
