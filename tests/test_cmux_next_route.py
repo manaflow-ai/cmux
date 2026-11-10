@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
-from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
+from cmux_next_route import MAX_PRIORITY_SUITES, matches, outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -130,12 +130,11 @@ def graph_dependents(changed_targets: set[str]) -> set[str]:
 
 
 def graph_readers(path: str) -> set[str]:
-    """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
+    """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory, a
+    `*` a pattern such as SystemSymbolTests' "Packages/macOS/CmuxNext/Sources/**/*.swift")."""
     return {
         name for name, target in GRAPH["targets"].items()
-        if target["kind"] == "test" and any(
-            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
-        )
+        if target["kind"] == "test" and any(matches(path, read) for read in target.get("reads", []))
     }
 
 
@@ -282,13 +281,15 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_priority_filter"], r".*(CloudBringBackTests)\.")
 
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
+        # CmuxNextDesignTests' SystemSymbolTests (#39966) reads every Swift source of the app for SF Symbol
+        # names (a missing one aborts launch on macOS 27.3), so a Swift change runs it too; nothing else does.
         result = tiers(PR_17470)
-        self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
+        self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
         self.assertEqual(result["generated"], "true")
         self.assertEqual(result["native"], "true")
-        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
+        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
         path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
@@ -296,9 +297,11 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
         # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
-        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+        # CmuxNextDesignTests reads every app Swift source for SF Symbol names (SystemSymbolTests, #39966).
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextDesignTests", "CmuxNextKeepAwakeTests",
+                     "CmuxNextWorkspaceNamingTests"):
             self.assertIn(name, selected)
-        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
+        for name in ("CmuxNextDaemonTests", "CmuxNextCloudTests"):
             self.assertNotIn(name, selected)
         self.assertEqual(result["daemon"], "false")
 
@@ -849,6 +852,28 @@ class BundleInputs(unittest.TestCase):
         self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
                         "fnmatch's * crosses /: a pattern read is never narrower than the test")
         self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
+
+    def test_the_symbol_scan_reads_swift_sources_not_resources(self):
+        """SystemSymbolTests (#39966) walks the app's source folders for `.swift` files only: a Swift
+        change anywhere under them, at any depth, selects CmuxNextDesignTests; a resource beside them
+        (the agent-pane bundle, a strings table) does not."""
+        spec = importlib.util.spec_from_file_location("ci_target_graph_for_symbols", ROOT / "scripts/cmux-next/ci-target-graph.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        reads = generator.literal_reads(ROOT / PACKAGE / "Tests/CmuxNextDesignTests")
+        self.assertIn(f"{PACKAGE}/Sources/**/*.swift", reads)
+        self.assertNotIn(f"{PACKAGE}/Sources/", reads)
+        self.assertEqual(GRAPH["targets"]["CmuxNextDesignTests"]["reads"], reads, "regenerate ci-target-graph.json")
+        for path in (f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift",
+                     "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacComposerView.swift",
+                     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/MenuGlyphs.swift"):
+            with self.subTest(path=path):
+                self.assertIn("CmuxNextDesignTests", graph_readers(path))
+        for path in (f"{PACKAGE}/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+                     f"{PACKAGE}/Sources/CmuxNextActions/ActionCatalog.xcstrings"):
+            with self.subTest(path=path):
+                self.assertNotIn("CmuxNextDesignTests", graph_readers(path))
+                self.assertNotIn("CmuxNextDesignTests", tiers([path])["swift_targets"].split())
 
     def test_the_dev_server_test_reads_only_the_page_entries(self):
         """PageDevServerTests names its entries by a pattern, which the graph generator records."""

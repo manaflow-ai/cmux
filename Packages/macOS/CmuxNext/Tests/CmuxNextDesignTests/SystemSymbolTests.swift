@@ -70,13 +70,21 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() // Packages/macOS/CmuxNext
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// The sources linked into the macOS app.
-    static let sourceRoots = [
-        "Packages/macOS/CmuxNext/Sources",
-        "Packages/Shared/CmuxMessagesLab/Sources",
-        "Packages/Shared/CmuxScreenKit/Sources",
-        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI",
-    ].map { repoRoot.appendingPathComponent($0, isDirectory: true) }
+    /// The Swift sources linked into the macOS app, as the patterns this suite reads. The test reads only `.swift`
+    /// files, so the literals say so: scripts/cmux-next/ci-target-graph.py records each one as a pattern read, and
+    /// the pull-request router then runs this suite for a Swift change, not for a resource (a web bundle, a strings
+    /// table) that sits under the same `Sources` folder.
+    static let sourcePatterns = [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "Packages/Shared/CmuxMessagesLab/Sources/**/*.swift",
+        "Packages/Shared/CmuxScreenKit/Sources/**/*.swift",
+        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/**/*.swift",
+    ]
+
+    /// The folder of each of ``sourcePatterns``, walked for every `.swift` file at any depth.
+    static let sourceRoots = sourcePatterns.map { pattern in
+        repoRoot.appendingPathComponent(String(pattern.dropLast("/**/*.swift".count)), isDirectory: true)
+    }
 
     static func swiftFiles(under root: URL) -> [URL] {
         guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }

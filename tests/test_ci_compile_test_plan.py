@@ -49,6 +49,13 @@ PR_23360 = [
 ]
 
 
+def route_matches(path: str, read: str) -> bool:
+    """Whether a changed path is a test target's graph read, as cmux_next_route.py decides it."""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    from cmux_next_route import matches
+    return matches(path, read)
+
+
 def load():
     spec = importlib.util.spec_from_file_location("compile_test_plan", SCRIPT)
     module = importlib.util.module_from_spec(spec)
@@ -72,12 +79,15 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertIn("CmuxNextActionsTests", targets)
         # Test targets that depend on CmuxNextActions are reverse dependents: they compile too.
         self.assertIn("CmuxNextAppTests", targets)
-        # One that does not reach CmuxNextActions stays out.
+        # One that neither reaches CmuxNextActions nor reads a changed file stays out. CmuxNextDesignTests
+        # reads every app Swift source (SystemSymbolTests, #39966), so it compiles for the catalog edits.
         graph = self.module.load_graph(ROOT)
         unrelated = [
             name for name, target in graph["targets"].items()
             if target["kind"] == "test" and "CmuxNextActions" not in self.module.closure(graph, {name})
+            and not any(route_matches(path, read) for path in PR_23360 for read in target.get("reads", []))
         ]
+        self.assertIn("CmuxNextDesignTests", targets)
         self.assertTrue(unrelated, "every test target depends on CmuxNextActions; pick another fixture")
         self.assertFalse(set(unrelated) & set(targets), unrelated)
         self.assertEqual(targets, sorted(targets))
