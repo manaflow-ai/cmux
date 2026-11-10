@@ -3041,6 +3041,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: unplacedScroll.top - origin,
           anchorTop: unplacedScroll.top - origin,
+          shown: (index) => foldRide.current?.handedShift(previousRows.current[index]?.id) ?? 0,
         })
       : undefined;
   const placementDelta = projectedTop === undefined ? 0 : projectedTop - (unplacedScroll.top - origin);
@@ -3696,6 +3697,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: logicalTop,
           anchorTop: logicalTop,
+          shown: (index) => foldRide.current?.handedShift(oldRows[index]?.id) ?? 0,
         });
         if (nextTop !== undefined && (clamped || nextTop !== logicalTop)) {
           writeAnchorScrollTop(node, nextTop);
@@ -3761,6 +3763,8 @@ function TranscriptView({
     tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
     previousLayout.current = layout;
     previousRows.current = rows;
+    // The rows a fold ride moved are placed where they showed: its hand-over is spent.
+    foldRide.current?.takeHanded();
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
     heldRoom.current = room + lifted;

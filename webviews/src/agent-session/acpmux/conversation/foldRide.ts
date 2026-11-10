@@ -56,6 +56,9 @@ export class FoldRide {
   private readonly folds = new Map<HTMLElement, number>();
   /// The rows wearing a ride's translate.
   private readonly moved = new Set<HTMLElement>();
+  /// The translate each row (by id) wore when the ride let go: those rows already show where the
+  /// transcript's next placement puts them, which the scroll anchor must not move them by again.
+  private handed: Map<string, number> | undefined;
   private frame: number | undefined;
   private view: (Window & typeof globalThis) | null = null;
 
@@ -132,11 +135,31 @@ export class FoldRide {
   /// landed at once): the rows under them ride on by what is left of the folds' change, or let go
   /// when they may not ride (`mayRide`) or the ride gives way.
   settled(targets: readonly HTMLElement[], mayRide: boolean): void {
-    if (this.riding && !(mayRide && this.ride(targets))) this.release();
+    if (!this.riding || (mayRide && this.ride(targets))) return;
+    this.release();
+    // No placement follows (the heights are the placed ones): the rows just went back.
+    this.handed = undefined;
+  }
+
+  /// How far below its placed top the row `id` showed when the ride let go (0 when it did not ride).
+  handedShift(id: string | undefined): number {
+    return (id !== undefined && this.handed?.get(id)) || 0;
+  }
+
+  /// Forgets what the ride handed over, once the transcript placed the rows.
+  takeHanded(): void {
+    this.handed = undefined;
   }
 
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
   release(): false {
+    if (this.moved.size) {
+      this.handed = new Map();
+      for (const node of this.moved) {
+        const shift = parseFloat(node.style.translate.split(" ")[1] ?? "") || 0;
+        if (node.dataset.rowId !== undefined && shift) this.handed.set(node.dataset.rowId, shift);
+      }
+    }
     for (const node of this.moved) node.style.translate = "";
     this.moved.clear();
     this.folds.clear();

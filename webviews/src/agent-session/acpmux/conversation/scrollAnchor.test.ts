@@ -102,3 +102,29 @@ test("finds the same anchor after older history is inserted above it", () => {
   });
   expect(next! - newLayout.tops[121]!).toBe(3);
 });
+
+// A fold ride (foldRide.ts) showed the rows under a growing row at their new tops by translate. The
+// reader scrolled past it, and the placement that ends the ride puts those rows where they already
+// show: the offset stays (review of #39917: "offset 1400 instead of 1200 after 200px").
+test("rows a fold ride already showed lower move the offset by no more than is left", () => {
+  const oldRows = [row("above", "short"), row("anchor", "the row in view"), row("below", "tail")];
+  const newRows = [{ ...oldRows[0], text: `${oldRows[0].text}\n${"more text ".repeat(90)}` }, ...oldRows.slice(1)];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  const grown = newLayout.tops[1]! - oldLayout.tops[1]!;
+  const top = oldLayout.tops[1]! + 11;
+  const next = (shown: number) =>
+    preserveScrollAnchorTop({
+      oldLayout,
+      newLayout,
+      oldRows,
+      newRows,
+      liveTop: top,
+      anchorTop: top,
+      shown: (index) => (index >= 1 ? shown : 0),
+    });
+  expect(grown).toBeGreaterThan(0);
+  expect(next(grown)).toBe(top);
+  expect(next(grown - 5)).toBe(top + 5);
+  expect(next(0)).toBe(top + grown);
+});

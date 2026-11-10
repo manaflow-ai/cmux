@@ -70,6 +70,7 @@ export function preserveScrollAnchorTop({
   newRows,
   liveTop,
   anchorTop,
+  shown,
 }: {
   oldLayout: GeometrySource;
   newLayout: GeometrySource;
@@ -77,6 +78,9 @@ export function preserveScrollAnchorTop({
   newRows: readonly Pick<AcpmuxRow, "id">[];
   liveTop: number;
   anchorTop: number;
+  /// How far below its old top an old row already shows (a fold ride's translate, conversation/
+  /// foldRide.ts): the placement moves it that much less.
+  shown?: (oldIndex: number) => number;
 }): number | undefined {
   const first = firstVisible(oldLayout, liveTop);
   const oldGeometry = geometryOf(oldLayout);
@@ -95,7 +99,7 @@ export function preserveScrollAnchorTop({
       newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length, indexById);
     }
     if (newIndex < 0) continue;
-    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex);
+    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex) - (shown?.(oldIndex) ?? 0);
   }
   return undefined;
 }
