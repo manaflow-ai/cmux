@@ -1,10 +1,11 @@
-//! The Chief decides per spawn whether a subagent shows in the sidebar
-//! (a1018, Lawrence 2026-11-05: "the chief will make the decision if the
-//! workspace is visible in the sidebar or not", and the user shapes the
-//! heuristics; aziz: "not liking how new agents by chief don't appear in
-//! sidebar by default"). `spawn(sidebar)` takes shown, hidden or auto; auto
-//! (the default) shows a bigger task and hides a short errand; the user's
-//! cmux-next.json `chief.subagentSidebar` overrides every choice.
+//! Where a subagent's workspace goes (a1018, then Lawrence 2026-11-09: "Chief's
+//! default must be to NOT start new workspaces all the time"). `spawn(workspace)`
+//! takes user, internal, none or auto. auto (the default) gives user-facing work
+//! (UI, design, screenshots, the user's input or sign-in) a sidebar workspace and
+//! everything else none: its chat lives in acpmux and its link opens it. internal
+//! puts it in the collapsed "Chief's workspaces" group, made once and reused. The
+//! user's cmux-next.json `chief.subagentSidebar` (auto, always, group, never; a1018's
+//! values keep their meaning) overrides every choice.
 
 mod common;
 
@@ -21,11 +22,24 @@ use serde_json::json;
 #[derive(Default)]
 struct Recorder {
     opened: Mutex<Vec<String>>,
+    /// `(name, group)` of each workspace opened.
+    groups: Mutex<Vec<(String, String)>>,
 }
 
 impl Workspaces for Recorder {
-    fn open(&self, key: &str, _: &str, name: &str, _: &str, _: &Path) -> Result<String, String> {
+    fn open(
+        &self,
+        key: &str,
+        _: &str,
+        name: &str,
+        group: &str,
+        _: &Path,
+    ) -> Result<String, String> {
         self.opened.lock().unwrap().push(name.to_owned());
+        self.groups
+            .lock()
+            .unwrap()
+            .push((name.to_owned(), group.to_owned()));
         Ok(key.to_owned())
     }
     fn rename(&self, _: &str, _: &str) -> Result<(), String> {
@@ -98,63 +112,97 @@ Spawn takes a visibility; auto applies heuristics the user can shape in Settings
 Write red tests first, then the fix, check it in the real app before and after, and land it on \
 the feature branch with a plain push, then report the range you landed and anything left open.";
 
+const GROUP: &str = "Chief's workspaces";
+
 #[test]
-fn a_bigger_task_shows_by_default_and_a_short_errand_stays_hidden() {
+fn by_default_only_user_facing_work_gets_a_workspace() {
     let recorder = Arc::new(Recorder::default());
     let (mut h, sp, _) = setup(&recorder, json!({}));
+    // A long build with no user-facing word: no workspace; its chat lives in acpmux.
     let answer = spawn(&mut h, &sp, json!({"tasks": [BIG]}));
-    assert_eq!(
-        *recorder.opened.lock().unwrap(),
-        vec!["Chief sidebar rework".to_owned()],
-        "{answer}"
-    );
-    assert!(
-        answer.contains("bigger task"),
-        "the answer says why: {answer}"
-    );
-
+    assert!(recorder.opened.lock().unwrap().is_empty(), "{answer}");
+    assert!(answer.contains("no workspace"), "{answer}");
+    assert!(answer.contains("\"show\""), "says how to show it: {answer}");
+    // A short errand: none either.
     let answer = spawn(
         &mut h,
         &sp,
         json!({"tasks": ["Title: Sha lookup\nlook up the sha of the last nightly"]}),
     );
-    assert!(answer.contains("hidden"), "{answer}");
-    assert!(answer.contains("\"show\""), "says how to show it: {answer}");
-    assert_eq!(recorder.opened.lock().unwrap().len(), 1);
-}
-
-#[test]
-fn the_chief_chooses_per_spawn_and_per_task() {
-    let recorder = Arc::new(Recorder::default());
-    let (mut h, sp, _) = setup(&recorder, json!({}));
-    // sidebar: hidden keeps even a big task out of the sidebar.
-    let answer = spawn(&mut h, &sp, json!({"tasks": [BIG], "sidebar": "hidden"}));
-    assert!(answer.contains("hidden"), "{answer}");
+    assert!(answer.contains("no workspace"), "{answer}");
     assert!(recorder.opened.lock().unwrap().is_empty());
-    // sidebar: shown puts a one-line task there; a task's own line wins.
+    // UI work the user will look at: the normal sidebar, in no group.
     let answer = spawn(
         &mut h,
         &sp,
-        json!({"tasks": ["Title: Quick look\nsay hello", "Sidebar: hidden\nTitle: Other\nsay hi"], "sidebar": "shown"}),
+        json!({"tasks": ["Title: Tab bar polish\nFix the tab bar UI and send light/dark screenshots"]}),
     );
     assert_eq!(
-        *recorder.opened.lock().unwrap(),
-        vec!["Quick look".to_owned()],
+        *recorder.groups.lock().unwrap(),
+        vec![("Tab bar polish".to_owned(), String::new())],
         "{answer}"
     );
-    // The title never becomes the Sidebar line.
-    assert!(!answer.contains("workspace \"Sidebar"), "{answer}");
-    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "sidebar": "maybe"})).is_err());
+    assert!(answer.contains("user-facing"), "{answer}");
+}
+
+#[test]
+fn the_chief_chooses_user_internal_or_none_per_spawn_and_per_task() {
+    let recorder = Arc::new(Recorder::default());
+    let (mut h, sp, _) = setup(&recorder, json!({}));
+    // workspace: none keeps even UI work out of the sidebar.
+    let answer = spawn(
+        &mut h,
+        &sp,
+        json!({"tasks": ["Title: UI peek\nlook at the UI"], "workspace": "none"}),
+    );
+    assert!(answer.contains("no workspace"), "{answer}");
+    assert!(recorder.opened.lock().unwrap().is_empty());
+    // workspace: user shows a long build; a task's own line wins.
+    let answer = spawn(
+        &mut h,
+        &sp,
+        json!({"tasks": [BIG, "Workspace: internal\nTitle: Diff holder\nhold the diffs of the sidebar work"], "workspace": "user"}),
+    );
+    let mut groups = recorder.groups.lock().unwrap().clone();
+    groups.sort();
+    assert_eq!(
+        groups,
+        vec![
+            ("Chief sidebar rework".to_owned(), String::new()),
+            ("Diff holder".to_owned(), GROUP.to_owned()),
+        ],
+        "{answer}"
+    );
+    assert!(!answer.contains("workspace \"Workspace"), "{answer}");
+    // The old values still parse: shown is user, hidden is none.
+    let Call::Spawn { tasks, .. } =
+        Call::parse("spawn", &json!({"tasks": ["x"], "sidebar": "shown"})).unwrap()
+    else {
+        panic!("not a spawn");
+    };
+    assert!(tasks[0].starts_with("Workspace: user"), "{tasks:?}");
+    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "workspace": "maybe"})).is_err());
 }
 
 #[test]
 fn the_users_setting_overrides_the_chief() {
     let recorder = Arc::new(Recorder::default());
     let (mut h, sp, config) = setup(&recorder, json!({"chief": {"subagentSidebar": "never"}}));
-    let answer = spawn(&mut h, &sp, json!({"tasks": [BIG], "sidebar": "shown"}));
+    let answer = spawn(&mut h, &sp, json!({"tasks": [BIG], "workspace": "user"}));
     assert!(answer.contains("chief.subagentSidebar"), "{answer}");
     assert!(recorder.opened.lock().unwrap().is_empty());
-    // Read at each spawn: a change applies to the next one.
+    // group: work that is not user-facing goes to the Chief's group, not none.
+    std::fs::write(
+        &config,
+        json!({"chief.subagentSidebar": "group"}).to_string(),
+    )
+    .unwrap();
+    spawn(&mut h, &sp, json!({"tasks": ["Title: Tiny\nsay hello"]}));
+    assert_eq!(
+        *recorder.groups.lock().unwrap(),
+        vec![("Tiny".to_owned(), GROUP.to_owned())]
+    );
+    // always still puts every subagent in the sidebar.
     std::fs::write(
         &config,
         json!({"chief.subagentSidebar": "always"}).to_string(),
@@ -163,9 +211,12 @@ fn the_users_setting_overrides_the_chief() {
     spawn(
         &mut h,
         &sp,
-        json!({"tasks": ["Title: Tiny\nsay hello"], "sidebar": "hidden"}),
+        json!({"tasks": ["Title: Tiny two\nsay hello"], "workspace": "none"}),
     );
-    assert_eq!(*recorder.opened.lock().unwrap(), vec!["Tiny".to_owned()]);
+    assert_eq!(
+        recorder.groups.lock().unwrap().last().cloned(),
+        Some(("Tiny two".to_owned(), String::new()))
+    );
 }
 
 #[test]
@@ -177,8 +228,12 @@ fn the_spawn_tool_offers_the_choice_and_tells_the_chief_how_to_pick() {
         .iter()
         .find(|t| t["name"] == "spawn")
         .unwrap();
-    let sidebar = &spawn["inputSchema"]["properties"]["sidebar"];
-    assert_eq!(sidebar["enum"], json!(["auto", "shown", "hidden"]));
-    let how = sidebar["description"].as_str().unwrap();
-    assert!(how.contains("shown") && how.contains("hidden"), "{how}");
+    assert!(spawn["inputSchema"]["properties"]["sidebar"].is_null());
+    let workspace = &spawn["inputSchema"]["properties"]["workspace"];
+    assert_eq!(
+        workspace["enum"],
+        json!(["auto", "user", "internal", "none"])
+    );
+    let how = workspace["description"].as_str().unwrap();
+    assert!(how.contains(GROUP) && how.contains("none"), "{how}");
 }

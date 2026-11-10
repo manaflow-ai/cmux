@@ -433,6 +433,33 @@ fn in_the_users_session_a_subagent_workspace_joins_only_chief_agents() {
     }
 }
 
+/// Lawrence 2026-11-09: internal work goes in one sidebar group, "Chief's workspaces", that the
+/// host makes collapsed the first time (`reuse`, so a second open joins the same group) and
+/// reuses; it is the one group the host may make, and only for its own workspaces.
+#[test]
+fn an_internal_workspace_goes_in_the_collapsed_chiefs_workspaces_group() {
+    let mut caps = GROUPED.to_vec();
+    caps.push(PERSONAL);
+    let (w, requests, _dir) = workspaces(caps);
+    open_in(&w, "Chief's workspaces").unwrap();
+    let all = requests.lock().unwrap().clone();
+    let made: Vec<&Value> = all
+        .iter()
+        .filter(|r| r["operation"] == "workspace_group.create")
+        .collect();
+    assert_eq!(made.len(), 1, "{all:?}");
+    assert_eq!(made[0]["params"]["name"], "Chief's workspaces");
+    assert_eq!(made[0]["params"]["collapsed"], true);
+    assert_eq!(made[0]["params"]["reuse"], true);
+    assert!(made[0]["idempotency_key"].is_string());
+    let placed: Vec<&Value> = all
+        .iter()
+        .filter(|r| r["operation"] == "workspace.place")
+        .collect();
+    assert_eq!(placed.len(), 1, "{all:?}");
+    assert_eq!(placed[0]["params"]["group"], "grp_new");
+}
+
 /// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, the next step
 /// (then create-terminal: "failed to spawn PTY command ... os error 2") failed, and
 /// the workspace stayed: an empty sidebar row with no chat, never cleaned up. The
