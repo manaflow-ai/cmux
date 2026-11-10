@@ -408,6 +408,11 @@ export class ChatClient {
   private attached = false;
   private paging = false;
   private stash: Array<{ record: any; at: number }> = [];
+
+  /** Every record the client has received from index `from` on, with the live pushes still held while a page loads. */
+  arrivals(from: number): Array<{ seq: number; record: any; at: number }> {
+    return [...this.received.slice(from), ...this.stash.map((r) => ({ seq: Number(r.record?.seq), record: r.record, at: r.at }))];
+  }
   private stopped = false;
   private reattaching = false;
   readonly dial: DialLike;
@@ -681,8 +686,9 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
   let tries = 0;
   let error = "";
   for (const until = sentAt + deadlineMs; ;) {
-    const hit = chat.received.slice(from).find((r) => r.seq > held && r.at <= until && isReply(r.record));
-    if (hit) return { felt_ms: hit.at - sentAt, ack_ms: ack, tries, error };
+    // The earliest arrival of any reply record, a live push still held behind a loading page included.
+    const times = chat.arrivals(from).filter((r) => r.seq > held && r.at >= sentAt && r.at <= until && isReply(r.record)).map((r) => r.at);
+    if (times.length) return { felt_ms: Math.min(...times) - sentAt, ack_ms: ack, tries, error };
     if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
     if (ack === null) {
       tries += 1;
@@ -759,7 +765,9 @@ export function journalCommand(session: string, baseline: number): string {
     "    if k in ('tool_call', 'tool_call_update'): out['msg'] = {'params': {'update': ((e.get('msg') or {}).get('params') or {}).get('update')}}",
     "    print(json.dumps(out))",
   ].join("\n");
-  return `"$c" acp tail ${shq(session)} --since ${baseline} 2>/dev/null | python3 -I -c ${shq(py)}; echo "@@exit $?"`;
+  // `acp tail` writes to a file first, so its own failure is the exit the line reports (sh has no pipefail).
+  return `t=$(mktemp) && { "$c" acp tail ${shq(session)} --since ${baseline} > "$t" 2>/dev/null; rc=$?; ` +
+    `python3 -I -c ${shq(py)} < "$t"; py=$?; rm -f "$t"; [ "$rc" -eq 0 ] || py=$rc; echo "@@exit $py"; }`;
 }
 
 async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number): Promise<SeqEvent[] | string> {

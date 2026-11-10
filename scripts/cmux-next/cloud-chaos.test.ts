@@ -282,6 +282,18 @@ describe("journalCommand", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+
+  test("an acp tail that fails is the exit the line reports, never an empty journal read as whole", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      writeFileSync(join(bin, "c"), "#!/bin/sh\necho partial\nexit 3\n");
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
+      expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 3");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("judgeTerminal", () => {
@@ -556,6 +568,20 @@ describe("the felt time after a send", () => {
     c.flushStash(pageFrom);
     expect(chat.received.filter((r) => r.seq === 5)).toHaveLength(1);
     expect(chat.received.find((r) => r.seq === 5)!.at).toBe(pushedAt);
+    chat.stop();
+  });
+
+  test("a reply still held behind a loading page counts at its own arrival", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    await sleep(100);
+    // A re-attach is paging: the live reply is stashed now; the page carrying it is still loading.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(90);
+    expect(felt.felt_ms).toBeLessThan(400);
     chat.stop();
   });
 
