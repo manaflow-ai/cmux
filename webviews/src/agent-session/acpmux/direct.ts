@@ -3200,7 +3200,7 @@ export class AcpmuxDirectClient {
       } else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
-        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        this.sessions = await this.sessionPages.settledWhole();
         this.sessionPages.done(first?.run);
         laterPages = undefined;
       }

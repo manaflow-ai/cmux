@@ -198,10 +198,9 @@ async function converge(delivery: Delivery, reference: unknown): Promise<string[
   return problems;
 }
 
-// Known to fail (manaflow-ai/cmuxterm-hq#8950): some seeds still end a turn with a lost thought chunk, prompt or
-// subagent message missing. `test.failing` holds it to failing at the default 24 seeds, so the fix flips it back to
-// `test` (a pass here turns red); its output lists each failing seed and the fault kind alone that breaks it.
-test.failing("duplicate, reordered, lost and reconnected deliveries converge to the in-order rows", async () => {
+/// The in-order rows, then every seed's delivery with `kinds` of fault: what is wrong with each seed that does not
+/// converge, and which fault kind alone breaks it. A throw anywhere (setup, a timer, the client) fails the caller.
+async function convergence(kinds: readonly Kind[]): Promise<string[]> {
   const reference = await play(events, async (daemon) => {
     daemon.push(live);
     await clock!.advance(1000);
@@ -211,23 +210,36 @@ test.failing("duplicate, reordered, lost and reconnected deliveries converge to 
   clock = undefined;
   const failures: string[] = [];
   for (let seed = FIRST_SEED; seed < FIRST_SEED + CASES; seed++) {
-    const delivery = perturb(live, seed);
+    const delivery = perturb(live, seed, kinds);
     const problems = await converge(delivery, reference.rows);
     if (!problems.length) continue;
     // Which kind of fault alone breaks it: the same seed with one kind at a time.
     const alone: string[] = [];
-    for (const kind of KINDS) {
-      const single = perturb(live, seed, [kind]);
-      const wrong = await converge(single, reference.rows);
-      if (wrong.length) alone.push(`${kind} alone (${single.log.join(", ")}): ${wrong.join("; ")}`);
-    }
+    if (kinds.length > 1)
+      for (const kind of kinds) {
+        const single = perturb(live, seed, [kind]);
+        const wrong = await converge(single, reference.rows);
+        if (wrong.length) alone.push(`${kind} alone (${single.log.join(", ")}): ${wrong.join("; ")}`);
+      }
     failures.push(
       `seed ${seed}: ${problems.join("; ")}\n  after ${delivery.log.join(", ") || "plain delivery"}` +
-        (alone.length ? `\n  ${alone.join("\n  ")}` : "\n  no single kind alone breaks it"),
+        (alone.length ? `\n  ${alone.join("\n  ")}` : ""),
     );
   }
   for (const failure of failures) console.log(failure);
-  expect(failures).toEqual([]);
+  return failures;
+}
+
+/// A fault mix known not to converge yet (manaflow-ai/cmuxterm-hq#8950): it must still show rows that differ, and
+/// nothing may throw on the way (a throw fails the test, never passes it as `test.failing` would). Once it converges
+/// this fails, naming the change: make it a convergence test.
+function stillKnown(failures: string[], what: string): void {
+  if (failures.length === 0)
+    throw new Error(`${what} now converge at every seed: manaflow-ai/cmuxterm-hq#8950 is fixed here, hold them to it`);
+}
+
+test("all faults together still diverge only as manaflow-ai/cmuxterm-hq#8950 says", async () => {
+  stillKnown(await convergence(KINDS), "all faults together");
 });
 
 test("closing the shown chat frees its records and rows", async () => {
@@ -256,28 +268,13 @@ test("closing the shown chat frees its records and rows", async () => {
 });
 
 // One fault kind at a time over the same seeds. Duplicates and a dropped socket converge alone and stay held to it;
-// a lost record, and a swap (its later record is dropped as stale, so a loss too), fail at the default seeds until
-// manaflow-ai/cmuxterm-hq#8950 is fixed, and `test.failing` turns red when they pass.
-for (const [kind, known] of [
-  ["dup", false],
-  ["drop", false],
-  ["swap", true],
-  ["lose", true],
-] as const)
-  (known ? test.failing : test)(`${kind} alone converges to the in-order rows`, async () => {
-    const reference = await play(events, async (daemon) => {
-      daemon.push(live);
-      await clock!.advance(1000);
-    });
-    reference.client.close();
-    clock!.uninstall();
-    clock = undefined;
-    const failures: string[] = [];
-    for (let seed = FIRST_SEED; seed < FIRST_SEED + CASES; seed++) {
-      const delivery = perturb(live, seed, [kind]);
-      const problems = await converge(delivery, reference.rows);
-      if (problems.length) failures.push(`seed ${seed} (${delivery.log.join(", ")}): ${problems.join("; ")}`);
-    }
-    for (const failure of failures) console.log(failure);
-    expect(failures).toEqual([]);
+// a lost record, and a swap (its later record is dropped as stale, so a loss too), still diverge until
+// manaflow-ai/cmuxterm-hq#8950 is fixed.
+for (const kind of ["dup", "drop"] as const)
+  test(`${kind} alone converges to the in-order rows`, async () => {
+    expect(await convergence([kind])).toEqual([]);
+  });
+for (const kind of ["swap", "lose"] as const)
+  test(`${kind} alone still diverges only as manaflow-ai/cmuxterm-hq#8950 says`, async () => {
+    stillKnown(await convergence([kind]), `${kind} alone`);
   });

@@ -82,6 +82,8 @@ function newestFirst(a: Summary, b: Summary): number {
 export class SessionPager<S extends Summary> {
   private run = 0;
   private loading = false;
+  /** Whole-list reads still out (`settledWhole`): changes are kept until each lands and is settled. */
+  private wholeReads = 0;
   private purged = new Set<string>();
   private changed = new Map<string, S>();
 
@@ -120,16 +122,40 @@ export class SessionPager<S extends Summary> {
     return seen.size > 0 ? sessions.sort(newestFirst) : sessions;
   }
 
+  /**
+   * The whole list (`whole`) with every change since it was asked laid over it. Changes are kept
+   * while it is out even if a newer list finishes meanwhile (`done`), so a reply that lands after
+   * a chat closed never brings the chat back.
+   */
+  async settledWhole(): Promise<S[]> {
+    this.wholeReads += 1;
+    try {
+      return this.settle(await this.whole());
+    } finally {
+      this.wholeReads -= 1;
+      if (this.wholeReads === 0 && !this.loading) this.forget();
+    }
+  }
+
+  private get tracking(): boolean {
+    return this.loading || this.wholeReads > 0;
+  }
+
+  private forget(): void {
+    this.purged.clear();
+    this.changed.clear();
+  }
+
   /** A `session_changed` seen while the list loads. */
   changedSession(session: S): void {
-    if (!this.loading) return;
+    if (!this.tracking) return;
     this.purged.delete(session.sessionId);
     this.changed.set(session.sessionId, session);
   }
 
   /** A `session_changed` purge seen while the list loads. */
   purgedSession(sessionId: string): void {
-    if (!this.loading) return;
+    if (!this.tracking) return;
     this.changed.delete(sessionId);
     this.purged.add(sessionId);
   }
@@ -139,8 +165,8 @@ export class SessionPager<S extends Summary> {
   done(run: number | undefined): void {
     if (run === undefined || run !== this.run) return;
     this.loading = false;
-    this.purged.clear();
-    this.changed.clear();
+    // A whole-list read still out keeps them until it lands (`settledWhole`).
+    if (this.wholeReads === 0) this.forget();
   }
 
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */

@@ -117,3 +117,29 @@ test("after the list is whole, changes and purges are not kept", async () => {
   pager.done(again!.run);
   expect(kept.purged.size).toBe(0);
 });
+
+// The open path reads the whole list for a chat past the first page; a lagged watch's reread can start and finish
+// while that read is out. A chat closed after the reread finished must not come back with the older reply
+// (review of the pager's `done`: it stopped keeping purges, and the whole list reinstalled the chat).
+test("a whole-list read still out keeps the purges a newer, finished list stopped keeping", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const rows = [
+    { sessionId: "a", updatedAt: 3 },
+    { sessionId: "b", updatedAt: 2 },
+  ];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    if (method === "_acpmux/watch" && params.limit === undefined) await held;
+    return { sessions: rows.slice() };
+  });
+  const whole = pager.settledWhole();
+  const reread = await pager.first();
+  pager.done(reread!.run);
+  pager.purgedSession("b");
+  release();
+  expect((await whole).map((row) => row.sessionId)).toEqual(["a"]);
+  // Once it landed, nothing is kept any more.
+  pager.purgedSession("a");
+  const kept = pager as unknown as { purged: Set<string> };
+  expect(kept.purged.size).toBe(0);
+});
