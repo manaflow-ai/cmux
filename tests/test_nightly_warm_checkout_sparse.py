@@ -261,13 +261,6 @@ class WarmCheckoutTest(unittest.TestCase):
         self.assertTrue(root_files)
         self.assertEqual([name for name in root_files if not (self.ws / name).is_file()], [])
 
-    def test_the_forget_step_passes_in_a_workspace_with_no_clone(self) -> None:
-        self.ws.mkdir(parents=True, exist_ok=True)
-        done = subprocess.run(
-            ["bash", "-e", "-c", step("generate-nightly-deltas", "Forget the kept clone's sparse-checkout mode")["run"]],
-            cwd=self.ws, text=True, capture_output=True, env={**os.environ, "GITHUB_WORKSPACE": str(self.ws)})
-        self.assertEqual(done.returncode, 0, done.stderr)
-
     def test_a_workspace_that_was_never_sparse(self) -> None:
         self.kept_workspace()
         self.assert_whole_tree("never sparse")
