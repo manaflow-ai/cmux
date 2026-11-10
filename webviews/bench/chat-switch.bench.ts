@@ -802,7 +802,7 @@ try {
       // they arrive measures where the load is, not what the switch kept.
       const standInQuiet = async () => {
         const deadline = Date.now() + 30_000;
-        for (let quietFor = 0; quietFor < QUIET_MS && Date.now() < deadline; ) {
+        for (let quietFor = 0; quietFor < QUIET_MS && Date.now() < deadline;) {
           // fixed-wait: waits out the stand-in's last call, re-armed by each new one, to a deadline.
           await Bun.sleep(QUIET_MS - quietFor);
           quietFor = Date.now() - (calls.at(-1)?.at ?? 0);
