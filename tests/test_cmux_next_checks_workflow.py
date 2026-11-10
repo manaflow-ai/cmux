@@ -33,6 +33,13 @@ sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+
+
+def runs_on_text(job: dict) -> str | None:
+    """The job's runs-on as written and as each matrix cell writes it (`${{ matrix.runner }}` read as its values),
+    or None when a matrix value nothing resolves: a guard that finds jobs by their runs-on counts that job in."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return None if cells is None else "\n".join([str(job.get("runs-on", "")), *cells])
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
 # Run on a pull request only with full-ci (HeavyMacCompilesBehindFullCi).
@@ -1022,7 +1029,7 @@ class PathRoutingStructure(unittest.TestCase):
         # so adding a routed job needs no count update and deleting a guard still fails.
         placement = re.compile(r"needs\.macos-placement\.outputs\.(?:runner|session_runner|gui_runner)\b")
         routes = {name: job for name, job in jobs.items()
-                  if placement.search(str(job.get("runs-on", "")))}
+                  if (text := runs_on_text(job)) is None or placement.search(text)}
         self.assertIn("release-compile", routes)
         for name, job in routes.items():
             expression = job["runs-on"]
@@ -1399,10 +1406,16 @@ OVERFLOW_FAILOVER = re.compile(
 
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable, or portable placement's mini, can resolve to a mini (glaeda-*)."""
-    runs_on = unwrap_fork_pool_reads(str(job.get("runs-on", "")))
-    runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
-    runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
-    return "vars." in runs_on or "outputs.mini_runner" in runs_on
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        return True  # a matrix value nothing resolves may name a mini
+    for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
+        runs_on = unwrap_fork_pool_reads(runs_on)
+        runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
+        runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
+        if "vars." in runs_on or "outputs.mini_runner" in runs_on:
+            return True
+    return False
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -2575,7 +2588,7 @@ class ReservedLaneLabels(unittest.TestCase):
     def test_no_runs_on_reads_a_reserved_lane_variable(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         found = {(name, variable) for name, job in jobs.items() for variable in self.RESERVED
-                 if f"vars.{variable}" in str(job.get("runs-on") or "")}
+                 if (text := runs_on_text(job)) is None or f"vars.{variable}" in text}
         self.assertEqual(found, set(self.DIRECT))
 
     def test_the_fast_tier_takes_its_label_only_while_the_placement_saw_it_idle(self):
@@ -3434,7 +3447,8 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
         return context
 
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
-        pinned = {name for name, job in self.jobs().items() if any(pin in str(job.get("runs-on", "")) for pin in self.PINS)}
+        pinned = {name for name, job in self.jobs().items()
+                  if (text := runs_on_text(job)) is None or any(pin in text for pin in self.PINS)}
         self.assertEqual(pinned, set(self.FALLBACKS),
                          "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
 
@@ -3786,8 +3800,8 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
     def client_jobs(self) -> dict:
         """Jobs whose runs-on can resolve to gateway_runner through fleet_jobs (read by its `if` or its runs-on)."""
         return {name: job for name, job in self.jobs().items()
-                if "gateway_runner" in str(job.get("runs-on", ""))
-                and "outputs.fleet_jobs" in str(job.get("if", "")) + str(job.get("runs-on", ""))}
+                if (text := runs_on_text(job)) is None
+                or ("gateway_runner" in text and "outputs.fleet_jobs" in str(job.get("if", "")) + text)}
 
     def fleet_client_tiers(self) -> list[str]:
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")

@@ -33,6 +33,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
 GUARDS = ROOT / ".github/workflows/cmux-next-guards.yml"
@@ -107,20 +110,26 @@ class WorkflowShape(unittest.TestCase):
             if key in light or key == "portable-placement":
                 continue
             with self.subTest(runner=key):
-                runner = str(each["runs-on"])
-                self.assertIn("cmux-fleet-linux-x64", runner)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                "a stalled literal fleet label must not bypass the reconciled live pool")
-                self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
-                self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertIn("cmux-fleet-linux-x64", runner)
+                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
+                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                    "a stalled literal fleet label must not bypass the reconciled live pool")
+                    self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
+                    self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
                 # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
                 limit = {"panic-ratchet": 40, "fast-gates": 25}.get(key, 15)
                 self.assertLessEqual(int(each["timeout-minutes"]), limit)
-                self.assertNotIn("macos", str(each["runs-on"]).lower())
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertNotIn("macos", runner.lower())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())

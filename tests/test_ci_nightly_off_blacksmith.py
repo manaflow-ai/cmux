@@ -310,7 +310,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         for name, job in jobs.items():
             with self.subTest(job=name):
-                self.assertNotIn("cmux-fleet-linux-x64", str((job or {}).get("runs-on", "")))
+                cells = workflow_jobs.runs_on_cells(job or {})
+                self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+                for runs_on in cells:
+                    self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
     def test_no_new_nightly_job_rides_blacksmith_linux_alone(self) -> None:
         """No pins: a nightly job needs a fleet route ahead of its Blacksmith Linux label.
@@ -321,11 +324,15 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         import json
         light = json.loads((ROOT / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
+        unresolved = sorted(name for name, job in jobs.items() if workflow_jobs.runs_on_cells(job or {}) is None)
+        self.assertEqual(unresolved, [], "these nightly jobs' runs-on has a matrix value nothing resolves")
+        # Each matrix cell of a runs-on is its own route: one leg alone on Blacksmith Linux is a pin.
         alone = {name for name, job in jobs.items()
-                 if BLACKSMITH_LINUX.search(str((job or {}).get("runs-on") or ""))
-                 and not FLEET_ROUTE.search(str(job.get("runs-on")))
-                 and not (f"nightly.yml#{name}" in light
-                          and "github.run_attempt == 1 && 'ubuntu-24.04'" in str(job.get("runs-on")))}
+                 if any(BLACKSMITH_LINUX.search(runs_on)
+                        and not FLEET_ROUTE.search(runs_on)
+                        and not (f"nightly.yml#{name}" in light
+                                 and "github.run_attempt == 1 && 'ubuntu-24.04'" in runs_on)
+                        for runs_on in workflow_jobs.runs_on_cells(job or {}))}
         self.assertEqual(sorted(alone - BLACKSMITH_LINUX_ONLY_DEBT), [],
                          "these nightly jobs can only take Blacksmith Linux: give them a fleet route first")
         self.assertEqual(sorted(BLACKSMITH_LINUX_ONLY_DEBT - alone), [],
@@ -358,21 +365,32 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
             for name, job in jobs.items():
-                runs_on = (job or {}).get("runs-on")
-                if "CI_CLOUD_OVERFLOW_SAVED" not in str(runs_on):
+                job = job or {}
+                key = f"{path.name}#{name}"
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                cells = workflow_jobs.runs_on_cells(job)
+                if cells is None:
+                    strategy = job.get("strategy")
+                    written = str(job.get("runs-on")) + str(strategy.get("matrix") if isinstance(strategy, dict) else strategy)
+                    if "CI_CLOUD_OVERFLOW_SAVED" in written:
+                        self.fail(f"{key}: runs-on has a matrix value nothing resolves")
+                    continue
+                cells = [runs_on for runs_on in cells if "CI_CLOUD_OVERFLOW_SAVED" in runs_on]
+                if not cells:
                     continue
                 checked += 1
-                key = f"{path.name}#{name}"
                 if key in OVERFLOW_UNREAD:
                     unread.add(key)
-                    self.assertIn("ubuntu", str(runs_on))
-                    self.assertNotIn("macos", str(runs_on))
+                    for runs_on in cells:
+                        self.assertIn("ubuntu", runs_on)
+                        self.assertNotIn("macos", runs_on)
                     continue
-                with self.subTest(job=key):
-                    on = {label for label in resolve_labels(runs_on, variables=record) if isinstance(label, str)}
-                    off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
-                    self.assertFalse({label for label in on - off if "macos" in label.lower()},
-                                     f"{path.name}#{name}: the overflow switch adds a macOS label")
+                for runs_on in cells:
+                    with self.subTest(job=key, runs_on=runs_on):
+                        on = {label for label in resolve_labels(runs_on, variables=record) if isinstance(label, str)}
+                        off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
+                        self.assertFalse({label for label in on - off if "macos" in label.lower()},
+                                         f"{path.name}#{name}: the overflow switch adds a macOS label")
         self.assertGreater(checked, 10)
         self.assertEqual(unread, set(OVERFLOW_UNREAD), "an OVERFLOW_UNREAD entry no longer names a job")
 

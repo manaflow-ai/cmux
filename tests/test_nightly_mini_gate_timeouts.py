@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 GATE_MINUTES = 120
 ON = {"vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini", "vars.CI_NIGHTLY_MINI_BUILDER": "glaeda-nightly-mini-builder"}
@@ -26,8 +27,13 @@ OFF = {"vars.CI_NIGHTLY_MINI": "", "vars.CI_NIGHTLY_MINI_BUILDER": ""}
 
 
 def on_the_mini(job: dict) -> bool:
+    """The job's runs-on can read the one-mini switch: as written, in any matrix cell (`${{ matrix.KEY }}` read as
+    its values), or through a matrix value nothing resolves (then it may, so it needs the room too)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        return True
     text = str(job.get("runs-on", "")) + str((job.get("strategy") or {}).get("matrix", {}).get("pool", ""))
-    return "vars.CI_NIGHTLY_MINI" in text
+    return any("vars.CI_NIGHTLY_MINI" in runs_on for runs_on in [text, *cells])
 
 
 def timeout(value: object, context: dict, rng: random.Random, base: dict | None = None) -> object:

@@ -1552,39 +1552,41 @@ class Wiring(unittest.TestCase):
         checked = set()
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             for name, job in (load(path.name).get("jobs") or {}).items():
-                runs_on = job.get("runs-on")
-                if not isinstance(runs_on, str) or not any(
-                        key in runs_on for key in ("pr_owned_jobs", "SIDE_LANE_RUNNER", "LIGHT_LANE_RUNNER")):
-                    continue
-                runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                           .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
-                for attempt in ("1", "2", "3", "4")[:int(last)]:
-                    context = github_context("pull_request", ref="refs/pull/1/merge",
-                                             CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
-                                             CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
-                    context["github"].update(
-                        repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
-                        workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",
-                        event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-                    context["inputs"].update(pr_runner=mini, pr_retry_runner="blacksmith-12vcpu-macos-26",
-                                             pr_root_runner=root, pr_gui_runner=gui, pr_side_runner=side,
-                                             pr_owned_jobs=owned_jobs)
-                    outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
-                               "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
-                    context["needs"] = {"changes": {"outputs": outputs},
-                                        # late-placement skips the bot's attempt 3 (asserted below).
-                                        "late-placement": {"outputs": {"runners": late, "attempt": attempt}
-                                                           if attempt not in ("3", "4") else {}},
-                                        "macos-compile-admission": {"outputs": {"runner": root}}}
-                    label = evaluate(runs_on, context)
-                    labels = label if isinstance(label, list) else [label]
-                    with self.subTest(workflow=path.name, job=name, attempt=attempt):
-                        if attempt != last:
-                            checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
-                        else:
-                            failure = late_attempt_failure(path.name, name, job, runs_on, labels, side)
-                            self.assertIsNone(failure, failure)
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own. With a matrix
+                # value nothing resolves, the runs-on as written is evaluated, its matrix.shard read as shard 1.
+                cells = workflow_jobs.runs_on_cells(job)
+                for runs_on in (cells if cells is not None else [str(job.get("runs-on"))]):
+                    if not any(key in runs_on for key in ("pr_owned_jobs", "SIDE_LANE_RUNNER", "LIGHT_LANE_RUNNER")):
+                        continue
+                    runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                               .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
+                    last = "4" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3 else "3"
+                    for attempt in ("1", "2", "3", "4")[:int(last)]:
+                        context = github_context("pull_request", ref="refs/pull/1/merge",
+                                                 CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                                 CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
+                        context["github"].update(
+                            repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor="github-actions[bot]",
+                            workflow_ref=f"manaflow-ai/cmux/.github/workflows/{path.name}@refs/pull/1/merge",
+                            event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+                        context["inputs"].update(pr_runner=mini, pr_retry_runner="blacksmith-12vcpu-macos-26",
+                                                 pr_root_runner=root, pr_gui_runner=gui, pr_side_runner=side,
+                                                 pr_owned_jobs=owned_jobs)
+                        outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
+                                   "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
+                        context["needs"] = {"changes": {"outputs": outputs},
+                                            # late-placement skips the bot's attempt 3 (asserted below).
+                                            "late-placement": {"outputs": {"runners": late, "attempt": attempt}
+                                                               if attempt not in ("3", "4") else {}},
+                                            "macos-compile-admission": {"outputs": {"runner": root}}}
+                        label = evaluate(runs_on, context)
+                        labels = label if isinstance(label, list) else [label]
+                        with self.subTest(workflow=path.name, job=name, attempt=attempt):
+                            if attempt != last:
+                                checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                            else:
+                                failure = late_attempt_failure(path.name, name, job, runs_on, labels, side)
+                                self.assertIsNone(failure, failure)
         # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
         # are not evaluated above: no workflow may name an attempt after 2. Naming attempt 2 itself
         # (`run_attempt == 2`, the bot's attempt 2 placed like attempt 1) is allowed: attempts 1 and 2 may

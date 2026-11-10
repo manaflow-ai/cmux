@@ -109,6 +109,17 @@ def manaflow_route(name: str) -> str:
     return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
 
 
+def manaflow_routes(name: str) -> list[str] | None:
+    """manaflow_route of each matrix cell of the job's runs-on (`${{ matrix.pool }}` read as its values), or
+    None when a matrix value nothing resolves: a guard counts that job as off our minis, never as on them."""
+    routes = never_blacksmith.manaflow_routes(name)
+    if routes is None:
+        return None
+    if name in HOSTED_SIGNING_SWITCHES:
+        routes = [route.replace(HOSTED_SIGNING_SWITCHES[name], "", 1) for route in routes]
+    return [route.replace(TRACK_HOSTED, "", 1) for route in routes] if name in NIGHTLY_NEXT_ONLY_OWNED else routes
+
+
 # Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
 # GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
 # push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
@@ -147,27 +158,26 @@ class EveryJobOnOurMinis(unittest.TestCase):
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
                 continue
-            runs_on = str(job.get("runs-on", ""))
-            if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
-                continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
-            if runs_on == "${{ matrix.pool }}":
-                bad = [p for p in job["strategy"]["matrix"]["pool"]
-                       if NOT_OURS.search(re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", p))]
-                if bad:
-                    failures[name] = bad
+            # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
+            cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
+            if cells is None or routes is None:
+                failures[name] = "runs-on has a matrix value nothing resolves"
                 continue
-            if not runs_on.startswith("${{"):
-                if not runs_on or NOT_OURS.search(runs_on):
-                    failures[name] = runs_on
-                continue
-            source = manaflow_route(name).removeprefix("${{").removesuffix("}}")
-            expression = parse_expression(source)
-            for _ in range(400):
-                context = sample(source, rng)
-                value = evaluate(expression, context)
-                if not value or NOT_OURS.search(str(value)) or not re.search(r"glaeda", str(value)):
-                    failures[name] = (value, {k: v for k, v in context.items() if v})
-                    break
+            for runs_on, route in zip(cells or [""], routes or [""]):
+                if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
+                    continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
+                if not runs_on.startswith("${{"):
+                    if not runs_on or NOT_OURS.search(runs_on):
+                        failures[name] = runs_on
+                    continue
+                source = route.removeprefix("${{").removesuffix("}}")
+                expression = parse_expression(source)
+                for _ in range(400):
+                    context = sample(source, rng)
+                    value = evaluate(expression, context)
+                    if not value or NOT_OURS.search(str(value)) or not re.search(r"glaeda", str(value)):
+                        failures[name] = (value, {k: v for k, v in context.items() if v})
+                        break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
     def test_other_tracks_keep_the_hosted_route(self) -> None:
@@ -186,7 +196,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
                     self.assertIn(HOSTED_SIGNING_SWITCHES[name], route)
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
-        hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
+        hosted = {name for name in JOBS if not JOBS[name].get("uses")
+                  and ((routes := manaflow_routes(name)) is None or any(NOT_OURS.search(route) for route in routes))}
         self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
                          "a nightly job may not reach a GitHub-hosted runner")
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):

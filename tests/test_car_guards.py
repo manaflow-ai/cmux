@@ -489,9 +489,12 @@ class CarGuardsWorkflow(unittest.TestCase):
         for name, job in self.workflow()["jobs"].items():
             with self.subTest(job=name):
                 self.assertEqual(workflow_jobs.secret_names(job), set())
-                runs_on = str(job["runs-on"])
-                self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
-                self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
+                cells = workflow_jobs.runs_on_cells(job)
+                self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+                self.assertTrue(cells, f"{name}: no runs-on")
+                for runs_on in cells:
+                    self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
+                    self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
         mac_steps = self.workflow()["jobs"]["mac"]["steps"]
         restore = next(s for s in mac_steps if "cache-restore" in str(s.get("uses", "")))
         self.assertEqual(restore["env"]["CI_CACHE_R2_PUBLIC_URL"], "https://ci-cache-next.cmux.com",

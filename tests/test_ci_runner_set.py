@@ -9,10 +9,14 @@ normal route and may not fall back to one Blacksmith label.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,9 +145,12 @@ class RunnerSetTests(unittest.TestCase):
         # the build fleet's Linux compile, on a gateway runner judged at once (app-compile-placement), and a
         # push-only DEV landing compile never runs on a pull request.
         starts_at_once = {"app-compile-fleet", "dev-landing-compile"}
-        mac = {name for name, job in jobs.items()
-               if ("macos" in str(job.get("runs-on", "")) or "gateway_runner" in str(job.get("runs-on", "")))
-               and name not in starts_at_once}
+        # Each matrix cell is read as its values; a matrix value nothing resolves may name a Mac, so it waits too.
+        def can_take_a_mac(job: dict) -> bool:
+            cells = workflow_jobs.runs_on_cells(job)
+            return cells is None or any("macos" in runs_on or "gateway_runner" in runs_on for runs_on in cells)
+
+        mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
                          "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
         for name in sorted(mac):

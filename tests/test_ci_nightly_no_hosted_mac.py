@@ -26,6 +26,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
@@ -57,13 +60,22 @@ def hosted_mentions(path: Path, *, comment: str) -> list[str]:
     return hits
 
 
+def runs_on_text(job: dict) -> str:
+    """The job's runs-on as written and as each matrix cell writes it; with a matrix value nothing resolves
+    (a fromJSON matrix), the matrix as written too, so a picker that feeds it is still read."""
+    cells = workflow_jobs.runs_on_cells(job)
+    strategy = job.get("strategy")
+    extra = cells if cells is not None else [str(strategy.get("matrix", "") if isinstance(strategy, dict) else strategy)]
+    return "\n".join([str(job.get("runs-on", "")), *extra])
+
+
 def picker_scripts() -> set[Path]:
     """Scripts run by a job whose outputs some runs-on in a scoped workflow reads."""
     scripts = set()
     for path in scoped_workflows():
         jobs = (yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}).get("jobs") or {}
         for job in jobs.values():
-            for picker in NEEDS_OUTPUT.findall(str(job.get("runs-on", ""))):
+            for picker in NEEDS_OUTPUT.findall(runs_on_text(job)):
                 for script in SCRIPT.findall(str(jobs.get(picker, {}).get("steps", ""))):
                     if (ROOT / script).is_file():
                         scripts.add(ROOT / script)

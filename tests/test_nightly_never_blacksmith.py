@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import expand as nightly_expand  # noqa: E402
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 import yaml  # noqa: E402
 
@@ -91,6 +92,15 @@ def manaflow_route(name: str) -> str:
     return re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", runs_on)
 
 
+def manaflow_routes(name: str) -> list[str] | None:
+    """manaflow_route of each matrix cell of the job's runs-on (`${{ matrix.pool }}` read as its values), or
+    None when a matrix value nothing resolves: a guard counts that job as an offender, never as clean."""
+    cells = workflow_jobs.runs_on_cells(JOBS[name])
+    if cells is None:
+        return None
+    return [re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", cell) for cell in cells]
+
+
 def sample(source: str, rng: random.Random) -> dict:
     context = {
         "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
@@ -120,41 +130,43 @@ def sample(source: str, rng: random.Random) -> dict:
 
 class NightlyNeverBlacksmith(unittest.TestCase):
     def test_no_runs_on_names_a_blacksmith_route(self) -> None:
-        offenders = sorted(name for name, job in JOBS.items()
-                           if BLACKSMITH_ROUTE.search(manaflow_route(name).replace("'blacksmith')", "")))
+        offenders = sorted(name for name in JOBS
+                           if (routes := manaflow_routes(name)) is None
+                           or any(BLACKSMITH_ROUTE.search(route.replace("'blacksmith')", "")) for route in routes))
         self.assertEqual(offenders, [], "these nightly jobs can still take a Blacksmith label")
 
     def test_no_runs_on_reads_a_blacksmith_pick(self) -> None:
-        offenders = sorted(name for name in JOBS if BLACKSMITH_ONLY_OUTPUTS.search(manaflow_route(name)))
+        offenders = sorted(name for name in JOBS
+                           if (routes := manaflow_routes(name)) is None
+                           or any(BLACKSMITH_ONLY_OUTPUTS.search(route) for route in routes))
         self.assertEqual(offenders, [], "these nightly jobs read a picker output that only names Blacksmith")
 
     def test_every_route_resolves_to_our_runners(self) -> None:
         rng = random.Random(41717500642)
         failures = {}
         for name, job in JOBS.items():
-            runs_on = str(job.get("runs-on", ""))
             if job.get("uses"):
                 continue  # a reusable workflow: test_called_workflows_never_take_blacksmith reads its jobs
-            if runs_on == "${{ matrix.pool }}":
-                pools = job["strategy"]["matrix"]["pool"]
-                if any(BLACKSMITH_ROUTE.search(re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", p))
-                       for p in pools):
-                    failures[name] = pools
+            # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
+            cells = workflow_jobs.runs_on_cells(job)
+            if cells is None:
+                failures[name] = "runs-on has a matrix value nothing resolves"
                 continue
-            if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
-                continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
-            if not runs_on.startswith("${{"):
-                if "blacksmith" in runs_on or not runs_on:
-                    failures[name] = runs_on
-                continue
-            source = runs_on.removeprefix("${{").removesuffix("}}")
-            expression = parse_expression(source)
-            for _ in range(400):
-                context = sample(source, rng)
-                value = evaluate(expression, context)
-                if not value or "blacksmith" in str(value).lower():
-                    failures[name] = (value, {k: v for k, v in context.items() if v})
-                    break
+            for runs_on in cells or [""]:
+                if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
+                    continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
+                if not runs_on.startswith("${{"):
+                    if "blacksmith" in runs_on or not runs_on:
+                        failures[name] = runs_on
+                    continue
+                source = runs_on.removeprefix("${{").removesuffix("}}")
+                expression = parse_expression(source)
+                for _ in range(400):
+                    context = sample(source, rng)
+                    value = evaluate(expression, context)
+                    if not value or "blacksmith" in str(value).lower():
+                        failures[name] = (value, {k: v for k, v in context.items() if v})
+                        break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
     def test_called_workflows_never_take_blacksmith(self) -> None:
@@ -165,7 +177,10 @@ class NightlyNeverBlacksmith(unittest.TestCase):
             called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
             for inner, spec in called["jobs"].items():
                 with self.subTest(job=name, inner=inner):
-                    self.assertFalse(BLACKSMITH_ROUTE.search(str(spec.get("runs-on", ""))), spec.get("runs-on"))
+                    cells = workflow_jobs.runs_on_cells(spec)
+                    self.assertIsNotNone(cells, f"{inner}: runs-on has a matrix value nothing resolves")
+                    for runs_on in cells:
+                        self.assertFalse(BLACKSMITH_ROUTE.search(runs_on), runs_on)
 
 
     def test_the_sampler_catches_a_blacksmith_fallback(self) -> None:

@@ -30,6 +30,7 @@ from blacksmith_linux_sizes import size_label  # noqa: E402
 from runs_on_labels import pool_members  # noqa: E402
 
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 WORKFLOWS = ROOT / ".github" / "workflows"
 NIGHTLY_LABEL = "blacksmith-12vcpu-macos-26"
@@ -230,8 +231,11 @@ def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> 
     # serve both until promotion gets its own label (ci-repo-variables.yml on
     # main warns then).
     jobs = load("cmux-tui-artifacts.yml")["jobs"]
-    routes = {name: job["runs-on"] for name, job in jobs.items() if "runs-on" in job}
-    assert "cmux-next-daemon-tests" in routes
+    # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+    unresolved = sorted(name for name, job in jobs.items() if workflow_jobs.runs_on_cells(job) is None)
+    assert not unresolved, f"runs-on has a matrix value nothing resolves: {unresolved}"
+    routes = [(name, runs_on) for name, job in jobs.items() for runs_on in workflow_jobs.runs_on_cells(job)]
+    assert "cmux-next-daemon-tests" in {name for name, _ in routes}
     for overrides in _pin_variable_combinations():
         side = overrides["CI_SIDE_LANE_RUNNER"]
         promotion = overrides["CI_NEXT_DAEMON_POOL"] or overrides["CI_NEXT_PROMOTE_POOL"]
@@ -240,7 +244,7 @@ def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> 
             if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) != (
                     "manaflow-ai", "push", PIN_REF):
                 continue
-            for name, runs_on in routes.items():
+            for name, runs_on in routes:
                 label = route(runs_on, context) if runs_on.strip().startswith("${{") else runs_on
                 where = (name, context["github.run_attempt"], overrides)
                 assert not side or label != side, where

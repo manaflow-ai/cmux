@@ -39,6 +39,7 @@ BOT = "github-actions[bot]"
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str):
@@ -1852,22 +1853,25 @@ class SaturatedOwnedPool(unittest.TestCase):
         wiring.jobs = jobs
         found = []
         for name, job in jobs.items():
-            runs_on = job.get("runs-on")
-            if not isinstance(runs_on, str) or "macos-placement.outputs.runner" not in runs_on:
-                continue
-            for attempt, actor in (("1", "teamleaderleo"), ("2", BOT)):
-                context = wiring.context(attempt, actor)
-                context["needs"].setdefault("path_route", {"outputs": {}})
-                if evaluate(runs_on, context) != SIDE:
+            # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+            cells = workflow_jobs.runs_on_cells(job)
+            self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+            for runs_on in cells:
+                if "macos-placement.outputs.runner" not in runs_on:
                     continue
-                found.append(name)
-                with self.subTest(job=name, attempt=attempt):
-                    place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
-                    declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
-                    self.assertIn(name, declared,
-                                  f"{name} can take the side label but the cascade never places it off it")
-                    self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
-                    self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)
+                for attempt, actor in (("1", "teamleaderleo"), ("2", BOT)):
+                    context = wiring.context(attempt, actor)
+                    context["needs"].setdefault("path_route", {"outputs": {}})
+                    if evaluate(runs_on, context) != SIDE:
+                        continue
+                    found.append(name)
+                    with self.subTest(job=name, attempt=attempt):
+                        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+                        declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
+                        self.assertIn(name, declared,
+                                      f"{name} can take the side label but the cascade never places it off it")
+                        self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
+                        self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)
         self.assertTrue(set(cascade.CASCADE_JOBS) <= set(found), found)
 
     def side_outputs(self, runners, counts, **extra: str) -> dict:

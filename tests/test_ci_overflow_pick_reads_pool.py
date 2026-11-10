@@ -27,10 +27,14 @@ notarization workflows are out of scope: they never use Blacksmith (tests/test_c
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -186,13 +190,20 @@ def picks_one_size(runs_on: object) -> bool:
     return pick is not None and EPHEMERAL_MIRROR.search(runs_on[: pick.start()]) is None
 
 
+def job_picks_one_size(job: dict) -> bool:
+    """picks_one_size over every matrix cell of the job's runs-on (a `${{ matrix.runner }}` leg is read as its
+    values). A matrix value nothing resolves (a fromJSON matrix) leaves only the runs-on as written to read."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return any(picks_one_size(cell) for cell in (cells if cells is not None else [job.get("runs-on")]))
+
+
 def counts() -> dict[str, int]:
     found: dict[str, int] = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         if OUT_OF_SCOPE.search(path.name):
             continue
         for job in ((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}).values():
-            if isinstance(job, dict) and picks_one_size(job.get("runs-on")):
+            if isinstance(job, dict) and job_picks_one_size(job):
                 found[path.name] = found.get(path.name, 0) + 1
     return found
 
