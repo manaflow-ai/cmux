@@ -66,6 +66,12 @@ const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
 /// Fails this many respawn launches after the row reopened, as a launch that
 /// found no free PTY does (tests of a tab left `restart_failed`).
 const LAUNCH_FAILURES_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES";
+/// Debug builds: fails this many respawn launches after the row reopened
+/// with a launch error that is not a full PTY table, as a PTY master open
+/// that the kernel refused for a moment does (tests of a failed launch that
+/// can pass on the next try). Release builds ignore it.
+#[cfg(debug_assertions)]
+const LAUNCH_ERRORS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS";
 
 /// The respawn gate: first respawn attempts take turns in the order they
 /// were scheduled, at most one per CPU at once. A respawn replays its seed
@@ -122,6 +128,9 @@ pub(crate) struct TerminalRespawns {
     seeds: Mutex<HashMap<String, Vec<u8>>>,
     /// Respawn launches still to fail on purpose ([`LAUNCH_FAILURES_ENV`]).
     injected_launch_failures: AtomicU64,
+    /// Respawn launches still to fail on purpose with a launch error
+    /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
+    injected_launch_errors: AtomicU64,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -152,6 +161,17 @@ impl ArgvMemory {
     }
 }
 
+/// The launch errors a test asked for (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`);
+/// 0 in release builds.
+fn injected_launch_errors() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(count) = std::env::var(LAUNCH_ERRORS_ENV).ok().and_then(|value| value.parse().ok())
+    {
+        return count;
+    }
+    0
+}
+
 impl TerminalRespawns {
     pub(crate) fn from_env() -> Self {
         Self {
@@ -173,12 +193,21 @@ impl TerminalRespawns {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
+            injected_launch_errors: AtomicU64::new(injected_launch_errors()),
         }
     }
 
     /// Whether this launch fails on purpose ([`LAUNCH_FAILURES_ENV`]).
     fn take_injected_launch_failure(&self) -> bool {
         self.injected_launch_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
+    }
+
+    /// Whether this launch fails on purpose with a launch error
+    /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
+    fn take_injected_launch_error(&self) -> bool {
+        self.injected_launch_errors
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
             .is_ok()
     }
@@ -639,6 +668,14 @@ impl Mux {
             return Err(HostLaunchFailure::bounded(
                 HostLaunchFailureKind::PtyCapacityExhausted,
                 "injected: PTY capacity exhausted".into(),
+            )
+            .into());
+        }
+        if self.terminal_respawns.take_injected_launch_error() {
+            use crate::terminal_host_protocol::{HostLaunchFailure, HostLaunchFailureKind};
+            return Err(HostLaunchFailure::bounded(
+                HostLaunchFailureKind::LaunchFailed,
+                "injected: terminal launch failed: failed to open PTY: os error -6".into(),
             )
             .into());
         }
