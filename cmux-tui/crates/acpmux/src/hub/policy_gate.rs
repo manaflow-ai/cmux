@@ -213,6 +213,36 @@ mod tests {
         gate_decision(policy, None, kind, false, shell_reads)
     }
 
+    /// Codex review F2 on #40513: the GitHub broker's read tools run under review and
+    /// approve-reads (a fetch); its writes and clone are denied under review and asked under
+    /// approve-reads.
+    #[test]
+    fn the_github_read_tools_run_under_review_and_approve_reads() {
+        let kind = |tool: &str| {
+            crate::claude_stdio::tool_call_fields(tool, &json!({}))["kind"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        for tool in ["mcp__acpmux-github__repo_view", "mcp__acpmux-github__pr_view"] {
+            for policy in [PermissionPolicy::Review, PermissionPolicy::ApproveReads] {
+                assert_eq!(
+                    decide(policy, &kind(tool), false),
+                    GateDecision::None,
+                    "{tool} {policy}"
+                );
+            }
+            assert_eq!(decide(PermissionPolicy::DenyAll, &kind(tool), false), GateDecision::Deny);
+        }
+        for tool in ["mcp__acpmux-github__issue_create", "mcp__acpmux-github__repo_clone"] {
+            assert_eq!(decide(PermissionPolicy::Review, &kind(tool), false), GateDecision::Deny);
+            assert_eq!(
+                decide(PermissionPolicy::ApproveReads, &kind(tool), false),
+                GateDecision::Ask
+            );
+        }
+    }
+
     /// The module docs' table, row by row.
     #[test]
     fn each_policy_gates_each_kind_of_call_as_the_table_says() {

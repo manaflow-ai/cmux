@@ -161,14 +161,7 @@ pub async fn run(
 ) -> Result<Value, RpcError> {
     let target = check_target(cwd, r)?;
     let name = dir_name(r);
-    let cloned = clone_into(&target, &r.repo, lent.as_ref().map(|t| t.as_str())).await;
-    if let Err(e) = cloned {
-        // Only the folder this clone made: one the agent swapped in stays.
-        if e.data.as_ref().and_then(|d| d.get("reason")) != Some(&json!("github.clone_exists")) {
-            let _ = std::fs::remove_dir_all(&target);
-        }
-        return Err(e);
-    }
+    clone_into(&target, &r.repo, lent.as_ref().map(|t| t.as_str())).await?;
     Ok(json!({
         "action": GithubAction::Clone,
         "repo": r.repo,
@@ -226,8 +219,6 @@ fn helper(host: &str) -> String {
 
 #[cfg(unix)]
 async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
-    use std::io::Write as _;
-    use std::os::fd::AsRawFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     // Made here, never followed: a name taken since the check (by the agent, in its own
@@ -241,6 +232,28 @@ async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<()
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(target)
         .map_err(|e| RpcError::internal(format!("could not open {name}: {e}")))?;
+    let cloned = clone_in(&dir, target, repo, token).await;
+    if cloned.is_err() {
+        remove_failed(&dir, target);
+    }
+    cloned
+}
+
+/// Removes what a failed clone left in the folder it made (`dir`, opened at `target`).
+#[cfg(unix)]
+pub(crate) fn remove_failed(_dir: &std::fs::File, target: &Path) {
+    let _ = std::fs::remove_dir_all(target);
+}
+
+#[cfg(unix)]
+async fn clone_in(
+    dir: &std::fs::File,
+    target: &Path,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<(), RpcError> {
+    use std::io::Write as _;
+    use std::os::fd::AsRawFd as _;
     let base = base();
     let host = base.split_once("://").map_or(base.as_str(), |(_, h)| h).to_owned();
     let url = format!("{base}/{repo}.git");
@@ -332,7 +345,6 @@ async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<()
             return Err(RpcError::internal("the clone kept its credential; it was removed"));
         }
     }
-    drop(dir);
     Ok(())
 }
 

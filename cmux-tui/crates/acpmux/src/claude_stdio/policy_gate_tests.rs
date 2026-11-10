@@ -136,3 +136,24 @@ fn the_gate_is_registered_for_every_tool_and_fails_closed() {
     assert_eq!(gate["onFailure"], "block");
     assert_eq!(gate["timeout"], policy_gate::GATE_TIMEOUT_S);
 }
+
+/// Codex review F2 on #40513: the broker's two read tools reach the hub as fetches, so review
+/// and approve-reads run them as they run WebFetch; its writes and clone stay `other`.
+#[tokio::test]
+async fn the_github_read_tools_reach_the_gate_as_fetches() {
+    let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
+    for (tool, kind) in [
+        ("mcp__acpmux-github__repo_view", "fetch"),
+        ("mcp__acpmux-github__pr_view", "fetch"),
+        ("mcp__acpmux-github__issue_create", "other"),
+        ("mcp__acpmux-github__issue_comment", "other"),
+        ("mcp__acpmux-github__pr_create_draft", "other"),
+        ("mcp__acpmux-github__repo_clone", "other"),
+        ("mcp__other__repo_view", "other"),
+    ] {
+        let (_, params) = asked(&t, &hook(tool, tool, json!({"repo": "o/r"})))
+            .await
+            .unwrap_or_else(|| panic!("{tool} asks the hub"));
+        assert_eq!(params["toolCall"]["kind"], kind, "{tool}: {params}");
+    }
+}

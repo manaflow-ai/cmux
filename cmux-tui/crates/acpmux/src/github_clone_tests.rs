@@ -97,3 +97,71 @@ fn the_helper_answers_only_its_host() {
     assert_eq!(run("get", "protocol=https\nhost=evil.example\n"), "");
     assert_eq!(run("store", "protocol=https\nhost=github.com\n"), "");
 }
+
+/// The folder a failed clone made, opened the way `clone_into` opens it.
+#[cfg(unix)]
+fn made(target: &Path) -> std::fs::File {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    std::fs::create_dir(target).unwrap();
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(target)
+        .unwrap()
+}
+
+/// Codex review F1 on #40513: the agent renames the clone's folder while git runs and puts
+/// another folder at its name; a failed clone then removes only what is in the folder it made,
+/// and nothing of the replacement.
+#[cfg(unix)]
+#[test]
+fn a_failed_clone_removes_nothing_of_a_folder_put_in_its_place() {
+    let d = tempfile::tempdir().unwrap();
+    let target = d.path().join("r");
+    let dir = made(&target);
+    std::fs::create_dir_all(target.join(".git/objects")).unwrap();
+    std::fs::write(target.join(".git/objects/pack"), "partial").unwrap();
+    std::fs::write(target.join("README"), "partial").unwrap();
+    std::fs::rename(&target, d.path().join("moved")).unwrap();
+    std::fs::create_dir_all(target.join("work")).unwrap();
+    std::fs::write(target.join("work/keep.txt"), "the agent's").unwrap();
+    remove_failed(&dir, &target);
+    assert_eq!(std::fs::read_to_string(target.join("work/keep.txt")).unwrap(), "the agent's");
+    let moved = d.path().join("moved");
+    assert!(moved.is_dir(), "the clone's own folder no longer at its name stays, empty");
+    assert_eq!(std::fs::read_dir(&moved).unwrap().count(), 0, "what the clone wrote is gone");
+}
+
+/// A clone makes no `.git` below its own top folder (no submodules), so one found deeper was
+/// moved in by someone else: it is left whole, with the folders above it.
+#[cfg(unix)]
+#[test]
+fn a_failed_clone_leaves_a_repository_moved_into_it() {
+    let d = tempfile::tempdir().unwrap();
+    let target = d.path().join("r");
+    let dir = made(&target);
+    std::fs::create_dir_all(target.join("project/.git")).unwrap();
+    std::fs::write(target.join("project/.git/config"), "theirs").unwrap();
+    std::fs::write(target.join("partial"), "ours").unwrap();
+    remove_failed(&dir, &target);
+    assert_eq!(std::fs::read_to_string(target.join("project/.git/config")).unwrap(), "theirs");
+    assert!(!target.join("partial").exists(), "the clone's own files go");
+}
+
+/// A failed clone nobody touched leaves nothing; a link in it is removed, never followed.
+#[cfg(unix)]
+#[test]
+fn a_failed_clone_is_removed_and_its_links_are_not_followed() {
+    let d = tempfile::tempdir().unwrap();
+    let outside = d.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("keep"), "x").unwrap();
+    let target = d.path().join("r");
+    let dir = made(&target);
+    std::fs::create_dir_all(target.join(".git/refs")).unwrap();
+    std::fs::write(target.join(".git/HEAD"), "ref").unwrap();
+    std::os::unix::fs::symlink(&outside, target.join("link")).unwrap();
+    remove_failed(&dir, &target);
+    assert!(!target.exists(), "the folder the clone made is gone");
+    assert!(outside.join("keep").exists(), "a link's target stays");
+}
