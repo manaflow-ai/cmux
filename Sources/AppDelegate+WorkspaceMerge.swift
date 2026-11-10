@@ -20,6 +20,14 @@ extension AppDelegate {
         return !panelIds.isEmpty && panelIds.allSatisfy { target.acceptsSurface(from: source, panelID: $0) }
     }
 
+    /// Whether a dragged sidebar row may merge here. A row reorder that overshoots
+    /// the sidebar lands on a pane, so a drag stays inside the row's own group;
+    /// Merge Workspace into remains the explicit way across groups.
+    func canDragMergeWorkspace(_ sourceId: UUID, into targetId: UUID) -> Bool {
+        canMergeWorkspace(sourceId, into: targetId)
+            && effectiveGroupId(ofWorkspace: sourceId) == effectiveGroupId(ofWorkspace: targetId)
+    }
+
     /// Moves every tab of `sourceId` to `destination` in `targetId`. False when
     /// the merge is refused or the first tab cannot move; a later tab that
     /// cannot move stays behind in its workspace.
@@ -104,6 +112,13 @@ extension AppDelegate {
             focus: focus,
             focusWindow: focusWindow
         )
+    }
+
+    /// The group the sidebar shows this workspace in, nil at the root.
+    private func effectiveGroupId(ofWorkspace id: UUID) -> UUID? {
+        guard let manager = tabManagerFor(tabId: id) else { return nil }
+        let groupsById = Dictionary(manager.workspaceGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(tabs: manager.tabs, groupsById: groupsById)[id] ?? nil
     }
 
     private func mergeWorkspace(id: UUID) -> Workspace? {
