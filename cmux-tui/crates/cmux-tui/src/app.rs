@@ -32899,6 +32899,54 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    /// The PTY reader holds the terminal lock while it parses output, so the
+    /// inner state can be unknowable at the moment a resize arrives. The
+    /// re-assert must not be lost then: the next frame still re-emits host
+    /// mouse capture, from the capture last applied, and never guesses that
+    /// capture is off.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_while_the_terminal_is_busy() {
+        let mux = Mux::new("scoped-resize-busy-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.host_mouse_capture_applied = Some(true);
+
+        // Hold the terminal lock on another thread, as the reader does.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_surface = surface.clone();
+        let holder = std::thread::spawn(move || {
+            holder_surface.with_terminal(|_| {
+                held_tx.send(()).unwrap();
+                let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            });
+        });
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+        let applied_after_resize = app.host_mouse_capture_applied;
+        let next_frame = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        );
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(
+            applied_after_resize, None,
+            "a resize while the terminal is busy must still reset the applied host-capture bookkeeping"
+        );
+        let next_frame = next_frame
+            .expect("the next frame must re-emit host mouse capture while the terminal is busy");
+        assert!(
+            next_frame.contains("\x1b[?1002h"),
+            "the busy-terminal re-assert must keep the capture last applied, not release it: {next_frame:?}"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
     /// A full TUI owns the entire host surface and re-emits its input modes
     /// through its normal lifecycle; the focus-in re-assert is scoped-only, so
     /// it must not disturb a full-TUI client's capture bookkeeping.
