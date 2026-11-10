@@ -94,11 +94,14 @@ import Testing
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let loose = try Self.row(list, Self.loose)
             let textX = Self.x(list, loose.title.frame.minX, in: loose)
-            let slot = textX...(textX + SidebarStyle.iconBox)
+            // The slot every leading glyph's ink fills (`SidebarStyle.rowGlyphOpticalSide`, Lawrence 2026-11-09: one size).
+            let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide)
+            // The glyph's frame snaps its origin and its size to whole pixels (a crisp bitmap): up to half a 1x pixel each.
+            let snapped = Self.tolerance + 0.5
             let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph"), pinInk = try #require(pin.pinInkFrame, "the pinned row drew no pin")
             for (name, ink, row) in [("Home's glyph", homeInk, home), ("the pin", pinInk, pin)] {
                 let minX = Self.x(list, ink.minX, in: row), maxX = Self.x(list, ink.maxX, in: row)
-                #expect(minX >= slot.lowerBound - Self.tolerance && maxX <= slot.upperBound + Self.tolerance,
+                #expect(minX >= slot.lowerBound - snapped && maxX <= slot.upperBound + snapped,
                         "\(c.testDescription): \(name) spans \(minX)...\(maxX), the icon slot \(slot)")
             }
         }

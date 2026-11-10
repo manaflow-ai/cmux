@@ -137,7 +137,9 @@ class SidebarItemRowView: NSView {
             decoration.cornerCurve = .continuous
             layer?.addSublayer(decoration)
         }
-        icon.imageScaling = .scaleProportionallyDown
+        // Leading glyphs draw at the rows' one optical size, up or down (`SidebarOpticalGlyph`).
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        pin.imageScaling = .scaleProportionallyUpOrDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
         [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
@@ -460,6 +462,11 @@ class SidebarItemRowView: NSView {
     private func pinGlyphFrame(side: CGFloat, leading: CGFloat, height: CGFloat) -> NSRect {
         let scale = window?.backingScaleFactor ?? 2
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        if let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph),
+           let frame = SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: leading, centerY: height / 2,
+                                                         flipped: isFlipped, scale: scale) {
+            return frame
+        }
         guard let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else {
             let square = CGRect(x: 0, y: 0, width: side, height: side)
             return NSRect(x: snap(SidebarStyle.bandGlyphX(leading: leading, ink: square)), y: snap((height - side) / 2), width: side, height: side)
@@ -470,7 +477,7 @@ class SidebarItemRowView: NSView {
     /// The pin's drawn ink in the row's coordinates; nil without a pin (tests).
     var pinInkFrame: CGRect? {
         guard !pin.isHidden, let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else { return nil }
-        return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
+        return Self.drawnInk(ink, image: image, in: pin.frame)
     }
 
     /// The pin's square in the row's coordinates; nil without a pin (tests): Home's glyph square (`SidebarStyle.pinGlyphSide`).
@@ -488,7 +495,7 @@ class SidebarItemRowView: NSView {
     var glyphInkFrame: CGRect? {
         guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return nil }
-        return ink.offsetBy(dx: icon.frame.minX, dy: icon.frame.minY)
+        return Self.drawnInk(ink, image: image, in: icon.frame)
     }
 
     /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size.
@@ -589,11 +596,22 @@ class SidebarItemRowView: NSView {
     /// and a pinned workspace's icon after its pin alike. Without measurable ink, the square itself takes the rule.
     private func inkColumnGlyphFrame(side: CGFloat, column: NSRect) -> NSRect {
         let scale = window?.backingScaleFactor ?? 2
+        if let image = icon.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey),
+           let frame = SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: ink, leading: column.minX,
+                                                         centerY: column.midY, flipped: isFlipped, scale: scale) {
+            return frame
+        }
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
         let ink = icon.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: glyphKey) } ?? CGRect(x: 0, y: 0, width: side, height: side)
         let x = SidebarStyle.bandGlyphX(leading: column.minX, ink: ink)
         return NSRect(x: snap(x), y: snap(column.midY - ink.midY),
                       width: side, height: side)
+    }
+
+    /// `ink` (top-left origin, in `image`'s points) as an image view of `frame` draws it, scaled to the frame.
+    static func drawnInk(_ ink: CGRect, image: NSImage, in frame: CGRect) -> CGRect {
+        let k = image.size.width > 0 ? frame.width / image.size.width : 1
+        return CGRect(x: frame.minX + ink.minX * k, y: frame.minY + ink.minY * k, width: ink.width * k, height: ink.height * k)
     }
 
     /// The glyph drawn now (tests).

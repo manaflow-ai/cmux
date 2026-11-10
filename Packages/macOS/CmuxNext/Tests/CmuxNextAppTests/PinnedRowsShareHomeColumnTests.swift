@@ -119,17 +119,18 @@ import Testing
         }
     }
 
-    /// The pin draws in Home's glyph square, so it reads as wide as the house beside it, not 4 pt smaller.
+    /// The pin's ink is as large as the house's along its longer side, so it reads as one size with it, not 4 pt smaller.
     @Test(arguments: cases)
-    func thePinDrawsInHomesGlyphSquare(_ c: Case) throws {
+    func thePinDrawsAsLargeAsHomesGlyph(_ c: Case) throws {
         try Self.at(c) {
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let plain = try HomePinnedRowAlignmentTests.item(list, Self.plain.id)
-            let pin = try #require(plain.pinSquareFrame, "the text-only pinned row draws no pin")
-            #expect(abs(pin.width - home.icon.frame.width) <= 0.01,
-                    "\(c.testDescription): the pin's square is \(pin.width) pt, Home's glyph's \(home.icon.frame.width) pt")
+            let pin = try #require(plain.pinInkFrame, "the text-only pinned row draws no pin")
+            let house = try #require(home.glyphInkFrame, "Home drew no glyph")
+            #expect(abs(max(pin.width, pin.height) - max(house.width, house.height)) <= 1,
+                    "\(c.testDescription): the pin's ink is \(pin.width) x \(pin.height) pt, Home's \(house.width) x \(house.height) pt")
         }
     }
 

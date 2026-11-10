@@ -13,6 +13,14 @@
   default `sidebar.updateCard.automaticSize` (Regular) sets the label in `Typography.body` and the switch at
   `Metrics.smallIconSize`, and the card's height follows. Compact (before) and Large stay in Debug Settings.
   Regression: `UpdateReadyCardStyleTests.automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt`.
+- 2026-11-09: one optical size for every row glyph. Lawrence (screenshot 6:55 PM): the cmux app icon on "cmux-next
+  landing" looked smaller than the other icons with a wider gap before its title; the GitHub mark and the globe drew at
+  different sizes. Glyphs were fitted by their image square, so a favicon with a transparent margin drew smaller ink.
+  Every leading glyph (favicon, app icon, GitHub mark, symbol, Home's house, pin) now draws its measured ink's larger
+  side at `SidebarStyle.rowGlyphOpticalSide`, starting on the row inset (`SidebarOpticalGlyph`), so each ends at the
+  icon column's edge and keeps one gap before its title. Favicons are made a third larger, so a margined one scales
+  down, never up. Emoji keep their square. Regression: `SidebarRowGlyphOpticalSizeTests`, `SidebarOpticalGlyphTests`.
+
 - 2026-11-09: one left edge, even row padding, and a marquee that fades its left edge. Lawrence, verbatim: "left side
   transparency is bad; home/pin icons not left aligned with 'Fix…' or traffic lights; for each workspace row, padding
   on left/bottom/top/right should be even, on all densities". Home's house and the pins start their ink on the row

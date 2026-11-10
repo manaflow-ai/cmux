@@ -89,6 +89,12 @@ enum SidebarStyle {
     static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
     /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
     static var workspaceFaviconSide: CGFloat { (kindGlyphSize * workspaceGlyphScale).rounded() }
+    /// The one optical size of every row's leading glyph ink (``SidebarOpticalGlyph``): a favicon, an app icon, the GitHub
+    /// mark, a symbol, Home's house and a pin all fill this square along their larger side, at every density (Lawrence
+    /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
+    /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap.
+    static var rowGlyphOpticalSide: CGFloat { workspaceFaviconSide }
+    static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
