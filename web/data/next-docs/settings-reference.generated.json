@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -6605,6 +6605,14 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.turnCheckpoints",
+          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
+          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"

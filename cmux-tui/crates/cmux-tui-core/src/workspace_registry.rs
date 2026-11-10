@@ -165,7 +165,10 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
-pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
+pub(crate) use resource_store::{
+    load_live_terminal_resource_ids, load_resource_topology_scoped, load_session_panes,
+    load_session_tabs, load_terminal_tabs, load_topology_frame,
+};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -180,6 +183,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use terminal_snapshot_read::load_terminal_rows;
 pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
