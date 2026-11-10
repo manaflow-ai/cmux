@@ -15,8 +15,8 @@ import Testing
 /// workspace switch was 12 ms later with 32 kept workspaces than with 4 (29.0 against 17.0 ms p50).
 ///
 /// The rule (CLAUDE.md, "hidden workspaces do no view work until shown, then one layout"): a button that is hidden, or
-/// under a hidden view, does no layout; it lays out one time when it shows. The tests send the mark AppKit sends: a test
-/// process has no key window to change.
+/// under a hidden view, does no layout; it lays out one time when it shows. Most tests send the mark AppKit sends;
+/// `aRealKeyWindowChangeLaysOutNoHiddenButton` lets AppKit send it (`becomeKey()`, `resignKey()`).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct HiddenWorkspaceButtonLayoutTests {
@@ -47,6 +47,44 @@ struct HiddenWorkspaceButtonLayoutTests {
     /// `-[NSView layout]` calls of the view classes named `classes`, since launch.
     static func layouts(of classes: Set<String>) -> Int {
         LayoutPassGuard.shared.passesByClass.reduce(0) { $0 + (classes.contains($1.viewClass) ? $1.passes : 0) }
+    }
+
+    /// One window with a button that shows and a button under a hidden view, after one key window change each way
+    /// (`becomeKey()` and `resignKey()`, the calls AppKit makes when the key window changes): the layouts of each button.
+    static func layoutsAtAKeyWindowChange() -> (shown: Int, hidden: Int) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        guard let content = window.contentView else { return (0, 0) }
+        let hiddenWorkspace = NSView(frame: content.bounds)
+        let shownButton = CountingButton(frame: NSRect(x: 10, y: 10, width: 28, height: 28))
+        let hiddenButton = CountingButton(frame: NSRect(x: 50, y: 10, width: 28, height: 28))
+        shownButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        hiddenButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        hiddenWorkspace.addSubview(hiddenButton)
+        content.addSubview(hiddenWorkspace)
+        content.addSubview(shownButton)
+        content.layoutSubtreeIfNeeded()
+        hiddenWorkspace.isHidden = true
+        content.layoutSubtreeIfNeeded()
+        let shownBefore = shownButton.layouts
+        let hiddenBefore = hiddenButton.layouts
+        window.becomeKey()
+        content.layoutSubtreeIfNeeded()
+        window.resignKey()
+        content.layoutSubtreeIfNeeded()
+        return (shownButton.layouts - shownBefore, hiddenButton.layouts - hiddenBefore)
+    }
+
+    /// AppKit's own mark at a key window change (not a mark the test sends) reaches no layout of a hidden button. The
+    /// test runs only where AppKit marks the buttons of a test window at `becomeKey()` / `resignKey()`: without that
+    /// mark it would prove nothing, so it is skipped, not passed.
+    @Test(.enabled("AppKit marks a test window's buttons at becomeKey() and resignKey()") { await Self.layoutsAtAKeyWindowChange().shown > 0 })
+    func aRealKeyWindowChangeLaysOutNoHiddenButton() {
+        let layouts = Self.layoutsAtAKeyWindowChange()
+        print("HIDDEN-BUTTON-KEY-CHANGE shown_laid_out=\(layouts.shown) hidden_laid_out=\(layouts.hidden)")
+        #expect(layouts.shown > 0, "AppKit sent the button that shows no layout mark at the key window change")
+        #expect(layouts.hidden == 0, "the hidden button laid out \(layouts.hidden) times for one key window change each way")
     }
 
     /// A button under a hidden view: two key window changes lay it out 0 times; it lays out one time when its container
