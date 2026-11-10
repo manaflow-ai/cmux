@@ -92,6 +92,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
 mod session_shutdown;
@@ -99,7 +100,6 @@ mod shell_history;
 mod shell_integration;
 #[cfg(unix)]
 mod shell_runs;
-pub mod safe_mode_flag;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;

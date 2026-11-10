@@ -22,7 +22,7 @@ use super::{GlobalArgs, OutputMode};
 
 const USAGE: &str = "usage: cmux safe-mode on|off|status [--json] [--state-dir DIR]\n\n  Safe mode turns every extension off (third-party, local and customize apps, and the\n  bundled apps that run scripts), so a broken extension cannot break cmux.\n  on:     turn it on now; cmux shows its own views in place of every extension.\n  off:    leave it. While cmux runs, only you can do this, in cmux (Leave Safe Mode).\n          With cmux quit, this removes the flag so the next start is normal.\n  status: whether it is on, why, and which extensions a crash loop held off.\n  With no cmux running, on and off write the flag in the state folder\n  (--state-dir, else CMUX_TUI_STATE_DIR, else the default) for the next start.\n\n  cmux apps rollback <app> puts back the last version of a local app that worked.";
 
-const ROLLBACK_USAGE: &str = "usage: cmux apps rollback <app> [--json]\n\n  Puts back the last version of a local or customize app that loaded and drew.\n  The files it replaces are kept, so nothing is lost.";
+const ROLLBACK_USAGE: &str = "usage: cmux apps rollback <app> [--json]\n\n  Puts back the last version of a local or customize app that loaded and drew.\n  The files it replaces are kept, so nothing is lost. Only you can roll back:\n  cmux refuses an agent's call (apps.origin) and this prints its answer.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
@@ -172,6 +172,10 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
                 });
                 0
             }
+            Answer::Refused { code, message } if code == "apps.origin" => {
+                eprintln!("cmux: {message} (Roll Back on the app).");
+                1
+            }
             Answer::Refused { code, message } => {
                 eprintln!("cmux: {code}: {message}");
                 1
@@ -274,9 +278,7 @@ pub(super) fn human(state: &Value, request: &Request, from_file: bool) -> String
         state["extensions"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
     if !named.is_empty() {
         out.push_str(&format!("\nRunning when it crashed: {}.", named.join(", ")));
-        out.push_str(
-            "\nRoll one back with `cmux apps rollback <app>`, or remove it in the App Store.",
-        );
+        out.push_str("\nRoll one back in cmux (Roll Back), or remove it in the App Store.");
     }
     if from_file {
         out.push_str("\ncmux is not running: it starts in safe mode next time.");
@@ -338,6 +340,6 @@ mod tests {
         let text = human(&state, &Request::Status, false);
         assert!(text.contains("crashed several times"), "{text}");
         assert!(text.contains("local/customize"), "{text}");
-        assert!(text.contains("cmux apps rollback"), "{text}");
+        assert!(text.contains("Roll Back"), "{text}");
     }
 }

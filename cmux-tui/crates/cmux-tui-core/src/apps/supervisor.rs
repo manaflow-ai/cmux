@@ -300,6 +300,9 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// App host processes spawned (`safe_mode.rs` `host_spawns`).
     pub(super) host_spawns: AtomicU64,
+    /// Keeping a last good copy and rolling back, serialized per app
+    /// (`rollback.rs`).
+    pub(super) rollback_locks: super::rollback::AppLocks,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
@@ -430,6 +433,7 @@ impl Supervisor {
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
             host_spawns: AtomicU64::new(0),
+            rollback_locks: Default::default(),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
@@ -709,8 +713,13 @@ impl Supervisor {
                     }
                 }
                 Out::Respond(responder, result) => responder(result),
+                // Up to 16 MiB of copying: never on the emitting thread.
                 Out::KeepGood { app, dir, version, print } => {
-                    self.keep_good(&app, &dir, &version, print);
+                    if let Some(me) = self.me.upgrade() {
+                        let _ = std::thread::Builder::new()
+                            .name("cmux-apps-keep-good".into())
+                            .spawn(move || me.keep_good(&app, &dir, &version, print));
+                    }
                 }
                 Out::StartEvents => {
                     let me = self.me.clone();

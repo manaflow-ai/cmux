@@ -87,17 +87,27 @@ runs, `cmux safe-mode off` is refused with that explanation.
 ## Rollback
 
 When a local app's host reports a mount that drew without an error, the daemon keeps the files that
-host loaded as the app's last good version: `<session>/apps-last-good/<app>/files`, with
-`meta.json` (version, fingerprint). One copy per app: a newer good version replaces it, and a copy
-is at most 16 MiB and the local reload's 2,000 files (dot files and `node_modules` are not copied).
-The copy is made off the supervisor lock, and only when the folder still holds what the host loaded.
+host loaded as the app's last good version: `<session>/apps-last-good/<app>/files` (`<app>` with
+every byte outside `[A-Za-z0-9._-]` written `%XX`, so `local/spy` is `local%2Fspy` and no two ids
+share a folder), with `meta.json` (version, fingerprint). One copy per app: a newer good version
+replaces it, and a copy is at most 16 MiB and the local reload's 2,000 files (dot files and
+`node_modules` are not copied). The copy is made on its own thread, off the supervisor lock, and
+only when the folder still holds what the host loaded: the print recorded at spawn is the one the
+local watch last read, and the folder must match it before and after the copy. Keeping a copy and
+rolling back are serialized per app, so a rollback never meets a half-written copy.
 
-`apps.rollback {app}` (`apps-store`; `cmux apps rollback <app>`; origin user or cli) puts those
-files back into the app's folder. The files it replaces go to `apps-last-good/<app>/replaced`, so
-nothing is lost. The app then reloads like a save (in safe mode, when safe mode ends). Every row
-carries `can_rollback`: true when a last good copy exists and the folder holds something else now,
-which is the case for a failed or paused extension whose last change broke it. The copies are on
-disk, so rollback works after a daemon restart.
+`apps.rollback {app}` (`apps-store`) puts those files back into the app's folder. Only origin user
+can roll back, like leaving safe mode: an agent's call, through MCP or the CLI, gets `apps.origin`
+(`cmux apps rollback <app>` asks cmux and prints that answer). The files it replaces go to
+`apps-last-good/<app>/replaced`, and the ones the previous rollback replaced move to
+`replaced.previous` (rotated, so a second rollback never destroys the only copy of the first's;
+older ones are dropped). A rollback refuses, before it changes anything, when a path it would write
+goes through a symbolic link in the app's folder (the link itself or a linked directory on the way),
+since the write would land outside the folder; the error names the link. The app then reloads like a
+save (in safe mode, when safe mode ends). Every row carries `can_rollback`: true when a last good
+copy exists and the folder holds something else now, which is the case for a failed or paused
+extension whose last change broke it. The copies are on disk, so rollback works after a daemon
+restart.
 
 Shipped apps (first-party, samples, `CMUX_APPS_DIRS`) are read in place from their folders and
 change only with cmux or that folder, so no earlier version of theirs is on disk to keep:
@@ -107,8 +117,8 @@ change only with cmux or that folder, so no earlier version of theirs is on disk
 
 With safe mode off: one flag file read when the supervisor starts, and one `Option` check where a
 host would spawn, a view would mount or a run would start. Nothing per frame. A local app's
-fingerprint is taken when its host spawns (the same bounded hash the local reload uses), and its
-files are copied once per new good version.
+host spawn reads the print the local watch already has (no disk work under the lock), and its
+files are copied once per new good version, on a thread of its own.
 
 ## Follow-ups (Swift shell, not in this change)
 

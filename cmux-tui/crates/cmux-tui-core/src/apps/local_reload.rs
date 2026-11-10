@@ -332,7 +332,7 @@ impl PrintsBefore {
 
 /// The fingerprint of a watched folder that had none before the catalog
 /// read (`PrintsBefore::of`); `fingerprint` never returns it.
-const UNREAD: u64 = 0;
+pub(super) const UNREAD: u64 = 0;
 
 /// Every file's path, size and contents under `dir` (dot folders and
 /// node_modules skipped), hashed. Contents, not the modification time: a

@@ -209,11 +209,13 @@ fn rollback_restores_the_last_good_version_after_a_restart() {
     f.wait("the broken view fails", |e| e["event"] == "apps-mount-failed");
     let entry = app_entry(&f.supervisor.list(), "local/spy");
     assert!(entry["run_state"].as_str().is_some_and(|s| s.starts_with("failed: ")), "{entry}");
-    // Agents propose; the person or the CLI rolls back.
+    // Agents propose (an agent's CLI call included); the person rolls back.
     let args = json!({ "app": "local/spy" });
-    let refused = f.supervisor.store_call(CLIENT, "apps.rollback", args.clone(), Origin::Mcp);
-    assert_eq!(refused.unwrap_err().code, "apps.origin");
-    let done = f.supervisor.store_call(CLIENT, "cmux.apps.rollback", args.clone(), Origin::Cli);
+    for origin in [Origin::Mcp, Origin::Cli] {
+        let refused = f.supervisor.store_call(CLIENT, "cmux.apps.rollback", args.clone(), origin);
+        assert_eq!(refused.unwrap_err().code, "apps.origin");
+    }
+    let done = f.supervisor.store_call(CLIENT, "apps.rollback", args.clone(), Origin::User);
     assert_eq!(done.unwrap(), json!({ "app": "local/spy", "version": "1.0.0", "restored": true }));
     assert_eq!(
         std::fs::read_to_string(spy.join("dist/main.js")).unwrap(),
@@ -221,7 +223,7 @@ fn rollback_restores_the_last_good_version_after_a_restart() {
     );
     assert!(!spy.join("dist/extra.js").exists());
     // Nothing is lost: the replaced files are kept.
-    let replaced = state.join("apps-last-good/local~spy/replaced");
+    let replaced = state.join("apps-last-good/local%2Fspy/replaced");
     assert!(
         std::fs::read_to_string(replaced.join("dist/main.js")).unwrap().contains("THROW_AT_INIT")
     );

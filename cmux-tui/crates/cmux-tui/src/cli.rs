@@ -33,8 +33,6 @@ mod apps_place;
 #[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
-mod safe_mode;
-#[cfg(unix)]
 mod attention;
 #[cfg(unix)]
 mod auth_token;
@@ -110,6 +108,8 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;

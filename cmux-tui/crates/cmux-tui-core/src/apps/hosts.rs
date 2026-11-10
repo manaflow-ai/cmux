@@ -204,10 +204,14 @@ impl Supervisor {
         if inner.safe_mode.is_some() && super::safe_mode::holds_off(&package) {
             return self.end_host_locked(inner, key, super::safe_mode::OFF, "off");
         }
-        // Taken before the script is read: a save after it changes the
-        // print, so the last good copy never holds files this host did not load.
+        // The print the local watch last read (no disk work under the lock).
+        // A save since then makes the folder's print differ from it, and the
+        // copy (`rollback.rs`) is only taken while the folder still matches,
+        // so the last good copy never holds files this host did not load.
         let print = (package.source == super::mirror::Source::Local && !key.preview)
-            .then(|| super::local_reload::fingerprint(&package.dir));
+            .then(|| inner.local_prints.get(&key.app).copied())
+            .flatten()
+            .filter(|print| *print != super::local_reload::UNREAD);
         let Some(main) = package.main_source() else {
             return self.fail_host_locked(inner, key, "runtime.main is missing");
         };

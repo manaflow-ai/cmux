@@ -34,6 +34,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::PoisonError;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -165,7 +166,7 @@ struct SettledParams {
 impl Supervisor {
     /// Whether safe mode is on.
     pub(crate) fn safe_mode_on(&self) -> bool {
-        self.inner.lock().unwrap().safe_mode.is_some()
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner).safe_mode.is_some()
     }
 
     /// App host processes this supervisor spawned (live hosts and load
@@ -212,7 +213,7 @@ impl Supervisor {
 
     /// `{on, reason?, sinceMs?, extensions?}`.
     pub(crate) fn safe_mode_json(&self) -> Value {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         flag_json(inner.safe_mode.as_ref())
     }
 
@@ -238,7 +239,7 @@ impl Supervisor {
     /// clears the launch count and tells clients to mount again.
     fn apply_safe_mode(&self, flag: Option<Flag>) -> Result<Value, ApiError> {
         let (outs, answer, leaving) = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let was_on = inner.safe_mode.is_some();
             // Entering again keeps the first reason and time.
             let flag = match (flag, inner.safe_mode.clone()) {
@@ -275,7 +276,8 @@ impl Supervisor {
         self.emit(outs);
         if leaving {
             // Saves made in safe mode were held; apply them now.
-            let prints = self.inner.lock().unwrap().local_prints.clone();
+            let prints =
+                self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
             self.reload_local_apps(&prints);
         }
         Ok(answer)
@@ -315,7 +317,7 @@ impl Supervisor {
     /// mounts. Answers the safe mode the launch comes up in.
     pub(crate) fn launch_began(&self, now_ms: u64) -> Value {
         let tripped = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let tripped = inner.launches.began(now_ms);
             save_launches(self.config.state_dir.as_deref(), &inner.launches);
             tripped
@@ -326,7 +328,7 @@ impl Supervisor {
                 // Still safe for this run, even when the file cannot be written.
                 eprintln!("cmux-tui: safe mode after a crash loop: {}", error.message);
                 let outs = {
-                    let mut inner = self.inner.lock().unwrap();
+                    let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
                     inner.safe_mode.get_or_insert(flag);
                     self.stop_all_hosts_locked(&mut inner)
                 };
@@ -338,7 +340,7 @@ impl Supervisor {
 
     /// `safe_mode.launch_settled`.
     pub(crate) fn launch_settled(&self) -> Value {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         inner.launches.settled();
         save_launches(self.config.state_dir.as_deref(), &inner.launches);
         flag_json(inner.safe_mode.as_ref())
