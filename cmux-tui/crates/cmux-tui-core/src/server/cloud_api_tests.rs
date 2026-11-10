@@ -478,18 +478,74 @@ fn the_person_key_is_in_no_log_line_store_or_refusal_of_the_daemon() {
 /// (exec, files, previews, cancel, turns) still gets a slot, up to the daemon's limit.
 #[test]
 fn long_polls_at_their_cap_leave_interactive_calls_their_slots() {
-    use super::calls::{MAX_LONG_POLLS, MAX_WORKERS, Slots, long_poll};
-    let slots = Slots::new();
-    let held: Vec<_> = (0..MAX_LONG_POLLS).map(|_| slots.take(true).unwrap()).collect();
-    assert_eq!(slots.take(true).err(), Some(MAX_LONG_POLLS), "one long poll more is busy");
-    let interactive: Vec<_> =
-        (0..MAX_WORKERS - MAX_LONG_POLLS).map(|_| slots.take(false).unwrap()).collect();
-    assert_eq!(slots.take(false).err(), Some(MAX_WORKERS), "the daemon's own limit still holds");
-    drop(interactive);
-    drop(held);
-    let again = slots.take(true);
-    assert!(again.is_ok(), "a slot given back is free again");
-    drop(again);
+    use super::calls::{
+        Job, MAX_LONG_POLLS, MAX_QUEUED_LONG_POLLS, MAX_WORKERS, Slot, Slots, long_poll,
+    };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    // Each admitted call keeps its slot here, named by who called, until "its server answers".
+    type Held = Arc<Mutex<VecDeque<(usize, Slot)>>>;
+    fn hold(held: &Held, caller: usize) -> Job {
+        let held = Arc::clone(held);
+        Box::new(move |slot| held.lock().unwrap().push_back((caller, slot)))
+    }
+    fn holders(held: &Held) -> Vec<usize> {
+        held.lock().unwrap().iter().map(|(caller, _)| *caller).collect()
+    }
+    let slots: &'static Slots = Box::leak(Box::new(Slots::new()));
+    let held: Held = Arc::default();
+
+    // 16 hand-off followers hold every long-poll slot; a 17th caller (a new Run's wait) lines up.
+    for follower in 0..MAX_LONG_POLLS {
+        slots.admit(true, hold(&held, follower)).unwrap();
+    }
+    let newcomer = 1000;
+    slots.admit(true, hold(&held, newcomer)).unwrap();
+    assert!(!holders(&held).contains(&newcomer), "the 17th waits, with no slot");
+
+    // Interactive calls still have their 16 while the long polls are full and one waits.
+    let interactive: Held = Arc::default();
+    for call in 0..MAX_WORKERS - MAX_LONG_POLLS {
+        slots.admit(false, hold(&interactive, call)).unwrap();
+    }
+    assert_eq!(
+        slots.admit(false, Box::new(|_| {})).err(),
+        Some(MAX_WORKERS),
+        "the daemon's limit holds"
+    );
+    drop(interactive.lock().unwrap().drain(..).collect::<Vec<_>>());
+
+    // Every follower's wait answers and it rearms at once, round after round: the slot the first
+    // one gives back goes to the 17th, and the rearming followers line up behind it.
+    let mut served = false;
+    for _ in 0..3 * MAX_LONG_POLLS {
+        let (follower, slot) = held.lock().unwrap().pop_front().unwrap();
+        if follower == newcomer {
+            served = true;
+            drop(slot);
+            break;
+        }
+        drop(slot);
+        slots.admit(true, hold(&held, follower)).unwrap();
+    }
+    assert!(served, "the 17th got the first slot given back, not a rearming follower");
+    assert!(!holders(&held).contains(&newcomer), "the 17th answered and left");
+    assert_eq!(holders(&held).len(), MAX_LONG_POLLS, "the followers hold the cap again");
+
+    // A line past its own limit is busy, and the job of a refused call never runs.
+    let waiting: Held = Arc::default();
+    for caller in 0..MAX_QUEUED_LONG_POLLS {
+        slots.admit(true, hold(&waiting, caller)).unwrap();
+    }
+    assert_eq!(
+        slots.admit(true, Box::new(|_| panic!("refused"))).err(),
+        Some(MAX_QUEUED_LONG_POLLS)
+    );
+    // Slots given back go to the line in order.
+    let given: Vec<_> = held.lock().unwrap().drain(..).collect();
+    drop(given);
+    assert_eq!(holders(&waiting), (0..MAX_LONG_POLLS).collect::<Vec<_>>());
     for operation in [
         ResourceOperation::CloudOwnerHandoffWait,
         ResourceOperation::CloudRunsWait,

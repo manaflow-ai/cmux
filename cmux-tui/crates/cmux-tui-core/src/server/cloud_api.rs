@@ -19,7 +19,8 @@
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
 //! credential is ever in it. Each call runs on a worker thread (32 at most; long polls, 16 at most
-//! of those, so interactive calls always have 16).
+//! of those, so interactive calls always have 16). A long poll past its 16 waits in line, first
+//! come first served, with no thread; an interactive call past 32 is `busy`.
 
 use super::{MessageWriter, Mux, ResourceOperation, send_resource_response};
 use crate::resource_router::ParsedResourceRequest;
@@ -106,8 +107,8 @@ mod calls {
     use crate::resource_router::ParsedResourceRequest;
     use cmux_cloud_api::{Auth, Failure, Request};
     use serde_json::{Map, Value, json};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
     use zeroize::Zeroizing;
 
     /// The daemon's call slots.
@@ -132,52 +133,85 @@ mod calls {
         )
     }
 
+    /// Long polls waiting for a slot at once, past which one more is `busy`.
+    pub(super) const MAX_QUEUED_LONG_POLLS: usize = 256;
+
+    /// What a waiting long poll does with the slot it is given (starts its call's thread).
+    pub(super) type Job = Box<dyn FnOnce(Slot) + Send>;
+
     /// The call slots: every call takes one of [`MAX_WORKERS`], and a long poll one of
-    /// [`MAX_LONG_POLLS`] too.
+    /// [`MAX_LONG_POLLS`] too. A long poll past its cap waits in line (no thread) and a freed
+    /// slot goes to the oldest waiting one first, so followers that rearm at once never take
+    /// every slot from a newer caller (review of #40104 at 43732a03). An interactive call past
+    /// [`MAX_WORKERS`] is `busy`; it never waits behind long polls.
     pub(super) struct Slots {
-        calls: AtomicUsize,
-        long_polls: AtomicUsize,
+        state: Mutex<State>,
+    }
+
+    struct State {
+        calls: usize,
+        long_polls: usize,
+        waiting: VecDeque<Job>,
     }
 
     /// A taken slot, given back when dropped (the call's thread ends, or never started).
-    pub(super) struct Slot<'a> {
-        slots: &'a Slots,
+    pub(super) struct Slot {
+        slots: &'static Slots,
         long_poll: bool,
-    }
-
-    fn take_one(count: &AtomicUsize, limit: usize) -> bool {
-        count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < limit).then(|| n.saturating_add(1))
-            })
-            .is_ok()
     }
 
     impl Slots {
         pub(super) const fn new() -> Self {
-            Self { calls: AtomicUsize::new(0), long_polls: AtomicUsize::new(0) }
+            Self { state: Mutex::new(State { calls: 0, long_polls: 0, waiting: VecDeque::new() }) }
         }
 
-        /// A slot for one call, or the limit it is past (`busy`).
-        pub(super) fn take(&self, long_poll: bool) -> Result<Slot<'_>, usize> {
-            if long_poll && !take_one(&self.long_polls, MAX_LONG_POLLS) {
-                return Err(MAX_LONG_POLLS);
-            }
-            if !take_one(&self.calls, MAX_WORKERS) {
+        fn state(&self) -> MutexGuard<'_, State> {
+            self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+
+        /// Runs `job` with a slot now, or (a long poll) once its turn in line comes. Err: the
+        /// limit it is past (`busy`), and `job` never runs.
+        pub(super) fn admit(&'static self, long_poll: bool, job: Job) -> Result<(), usize> {
+            let mut state = self.state();
+            let free = state.calls < MAX_WORKERS
+                && (!long_poll || (state.long_polls < MAX_LONG_POLLS && state.waiting.is_empty()));
+            if free {
+                state.calls = state.calls.saturating_add(1);
                 if long_poll {
-                    self.long_polls.fetch_sub(1, Ordering::AcqRel);
+                    state.long_polls = state.long_polls.saturating_add(1);
                 }
+                drop(state);
+                job(Slot { slots: self, long_poll });
+                return Ok(());
+            }
+            if !long_poll {
                 return Err(MAX_WORKERS);
             }
-            Ok(Slot { slots: self, long_poll })
+            if state.waiting.len() >= MAX_QUEUED_LONG_POLLS {
+                return Err(MAX_QUEUED_LONG_POLLS);
+            }
+            state.waiting.push_back(job);
+            Ok(())
         }
     }
 
-    impl Drop for Slot<'_> {
+    impl Drop for Slot {
         fn drop(&mut self) {
-            self.slots.calls.fetch_sub(1, Ordering::AcqRel);
+            let mut state = self.slots.state();
+            state.calls = state.calls.saturating_sub(1);
             if self.long_poll {
-                self.slots.long_polls.fetch_sub(1, Ordering::AcqRel);
+                state.long_polls = state.long_polls.saturating_sub(1);
+            }
+            let mut ready = Vec::new();
+            while state.calls < MAX_WORKERS && state.long_polls < MAX_LONG_POLLS {
+                let Some(job) = state.waiting.pop_front() else { break };
+                state.calls = state.calls.saturating_add(1);
+                state.long_polls = state.long_polls.saturating_add(1);
+                ready.push(job);
+            }
+            drop(state);
+            for job in ready {
+                job(Slot { slots: self.slots, long_poll: true });
             }
         }
     }
@@ -199,30 +233,38 @@ mod calls {
             Ok(parsed) => parsed,
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
-        let busy = |limit: usize| {
+        let busy = move |limit: usize| {
             ResourceError::operation_failed(
                 operation.wire_name(),
                 "busy",
                 json!({"limit": limit, "long_poll": long_poll(operation)}),
             )
         };
-        let slot = match SLOTS.take(long_poll(operation)) {
-            Ok(slot) => slot,
-            Err(limit) => return send_resource_response(writer, id, operation, Err(busy(limit))),
-        };
         let worker_mux = Arc::clone(mux);
         let worker_writer = writer.clone();
         let worker_id = id.clone();
         // The slot goes with the thread's closure: given back when the call ends, or when the
         // thread cannot start (the closure is dropped then).
-        let spawned = std::thread::Builder::new().name("cloud-api".into()).spawn(move || {
-            let _slot = slot;
-            let result = answer(&worker_mux, operation, &call, key);
-            send_resource_response(&worker_writer, worker_id, operation, result);
+        let job: Job = Box::new(move |slot| {
+            let refused_writer = worker_writer.clone();
+            let refused_id = worker_id.clone();
+            let spawned = std::thread::Builder::new().name("cloud-api".into()).spawn(move || {
+                let _slot = slot;
+                let result = answer(&worker_mux, operation, &call, key);
+                send_resource_response(&worker_writer, worker_id, operation, result);
+            });
+            if spawned.is_err() {
+                send_resource_response(
+                    &refused_writer,
+                    refused_id,
+                    operation,
+                    Err(busy(MAX_WORKERS)),
+                );
+            }
         });
-        match spawned {
-            Ok(_) => true,
-            Err(_) => send_resource_response(writer, id, operation, Err(busy(MAX_WORKERS))),
+        match SLOTS.admit(long_poll(operation), job) {
+            Ok(()) => true,
+            Err(limit) => send_resource_response(writer, id, operation, Err(busy(limit))),
         }
     }
 
