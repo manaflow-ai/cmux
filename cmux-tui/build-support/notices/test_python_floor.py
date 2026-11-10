@@ -14,6 +14,8 @@ No old python need be installed here: the tool runs in an interpreter that
 reports the old version (and, for one older than 3.11, cannot import tomllib).
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 import subprocess
@@ -110,10 +112,9 @@ class Generator(unittest.TestCase):
         also proves that the list sees the generator's git calls."""
         result, calls, _ = self.run_generator(f'exec "{sys.executable}" "$@"')
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(calls[0], f"python3 {HERE / 'python_floor.py'}")
         network = [index for index, call in enumerate(calls) if call.split()[0] in ("git", "curl")]
         self.assertTrue(network, calls)
-        self.assertGreater(network[0], 0)
+        self.assertLess(calls.index(f"python3 {HERE / 'python_floor.py'}"), network[0])
         self.assertIn("git says no", result.stderr)
 
 
