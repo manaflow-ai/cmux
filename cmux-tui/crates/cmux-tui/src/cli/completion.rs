@@ -140,7 +140,14 @@ pub(super) fn candidates(words: &[String], help: &dyn Fn(&[&str]) -> Option<Stri
 /// nothing.
 fn read_help(args: &[&str]) -> Option<String> {
     let exe = std::env::current_exe().ok()?;
-    let out = Command::new(exe)
+    // The name it was run as picks its help (`cmux` or `cmux-tui`), so the help is read under
+    // that name, not the file's.
+    let mut command = Command::new(exe);
+    #[cfg(unix)]
+    if let Some(name) = std::env::args_os().next() {
+        std::os::unix::process::CommandExt::arg0(&mut command, name);
+    }
+    let out = command
         .args(args)
         .arg("--help")
         .env("CMUX_CLI_STEP", "1")
@@ -177,11 +184,22 @@ pub(super) fn verbs(scope: &str, help: &str) -> Vec<String> {
     let prefix = format!("cmux {scope} ");
     for line in help.lines() {
         let Some(at) = line.find(&prefix) else { continue };
-        let Some(verb) = line[at + prefix.len()..].split_whitespace().next() else { continue };
-        for verb in verb.split('|') {
-            if is_word(verb) {
-                found.push(verb.to_owned());
+        // `cmux vm ls | status | pause [NAME]` names three verbs: words joined by `|`.
+        let mut joined = true;
+        for token in line[at + prefix.len()..].split_whitespace() {
+            if token == "|" {
+                joined = true;
+                continue;
             }
+            if !joined {
+                break;
+            }
+            joined = token.ends_with('|');
+            let words: Vec<&str> = token.split('|').filter(|word| !word.is_empty()).collect();
+            if !words.iter().all(|word| is_word(word)) {
+                break;
+            }
+            found.extend(words.iter().map(|word| (*word).to_owned()));
         }
     }
     found.retain(|word| word != "help");
