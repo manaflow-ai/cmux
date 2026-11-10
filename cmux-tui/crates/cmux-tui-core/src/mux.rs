@@ -329,6 +329,7 @@ mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
 mod terminal_live;
+pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;

@@ -364,11 +364,22 @@ impl Surface {
         state: ghostty_vt::ProgramStatusState,
         at_ms: u64,
     ) {
+        self.report_program_status_progress_for_test(state, None, at_ms);
+    }
+
+    /// `report_program_status_for_test` with the report's `progress` value.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_progress_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        progress: Option<u8>,
+        at_ms: u64,
+    ) {
         let pty = self.as_pty().expect("a PTY surface");
         let report = ghostty_vt::ProgramStatusReport {
             state,
             kind: None,
-            progress: None,
+            progress,
             id: String::new(),
             app: "make".into(),
             title: String::new(),

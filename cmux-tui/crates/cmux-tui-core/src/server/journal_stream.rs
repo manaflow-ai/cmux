@@ -50,6 +50,10 @@ pub(super) struct SessionJournalStreamStart {
     pub(super) reader: Option<crate::workspace_registry::SessionJournalReader>,
     pub(super) shared_fanout: bool,
     pub(super) remote_redacted: bool,
+    /// Held for the stream's life when it follows the journal and its kind
+    /// filter can match the rows of a terminal's live facts: while it lives
+    /// they are rows (`mux/terminal_live.rs`).
+    pub(super) _terminal_progress_rows: Option<crate::mux::TerminalProgressFollower>,
 }
 
 fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
@@ -519,6 +523,13 @@ pub(super) fn prepare_session_journal_stream(
         &outbound,
         "session.journal.subscribe",
     )?;
+    // A stream that follows gets a row for each live fact of a terminal from
+    // here on. A bounded read ends at the head it found and follows nothing.
+    // Taken last, so a refused request leaves nothing behind.
+    let terminal_progress_rows = match through_sequence {
+        None => mux.follow_terminal_progress_rows(|kind| filter.may_match_kind(kind)),
+        Some(_) => None,
+    };
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionJournalStreamStart {
@@ -536,6 +547,7 @@ pub(super) fn prepare_session_journal_stream(
             reader,
             shared_fanout,
             remote_redacted,
+            _terminal_progress_rows: terminal_progress_rows,
         },
     ))
 }

@@ -4,7 +4,8 @@
 //! (mounted or not) and commits one terminal upsert per edge. An OSC 9;4
 //! progress, the last output time and a report that keeps its record's
 //! state and kind are live facts: `terminal_live.rs` sends them to the open
-//! streams with no commit.
+//! streams with no commit, but while a journal stream follows their rows
+//! (`Mux::follow_terminal_progress_rows`) each is one commit here too.
 
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};

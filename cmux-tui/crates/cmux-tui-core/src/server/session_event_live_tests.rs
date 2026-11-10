@@ -144,6 +144,27 @@ fn live_facts_reach_a_subscriber(mux: Arc<Mux>) {
     );
     assert_eq!(committed(&mux), after_edge, "live facts committed to the registry");
 
+    // The shown record reports a new progress number and keeps its state:
+    // the tab shows the same state, so this is live too.
+    let third_ms = second_ms + 1_000;
+    surface.report_program_status_progress_for_test(
+        ghostty_vt::ProgramStatusState::Working,
+        Some(64),
+        third_ms,
+    );
+    surface.publish_pending_state();
+    let item = next_item(&outbound, "the live item of the shown record's progress");
+    let value = terminal_upsert(&item, &terminal, "the shown progress item");
+    assert_eq!(item["previous_revision"], revision, "{item}");
+    assert_eq!(item["revision"], revision, "{item}");
+    assert_eq!(value["extra"]["program_status"][0]["state"], "working", "{item}");
+    assert_eq!(value["extra"]["program_status"][0]["progress"], 64, "{item}");
+    assert_eq!(
+        committed(&mux),
+        after_edge,
+        "the shown record's new progress number committed to the registry"
+    );
+
     // A client that connects now reads the newest live facts in its snapshot.
     let (second_writer, second_outbound) = captured_writer();
     let second_client = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());

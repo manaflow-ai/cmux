@@ -126,7 +126,7 @@ pub(crate) struct ProgramStatusChange {
     /// A report changed something a client reads.
     pub(crate) any: bool,
     /// A record appeared, went away or changed its state or kind: a durable
-    /// edge, one commit (as a new shown value is, `take_shown_change`). A
+    /// edge, one commit (as a new shown state is, `take_shown_change`). A
     /// report that keeps them (a repeated equal state, a new message or
     /// time) is a live fact: the open streams get it and the registry does
     /// not.
@@ -304,6 +304,11 @@ impl ProgramStatusRecords {
             .filter(|record| running || !record.is_transient())
             .max_by_key(|record| (strength(record.state), record.updated_seq))
             .map(|record| ShownProgramStatus { state: record.state, progress: record.progress })
+    }
+
+    /// The state of the `shown` value last handed to frontends.
+    pub(crate) fn shown_published_state(&self) -> Option<ProgramStatusState> {
+        self.shown_published.map(|shown| shown.state)
     }
 
     /// The new `shown` value when it differs from the one last handed to

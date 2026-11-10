@@ -1,5 +1,6 @@
 //! Live terminal facts: an OSC 9;4 progress, the "last output" time and a
-//! program status report that keeps its record's state and kind.
+//! program status report that keeps its record's state and kind (a new
+//! progress number of the shown record too).
 //!
 //! They change while a terminal only prints, so they are not durable
 //! changes: a commit per change was one registry lock take, one journal row,
@@ -16,12 +17,23 @@
 //! a record's state or kind) is still one commit
 //! (`Mux::publish_terminal_progress`), and that commit carries the newest
 //! live facts.
+//!
+//! One reader needs the rows: a journal stream that follows
+//! `terminal.progress` or `terminal.program_status` (an agent plugin's wake
+//! for a terminal that prints, `spec/plugins.md`). While such a stream is
+//! live (`Mux::follow_terminal_progress_rows`), a live fact is one commit,
+//! as it was. A stream reads every terminal after it subscribes, so a live
+//! fact from before its subscription needs no row.
 
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::SessionJournalReader;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+/// The journal kinds a live fact was before it left the journal: a stream
+/// that follows one of them still gets the rows.
+const LIVE_FACT_KINDS: [&str; 2] = ["terminal.progress", "terminal.program_status"];
 
 /// The terminals whose live facts changed, in the order of their newest
 /// change. One entry per terminal: a new change replaces the terminal's
@@ -31,6 +43,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub(super) struct TerminalLiveLog {
     sequence: AtomicU64,
     changes: Mutex<LiveChanges>,
+    /// The live journal streams that follow the rows of live facts.
+    journal_followers: Arc<AtomicUsize>,
+}
+
+/// One live journal stream whose kind filter can match the rows of live
+/// facts (`Mux::follow_terminal_progress_rows`). The stream holds it for its
+/// life; its drop ends the count.
+pub(crate) struct TerminalProgressFollower {
+    followers: Arc<AtomicUsize>,
+}
+
+impl Drop for TerminalProgressFollower {
+    fn drop(&mut self) {
+        self.followers.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Default)]
@@ -74,6 +101,33 @@ impl TerminalLiveLog {
 }
 
 impl Mux {
+    /// Counts a live journal stream as a reader of the rows of live facts
+    /// when its kind filter can match them (`matches_kind`). An agent plugin
+    /// that follows `terminal.*` scans a terminal when a row names it
+    /// (spec/plugins.md, "Event-driven journal delivery"), and terminal
+    /// output is no row: for a terminal that prints, these rows are its
+    /// wake. While such a stream lives, a live fact is one commit, as it was
+    /// before live facts left the journal. A follower that connects reads
+    /// every terminal after its subscribe is answered, so a live fact before
+    /// the count needs no row.
+    pub(crate) fn follow_terminal_progress_rows(
+        &self,
+        matches_kind: impl Fn(&str) -> bool,
+    ) -> Option<TerminalProgressFollower> {
+        if !LIVE_FACT_KINDS.iter().any(|kind| matches_kind(kind)) {
+            return None;
+        }
+        let followers = self.terminal_live.journal_followers.clone();
+        followers.fetch_add(1, Ordering::AcqRel);
+        Some(TerminalProgressFollower { followers })
+    }
+
+    /// Whether a live journal stream follows the rows of live facts now. One
+    /// atomic read: the publish path takes no lock for it.
+    pub(crate) fn terminal_progress_rows_followed(&self) -> bool {
+        self.terminal_live.journal_followers.load(Ordering::Acquire) > 0
+    }
+
     /// `source`'s live facts changed: wake the `session.events` streams, in
     /// memory only. No registry lock, no journal row, no revision.
     pub(crate) fn publish_terminal_live(&self, source: &Surface) {

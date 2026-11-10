@@ -195,12 +195,15 @@ impl Surface {
             let output = metadata.take_output_change();
             (edge, progress || output, metadata.program_status())
         };
-        let (status, shown_changed, alerts, blocker) = {
+        let (status, shown_changed, shown_state_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let shown_state = records.shown_published_state();
             let shown = records.take_shown_change(!self.is_dead());
+            let shown_state_changed =
+                shown.is_some_and(|shown| shown.map(|shown| shown.state) != shown_state);
             let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
             let blocker = records.take_blocker_change(!self.is_dead());
-            (records.take_change(), shown, alerts, blocker)
+            (records.take_change(), shown, shown_state_changed, alerts, blocker)
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
@@ -209,15 +212,18 @@ impl Surface {
         }
         let Some(mux) = pty.mux.upgrade() else { return };
         // A report that changes a record's state or kind, or the shown
-        // value, is one commit. One that keeps them is live.
-        let status_edge = status.edge || (status.any && shown_changed.is_some());
-        if activity_edge || status_edge {
-            let mutation =
-                if status_edge { "terminal.program_status" } else { "terminal.progress" };
+        // state, is one commit. One that keeps them is live, and so is the
+        // shown record's new progress number.
+        let status_edge = status.edge || (status.any && shown_state_changed);
+        // While a journal stream follows the rows of live facts (an agent
+        // plugin's wake), a live fact is a row too, as a durable edge is.
+        let live = live_changed || status.any;
+        if activity_edge || status_edge || (live && mux.terminal_progress_rows_followed()) {
+            let mutation = if status.any { "terminal.program_status" } else { "terminal.progress" };
             if let Err(error) = mux.publish_terminal_progress(self, mutation) {
                 eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
             }
-        } else if live_changed || status.any {
+        } else if live {
             mux.publish_terminal_live(self);
         }
         // After the terminal's upsert, so the roster's row follows it.
