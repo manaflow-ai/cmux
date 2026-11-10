@@ -170,6 +170,13 @@ class WarmCheckoutTest(unittest.TestCase):
         self.assertEqual(self.git(self.ws, "status", "--porcelain"), f"?? {KEPT_TARGET.split('/', 1)[0]}/",
                          f"{state}: only the kept Rust target directory may be left beside the tree")
         self.assertTrue((self.ws / KEPT_TARGET).is_file(), f"{state}: the kept Rust target directory was removed")
+        # Each part of the setting must be gone, not only enough of it for this checkout.
+        self.assertFalse((self.ws / ".git/info/sparse-checkout").exists(), f"{state}: the pattern file is left")
+        for config in ("config", "config.worktree"):
+            path = self.ws / ".git" / config
+            text = path.read_text(encoding="utf-8").lower() if path.is_file() else ""
+            for key in ("sparsecheckout", "sparsecheckoutcone", "sparse = "):
+                self.assertNotIn(key, text, f"{state}: .git/{config} still has a sparse checkout setting")
         # A full actions/checkout after this build (the unsigned-resume controls, the recovery job)
         # must get the whole tree too: nothing may be left that turns the sparse checkout on again.
         self.actions_checkout(None, self.new)
