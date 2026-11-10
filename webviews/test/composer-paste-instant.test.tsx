@@ -519,11 +519,10 @@ test.each([
 });
 
 // Review of #37674 (F1): only the paste's own gesture takes the selection's place. A screenshot pasted
-// with the caret in a code block loads on its own line right under the block (Leo, 2026-11-10: "we
-// have inline stuff, so why is this not inline? This one went above the whole thing."; it waited in
-// the strip since #37674); the person then selects the whole prompt while it loads. Its read chip
-// takes its placeholder's place, and that never deletes what is typed: the selection stays text.
-test("a screenshot pasted in a code block loads under the block and never replaces the selection made meanwhile", async () => {
+// with the caret in a code block cannot go there and waits in the strip; the person then selects the
+// whole prompt while it loads. Once read, it is placed on its own (useInlineAttachments `ready`), and
+// that never deletes what is typed: the selection stays text, the chip goes after it.
+test("an attachment placed once read never replaces the selection the person made meanwhile", async () => {
   const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
   Object.assign(dom.window.Range.prototype, rects);
   Object.assign(dom.window.Element.prototype, { getClientRects: () => [] });
@@ -538,13 +537,7 @@ test("a screenshot pasted in a code block loads under the block and never replac
   });
   const shot = slowScreenshot();
   await paste([shot.file]);
-  // Its placeholder under the block, never in it and never in the strip.
-  expect(field().querySelector('[data-inline-attachment] .acpmux-md-inline-chip[aria-busy="true"]')).not.toBeNull();
-  expect(field().querySelector("pre [data-inline-attachment]")).toBeNull();
-  expect(host.querySelector(".acpmux-attachments .acpmux-attachment")).toBeNull();
-  const loading = markdownField().value();
-  expect(loading.indexOf("let x = 1")).toBeLessThan(loading.indexOf("\uFFFC"));
-  expect(loading.indexOf("\uFFFC")).toBeLessThan(loading.indexOf("hello world"));
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
   await act(async () => markdownField().selectAll());
   shot.release();
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
@@ -554,9 +547,6 @@ test("a screenshot pasted in a code block loads under the block and never replac
   const value = markdownField().value();
   expect(value).toContain("let x = 1");
   expect(value).toContain("hello world");
-  // The read chip in the placeholder's place: one, under the block.
-  expect(field().querySelectorAll("[data-inline-attachment]")).toHaveLength(1);
-  expect(value.indexOf("\uFFFC")).toBeLessThan(value.indexOf("hello world"));
 });
 
 // Review of #37674 (F2): a read under 400 ms shows no indicator at all, with or without animations
