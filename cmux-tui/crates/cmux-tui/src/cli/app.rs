@@ -1142,9 +1142,10 @@ fn names_a_target(error: &Value) -> bool {
 /// `unavailable` is one only when the app says so in `data.state: "not_run"`: the read barrier on
 /// a daemon connection that was reconnecting (#32724). Every other `unavailable` is a refusal the
 /// app decided (`state: "rejected"`, or no state from an app before it said one: a pane that
-/// cannot split, a person-only action), which no second try changes: it is reported at once,
-/// never held to the request's deadline (`cmux action run splitDown` on the agent chat took
-/// 45 s to say why). One that may have started (`in_progress`) is reported too.
+/// cannot split, a person-only action, a window that is not ready). The same request gets the
+/// same answer, so it is reported at once, never held to the request's deadline
+/// (`cmux action run splitDown` on the agent chat took 45 s to say why); its text says when a
+/// new request can pass. One that may have started (`in_progress`) is reported too.
 fn retry_before_running(error: &Value) -> bool {
     match error_code(error) {
         Some("busy" | "timeout") => refused_before_running(error),

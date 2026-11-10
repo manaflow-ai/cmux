@@ -69,8 +69,9 @@ extension ControlError {
     /// prints no "may still apply" note. Refusals from an action's work never carry it.
     ///
     /// It also says who refused, in `data.state`. `rejected`: the app decided (a pane that cannot
-    /// split, a person-only action, an unknown action, a reused key), and no second try changes
-    /// that, so a caller reports it at once. `not_run` is only for a request the app did not get
+    /// split, a person-only action, an unknown action, a reused key, a window that is not ready).
+    /// The same request gets the same answer, so a caller reports it at once; the text says when
+    /// a new request can pass. `not_run` is only for a request the app did not get
     /// to, which a caller sends again until its deadline: the read barrier on a daemon that is
     /// not connected (``ControlRouter/syncBarrierNotRun(cause:)``), and a `busy` or an early
     /// `timeout` (``annotated(progress:)`` gives those their state). A refusal marked `not_run`

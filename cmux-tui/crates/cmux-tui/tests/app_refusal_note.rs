@@ -14,9 +14,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+/// A new folder for one run. The clock alone does not name it: macOS counts in microseconds, and
+/// two tests that start together got one folder, so the second `bind` failed with "File exists".
 fn temp_dir(name: &str) -> PathBuf {
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let run = RUNS.fetch_add(1, Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = Path::new("/tmp").join(format!("cmux-{name}-{}-{stamp}", std::process::id()));
+    let dir = Path::new("/tmp").join(format!("cmux-{name}-{}-{stamp}-{run}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
