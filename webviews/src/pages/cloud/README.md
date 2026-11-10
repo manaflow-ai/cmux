@@ -16,7 +16,7 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
 | `detail.ts`                                     | Reads and changes for the selected machine: snapshots, port forwards, browser route.                                                  |
 | `files.ts`, `transfers.ts`                      | Files over the machine daemon (`fs-v1`) and push/pull transfers settled by `cmux.cloud.file.transfer.changed`.                        |
 | `model.ts`                                      | Pure logic: events into the mirror, intent settlement, visible rows, classic rows, plan sizes, labels.                                |
-| `retention.ts`, `ArchiveList.tsx` | Automatic cleanup: a row's delete date, Keep, Archive and delete, the one-time notice, the cap offer and the archives list. |
+| `retention.ts`, `ArchiveList.tsx`               | Automatic cleanup: a row's delete date, Keep, Archive and delete, the one-time notice, the cap offer and the archives list.           |
 | `mockProvider.ts`, `mockData.ts`, `mockEdge.ts` | In-memory provider for tests and the dev loop. It answers like the server: same fields, guards (origin, key, args) and error codes.   |
 | `Localizable.xcstrings`                         | String source (21 languages). `node webviews/scripts/pages/gen-strings.mjs` writes `generated/strings.json`.                          |
 

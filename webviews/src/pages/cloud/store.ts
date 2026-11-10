@@ -467,7 +467,14 @@ export class CloudStore {
     const draft = this.state.create;
     if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
     this.set({
-      create: { ...draft, submitting: true, error: undefined, refusal: undefined, blocked: undefined, offer: undefined },
+      create: {
+        ...draft,
+        submitting: true,
+        error: undefined,
+        refusal: undefined,
+        blocked: undefined,
+        offer: undefined,
+      },
     });
     const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
     const name = draft.name.trim() || (snapshot?.name ?? "");
@@ -518,7 +525,9 @@ export class CloudStore {
           ? { blocked: "no_snapshot_configured" as const }
           : { error: message(error), errorCode: codeOf(error) };
       if (this.state.create?.key === draft.key)
-        this.set({ create: { ...draft, submitting: false, waitingFor: undefined, ...outcome, ...(offer ? { offer } : {}) } });
+        this.set({
+          create: { ...draft, submitting: false, waitingFor: undefined, ...outcome, ...(offer ? { offer } : {}) },
+        });
       if (session === this.session && !refusal && !blocked && !offer) this.set(failure(error, false));
     }
   }
@@ -613,7 +622,10 @@ export class CloudStore {
     return this.setRetention({ settings });
   }
 
-  private async setRetention(params: { email_heads_up?: boolean; settings?: RetentionOverrides | null }): Promise<void> {
+  private async setRetention(params: {
+    email_heads_up?: boolean;
+    settings?: RetentionOverrides | null;
+  }): Promise<void> {
     if (!this.canChange() || this.state.retention?.saving) return;
     const session = this.session;
     this.set({ retention: { saving: true } });

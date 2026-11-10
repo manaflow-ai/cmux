@@ -73,7 +73,10 @@ describe("Cloud cleanup: the one-time notice", () => {
 
   test("dismissals round-trip through storage and survive a broken or refusing store", () => {
     const store = new Map<string, string>();
-    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
     writeDismissed(new Set(["vm_b2:1"]), storage);
     expect([...readDismissed(storage)]).toEqual(["vm_b2:1"]);
     store.set("cmux.cloud.retention.dismissed", "{not json");
@@ -124,7 +127,9 @@ describe("Cloud cleanup: the cap offer", () => {
   });
 
   test("any other refusal, or the active-machines quota, offers nothing", () => {
-    expect(capOffer(pageError(CloudErrors.quotaExceeded, "3 active", false, { limit: 3, used: 3 }), machines)).toBeUndefined();
+    expect(
+      capOffer(pageError(CloudErrors.quotaExceeded, "3 active", false, { limit: 3, used: 3 }), machines),
+    ).toBeUndefined();
     expect(capOffer(new Error("boom"), machines)).toBeUndefined();
     expect(capOffer(cap({}), [sampleMachines()[0]!])).toBeUndefined();
   });

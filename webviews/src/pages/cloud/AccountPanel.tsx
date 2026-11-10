@@ -149,8 +149,7 @@ function CleanupSettings({
   const saving = !!state.retention?.saving;
   // A paid plan keeps worked-in machines: the unused window is not the team's to set there.
   const fields = RETENTION_FIELDS.filter((field) => field !== "worked_in_days" || settings?.worked_in_days != null);
-  const shown = (field: RetentionField) =>
-    draft[field] ?? String(retention.team[field] ?? settings?.[field] ?? "");
+  const shown = (field: RetentionField) => draft[field] ?? String(retention.team[field] ?? settings?.[field] ?? "");
   const save = () => {
     const out: Record<string, number> = { ...(retention.team as Record<string, number>) };
     for (const field of fields) {
