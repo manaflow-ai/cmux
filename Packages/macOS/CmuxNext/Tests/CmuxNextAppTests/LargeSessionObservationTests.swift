@@ -421,7 +421,10 @@ struct LargeSessionObservationTests {
         defer { for controller in services.windows.controllers { controller.teardown(); controller.window?.close() } }
         let fixture = LargeSessionFixture(store: services.machines.local.store)
         _ = services.sidebarLayout // the app's sidebar document starts: its open tab favicons follow the local store
-        await LargeSessionFixture.drainMain()
+        // What each probe below moves by one (a tab added, a favicon set): the wake helper waits on it, not on a yield count.
+        let moved: @MainActor @Sendable () -> Int = { [store = services.machines.local.store] in
+            store.workspaces.flatMap { $0.screens }.flatMap { $0.panes }.flatMap { $0.tabs }.reduce(0) { $0 + ($1.faviconURL == nil ? 1 : 2) }
+        }
         // The open tab favicons' observers: the workspace list's and each workspace's (`ObservedItems`).
         let observers = "CmuxNextBridge/OpenTabFavicons.swift"
 
@@ -431,7 +434,7 @@ struct LargeSessionObservationTests {
         let favicons = pages.map { item -> (workspace: Int, change: @MainActor () -> Void) in
             (item.workspace, { item.tab.faviconURL = "http://127.0.0.1:9/\(item.workspace)/icon.png" })
         }
-        let lit = await LargeSessionFixture.workspacesWaking(observers, changes: favicons)
+        let lit = try await LargeSessionFixture.workspacesWaking(observers, changes: favicons, observing: moved)
         let following = lit.values.reduce(into: Set<Int>()) { $0.formUnion($1.workspaces) }
         try #require(following.count == LargeSessionFixture.workspaces,
                      "fixture: the app's favicon observers follow \(following.count) of 60 workspaces")
@@ -448,7 +451,7 @@ struct LargeSessionObservationTests {
                              transaction: ClientTransactionID.generate())
             })
         }
-        let woken = await LargeSessionFixture.workspacesWaking(observers, changes: changes)
+        let woken = try await LargeSessionFixture.workspacesWaking(observers, changes: changes, observing: moved)
         try #require(fixture.tabs().count == before + LargeSessionFixture.workspaces,
                      "fixture: the probe made \(fixture.tabs().count - before) tabs, not 60")
         // Each workspace's own observer reads its tab list: it wakes for its workspace's new tab.

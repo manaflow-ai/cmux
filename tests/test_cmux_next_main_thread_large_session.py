@@ -119,6 +119,7 @@ def self_test():
     assert len(old) == 2 and any("class visible" in f for f in old) and any("3 missed refreshes in the phase" in f for f in old), old
     assert judge({"phases": [{"phase": "idle-0", "churn_hz": 0}]}) != []
     self_test_builder()
+    self_test_bench_groups()
     print("self-test: ok")
 
 
@@ -168,6 +169,39 @@ class FakeApp:
                 return {"error": {"code": "invalid_params", "message": f"no pane for {target}"}}
             pane["tabs"].append({"id": self.new_id("tab"), "kind": kind, "selected": False})
         return {}
+
+
+def load_bench(out):
+    """scripts/cmux-next/sidebar-churn-typing.py as a module. It reads its options at import, so they are given here."""
+    import importlib.util
+    argv = sys.argv
+    sys.argv = ["sidebar-churn-typing.py", "--app", os.path.join(out, "no.app"), "--tag", "self-test", "--out", out, "--session", "large"]
+    try:
+        spec = importlib.util.spec_from_file_location("sidebar_churn_typing", os.path.join(ROOT, "scripts", "cmux-next", "sidebar-churn-typing.py"))
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+    finally:
+        sys.argv = argv
+    return bench
+
+
+def self_test_bench_groups():
+    """The bench's setup step that puts the churned workspaces in sidebar groups. LARGE makes no groups (its load is
+    the title streams and the agent statuses), so the step has nothing to do there. The second bench hold
+    (aws-m4pro-8, 2026-11-10 14:16Z) stopped in this step in all 3 arms, after the session was built."""
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory() as out:
+        bench = load_bench(out)
+        try:
+            ids = ["ws_a", "ws_b", "ws_c", "ws_d", "ws_e"]
+            calls = []
+            bench.join_groups(ids, [], lambda group, ws: calls.append((group, ws)))
+            assert calls == [], calls
+            bench.join_groups(ids, ["g0", "g1"], lambda group, ws: calls.append((group, ws)))
+            assert calls == [("g0", "ws_a"), ("g1", "ws_b"), ("g0", "ws_c"), ("g0", "ws_e")], calls
+        finally:
+            shutil.rmtree(bench.SCRATCH, ignore_errors=True)
 
 
 def self_test_builder():

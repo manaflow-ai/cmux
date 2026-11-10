@@ -237,6 +237,10 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 - Each sample is the bench's send stamp to the frame's time. The hop from the keyboard through WindowServer to the
   app is in no number, and the two frame clocks are not the same clock: a difference under one refresh is inside the
   method's error. A before/after pair by this method is A/B evidence; it is not a parity proof by the HID method.
+- Tab switch: the cmux pane holds the workspace's terminal tab (and the CPU page under load) before the 2 colour
+  pages, so the row sends Ctrl-Shift-Tab and Ctrl-Tab in turn: each of the 20 switches is page to page between the 2
+  colour pages, as `Target.activateTarget` in the Chrome arm. Ctrl-Tab alone went round 3 or 4 tabs and mixed 3 switch
+  classes in one row (page to page, page to terminal, terminal to page).
 - The report labels each run: method, display (id, size, rate), the refresh interval measured in that run, screen
   locked or not, load. A run on a locked screen, on a sleeping display or with a measured refresh that is not the
   `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
