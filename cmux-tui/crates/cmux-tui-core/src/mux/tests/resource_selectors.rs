@@ -697,3 +697,64 @@ fn w5p_a_hex_named_parent_keeps_focused_for_its_child() {
         .unwrap_or_else(|error| panic!("workspace {name}, tab focused: {error:?}"));
     assert_eq!(path.tab.map(|tab| tab.to_string()), root_tab);
 }
+
+/// W5-P B: the rules a terminal name had in each client, now only here (the
+/// CLI's `terminal … send`, `agent start --pane`, `agent resume` and the MCP
+/// terminal tools ask this resolver): a terminal title in the session first,
+/// then a tab name whose terminal runs, then one whose terminal exited (so
+/// `agent resume alpha` finds the kept tab of an agent that quit); two live
+/// tabs, or two exited tabs, with the name are ambiguous with every
+/// candidate.
+#[test]
+fn w5p_a_terminal_name_takes_a_title_then_a_live_tab_then_an_exited_one() {
+    use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-names".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let terminal_of = |surface: SurfaceId| {
+        mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface) {
+            Some(ContentPublicId::Terminal(id)) => Some(id.to_string()),
+            _ => None,
+        })
+    };
+    let resolved = |mux: &Arc<Mux>| w5p_resolve(mux, "terminal", "alpha").map(|place| place.2);
+
+    let exited = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.rename_surface(exited.id, "alpha".into()));
+    mux.surface(exited.id)
+        .unwrap()
+        .record_process_end_for_test(TerminalExit::now(TerminalExitOutcome::Exit { code: 0 }));
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(exited.id), "only an exited tab");
+
+    // Two exited tabs with the name are ambiguous with both candidates: a
+    // resume never picks one of them.
+    let exited_pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+    let twin = mux.split(exited_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.rename_surface(twin.id, "alpha".into()));
+    mux.surface(twin.id)
+        .unwrap()
+        .record_process_end_for_test(TerminalExit::now(TerminalExitOutcome::Exit { code: 0 }));
+    assert!(mux.focus_pane(root_pane));
+    let error = resolved(&mux).unwrap_err();
+    assert_eq!(error.code, "selector.ambiguous", "two exited tabs: {error:?}");
+    assert_eq!(error.details["candidates"].as_array().map(Vec::len), Some(2), "{error:?}");
+    assert!(mux.rename_surface(twin.id, "twin".into()));
+
+    let live = mux.split(exited_pane, SplitDir::Down, None).unwrap();
+    assert!(mux.rename_surface(live.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(live.id), "the live tab first");
+
+    let live_pane = mux.with_state(|state| state.pane_of(live.id).unwrap());
+    let titled = mux.split(live_pane, SplitDir::Down, None).unwrap();
+    mux.surface(titled.id).unwrap().set_test_title("alpha");
+    assert!(mux.focus_pane(root_pane));
+    assert_eq!(resolved(&mux).unwrap(), terminal_of(titled.id), "a title first");
+
+    mux.surface(titled.id).unwrap().set_test_title("");
+    assert!(mux.rename_surface(titled.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    let error = resolved(&mux).unwrap_err();
+    assert_eq!(error.code, "selector.ambiguous", "two live tabs: {error:?}");
+}

@@ -509,3 +509,20 @@ fn w5p_an_uppercase_id_prefix_says_ids_are_lowercase() {
         assert!(error.message.contains(&lower), "{}", error.message);
     }
 }
+
+/// An uppercase id that is also too short or too long says both rules at
+/// once: the lowercase form and the length (review of #39999), so the agent
+/// fixes it in one step.
+#[test]
+fn w5p_an_uppercase_id_of_the_wrong_length_says_both_rules() {
+    let short = Selector::parse("term_8A3").unwrap_err();
+    assert_eq!(short.code, "validation.invalid");
+    for part in ["lowercase", "term_8a3", "at least 4 hex digits", "has 3"] {
+        assert!(short.message.contains(part), "{part}: {}", short.message);
+    }
+    let long = format!("pane_{}", "A".repeat(33));
+    let error = Selector::parse(&long).unwrap_err();
+    for part in ["lowercase", "32 hex digits", "has 33"] {
+        assert!(error.message.contains(part), "{part}: {}", error.message);
+    }
+}

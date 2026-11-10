@@ -269,7 +269,16 @@ impl<F: Fn(&str, &Value, usize) -> Value> Daemon for Fake<F> {
         let operation = request["operation"].as_str().unwrap_or_default().to_owned();
         let count = self.sent(&operation).len();
         self.sent.borrow_mut().push((operation.clone(), request["params"].clone()));
-        Ok((self.answer)(&operation, &request["params"], count))
+        let answer = (self.answer)(&operation, &request["params"], count);
+        // `{"daemon_error": {...}}` is the daemon's refusal of the request.
+        match answer.get("daemon_error") {
+            Some(error) => Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: error.clone(),
+                idempotency_key: None,
+            }),
+            None => Ok(answer),
+        }
     }
 }
 
@@ -1344,4 +1353,103 @@ fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
         let own_look = Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
         assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
     }
+}
+
+/// The daemon's refusal of an id prefix with fewer than 4 hex digits.
+fn short_prefix_refusal(selector: &str) -> Value {
+    json!({"daemon_error": {
+        "code": "validation.invalid",
+        "message": format!("{selector} is not an id: an id prefix needs at least 4 hex digits"),
+        "details": {},
+        "retryable": false,
+    }})
+}
+
+/// `agent start --pane` selects its pane with the daemon's one selector
+/// resolver (W5-P), as `pane … show` does: a bare id (the 32 hex digits
+/// without `pane_`) selects the pane the daemon answers, and an id prefix of
+/// 2 hex digits is refused with the daemon's error before a tab opens.
+#[test]
+fn w5p_agent_start_pane_takes_the_pane_the_daemons_resolver_selects() {
+    let snapshot = snapshot();
+    let bare = "22222222222222222222222222222222";
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.get" if params["pane"] == bare => {
+            json!({"id": "pane_22222222222222222222222222222222"})
+        }
+        "pane.get" if params["pane"] == "pane_22" => short_prefix_refusal("pane_22"),
+        "pane.run" => created(
+            "pane_22222222222222222222222222222222",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options =
+        Options { cmd: Some("sr2 claude".into()), pane: Some(bare.into()), ..Options::default() };
+    let (report, _exit) = run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options))
+        .expect("a bare pane id selects its pane");
+    let runs = daemon.sent("pane.run");
+    assert_eq!(runs.len(), 1, "{report}");
+    assert_eq!(runs[0]["pane"], "pane_22222222222222222222222222222222");
+
+    let short = Options { pane: Some("pane_22".into()), ..options };
+    let failure = run_with_clock(|clock| start(&daemon, &env(), clock, "gamma", &short))
+        .expect_err("the daemon refuses 2 digits");
+    assert_eq!(failure.error["code"], "validation.invalid");
+    assert_eq!(daemon.sent("pane.run").len(), 1, "no second tab opens");
+}
+
+/// `terminal <t> resume` and `agent resume NAME` select the exited terminal
+/// with the daemon's one selector resolver (W5-P), as `terminal NAME show`
+/// does: a 2-digit id prefix is refused with the daemon's error before a tab
+/// opens, and two exited tabs named `alpha` stay `selector.ambiguous` with
+/// both candidates: a resume never picks one of them.
+#[test]
+fn w5p_resume_takes_the_terminal_the_daemons_resolver_selects() {
+    let other = "term_0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e";
+    let mut snapshot = snapshot();
+    if let Some(tabs) = snapshot["tabs"].as_array_mut() {
+        tabs.push(json!({"id": "tab_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1", "name": "alpha",
+                         "content_id": other, "pane_id": "pane_11111111111111111111111111111111"}));
+    }
+    if let Some(terminals) = snapshot["terminals"].as_array_mut() {
+        terminals.push(json!({"id": other, "lifecycle": "exited",
+                              "tab_id": "tab_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1", "cwd": "/w/other"}));
+    }
+    if let Some(old) = snapshot.pointer_mut("/terminals/1") {
+        old["extra"] = json!({"agent": "claude", "agent_session_id": SESSION});
+    }
+    let both = ["tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0", "tab_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"];
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "terminal.get" if params["terminal"] == "term_0d" => short_prefix_refusal("term_0d"),
+        "terminal.get" if params["terminal"] == "name:alpha" || params["terminal"] == "alpha" => {
+            json!({"daemon_error": {
+                "code": "selector.ambiguous",
+                "message": "2 tabs are named alpha",
+                "details": {"scope": "tab", "selector": "alpha", "candidates": both},
+                "retryable": false,
+            }})
+        }
+        _ => json!({}),
+    });
+    let short = ResumeTarget::Terminal("term_0d".into());
+    let failure =
+        run_with_clock(|clock| resume(&daemon, &env(), clock, &short, &Options::default()))
+            .expect_err("the daemon refuses 2 digits");
+    assert_eq!(failure.error["code"], "validation.invalid");
+
+    let named = ResumeTarget::Agent("alpha".into());
+    let failure =
+        run_with_clock(|clock| resume(&daemon, &env(), clock, &named, &Options::default()))
+            .expect_err("two exited tabs named alpha");
+    assert_eq!(failure.error["code"], "selector.ambiguous", "{}", failure.error);
+    let candidates = failure.error["details"]["candidates"].as_array().map(Vec::len);
+    assert_eq!(candidates, Some(2), "{}", failure.error);
+    assert!(daemon.sent("pane.run").is_empty(), "no resume ran");
 }

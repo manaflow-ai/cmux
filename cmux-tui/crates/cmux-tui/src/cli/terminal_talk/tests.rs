@@ -1479,3 +1479,78 @@ fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
         );
     }
 }
+
+/// [`FakeDaemon`] whose `terminal.get` answers each selector of `selects` as
+/// the daemon's one selector resolver (W5-P) does: the object's id, or the
+/// daemon's error. Any other request goes to `inner`.
+struct ResolvingDaemon {
+    inner: FakeDaemon,
+    selects: Vec<(&'static str, Result<&'static str, Value>)>,
+}
+
+impl Daemon for ResolvingDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let selected = self
+            .selects
+            .iter()
+            .find(|(selector, _)| {
+                request["operation"] == "terminal.get" && request["params"]["terminal"] == *selector
+            })
+            .map(|(_, answer)| answer.clone());
+        let Some(answer) = selected else { return self.inner.request(session, plan) };
+        self.inner.sent.borrow_mut().push(("terminal.get".into(), request["params"].clone()));
+        match answer {
+            Ok(id) => Ok(json!({"id": id, "lifecycle": "running", "extra": {}})),
+            Err(error) => {
+                Err(CallFailure { kind: FailureKind::Rejected, error, idempotency_key: None })
+            }
+        }
+    }
+}
+
+/// `terminal … send` selects its terminal with the daemon's one selector
+/// resolver (W5-P), as `terminal … show` does: a word only the daemon knows
+/// (`focused`) selects the terminal the daemon answers, and a word the daemon
+/// refuses (an id prefix of 2 hex digits) is refused with the daemon's own
+/// error before anything is written.
+#[test]
+fn w5p_send_selects_the_terminal_the_daemons_resolver_selects() {
+    let codex = "term_c0dec000000000000000000000000004";
+    let short = json!({
+        "code": "validation.invalid",
+        "message": "term_c0 is not an id: an id prefix needs at least 4 hex digits after term_, \
+                    and this one has 2",
+        "details": {},
+        "retryable": false,
+    });
+    let daemon = ResolvingDaemon {
+        inner: FakeDaemon::new(snapshot(), &[(1, "")]),
+        selects: vec![("focused", Ok(codex)), ("term_c0", Err(short))],
+    };
+    let focused =
+        SendRequest { target: "focused".into(), force: true, wait: Wait::None, ..quick("hi") };
+    send::run(&daemon, None, &focused).expect("focused selects the terminal the daemon answers");
+    let written: Vec<Value> = daemon
+        .inner
+        .sent
+        .borrow()
+        .iter()
+        .filter(|(operation, _)| operation == "terminal.input.write")
+        .map(|(_, params)| params["terminal"].clone())
+        .collect();
+    assert!(!written.is_empty() && written.iter().all(|terminal| terminal == codex), "{written:?}");
+
+    let before = daemon.inner.writes().len();
+    let short = SendRequest { target: "term_c0".into(), ..focused };
+    let failure = send::run(&daemon, None, &short).expect_err("the daemon refuses 2 digits");
+    assert_eq!(failure.failure.error["code"], "validation.invalid");
+    assert!(
+        failure.failure.error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("at least 4 hex digits")),
+        "{}",
+        failure.failure.error
+    );
+    assert_eq!(daemon.inner.writes().len(), before, "nothing is written");
+}

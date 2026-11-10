@@ -566,6 +566,28 @@ mod tests {
         assert_eq!(missing["code"], "selector.not_found");
     }
 
+    /// A looked-up prefix answers as the daemon's one selector resolver
+    /// (W5-P): every candidate, sorted, and the daemon's words.
+    #[test]
+    fn w5p_a_looked_up_prefix_answers_as_the_daemons_resolver() {
+        let records = json!([
+            {"id": "ws_1a2c0000000000000000000000000000"},
+            {"id": "ws_1a2b0000000000000000000000000000"},
+        ]);
+        let ambiguous = unique_prefix("workspace", "ws_1a2", &records).unwrap_err();
+        assert_eq!(ambiguous["code"], "selector.ambiguous");
+        assert_eq!(
+            ambiguous["details"]["candidates"],
+            json!(["ws_1a2b0000000000000000000000000000", "ws_1a2c0000000000000000000000000000"])
+        );
+        assert!(
+            ambiguous["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("pass more of the id")),
+            "{ambiguous}"
+        );
+    }
+
     #[test]
     fn a_partial_id_has_fewer_than_32_hex_digits() {
         assert!(is_partial_id("ws_1a", "ws"));
