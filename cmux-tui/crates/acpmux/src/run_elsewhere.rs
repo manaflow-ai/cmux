@@ -148,46 +148,98 @@ fn example(name: &str) -> bool {
     ["example", "sample", "template", "dist"].iter().any(|w| name.contains(w))
 }
 
+/// One file's part of a diff: its path, git's letter for it and its bytes.
+pub struct Section<'a> {
+    pub path: String,
+    pub status: &'static str,
+    pub bytes: &'a [u8],
+}
+
+/// `patch` cut at each `diff --git` line. The file list, the secrets and what a run sends all
+/// come from these, so they always describe the same read of the tree.
+pub fn sections(patch: &[u8]) -> Vec<Section<'_>> {
+    let mut starts = Vec::new();
+    let mut at = 0usize;
+    for line in patch.split_inclusive(|b| *b == b'\n') {
+        if line.starts_with(b"diff --git ") {
+            starts.push(at);
+        }
+        at = at.saturating_add(line.len());
+    }
+    starts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &start)| {
+            let end = starts.get(i.saturating_add(1)).copied().unwrap_or(patch.len());
+            let bytes = patch.get(start..end)?;
+            let text = String::from_utf8_lossy(bytes);
+            let mut lines = text.lines();
+            let path = header_path(lines.next()?.strip_prefix("diff --git ")?)?;
+            let mut status = "M";
+            for l in
+                lines.take_while(|l| !l.starts_with("@@") && !l.starts_with("GIT binary patch"))
+            {
+                if l.starts_with("new file mode") {
+                    status = "A";
+                } else if l.starts_with("deleted file mode") {
+                    status = "D";
+                }
+            }
+            Some(Section { path, status, bytes })
+        })
+        .collect()
+}
+
+/// The path in a `diff --git` line's `a/P b/P`. With no renames both halves name one file, so an
+/// unquoted pair splits at its middle even with spaces in the name; a quoted one is unquoted.
+fn header_path(rest: &str) -> Option<String> {
+    if rest.starts_with('"') {
+        let mut escaped = false;
+        let (end, _) = rest.char_indices().skip(1).find(|&(_, c)| {
+            let closes = c == '"' && !escaped;
+            escaped = c == '\\' && !escaped;
+            closes
+        })?;
+        return unquote(rest.get(..=end)?)?.strip_prefix("a/").map(str::to_owned);
+    }
+    let half = rest.len().checked_sub(1)?.checked_div(2)?;
+    rest.get(..half)?.strip_prefix("a/").map(str::to_owned)
+}
+
+/// `patch` without the sections of `left_out`.
+pub fn patch_without(patch: &[u8], left_out: &[String]) -> Vec<u8> {
+    sections(patch)
+        .iter()
+        .filter(|s| !left_out.contains(&s.path))
+        .flat_map(|s| s.bytes.iter().copied())
+        .collect()
+}
+
+/// Whether a section's added lines carry a private key or a well-known token shape.
+fn adds_a_secret(section: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(section);
+    text.lines().skip_while(|l| !l.starts_with("@@")).filter_map(|l| l.strip_prefix('+')).any(
+        |added| {
+            // A few shapes no code has by accident; a false hit would leave a needed file out.
+            added.contains("PRIVATE KEY-----")
+                || ["ghp_", "github_pat_", "sk-ant-", "sk-proj-", "xoxb-", "xoxp-"]
+                    .iter()
+                    .any(|p| token_after(added, p))
+                || added.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| {
+                    w.len() == 20
+                        && w.starts_with("AKIA")
+                        && w.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+                })
+        },
+    )
+}
+
 /// The files whose added lines in `patch` carry a private key or a well-known token shape.
 fn secret_content(patch: &[u8]) -> Vec<String> {
-    let text = String::from_utf8_lossy(patch);
-    let mut current: Option<String> = None;
-    let mut in_header = false;
     let mut out: Vec<String> = Vec::new();
-    for line in text.lines() {
-        // A file's header runs from `diff --git` to its first hunk; its `+++ b/<path>` line names
-        // the file, quoted the way git quotes a name with a quote, backslash or control character.
-        if line.starts_with("diff --git ") {
-            current = None;
-            in_header = true;
-            continue;
-        }
-        if in_header {
-            if line.starts_with("@@") {
-                in_header = false;
-            } else if let Some(name) = line.strip_prefix("+++ ") {
-                // git ends the line with a tab when the name has a space in it.
-                let name = name.strip_suffix('\t').unwrap_or(name);
-                current = unquote(name).and_then(|n| n.strip_prefix("b/").map(str::to_owned));
-            }
-            continue;
-        }
-        let Some(added) = line.strip_prefix('+') else { continue };
-        // A few shapes no code has by accident; a false hit would leave a needed file out.
-        let hit = added.contains("PRIVATE KEY-----")
-            || ["ghp_", "github_pat_", "sk-ant-", "sk-proj-", "xoxb-", "xoxp-"]
-                .iter()
-                .any(|p| token_after(added, p))
-            || added.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| {
-                w.len() == 20
-                    && w.starts_with("AKIA")
-                    && w.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-            });
-        if hit
-            && let Some(path) = &current
-            && !out.iter().any(|p| p == path)
-        {
-            out.push(path.clone());
+    for s in sections(patch) {
+        if adds_a_secret(s.bytes) && !out.contains(&s.path) {
+            out.push(s.path);
         }
     }
     out
@@ -342,9 +394,6 @@ fn line(bytes: Vec<u8>) -> String {
 }
 
 /// The diff pathspecs that leave `paths` out (from the repository's top).
-fn excludes(paths: &[String]) -> Vec<String> {
-    paths.iter().map(|p| format!(":(top,exclude,literal){p}")).collect()
-}
 
 /// Read what a run of a command in `cwd` would send. Fails, with a reason the person reads,
 /// outside a repository, without an `origin` remote or an upstream it shares a commit with, and
@@ -378,18 +427,22 @@ pub async fn plan(cwd: &Path) -> Result<Plan, String> {
             .await
             .map_err(|_| "HEAD shares no commit with its upstream".to_owned())?,
     );
-    let patch = diff(&root, &base, &[]).await?;
-    let names = git(&root, &["diff", "--name-status", "-z", "--no-renames", &base, "--"]).await?;
-    let mut files = Vec::new();
-    let mut parts = names.split(|b| *b == 0).filter(|p| !p.is_empty());
-    while let (Some(status), Some(path)) = (parts.next(), parts.next()) {
-        let path = String::from_utf8_lossy(path).into_owned();
-        let status = String::from_utf8_lossy(status).into_owned();
-        files.push(TreeFile { secret: status != "D" && secret_name(&path), path, status });
-    }
-    for path in secret_content(&patch) {
-        if let Some(f) = files.iter_mut().find(|f| f.path == path) {
-            f.secret = true;
+    // One read: the files and their secrets come from this diff, never from a second look at
+    // the index, so nothing staged or unstaged in between goes unseen.
+    let patch = diff(&root, &base).await?;
+    let mut files: Vec<TreeFile> = Vec::new();
+    for section in sections(&patch) {
+        let secret =
+            section.status != "D" && (secret_name(&section.path) || adds_a_secret(section.bytes));
+        match files.iter_mut().find(|f| f.path == section.path) {
+            // A type change is a deletion and an addition of one path.
+            Some(f) => {
+                f.status = "T".into();
+                f.secret |= secret;
+            }
+            None => {
+                files.push(TreeFile { path: section.path, status: section.status.into(), secret })
+            }
         }
     }
     let others = git(&root, &["ls-files", "-z", "--others", "--exclude-standard"]).await?;
@@ -403,9 +456,9 @@ pub async fn plan(cwd: &Path) -> Result<Plan, String> {
     Ok(Plan { root, prefix, origin, base, files, untracked, untracked_total, patch })
 }
 
-/// `git diff --binary <base>` of the working tree's tracked files, leaving out `left_out`.
-pub async fn diff(root: &Path, base: &str, left_out: &[String]) -> Result<Vec<u8>, String> {
-    let mut args: Vec<String> = [
+/// `git diff --binary <base>` of the working tree's tracked files.
+pub async fn diff(root: &Path, base: &str) -> Result<Vec<u8>, String> {
+    let args: Vec<String> = [
         "diff",
         "--binary",
         "--no-renames",
@@ -420,10 +473,6 @@ pub async fn diff(root: &Path, base: &str, left_out: &[String]) -> Result<Vec<u8
     .iter()
     .map(|s| (*s).to_owned())
     .collect();
-    if !left_out.is_empty() {
-        args.push(":(top)".into());
-        args.extend(excludes(left_out));
-    }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let patch = git(root, &args).await?;
     if patch.len() > MAX_PATCH {
@@ -527,9 +576,8 @@ trap done_ EXIT
 # .env) would outlive `git clean` into a run that left it out.
 # Each goes only where no folder on its path is a link, so a run that turned `data/` into a link
 # never makes this one delete outside the worktree.
+# They go before the checkout, so a file the new base itself has is the base's again after it.
 if [ -e "$work/.git" ]; then
-  git -C "$work" checkout -q -f --detach "$base"
-  git -C "$work" clean -fdq
   if [ -f "$work.sent" ]; then
     while IFS= read -r -d '' p; do
       d=$(dirname -- "$p")
@@ -537,6 +585,8 @@ if [ -e "$work/.git" ]; then
       if [ "$d" = . ]; then rm -f -- "$work/$p"; fi
     done <"$work.sent"
   fi
+  git -C "$work" checkout -q -f --detach "$base"
+  git -C "$work" clean -fdq
 else
   rm -rf "$work"
   git -C "$repo" worktree prune

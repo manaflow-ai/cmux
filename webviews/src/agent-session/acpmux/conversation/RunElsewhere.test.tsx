@@ -202,6 +202,8 @@ test("a click shows what goes, leaves the secret out, and starts with the plan's
     ["laptop", false, true],
     ["build-box", true, false],
   ]);
+  // The focus is in the panel, on the machine picked, so Return runs and Escape closes.
+  expect(host.ownerDocument.activeElement).toBe(radios[1]);
   const run = panel.querySelector<HTMLButtonElement>(".cv-run-elsewhere__run")!;
   expect(run.textContent).toContain(translate("runElsewhere.run", { machine: "build-box" }));
   await act(async () => run.click());
@@ -248,9 +250,11 @@ test("the run's output streams in under the row in order, drains its tail and st
 });
 
 test("a row shown again goes on reading where it stopped, without repeating output", async () => {
+  // "é" is split between the two reads, with the row away in between.
+  const bytes = Buffer.from("one é\n", "utf8");
   const { runs, calls } = harness([
-    { data: b64("one\n"), nextByte: 4, state: "running" },
-    { data: b64("two\n"), nextByte: 8, state: "running" },
+    { data: bytes.subarray(0, 5).toString("base64"), nextByte: 5, state: "running" },
+    { data: bytes.subarray(5).toString("base64"), nextByte: bytes.length, state: "running" },
   ]);
   runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
   jest.useFakeTimers();
@@ -260,8 +264,8 @@ test("a row shown again goes on reading where it stopped, without repeating outp
   await act(async () => root!.unmount());
   const host = await render(call("in_progress", Date.now() - 30_000), runs);
   await flush();
-  expect(calls.reads).toEqual([0, 4]);
-  expect(host.querySelector(".cv-run-elsewhere__output")?.textContent).toBe("one\ntwo\n");
+  expect(calls.reads).toEqual([0, 5]);
+  expect(host.querySelector(".cv-run-elsewhere__output")?.textContent).toBe("one é\n");
 });
 
 test("Stop stops the task on the other machine", async () => {

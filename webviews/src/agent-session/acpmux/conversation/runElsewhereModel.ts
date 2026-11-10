@@ -70,6 +70,8 @@ export type RunState =
       output: string;
       /** The next byte of the task's output to read: a row shown again goes on from here. */
       read?: number;
+      /** The reads' decoder, holding a character split across two reads while the row is away. */
+      decoder?: TextDecoder;
       exitCode?: number | null;
       state?: string;
     };

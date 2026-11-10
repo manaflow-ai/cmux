@@ -247,7 +247,7 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
 
     let left_out = plan.left_out(&[]);
     assert_eq!(left_out, vec![".env".to_owned()]);
-    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let patch = patch_without(&plan.patch, &left_out);
     let script =
         remote_script(&plan, &patch, &left_out, "pwd; cat ../../src/lib.rs", "run-1").unwrap();
     let out = run_script(&script, &home);
@@ -302,7 +302,7 @@ async fn a_secret_one_run_sent_is_gone_from_the_next_run_that_leaves_it_out() {
 
     // The next run leaves it out, in the same worktree: it is not there to read.
     let left_out = plan.left_out(&[]);
-    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let patch = patch_without(&plan.patch, &left_out);
     let script =
         remote_script(&plan, &patch, &left_out, "cat .env 2>/dev/null || echo absent", "run-6")
             .unwrap();
@@ -340,6 +340,53 @@ async fn clearing_the_last_run_never_follows_a_link_out_of_the_worktree() {
     assert!(outside.join("keep.txt").exists(), "the file the link reached is still there");
 }
 
+#[test]
+fn a_diff_splits_into_its_files_and_a_left_out_one_is_cut_whole() {
+    let patch = b"diff --git a/my file.txt b/my file.txt\nnew file mode 100644\n--- /dev/null\n+++ b/my file.txt\t\n@@ -0,0 +1 @@\n+hi\n\
+        diff --git \"a/q\\\"x\" \"b/q\\\"x\"\ndeleted file mode 100644\n--- \"a/q\\\"x\"\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n\
+        diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\n";
+    let found: Vec<_> = sections(patch).into_iter().map(|s| (s.path, s.status)).collect();
+    assert_eq!(
+        found,
+        vec![
+            ("my file.txt".to_owned(), "A"),
+            ("q\"x".to_owned(), "D"),
+            ("src/a.rs".to_owned(), "M")
+        ]
+    );
+    let cut = patch_without(patch, &["my file.txt".to_owned()]);
+    let rest: Vec<_> = sections(&cut).into_iter().map(|s| s.path).collect();
+    assert_eq!(rest, vec!["q\"x".to_owned(), "src/a.rs".to_owned()]);
+    assert!(!String::from_utf8_lossy(&cut).contains("+hi"));
+}
+
+#[tokio::test]
+async fn a_file_one_run_added_stays_once_the_base_has_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = dirty_clone(tmp.path());
+    let home = tmp.path().join("peer-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("gitconfig"), "[protocol \"file\"]\n\tallow = always\n").unwrap();
+    let plan1 = plan(&work).await.unwrap();
+    let left_out = plan1.left_out(&[]);
+    let patch = patch_without(&plan1.patch, &left_out);
+    let out =
+        run_script(&remote_script(&plan1, &patch, &left_out, "true", "run-9").unwrap(), &home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // The added src/new.rs is committed and pushed: the next run's base has it.
+    git_in(&work, &["rm", "-q", "--cached", ".env"]);
+    git_in(&work, &["commit", "-qam", "push new.rs"]);
+    git_in(&work, &["push", "-q", "origin", "HEAD:main"]);
+    let plan2 = plan(&work).await.unwrap();
+    assert_ne!(plan2.base, plan1.base);
+    let out = run_script(
+        &remote_script(&plan2, &plan2.patch, &[], "cat src/new.rs", "run-10").unwrap(),
+        &home,
+    );
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "pub fn n() {}\n");
+}
+
 #[tokio::test]
 async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     let tmp = tempfile::tempdir().unwrap();
@@ -357,7 +404,7 @@ async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
 
     let plan = plan(&work).await.unwrap();
     let left_out = plan.left_out(&[]);
-    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let patch = patch_without(&plan.patch, &left_out);
     let command = "for i in 1 2 3; do echo line $i; sleep 0.05; done; echo oops >&2; exit 7";
     let script_path = tmp.path().join("run.sh");
     std::fs::write(
@@ -403,7 +450,7 @@ async fn a_dropped_connection_ends_the_command_on_the_other_machine() {
     );
     let plan = plan(&work).await.unwrap();
     let left_out = plan.left_out(&[]);
-    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let patch = patch_without(&plan.patch, &left_out);
     let script = remote_script(&plan, &patch, &left_out, &command, "run-4").unwrap();
     let mut ssh = Command::new(&fake)
         .env("HOME", &home)

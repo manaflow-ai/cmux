@@ -167,9 +167,19 @@ function RunElsewherePanel({
   const going = tree?.files.filter((f) => !f.secret || send.includes(f.path)) ?? [];
   const secrets = tree?.files.filter((f) => f.secret) ?? [];
   const ready = plan.eligible && Boolean(machine) && Boolean(tree) && !run.starting;
+  // The chip that opened the panel is gone, so the focus moves in: Return and Escape work at once.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const form = formRef.current;
+    const first = ["input:checked:not(:disabled)", ".cv-run-elsewhere__run:not(:disabled)", "button:not(:disabled)"]
+      .map((selector) => form?.querySelector<HTMLElement>(selector))
+      .find(Boolean);
+    first?.focus({ preventScroll: true });
+  }, []);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from any of its controls.
     <form
+      ref={formRef}
       className="cv-run-elsewhere"
       aria-label={t("runElsewhere.title")}
       onSubmit={(event) => {
@@ -311,7 +321,7 @@ function RunElsewhereStream({
     let from = at?.phase === "running" ? (at.read ?? 0) : 0;
     let delay = 250;
     let failures = 0;
-    const decoder = new TextDecoder();
+    const decoder = (at?.phase === "running" && at.decoder) || new TextDecoder();
     const read = () => {
       runs.client.output(taskId, from).then(
         (out) => {
@@ -328,6 +338,7 @@ function RunElsewhereStream({
             phase: ended ? "ended" : "running",
             output: appendOutput(current.output, text + (ended ? decoder.decode() : "")),
             read: from,
+            decoder,
             exitCode: out.exitCode,
             state: out.state,
           });
