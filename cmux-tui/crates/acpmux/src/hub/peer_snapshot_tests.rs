@@ -702,14 +702,14 @@ fn a_page_while_a_copy_does_not_read_leaves_the_copy() {
         let mut again = store_at(dir.path());
         list(&mut again, &[("m1", 7)]);
         let path = file(dir.path(), "m1");
-        let mode =
-            |m: u32| std::fs::set_permissions(&path, std::fs::Permissions::from_mode(m)).unwrap();
-        mode(0o000);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
         crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
         // The peer on an older disk, on a new link: its journal ends at 2.
         put(&mut again, "m1", attach(7, 2, true, recs(1..=2)));
         crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
-        mode(0o600);
+        // Under c4a1c13b's rules the page removed the copy and its file.
+        assert_eq!(path.exists(), rules == 0, "the copy's file stays only under the rules of now");
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         let back = again
             .ahead(PEER, vec![("m1".to_owned(), 7, 2)])
             .map(|(a, _)| a.first().map_or(vec![], |a| a.3.iter().filter_map(seq_of).collect()));
