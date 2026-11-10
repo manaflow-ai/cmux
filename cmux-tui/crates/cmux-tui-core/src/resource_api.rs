@@ -35,6 +35,8 @@ use crate::workspace_registry::{
 use crate::{Mux, ResourceSelectors};
 
 pub(crate) use committed_snapshot::CommittedSnapshots;
+#[cfg(test)]
+pub(crate) use committed_snapshot::route_waits_on_this_thread;
 
 #[cfg(test)]
 thread_local! {
@@ -544,13 +546,15 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 
 /// Returns the public session snapshot together with the session journal head
 /// of the same committed revision (one read transaction, `committed_snapshot.rs`;
-/// no registry lock and no state lock). The pair is one consistent cut: every
+/// no registry lock, and no state lock but one try by the first read after a
+/// commit). The pair is one consistent cut: every
 /// journal record at or below the returned head is reflected in the durable
 /// rows of the snapshot, and every later record is not. Checkpoint capture
 /// keys its consistency fence to this cut so a journal write that merely
 /// precedes the cut cannot spuriously abort the capture. The live values
 /// (terminal and browser runtime) are those of the published route tables at
-/// the time of the read: they are not part of the cut.
+/// the time of the read: they are not part of the cut, but they are never
+/// older than a commit the rows show.
 ///
 /// A checkpoint is written to disk, so this snapshot leaves out what the daemon
 /// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
@@ -586,7 +590,8 @@ fn session_snapshot_with_journal_head(
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     // No registry lock and no state lock across this walk: the durable rows are one committed revision
-    // (`committed_snapshot.rs`), the live surfaces are the published route tables.
+    // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
+    // never older than a commit the rows show.
     (|| -> anyhow::Result<(Value, u64)> {
         // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
         // settled it while it pinned the state; it still does, but only when one is owed: the rows of that

@@ -9,7 +9,8 @@
 //! cursor), the terminal rows, the projections and the state fields are one committed revision. The key is the
 //! registry writer's commit count, read before the rows, so the rows are never older than their key. A reader that
 //! finds the key unchanged runs no statement and takes no registry lock and no state lock: it takes the short mutex
-//! of the commit count (`WalDurability::counts`) and makes one atomic load.
+//! of the commit count (`WalDurability::counts`) and makes one atomic load. The reader that builds tries the state
+//! lock once after its rows, with no walk under it (`routes_of_committed_rows_are_published`).
 //!
 //! The key is a correctness key: the count must move inside every COMMIT that writes rows on the registry's
 //! connection (the WAL hook, `workspace_registry/wal_durability.rs` `note_commit`). `mux/tests/snapshot_read.rs`
@@ -64,12 +65,45 @@ impl CommittedSnapshots {
     }
 }
 
-/// The committed rows as of now: the cached ones when no commit landed since they were read.
+#[cfg(test)]
+thread_local! {
+    static ROUTE_WAITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times a snapshot read on this thread waited for a mutator before it loaded its routes (test hook).
+#[cfg(test)]
+pub(crate) fn route_waits_on_this_thread() -> u64 {
+    ROUTE_WAITS.with(std::cell::Cell::get)
+}
+
+/// Called after the rows are read and before the caller loads the published routes: when it returns, the routes
+/// of every commit in the rows are published.
+///
+/// A mutator that changes a route table and commits in one hold of the state lock (a terminal respawn, an
+/// adoption at daemon start) publishes its routes when its state guard drops, after its COMMIT. A read between
+/// the two would show the rows of the commit with the routes of before it, and a client that starts at that
+/// cursor never gets the delta of the commit. Such a mutator holds the state lock from before its COMMIT to its
+/// publish. So if the state lock is free at a time after the rows were read, each mutator whose commit the rows
+/// show has dropped its guard: one try, no wait, no walk under it. If a thread holds the state lock now, the read
+/// waits for it once (an O(1) hold of its own), as the read under the state lock did before. Routes newer than
+/// the rows are harmless: the read walks the rows.
+fn routes_of_committed_rows_are_published(mux: &Mux) {
+    if matches!(mux.state.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
+        #[cfg(test)]
+        ROUTE_WAITS.with(|waits| waits.set(waits.get() + 1));
+        drop(mux.state.lock());
+    }
+}
+
+/// The committed rows as of now: the cached ones when no commit landed since they were read. The routes of every
+/// commit in the returned rows are published (see [`routes_of_committed_rows_are_published`]).
 pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnapshot>> {
     let Some(snapshots) = &mux.committed_snapshots else {
-        return Ok(Arc::new(super::read_committed_registry(mux, |connection, ids| {
+        let built = Arc::new(super::read_committed_registry(mux, |connection, ids| {
             build(connection, &ids.registry_id, &ids.generation, &ids.session_id, 0)
-        })?));
+        })?);
+        routes_of_committed_rows_are_published(mux);
+        return Ok(built);
     };
     let current =
         |commits: u64| snapshots.latest.load_full().filter(|latest| latest.commits == commits);
@@ -89,6 +123,8 @@ pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnaps
     let built =
         Arc::new(build(&transaction, &registry_id, &generation, &mux.session_public_id, commits)?);
     transaction.finish()?;
+    // Before the rows go in the cache: a reader that takes them from the cache makes no try of its own.
+    routes_of_committed_rows_are_published(mux);
     snapshots.latest.store(Some(built.clone()));
     Ok(built)
 }
