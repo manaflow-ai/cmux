@@ -18,6 +18,7 @@ The pre-fix reader:
 - runs-on: the raw string, one cell; `${{ matrix.runner }}` is not expanded.
 - environment names: compared as written (`Release` is not `release`).
 - check names: the `name:` as written (`${{ 'X' }}` is not `X`).
+- a reusable workflow's `inputs.X`: unread; no caller's `with:` is traced.
 - a job's secrets: its own mapping only; the workflow-level `env:` it inherits is not read.
 
 One list's fix changed no reader: signing_runner.SIGNING_JOBS' cap classification (tests/test_ci_signing_owned_mac.py)
@@ -25,14 +26,15 @@ reads the owned pick with the same dotted() and NEEDS_OUTPUT it had before; what
 itself. Its pre-fix is that guard switched off (PRE_FIX_GUARDS: owned_pick_reads finds nothing), and its fixture must
 go red with it, so the fixture is shown to need the guard.
 
-The 21 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
+The 22 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
 tests/test_nightly_sign_runner.py, tests/test_seed_derived_data.py, tests/test_ci_signing_owned_mac.py,
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py's GATED_SECRET_JOBS,
 tests/test_ci_fork_runner_routing.py, tests/test_publish_app_token_workflow.py) and the four keychain lists
 (KeychainListFixtures below), and six for the readers' last gaps, one or more per field the resolve step reads: runs-on
 (a matrix Linux control with issues: write, a matrix Mac job calling notarytool), env (a secret in the workflow-level
 env), environment (a release environment in another case, for the release and App-token lists) and name (a required
-check named by an expression). Secrets are the bracket, case and toJSON fixtures above. This branch merges the three list branches, so every module is importable here.
+check named by an expression, and a runner passed to a reusable workflow's input from the caller's matrix, in
+bracket form). Secrets are the bracket, case and toJSON fixtures above. This branch merges the three list branches, so every module is importable here.
 """
 
 from __future__ import annotations
@@ -96,20 +98,25 @@ class PreFixReader:
         return found
 
     @staticmethod
-    def runs_on_cells(job: Mapping[str, Any]) -> list[str] | None:
+    def runs_on_cells(job: Mapping[str, Any], *_: Any) -> list[str] | None:
         raw = job.get("runs-on")
         return [raw if isinstance(raw, str) else str(raw)] if raw else []
+
+    @staticmethod
+    def runs_on_values(job: Mapping[str, Any], *_: Any) -> tuple[set[str], set[str]]:
+        raw = job.get("runs-on")
+        return set(), ({raw if isinstance(raw, str) else str(raw)} if raw else set())
 
     @staticmethod
     def inheriting(document: Mapping[str, Any]) -> dict[str, Any]:
         return dict(document)
 
     @staticmethod
-    def name_values(job: Mapping[str, Any], job_id: str) -> tuple[set[str], set[str]]:
+    def name_values(job: Mapping[str, Any], job_id: str, *_: Any) -> tuple[set[str], set[str]]:
         return {str(job.get("name", job_id))}, set()
 
     @staticmethod
-    def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
+    def environment_values(job: Mapping[str, Any], *_: Any) -> tuple[set[str], set[str]]:
         env = job.get("environment")
         if isinstance(env, Mapping):
             env = env.get("name")
@@ -121,7 +128,7 @@ class PreFixReader:
     def patched(cls) -> ExitStack:
         stack = ExitStack()
         for name in ("secret_names", "document", "jobs", "environment_values", "runs_on_cells", "inheriting",
-                     "name_values"):
+                     "name_values", "runs_on_values"):
             stack.enter_context(mock.patch.object(workflow_jobs, name, getattr(cls, name)))
         return stack
 
@@ -158,6 +165,61 @@ class KeychainListFixtures(unittest.TestCase):
         failures: list[str] = []
         self.guard.check_keychain_lists(self.documents, failures)
         self.assertEqual(failures, [])
+
+
+class ReusableInputTracing(unittest.TestCase):
+    """A reusable workflow's `inputs.X` is its callers' `with: X:` values (workflow_jobs.Workflows), read in the
+    caller job with its own matrix expanded per cell, at any call depth; bracket and dot forms are one reference.
+    Built on every workflow document plus the fixture workflows. Codex's two repros on #40799 are the first two."""
+
+    CALLEE = {"on": {"workflow_call": {"inputs": {"runner": {"type": "string"}}}},
+              "jobs": {"build": {"runs-on": "${{ inputs.runner }}", "steps": [{"run": "true"}]}}}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.documents = _documents()
+
+    def _tree(self, caller_job: dict, callee: dict | None = None, **more: dict) -> workflow_jobs.Workflows:
+        caller = {"on": "push", "jobs": {"call": {"uses": "./.github/workflows/callee-fixture.yml", **caller_job}}}
+        return workflow_jobs.Workflows({**self.documents, "caller-fixture.yml": caller,
+                                        "callee-fixture.yml": callee or self.CALLEE, **more})
+
+    def _callee_runs_on(self, tree: workflow_jobs.Workflows, callee: dict | None = None) -> tuple[set[str], set[str]]:
+        job = (callee or self.CALLEE)["jobs"]["build"]
+        return workflow_jobs.runs_on_values(job, "callee-fixture.yml", tree)
+
+    def test_a_caller_matrix_runner_passed_as_an_input_resolves_to_what_it_reads(self) -> None:
+        tree = self._tree({"strategy": {"matrix": {"runner": ["${{ vars.NEW_X }}"]}},
+                           "with": {"runner": "${{ matrix.runner }}"}})
+        self.assertEqual(self._callee_runs_on(tree), (set(), {"vars.NEW_X"}))
+        self.assertEqual(workflow_jobs.runs_on_cells(self.CALLEE["jobs"]["build"], "callee-fixture.yml", tree),
+                         ["${{ vars.NEW_X }}"])
+
+    def test_the_bracket_forms_of_matrix_and_inputs_resolve_the_same(self) -> None:
+        callee = {**self.CALLEE, "jobs": {"build": {"runs-on": "${{ inputs['runner'] }}", "steps": [{"run": "true"}]}}}
+        tree = self._tree({"strategy": {"matrix": {"runner": ["${{ vars['NEW_X'] }}", "ubuntu-24.04"]}},
+                           "with": {"runner": "${{ matrix['runner'] }}"}}, callee)
+        self.assertEqual(self._callee_runs_on(tree, callee), ({"ubuntu-24.04"}, {"vars.NEW_X"}))
+
+    def test_an_input_passed_on_through_a_second_call_resolves_at_the_first_caller(self) -> None:
+        middle = {"on": {"workflow_call": {"inputs": {"runner": {"type": "string"}}}},
+                  "jobs": {"call": {"uses": "./.github/workflows/callee-fixture.yml",
+                                    "with": {"runner": "${{ inputs.runner }}"}}}}
+        top = {"on": "push", "jobs": {"call": {"uses": "./.github/workflows/middle-fixture.yml",
+                                               "with": {"runner": "${{ github.ref == 'refs/heads/main' && 'macos-26' || vars.Y }}"}}}}
+        tree = workflow_jobs.Workflows({**self.documents, "callee-fixture.yml": self.CALLEE,
+                                        "middle-fixture.yml": middle, "top-fixture.yml": top})
+        self.assertEqual(self._callee_runs_on(tree), ({"macos-26"}, {"vars.Y"}))
+
+    def test_an_input_nothing_passes_stays_unresolved(self) -> None:
+        tree = workflow_jobs.Workflows({**self.documents, "callee-fixture.yml": self.CALLEE})
+        self.assertEqual(self._callee_runs_on(tree), (set(), {"inputs.runner"}))
+        cycle = {"on": {"workflow_call": {"inputs": {"runner": {"type": "string"}}}},
+                 "jobs": {"build": {"runs-on": "${{ inputs.runner }}"},
+                          "call": {"uses": "./.github/workflows/cycle-fixture.yml", "with": {"runner": "${{ inputs.runner }}"}}}}
+        tree = workflow_jobs.Workflows({**self.documents, "cycle-fixture.yml": cycle})
+        self.assertEqual(workflow_jobs.runs_on_values(cycle["jobs"]["build"], "cycle-fixture.yml", tree),
+                         (set(), {"inputs.runner"}))
 
 
 HERE = __name__
@@ -213,6 +275,9 @@ FIXTURES = (
     ("APP_JOBS (environment case)", "test_publish_app_token_workflow", "WorkflowTests",
      "test_a_release_app_job_whose_environment_differs_in_case_must_be_classified",
      "test_a_listed_release_app_job_in_another_case_stays_green"),
+    ("runs-on through a reusable workflow's input (bracket forms)", HERE, "ReusableInputTracing",
+     "test_the_bracket_forms_of_matrix_and_inputs_resolve_the_same",
+     "test_a_caller_matrix_runner_passed_as_an_input_resolves_to_what_it_reads"),
     ("STEP_LEVEL_ONLY", HERE, "KeychainListFixtures", "test_step_level_only", None),
     ("INLINE_DEVELOPER_ID_KEYCHAINS", HERE, "KeychainListFixtures", "test_inline_developer_id_keychains", None),
     ("SCRIPT_MADE_KEYCHAINS (derived)", HERE, "KeychainListFixtures", "test_script_made_keychains", None),
@@ -235,8 +300,8 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_twenty_one_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 21)
+    def test_there_are_twenty_two_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 22)
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:
         for label, module, cls, red, green in FIXTURES:
