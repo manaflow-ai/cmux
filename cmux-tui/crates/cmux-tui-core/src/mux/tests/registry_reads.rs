@@ -9,6 +9,8 @@ use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 
 use super::*;
 
+mod list_fallback;
+
 fn persistent_mux(name: &str) -> (Arc<Mux>, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!(
         "cmux-registry-reads-{name}-{}-{}",
@@ -228,7 +230,9 @@ fn a_progress_report_publishes_pending_directories_after_it_releases_the_connect
 /// registry lock up to 281 ms, and `workspace.list`, `session.ping` and the
 /// scoped pane and tab lists read committed rows only but queued behind it.
 /// They read the registry's read-only WAL connection: no registry lock, no
-/// wait for a writer, and the same values as under the lock.
+/// wait for a writer, and the same values as under the lock. So do the
+/// lists with no scope (`pane.list`, `tab.list`, `terminal.list` of the
+/// whole session, #40709): a script or an agent sends those.
 #[test]
 fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     use std::sync::mpsc::sync_channel;
@@ -256,7 +260,12 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
         ("session.ping", serde_json::json!({})),
         ("tab.list", serde_json::json!({"pane": pane})),
         ("pane.list", serde_json::json!({"workspace": workspace})),
+        ("pane.list", serde_json::json!({})),
+        ("tab.list", serde_json::json!({})),
+        ("terminal.list", serde_json::json!({})),
     ];
+    let labels =
+        reads.iter().map(|(operation, params)| format!("{operation} {params}")).collect::<Vec<_>>();
     let expected = reads
         .iter()
         .map(|(operation, params)| call(&mux, operation, params.clone())["result"].clone())
@@ -293,7 +302,7 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
         })
     };
     let mut during = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..labels.len() {
         match answered_receiver.recv_timeout(Duration::from_secs(2)) {
             Ok(answer) => during.push(answer),
             Err(_) => break,
@@ -302,7 +311,11 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     release.send(()).unwrap();
     holder.join().unwrap();
     reader.join().unwrap();
-    assert_eq!(during.len(), 4, "a list read waited for the registry lock: answered {during:?}");
+    assert_eq!(
+        during.len(),
+        labels.len(),
+        "a list read waited for the registry lock: asked {labels:?}, answered {during:?}"
+    );
     // The shells keep committing (directory, progress) until the hold, so
     // compare what those commits do not change: the listed ids, and the
     // ping's generation; its revision is the one committed at the hold.
@@ -312,8 +325,8 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
             .map(|rows| rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>())
             .unwrap_or_default()
     };
-    for ((operation, response), expected) in during.iter().zip(&expected) {
-        assert_eq!(response["ok"], true, "{operation}: {response}");
+    for (((operation, response), expected), label) in during.iter().zip(&expected).zip(&labels) {
+        assert_eq!(response["ok"], true, "{label}: {response}");
         if *operation == "session.ping" {
             assert_eq!(
                 response["result"]["cursor"]["generation"], expected["cursor"]["generation"],
@@ -325,8 +338,8 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
                 "{operation} read the revision committed at the hold"
             );
         } else {
-            assert!(!ids(expected).is_empty(), "{operation} lists rows");
-            assert_eq!(ids(&response["result"]), ids(expected), "{operation} listed the same rows");
+            assert!(!ids(expected).is_empty(), "{label} lists rows");
+            assert_eq!(ids(&response["result"]), ids(expected), "{label} listed the same rows");
         }
     }
     mux.shutdown();
