@@ -658,7 +658,12 @@ jobs:
             if [[ "$RUNNER_OS" == "Linux" ]]; then
               test_threads=32
             fi
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads="$test_threads"
+            # --no-fail-fast: one failing test binary must not hide the rest,
+            # and the cmux-tui-core tests below still run. The step fails at
+            # the end with the workspace status.
+            workspace_status=0
+            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast \
+              -- --test-threads="$test_threads" || workspace_status=$?
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
@@ -666,7 +671,7 @@ jobs:
               target/cmux-tui-core-test-binaries.jsonl \
               crates/cmux-tui-core
             cargo test -p cmux-tui-core --doc --locked
-            exit 0
+            exit "$workspace_status"
           fi
           if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
             # Cargo test names do not include their package name. Keep this
@@ -698,7 +703,8 @@ jobs:
             echo "::notice::test_filter '$TEST_FILTER' selects no Rust test on this host; hosted verification fails the run only if the other host selects none too"
             exit 0
           fi
-          cargo test --workspace --locked "$TEST_FILTER"
+          # A filter can select tests in several binaries; run them all.
+          cargo test --workspace --locked --no-fail-fast "$TEST_FILTER"
 
       - name: Optional Iroh route and auth tests
         if: inputs.mode == 'full'
