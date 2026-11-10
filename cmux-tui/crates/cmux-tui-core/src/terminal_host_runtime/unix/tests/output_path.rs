@@ -1,7 +1,136 @@
-//! The host client writer: frames queued at one wake go out together, in
-//! order, and each frame's queue bytes are released after its write.
+//! The host's output path: the parser's legacy stream, which it builds only
+//! while a legacy client is attached, and the client writer, which sends the
+//! frames queued at one wake together, in order, releasing each frame's queue
+//! bytes after its write.
 
 use super::*;
+
+/// A host with a running parser, and the tap of a legacy client that has
+/// not joined yet.
+struct LegacyHost {
+    host: Arc<HostShared>,
+    parser: thread::JoinHandle<()>,
+    cursor: u64,
+    tap: HostTap,
+    frames: Receiver<Arc<Frame>>,
+    _peer: UnixStream,
+}
+
+impl LegacyHost {
+    fn start() -> Self {
+        let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
+        let host = test_host_shared_with(
+            term,
+            parser_commands,
+            ClipboardReads::new(Arc::new(SystemClock)),
+        );
+        let initial_colors = host.term.lock().unwrap().color_overrides();
+        let parser_host = host.clone();
+        let signals = ParserSignals {
+            pending_responses: Arc::new(Mutex::new(Vec::new())),
+            title_changed: Arc::new(AtomicBool::new(false)),
+            bell: Arc::new(AtomicBool::new(false)),
+            program_status: Default::default(),
+        };
+        let parser =
+            thread::spawn(move || run_host_parser(parser_host, receiver, initial_colors, signals));
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let (sender, frames) = mpsc_channel();
+        let tap = HostTap::new(sender, Arc::new(socket), usize::MAX);
+        Self { host, parser, cursor: 0, tap, frames, _peer: peer }
+    }
+
+    /// Parses `bytes` as one PTY chunk and waits until it is applied.
+    fn output(&mut self, bytes: &[u8]) {
+        let (cursor, frame) =
+            self.host.smart.publish_shared(Frame::new(MessageKind::Output, bytes.to_vec()));
+        self.cursor = cursor;
+        self.host
+            .parser_commands
+            .send(ParserCommand::Output { frame, source_cursor: cursor, accounted_bytes: 0 })
+            .unwrap();
+        let (barrier, applied) = sync_channel(1);
+        self.host.parser_commands.send(ParserCommand::Barrier(barrier)).unwrap();
+        applied.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    /// Joins the legacy client the way `serve_client` does: under the
+    /// terminal lock that its snapshot is taken under.
+    fn attach_legacy(&self) {
+        let _term = self.host.term.lock().unwrap();
+        let _broadcast = self.host.broadcast_lock.lock().unwrap();
+        self.host.taps.lock().unwrap().insert(1, self.tap.clone());
+    }
+
+    fn received(&self) -> Vec<(MessageKind, u32, Vec<u8>)> {
+        self.frames
+            .try_iter()
+            .map(|frame| (frame.kind, frame.flags, frame.payload.clone()))
+            .collect()
+    }
+
+    fn finish(self) {
+        self.host.parser_commands.send(ParserCommand::Drain).unwrap();
+        self.parser.join().expect("the parser applied every command");
+    }
+}
+
+const SET_RED_PALETTE_ENTRY: &[u8] = b"\x1b]4;1;rgb:ff/00/00\x1b\\";
+const SET_PWD: &[u8] = b"\x1b]7;file://host/tmp/first\x1b\\";
+
+#[test]
+fn a_legacy_client_that_joins_later_gets_only_changes_after_its_snapshot() {
+    let mut host = LegacyHost::start();
+    // No legacy client: the parser changes colors and the directory, and
+    // publishes nothing on the legacy stream.
+    host.output(SET_RED_PALETTE_ENTRY);
+    host.output(SET_PWD);
+    assert_eq!(host.host.sequence.load(Ordering::Acquire), 0);
+    assert_eq!(host.host.smart.applied_cursor.load(Ordering::Acquire), host.cursor);
+
+    host.attach_legacy();
+    // The snapshot holds the red entry and the directory: plain output after
+    // it carries no Colors and no Pwd.
+    host.output(b"plain");
+    assert_eq!(host.received(), [(MessageKind::Output, 0, b"plain".to_vec())]);
+
+    // A change after the snapshot reaches the client, coupled as before.
+    host.output(b"\x1b]4;1;rgb:00/ff/00\x1b\\");
+    let frames = host.received();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!((frames[0].0, frames[0].1), (MessageKind::Output, FLAG_COLORS_FOLLOW));
+    assert_eq!(frames[1].0, MessageKind::Colors);
+    let colors = decode_terminal_color_overrides(&frames[1].2).unwrap();
+    let green = colors.palette[1].expect("the entry the program set");
+    assert_eq!((green.r, green.g, green.b), (0, 0xff, 0));
+
+    host.output(b"\x1b]7;file://host/tmp/second\x1b\\");
+    let frames = host.received();
+    let pwd = frames.last().expect("a Pwd frame");
+    assert_eq!(pwd.0, MessageKind::Pwd, "{frames:?}");
+    assert!(String::from_utf8_lossy(&pwd.2).contains("/tmp/second"), "{frames:?}");
+    host.finish();
+}
+
+#[test]
+fn a_legacy_client_attached_throughout_gets_every_transition() {
+    let mut host = LegacyHost::start();
+    host.attach_legacy();
+    host.output(SET_RED_PALETTE_ENTRY);
+    let frames = host.received();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!((frames[0].0, frames[0].1), (MessageKind::Output, FLAG_COLORS_FOLLOW));
+    assert_eq!(frames[1].0, MessageKind::Colors);
+    host.output(SET_PWD);
+    let frames = host.received();
+    assert_eq!(
+        frames.iter().map(|frame| frame.0).collect::<Vec<_>>(),
+        [MessageKind::Output, MessageKind::Pwd]
+    );
+    assert_eq!(host.host.sequence.load(Ordering::Acquire), 4);
+    host.finish();
+}
 
 /// Frames queued for one client, the writer's private wake sentinel last.
 fn queue(tap: &HostTap, frames: &[Frame]) {
