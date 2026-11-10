@@ -92,11 +92,26 @@ final class LayoutViewContext {
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
     /// The last topmost answer and what it was asked for (`hoverReaches`).
     private var topmost: (window: Int, pointer: NSPoint, passThrough: Set<Int>, reaches: Bool)?
+    /// The answer of the first ask in a window's live resize, held to the end of that resize (`hoverReaches`).
+    private var heldInResize: (window: Int, reaches: Bool)?
 
     /// ``hoverReachesWindow``, asked again only when the pointer (in window coordinates), the window or the
     /// pass-through panels changed, or after ``invalidateHoverTopmost()``: a presentation pass under a still pointer
     /// (a pan, a spring) asks the window server nothing.
+    ///
+    /// In a live resize of `window` (or of its parent) the answer of the first ask holds until the resize ends: the
+    /// person holds the mouse button on the window's own edge and AppKit's resize loop has the pointer, so no window
+    /// comes or goes under it. Each step moves the handles and the catcher panels under the pointer, and each of
+    /// those asked again: a window server round trip two or three times in every step of the drag (WINDOW RESIZE 2).
+    /// The same holds for the short time of a full screen transition (`Motion.isLiveResizing` counts it).
     func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool {
+        guard !Motion.isLiveResizing(window) else {
+            if let heldInResize, heldInResize.window == window.windowNumber { return heldInResize.reaches }
+            let reaches = hoverReachesWindow(window)
+            heldInResize = (window.windowNumber, reaches)
+            return reaches
+        }
+        heldInResize = nil
         let passThrough = hoverPassThroughWindows()
         if let topmost, topmost.window == window.windowNumber, topmost.pointer == pointer, topmost.passThrough == passThrough {
             return topmost.reaches
