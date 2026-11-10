@@ -42,6 +42,60 @@ func feed(_ input: Pipe, _ stdin: Data) {
 }
 """
 
+# The same write under another name (cmuxterm-hq#8608): PhoneProcess's shape before this change.
+ALIASED = """import Foundation
+
+func feed(_ inPipe: Pipe, _ stdin: Data) {
+    let writer = inPipe.fileHandleForWriting
+    try? writer.write(contentsOf: stdin)
+}
+"""
+# MobileHostProcess's shape: the write end kept in state, written later under the lock.
+STORED = """import Foundation
+
+final class Host {
+    struct State { var input: FileHandle? }
+    var state = State()
+    func start(_ input: Pipe) {
+        state.input = input.fileHandleForWriting
+    }
+    func send(_ line: Data) {
+        guard let input = state.input else { return }
+        try? input.write(contentsOf: line)
+    }
+}
+"""
+# CloudCodexHolderPipe's shape: bound, then rebound to a property, then written through it.
+REBOUND = """import Foundation
+
+final class Holder {
+    var input: FileHandle?
+    func start(_ inputPipe: Pipe) {
+        let writer = inputPipe.fileHandleForWriting
+        self.input = writer
+    }
+    func send(_ line: Data) {
+        try? input?.write(contentsOf: line)
+    }
+}
+"""
+# A descriptor taken from the write end and written with write(2).
+DESCRIPTOR = """import Darwin
+import Foundation
+
+func feed(_ stdin: Pipe, _ bytes: [UInt8]) {
+    let fd = stdin.fileHandleForWriting.fileDescriptor
+    _ = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+}
+"""
+# A file (not a pipe) written in a file that binds no write end: not this rule's business.
+FILE_WRITE = """import Foundation
+
+func save(_ handle: FileHandle, _ data: Data) throws {
+    try handle.write(contentsOf: data)
+}
+"""
+
 
 def run(files):
     with tempfile.TemporaryDirectory() as temporary:
@@ -72,6 +126,30 @@ class PipeWriteRule(unittest.TestCase):
 
     def test_a_reviewed_escape_is_green(self):
         result = run({"FixtureCore/Feed.swift": ALLOWED})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_aliased_pipe_write_is_red(self):
+        result = run({"FixtureCore/Feed.swift": ALIASED})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureCore/Feed.swift:5: pipe write on the caller's thread (use PipeFeed)", result.stdout)
+
+    def test_a_stored_write_end_written_later_is_red(self):
+        result = run({"FixtureUI/Host.swift": STORED})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureUI/Host.swift:11: pipe write on the caller's thread (use PipeFeed)", result.stdout)
+
+    def test_a_rebound_write_end_is_red(self):
+        result = run({"FixtureCore/Holder.swift": REBOUND})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureCore/Holder.swift:10: pipe write on the caller's thread (use PipeFeed)", result.stdout)
+
+    def test_a_write_to_the_write_ends_descriptor_is_red(self):
+        result = run({"FixtureCore/Feed.swift": DESCRIPTOR})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureCore/Feed.swift:6: pipe write on the caller's thread (use PipeFeed)", result.stdout)
+
+    def test_a_file_write_with_no_pipe_in_the_file_is_green(self):
+        result = run({"FixtureCore/Save.swift": FILE_WRITE})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
