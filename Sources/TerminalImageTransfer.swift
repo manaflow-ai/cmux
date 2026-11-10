@@ -386,14 +386,17 @@ enum TerminalImageTransferPlanner {
         return true
     }
 
-    /// Opens the file rather than checking POSIX bits: macOS app-data protection
-    /// denies reads inside other apps' containers even when the mode allows them.
-    private static func isReadableFileURL(_ fileURL: URL) -> Bool {
+    /// A regular file this process cannot open, such as a clipboard manager's copy
+    /// inside its sandbox container. Opens the file rather than checking POSIX bits:
+    /// macOS app-data protection denies reads there even when the mode allows them.
+    /// Non-regular URLs return false without being opened, so a FIFO can't block.
+    private static func isUnreadableRegularFileURL(_ fileURL: URL) -> Bool {
+        guard isRemoteUploadableFileURL(fileURL) else { return false }
         guard let handle = try? FileHandle(forReadingFrom: fileURL.standardizedFileURL) else {
-            return false
+            return true
         }
         try? handle.close()
-        return true
+        return false
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
@@ -431,7 +434,7 @@ enum TerminalImageTransferPlanner {
         // A URL the terminal program cannot open never outranks resolved text.
         let candidateFileURLs = fileURLs(from: pasteboard)
         let selectedFileURLs = text?.isEmpty == false
-            ? candidateFileURLs.filter(isReadableFileURL)
+            ? candidateFileURLs.filter { !isUnreadableRegularFileURL($0) }
             : candidateFileURLs
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
             selectedFileURLs,
@@ -499,10 +502,11 @@ enum TerminalImageTransferPlanner {
         // files without decoding those previews for either paste or drop.
         // Folder, web, and expired URLs can still accompany actual image copies.
         // So can files the terminal program cannot open, such as a clipboard
-        // manager's copy inside its sandbox container; let the pixels win there.
+        // manager's copy inside its sandbox container; let the pixels win when
+        // none of the files can be opened. A partly readable selection is kept.
         guard !urls.isEmpty,
               urls.allSatisfy(isRemoteUploadableFileURL),
-              urls.allSatisfy(isReadableFileURL) else { return nil }
+              !urls.allSatisfy(isUnreadableRegularFileURL) else { return nil }
         guard let durableURLs = pasteboardService.durableDroppedFileURLs(
             urls,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
