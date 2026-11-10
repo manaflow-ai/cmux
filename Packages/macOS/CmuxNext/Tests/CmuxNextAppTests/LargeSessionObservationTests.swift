@@ -405,6 +405,8 @@ struct LargeSessionObservationTests {
     /// agent's step wakes it from no other session.
     @Test(.timeLimit(.minutes(2)), arguments: SessionFixtureSize.arms)
     func o7ApprovalsReadTheWaitingSessionsOnly(size: SessionFixtureSize) async throws {
+        // No fixture here (the lanes are the session): the size's own check, so a name that is no size fails this test too.
+        try #require(size.mixFaults.isEmpty, "fixture: the \(size.rawValue) mix is wrong: \(size.mixFaults)")
         let saved = DesignSettings.shared.sidebarSections
         DesignSettings.shared.sidebarSections.sessionTree = true
         defer { DesignSettings.shared.sidebarSections = saved }
@@ -574,7 +576,7 @@ struct LargeSessionObservationTests {
     }
 }
 
-/// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
+/// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor(size:)`` that matched.
 @MainActor final class WaitHits {
     var names = Set<String>()
 }

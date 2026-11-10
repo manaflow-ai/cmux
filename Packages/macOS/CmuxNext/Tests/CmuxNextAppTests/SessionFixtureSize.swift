@@ -67,9 +67,9 @@ nonisolated enum SessionFixtureSize: String, CaseIterable, Sendable, CustomTestS
 
     var workspaces: Int { self == .large ? 60 : 826 }
 
-    /// Picks exactly `k` of the positions `0..<n`, evenly: position `i` is picked when `i * k / n` (rounded down) is
-    /// more than at `i - 1`, and position 0 is picked. Returns the picked position's rank (`0..<k`), nil for a position
-    /// that is not picked.
+    /// Picks exactly `k` of the positions `0..<n`, evenly, for `1 <= k <= n` (no other `k` is used): position `i` is
+    /// picked when `i * k / n` (rounded down) is more than at `i - 1`, and position 0 is picked. Returns the picked
+    /// position's rank (`0..<k`), nil for a position that is not picked.
     static func pick(_ i: Int, _ k: Int, of n: Int) -> Int? {
         let rank = i * k / n
         return i == 0 || rank > (i - 1) * k / n ? rank : nil
@@ -103,6 +103,9 @@ nonisolated enum SessionFixtureSize: String, CaseIterable, Sendable, CustomTestS
         return places
     }
 
+    /// The panes of ``shape(_:)``: what ``LargeSessionFixture`` (the store fixture) makes at both sizes and
+    /// ``LargeSessionWindowFixture`` makes at `real`. At `large` the window fixture joins each workspace's tabs into
+    /// one pane, as before the sizes: 60 panes there, not 120.
     var panes: Int { (1...workspaces).map { shape($0).count }.reduce(0, +) }
     var tabs: Int { places { _ in true }.count }
     var terminals: Int { places { $0.isTerminal }.count }
