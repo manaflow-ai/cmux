@@ -168,6 +168,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
+        .onGeometryChange(for: Bool.self) { proxy in
+            let insets = proxy.safeAreaInsets
+            return ScreenSharingOrientation.isUnfolded(windowSize: CGSize(
+                width: proxy.size.width + insets.leading + insets.trailing,
+                height: proxy.size.height + insets.top + insets.bottom))
+        } action: { _ in
+            ScreenSharingOrientation.shared.foldChanged()
+        }
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task {
