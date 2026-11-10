@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import slotsSchema from "../../../../schemas/theme/slots.json";
 import { JumpToLatest } from "../../agent-session/acpmux/VirtualTranscript";
 import { ArrowDown } from "../../agent-session/acpmux/conversation/icons";
-import { configureThemeSlots, resetSlotsForTest, slotVariantIds } from "../registry";
+import { configureThemeSlots, slotVariantIds } from "../registry";
 import { JUMP_TO_BOTTOM_VARIANTS, jumpToBottomSlot, registerJumpToBottomVariants } from "./index";
 
 let dom: JSDOM | undefined;
@@ -35,8 +35,7 @@ beforeEach(() => {
   });
   container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
-  // Another test file in the same run may have reset the registry (registry.test.tsx).
-  resetSlotsForTest();
+  // Another test file in the same run may have reset the registry (registry.test.tsx): put ours back.
   registerJumpToBottomVariants();
 });
 
