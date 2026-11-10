@@ -9188,6 +9188,137 @@
         }
       }
     },
+    "agentPane.personUnproven.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたとして確認されていません。エージェントサービスとの本人確認を再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        }
+      }
+    },
     "agentPane.otherInstall.message": {
       "extractionState": "manual",
       "localizations": {

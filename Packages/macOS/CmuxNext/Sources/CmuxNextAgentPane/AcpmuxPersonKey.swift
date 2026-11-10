@@ -108,44 +108,90 @@ nonisolated enum AcpmuxPersonKey {
     /// Daemons (by pid) this process already handed off for the key: never twice.
     private static let handedOff = Mutex<Set<Int32>>([])
 
+    /// Waits between enroll attempts after a refusal that may pass on its own (the daemon timed
+    /// out, closed the connection, or was restarting): bounded, about 7 s in all.
+    static let enrollRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)]
+
     /// Gives the running daemon its key, after the server peer check. Returns true when it stopped
-    /// that daemon (an unsigned one with another key), so the caller starts a new one.
+    /// that daemon (an unsigned one with another key, or one running a bundle an update replaced),
+    /// so the caller starts a new one.
     /// `mayHandOff` false (a reconnect): never stops a daemon; a DEV daemon with another key keeps
     /// refusing this launch's allows until a pane that may start a daemon hands it off.
-    static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true) async -> Bool {
+    ///
+    /// A refusal is never skipped in silence: without the key every pane on that daemon proves
+    /// nothing, and the person's typed prompts reach the agent as an unverified sender's
+    /// (2026-11-10, after an update left the previous build's daemon running). A daemon running an
+    /// executable an update replaced can never be checked, so it is handed off as above; any other
+    /// refusal is tried again a few times (``enrollRetryDelays``).
+    static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true,
+                       retryDelays: [Duration] = enrollRetryDelays) async -> Bool {
         let key = enrollKey(for: environment.socketPath, pid: status.pid)
-        do {
-            // Sent only to a server peer that is the acpmux this app runs (cx-fcaq).
-            _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
-                                                params: ["key": key], executable: environment.executable,
-                                                deadline: .seconds(5))
-            return false
-        } catch let refusal as AcpmuxServerPeer.Refusal {
-            logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public)")
-            return false
-        } catch let error as AcpmuxRPCError where error.name == enrollUnavailable {
-            guard mayHandOff else {
-                logger.error("acpmux \(status.pid ?? -1) has another person key; a reconnect does not hand it off")
-                return false
-            }
-            guard status.agentHosts, let pid = status.pid else {
-                // Its agents would end with it: keep it; allows stay refused until it restarts.
-                logger.error("acpmux \(status.pid ?? -1) has another person key and no agent hosts; allow stays refused")
-                return false
-            }
-            guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
-            logger.info("acpmux \(pid) has another launch's person key; handing it off")
+        var delays = retryDelays[...]
+        while true {
             do {
-                try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+                // Sent only to a server peer that is the acpmux this app runs (cx-fcaq).
+                _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
+                                                    params: ["key": key], executable: environment.executable,
+                                                    deadline: .seconds(5))
+                return false
+            } catch let refusal as AcpmuxServerPeer.Refusal {
+                if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
+                    logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); acpmux \(pid) runs a replaced bundle")
+                    return await handOff(status, environment: environment, mayHandOff: mayHandOff,
+                                         why: "runs a bundle an update replaced, which cannot take this launch's person key")
+                }
+                // Another install's or another user's daemon refuses for good: no retry there.
+                guard Self.mayPass(refusal), let delay = delays.popFirst(), !Task.isCancelled else {
+                    logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); this pane's prompts are not proven the person's")
+                    return false
+                }
+                logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); trying again")
+                // wakeup-allow: a bounded enroll retry (three waits at most, only after a refusal)
+                try? await Task.sleep(for: delay)
+            } catch let error as AcpmuxRPCError where error.name == enrollUnavailable {
+                return await handOff(status, environment: environment, mayHandOff: mayHandOff,
+                                     why: "has another launch's person key")
             } catch {
-                logger.error("acpmux person handoff request failed: \(String(describing: error), privacy: .public)")
+                // An older daemon without the method has no person rule to satisfy.
+                logger.info("acpmux person_enroll: \(String(describing: error), privacy: .public)")
                 return false
             }
-            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
-        } catch {
-            // An older daemon without the method has no person rule to satisfy.
-            logger.info("acpmux person_enroll: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Whether a peer refusal may pass on a later try: the daemon did not answer, closed, was
+    /// restarting, or its peer could not be read yet. Another binary, user or older daemon stays.
+    static func mayPass(_ refusal: AcpmuxServerPeer.Refusal) -> Bool {
+        switch refusal {
+        case .timedOut, .closed, .unreachable, .noPeer: true
+        case .otherUser, .otherExecutable, .olderDaemon: false
+        }
+    }
+
+    /// Stops the daemon `status` describes so the caller starts one that takes this launch's key:
+    /// only with `mayHandOff`, only one with agent hosts (its agents keep running), once per pid.
+    private static func handOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool,
+                                why: String) async -> Bool {
+        guard mayHandOff else {
+            logger.error("acpmux \(status.pid ?? -1) \(why, privacy: .public); a reconnect does not hand it off")
             return false
         }
+        guard status.agentHosts, let pid = status.pid else {
+            // Its agents would end with it: keep it; allows stay refused until it restarts.
+            logger.error("acpmux \(status.pid ?? -1) \(why, privacy: .public) and no agent hosts; allow stays refused")
+            return false
+        }
+        guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
+        logger.info("acpmux \(pid) \(why, privacy: .public); handing it off")
+        do {
+            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home,
+                                                  deadline: AcpmuxEnvironment.answerDeadline)
+        } catch {
+            logger.error("acpmux person handoff request failed: \(String(describing: error), privacy: .public)")
+            // Nothing reached the daemon: a later lookup may try again.
+            handedOff.withLock { _ = $0.remove(pid) }
+            return false
+        }
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 }
