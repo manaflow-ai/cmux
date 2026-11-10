@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
-             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, cloudTurnRewind
     }
 
     public var protocolVersion: Int
@@ -131,6 +131,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cloudHandoffs: Bool?
     /// True when this pane has an authenticated cmux-tui route for Cloud repository actions.
     public var cloudRepositoryAvailable: Bool?
+    /// True when this Cloud chat takes whole-machine turn checkpoints and rewinds to them
+    /// (`chat.turnCheckpoint`, `chat.rewindTurn`): signed in and `cloud.turnCheckpoints` on.
+    /// Absent otherwise; pages that predate it ignore it.
+    public var cloudTurnRewind: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?

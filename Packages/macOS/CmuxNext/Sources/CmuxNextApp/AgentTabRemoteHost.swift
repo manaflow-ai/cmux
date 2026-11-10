@@ -28,6 +28,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var cloudCredentialRecoveryAvailable = false, cloudTeamMachine = false // the start passed no personal login (team machine)
     /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
     var cloudHandoffs = false
+    /// The App takes this Cloud chat's turn checkpoints (`cloud.turnCheckpoints` on, signed in).
+    var cloudTurnRewind = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
@@ -125,6 +127,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         (handshake.cloudCredentialRecoveryAvailable, handshake.cloudTeamMachine) = (cloudCredentialRecoveryAvailable, cloudTeamMachine ? true : nil)
         handshake.cloudRepositoryAvailable = cloudMachineID != nil
         if cloudHandoffs { handshake.cloudHandoffs = true }
+        if cloudTurnRewind, cloudMachineID != nil { handshake.cloudTurnRewind = true }
         return handshake
     }
 

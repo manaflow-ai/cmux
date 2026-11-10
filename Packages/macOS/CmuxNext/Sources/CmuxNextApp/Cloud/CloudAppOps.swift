@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 extension CloudAppLinks {
@@ -36,28 +37,70 @@ private func cloudTryAnotherApproachFailure(_ message: String) -> NSError {
     NSError(domain: "cloud.tryAnotherApproach", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }
 
+/// Signed-in Cloud chat `chat` showing `session`: its workspace (the platform's workspace id) and the
+/// Cloud machine it runs on, or nil.
+@MainActor
+private func cloudChatPlace(chat: String, session expected: String, services: AppServices)
+    -> (workspace: String, workspaceName: String, machine: String, harness: String?)? {
+    guard services.cloud.auth.isSignedIn,
+          let (tab, pane) = services.locateTab(chat),
+          let record = tab.agentSession, record.session == expected else { return nil }
+    let daemon = services.machines.daemon(forTab: tab)
+    guard let cloud = services.machines.session(daemon.machineID),
+          let workspace = services.machines.allWorkspaces.first(where: { workspace, owner in
+              owner === daemon && workspace.screens.flatMap(\.panes).contains { $0 === pane }
+          })?.0 else { return nil }
+    return (workspace.id, workspace.displayName, cloud.machineID, record.harness)
+}
+
+/// Whether Cloud chats offer turn checkpoints: signed in and `cloud.turnCheckpoints` on (off by default).
+@MainActor
+func cloudTurnRewindIsOn(_ services: AppServices) -> Bool {
+    services.cloud.auth.isSignedIn
+        && CloudNewWorkspaceSetting().turnCheckpoints(in: services.settings?.snapshot.root ?? .object([:]))
+}
+
+/// A Cloud chat's turn checkpoint or rewind. Swift only because the person's Cloud token lives in
+/// the app's Keychain: the sequence is cmux-cloud-api's (`owner.turn_checkpoint`, `owner.turn_rewind`).
+@MainActor
+func runCloudTurnRewind(chat key: String, session: String, request: AgentPaneCloudTurnRewind,
+                        services: AppServices) async throws -> [String: Any] {
+    guard cloudTurnRewindIsOn(services), let place = cloudChatPlace(chat: key, session: session, services: services),
+          let connection = services.machines.local.connection else {
+        throw NSError(domain: "cloud.turnRewind", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cloud chat is unavailable"])
+    }
+    let team = (try? await services.cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
+    let credential = CloudTurnRewindClient.Credential(api: FeedService.apiBaseURL(auth: services.cloud.auth).absoluteString,
+                                                      accessToken: try await services.cloud.auth.tokens().access, team: team)
+    let client = CloudTurnRewindClient(connection: connection)
+    // The platform keys a checkpoint by workspace, session and turn, so the turn names its key; a
+    // rewind is a new one each click (the same key would answer the first rewind again).
+    let answer: CmuxNextDaemon.JSONValue
+    switch request {
+    case .checkpoint:
+        answer = try await client.checkpoint(credential, workspace: place.workspace, carrierMachine: place.machine,
+                                             session: session, turnSeq: request.turnSeq, clientKey: "cmux-turn-\(request.turnSeq)")
+    case .rewind:
+        answer = try await client.rewind(credential, workspace: place.workspace, session: session, turnSeq: request.turnSeq,
+                                         clientKey: "cmux-rewind-\(request.turnSeq)-\(UUID().uuidString.prefix(8))")
+    }
+    return (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(answer))) as? [String: Any] ?? [:]
+}
+
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.
 @MainActor
 func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
     let opener = CloudTryAnotherApproachChildOpener()
     let fork = CloudTryAnotherApproach(
         prepare: { chat, seq in
-            guard seq > 0, services.cloud.auth.isSignedIn,
-                  let (sourceTab, sourcePane) = services.locateTab(chat),
-                  let sourceRecord = sourceTab.agentSession,
-                  let sourceSession = sourceRecord.session, sourceSession == expected,
-                  let harness = sourceRecord.harness else {
+            guard seq > 0, let place = cloudChatPlace(chat: chat, session: expected, services: services),
+                  let harness = place.harness else {
                 throw cloudTryAnotherApproachFailure("Cloud chat is unavailable")
             }
-            let sourceDaemon = services.machines.daemon(forTab: sourceTab)
-            guard let sourceCloud = services.machines.session(sourceDaemon.machineID),
-                  let workspace = services.machines.allWorkspaces.first(where: { workspace, daemon in
-                      daemon === sourceDaemon && workspace.screens.flatMap(\.panes).contains { $0 === sourcePane }
-                  })?.0 else { throw cloudTryAnotherApproachFailure("Cloud chat is unavailable") }
-            return .init(workspace: workspace.id, sourceMachine: sourceCloud.machineID, session: sourceSession,
+            return .init(workspace: place.workspace, sourceMachine: place.machine, session: expected,
                          harness: harness, throughSeq: seq,
-                         clientKey: "cmux-next-try-another-approach-\(chat)-\(sourceSession)-\(seq)",
-                         parentLabel: "Try another approach · \(workspace.displayName)")
+                         clientKey: "cmux-next-try-another-approach-\(chat)-\(expected)-\(seq)",
+                         parentLabel: "Try another approach · \(place.workspaceName)")
         },
         forkMachine: { plan in
             let owner = CloudOwnerAPIClient(

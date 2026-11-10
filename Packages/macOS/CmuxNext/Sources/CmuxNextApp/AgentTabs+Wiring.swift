@@ -409,6 +409,7 @@ extension AgentTabStore {
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
+            host.cloudTurnRewind = host.cloudMachineID != nil && cloudTurnRewindIsOn(services)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the app link's own answer).
@@ -604,8 +605,13 @@ extension AgentTabStore {
                 guard let services else { throw CancellationError() }
                 return try await cloudTryAnotherApproach(chat: chat, session: session, throughSeq: throughSeq, services: services)
             }
+            cloudTurnRewind = { [weak services] (chat: String, session: String, request: AgentPaneCloudTurnRewind) async throws -> [String: Any] in
+                guard let services else { throw CancellationError() }
+                return try await runCloudTurnRewind(chat: chat, session: session, request: request, services: services)
+            }
         } else {
             tryAnotherApproach = nil
+            cloudTurnRewind = nil
         }
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
