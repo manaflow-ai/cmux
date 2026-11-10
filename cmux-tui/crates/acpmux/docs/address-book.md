@@ -24,8 +24,15 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   within ten minutes. Otherwise `register.unproven`. macOS only: elsewhere no signature proves a
   process is Claude Code, so register refuses. Delivery and send binding then use only the
   process the registration recorded (pid, inbox, start time), while it is the conversation's only
-  live claimant. What stays open: a process running as the same user that rewrites a live, genuine
-  Claude Code process's own registry entry; that is the same power as editing acpmux's own record
+  live claimant. The conversation is the one fact the registry alone gives, so: a process whose
+  kernel launch record (`KERN_PROCARGS2`) names a conversation (`--resume ID`, as a desktop
+  session's restart has) must claim that one; a chat already registered to another process is
+  never taken while that process runs, and afterwards only by a process launched with `--resume`
+  for its conversation; and a registered chat is renamed only by `register`
+  (`rename.registered`), so its name cannot be moved away for another session to take. What stays
+  open: a process running as the same user that rewrites a live, genuine Claude Code process's own
+  registry entry, or a fresh session (no `--resume`) registering a conversation nobody registered
+  yet under a name of its own choosing; that is the same power as editing acpmux's own record
   (`~/.acpmux/bridge-registered.json`, `bridge-tokens/`), which no check inside the user can stop. A Codex desktop thread
   does not register: a process named `codex` with `CODEX_THREAD_ID` set is anyone's to start, so
   nothing proves the caller runs in the thread. A Codex session acpmux starts already has a name. A name

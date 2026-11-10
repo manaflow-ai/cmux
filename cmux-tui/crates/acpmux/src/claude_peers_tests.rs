@@ -274,3 +274,24 @@ fn a_conversation_two_live_entries_claim_is_neither_ones() {
 fn a_process_that_is_not_signed_as_claude_code_is_not_claude_code() {
     assert!(!is_claude_code(std::process::id()));
 }
+
+/// The conversation a launch names is read from the kernel's record of its arguments, in every
+/// spelling Claude Code takes.
+#[test]
+fn a_launch_names_its_conversation_in_any_spelling() {
+    let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert_eq!(resumed_session(&args(&["claude", "--resume=abc-1"])).as_deref(), Some("abc-1"));
+    assert_eq!(
+        resumed_session(&args(&["claude", "--resume", "abc-2", "-p"])).as_deref(),
+        Some("abc-2")
+    );
+    assert_eq!(resumed_session(&args(&["claude", "-r", "abc-3"])).as_deref(), Some("abc-3"));
+    assert_eq!(resumed_session(&args(&["claude", "--session-id=abc-4"])).as_deref(), Some("abc-4"));
+    assert_eq!(resumed_session(&args(&["claude", "--resume", "--print"])), None);
+    assert_eq!(resumed_session(&args(&["claude", "-c"])), None);
+    // KERN_PROCARGS2: argc, the executable path, padding, then the arguments.
+    let mut buf = 3i32.to_ne_bytes().to_vec();
+    buf.extend_from_slice(b"/bin/claude\0\0\0claude\0--resume=s-9\0-p\0HOME=/x\0");
+    let got = procargs(&buf).unwrap();
+    assert_eq!(got, args(&["claude", "--resume=s-9", "-p"]), "the environment is not an argument");
+}

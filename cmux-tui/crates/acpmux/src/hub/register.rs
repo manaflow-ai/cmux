@@ -72,7 +72,7 @@ pub(super) fn mark_registered_for_test(id: &str) {
 /// Whether `session` is a chat its own session registered: the daemon's record alone. The
 /// `bridge.registered` tag only shows it; tags are a client's to edit (set, remove, or pass at
 /// creation), so neither adding nor removing one changes what is registered.
-pub(super) fn is_registered(session: &Session) -> bool {
+pub(crate) fn is_registered(session: &Session) -> bool {
     with_registered(|set| set.contains(&session.id))
 }
 
@@ -168,7 +168,7 @@ impl Hub {
         let claude_home = self.harness_homes().claude;
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
-        let started = prove_claude(claimed, &claude_home, &inbox).await?;
+        let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
         let Some(code) = req.code.as_deref() else {
             return send_code(claimed, &claude_home, &token, &req.name, started).await;
         };
@@ -202,6 +202,34 @@ impl Hub {
             }
             shown
         };
+        // A registered chat is taken over only by a process the kernel says was started for its
+        // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
+        // session's restart has it), and never while the process it is registered to still runs:
+        // the registry's session id is anyone's to write.
+        if let Some(s) = shown.as_ref().filter(|s| is_registered(s)) {
+            let kept = crate::claude_peers::kept_token(&crate::config::home(), &s.id);
+            let same =
+                kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
+            if !same {
+                let recorded_live = kept.as_ref().is_some_and(|k| {
+                    k.started.is_some()
+                        && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
+                });
+                if recorded_live {
+                    return Err(unproven(format!(
+                        "chat {:?} is registered to process {}, which still runs",
+                        s.meta().name,
+                        kept.as_ref().map_or(0, |k| k.pid)
+                    )));
+                }
+                if launched_for.as_deref() != Some(agent_session_id.as_str()) {
+                    return Err(unproven(format!(
+                        "chat {:?} is registered to another process; only a session started with `--resume {agent_session_id}` takes it over",
+                        s.meta().name
+                    )));
+                }
+            }
+        }
         let session = match shown {
             Some(s) => {
                 if s.meta().name != name {
@@ -297,12 +325,13 @@ static PENDING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u
 
 /// The proof a registry entry's process gives before anything it says is taken: Claude Code by
 /// its signature, the listener on `inbox` (this user's), the only live claimant of its
-/// conversation. Its proven `startedAt`.
+/// conversation, and, when the kernel's record of its launch names a conversation, that one. Its
+/// proven `startedAt`, and the conversation its launch named.
 async fn prove_claude(
     claimed: &crate::claude_peers::Peer,
     claude_home: &std::path::Path,
     inbox: &std::path::Path,
-) -> Result<u64, RpcError> {
+) -> Result<(u64, Option<String>), RpcError> {
     if !crate::claude_peers::inbox_is(inbox, claimed.pid).await {
         return Err(unproven(format!(
             "the inbox {} is not process {}'s",
@@ -318,8 +347,17 @@ async fn prove_claude(
         if !crate::claude_peers::sole_claimant(&peer, &crate::claude_peers::live(&home)) {
             return Err(format!("another live process also claims session {}", peer.session_id));
         }
-        crate::claude_peers::started_at(&home, peer.pid)
-            .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))
+        let launched_for = crate::claude_peers::launch_args(peer.pid)
+            .and_then(|a| crate::claude_peers::resumed_session(&a));
+        if launched_for.as_ref().is_some_and(|id| *id != peer.session_id) {
+            return Err(format!(
+                "process {} was started for another conversation than its registry entry names",
+                peer.pid
+            ));
+        }
+        let started = crate::claude_peers::started_at(&home, peer.pid)
+            .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
+        Ok((started, launched_for))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -327,7 +365,7 @@ async fn prove_claude(
 }
 
 /// The first step: a one-time code into the session's own inbox, opened with its token. Only a
-/// genuine Claude Code session accepts that line, and only its model reads it.
+/// genuine Claude Code session accepts that line; the echo must come from that same process tree.
 async fn send_code(
     claimed: &crate::claude_peers::Peer,
     claude_home: &std::path::Path,

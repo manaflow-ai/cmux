@@ -242,16 +242,88 @@ pub fn save_token(home: &Path, chat_id: &str, token: &ChildToken) -> anyhow::Res
 /// `started` is the live process's `startedAt` ([`started_at`]); a token kept for an earlier
 /// process under the same pid is not its.
 pub fn token_for(home: &Path, chat_id: &str, peer: &Peer, started: Option<u64>) -> Option<String> {
-    let path = token_file(home, chat_id);
-    if std::fs::metadata(&path).ok()?.len() > MAX_FILE {
-        return None;
-    }
-    let kept: ChildToken = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let kept = kept_token(home, chat_id)?;
     (kept.pid == peer.pid
         && peer.socket.as_deref() == Some(kept.socket.as_path())
         && started.is_some()
         && kept.started == started)
         .then_some(kept.token)
+}
+
+/// The registration kept for chat `chat_id`: the process, inbox, start and token it recorded.
+pub fn kept_token(home: &Path, chat_id: &str) -> Option<ChildToken> {
+    let path = token_file(home, chat_id);
+    if std::fs::metadata(&path).ok()?.len() > MAX_FILE {
+        return None;
+    }
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// The arguments the kernel recorded when process `pid` started (macOS `KERN_PROCARGS2`): what
+/// launched it, which no file can rewrite. None when they cannot be read.
+#[cfg(target_os = "macos")]
+pub fn launch_args(pid: u32) -> Option<Vec<String>> {
+    let id = libc::c_int::try_from(pid).ok()?;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, id];
+    let mut size: libc::size_t = 0;
+    // SAFETY: a size query: no buffer, `size` receives the length.
+    let asked = unsafe {
+        libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0)
+    };
+    if asked != 0 || size == 0 || size > (1 << 20) {
+        return None;
+    }
+    let mut buf = vec![0u8; size];
+    // SAFETY: `buf` holds `size` bytes, which the kernel fills at most.
+    let read = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read != 0 {
+        return None;
+    }
+    buf.truncate(size);
+    procargs(&buf)
+}
+
+/// No launch arguments read off macOS.
+#[cfg(not(target_os = "macos"))]
+pub fn launch_args(_pid: u32) -> Option<Vec<String>> {
+    None
+}
+
+/// `KERN_PROCARGS2`'s layout: argc (4 bytes), the executable path, padding, then argc arguments,
+/// each NUL-terminated.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn procargs(buf: &[u8]) -> Option<Vec<String>> {
+    let (count, rest) = buf.split_first_chunk::<4>()?;
+    let argc = usize::try_from(i32::from_ne_bytes(*count)).ok()?;
+    let mut parts = rest.split(|b| *b == 0).filter(|s| !s.is_empty());
+    parts.next()?;
+    Some(parts.take(argc).map(|s| String::from_utf8_lossy(s).into_owned()).collect())
+}
+
+/// The conversation `args` start Claude Code on (`--resume ID`, `--resume=ID`, `-r ID`,
+/// `--session-id ID`), if they name one.
+pub fn resumed_session(args: &[String]) -> Option<String> {
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        for flag in ["--resume", "--session-id"] {
+            if let Some(id) = arg.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
+                return Some(id.to_owned());
+            }
+        }
+        if ["--resume", "-r", "--session-id"].contains(&arg.as_str()) {
+            return it.next().filter(|id| !id.starts_with('-')).cloned();
+        }
+    }
+    None
 }
 
 /// The `startedAt` of the live registry entry for `pid` (checked against the kernel's start of
