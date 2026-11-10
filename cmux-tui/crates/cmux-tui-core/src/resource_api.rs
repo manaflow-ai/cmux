@@ -694,9 +694,12 @@ fn session_snapshot_with_journal_head(
                 })?;
                 // The routes are a published table, read with no lock. The identity of an in-process
                 // runtime is in a table of the mux, which a close purges after it releases the state
-                // guard and a create fills after it inserts the surface. A runtime with no identity is
-                // thus one that closes or starts under this read: it gives no live values (the durable
-                // row still shows), it never fails the whole snapshot.
+                // guard (`purge_terminal_runtime_side_tables`) and which the first view of an app
+                // terminal fills after its row commits (`finish_app_terminal_first_view`). A routed
+                // runtime with no identity is thus one that closes or gets its first view under this
+                // read: it gives no live values (the durable row still shows) and it never fails the
+                // whole snapshot, which every client shows as "machine unreachable". It is said once
+                // per read and terminal, as the dangling row above.
                 let routed = routes.catalog_terminal(&terminal_id);
                 let runtime_host =
                     routed.and_then(|surface| mux.resource_terminal_host_identity(surface));
@@ -704,6 +707,11 @@ fn session_snapshot_with_journal_head(
                     anyhow::ensure!(
                         runtime_host.terminal_id == *host_id,
                         "terminal {terminal_id} runtime references a mismatched durable host"
+                    );
+                }
+                if routed.is_some() && runtime_host.is_none() {
+                    eprintln!(
+                        "cmux-tui: snapshot shows terminal {terminal_id} with no live values: its runtime has no durable identity"
                     );
                 }
                 let surface = routed.filter(|_| runtime_host.is_some());

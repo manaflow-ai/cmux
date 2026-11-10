@@ -32,6 +32,10 @@ use crate::resource_api::{public_session_snapshot, public_session_snapshot_with_
 /// Snapshot reads of one measurement.
 const READS: u64 = 5;
 
+/// The session sizes of each guard whose result can depend on the size:
+/// light, 60 workspaces, and the 826 workspaces of Lawrence's daemon.
+const ARMS: [usize; 3] = [1, 60, 826];
+
 fn temp_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "cmux-snapshot-read-{name}-{}-{}",
@@ -129,7 +133,7 @@ fn snapshot_reads_with_no_change_take_no_lock_and_run_no_statement() {
     eprintln!(
         "snapshot-read counts: workspaces | {READS} reads with no change: registry takes, state takes, SELECTs | first read after a change: registry takes, state takes, SELECTs"
     );
-    for workspaces in [1_usize, 60, 826] {
+    for workspaces in ARMS {
         grow_to(&mux, workspaces);
         let (changed_registry, changed_state, changed_selects) = cost(&mux, || {
             public_session_snapshot(&mux).unwrap();
@@ -159,17 +163,31 @@ fn snapshot_reads_with_no_change_take_no_lock_and_run_no_statement() {
 }
 
 /// A split through the real request path answers while a snapshot read is
-/// stopped in its row read: the reader holds no lock the split needs.
+/// stopped in its row read: the reader holds no lock the split needs. At 1,
+/// 60 and 826 workspaces.
 #[test]
 fn a_split_beside_a_stopped_snapshot_read_does_not_wait_for_it() {
     let root = temp_root("split");
     let mux = session_at_rest("snapshot-split", &root);
-    grow_to(&mux, 60);
+    let mut failures = Vec::new();
+    for workspaces in ARMS {
+        grow_to(&mux, workspaces);
+        if let Err(failure) = split_beside_a_stopped_read(&mux, workspaces) {
+            failures.push(format!("{workspaces} workspaces: {failure}"));
+        }
+    }
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// One arm of the split guard: `Err` says what a person would see.
+fn split_beside_a_stopped_read(mux: &Arc<Mux>, workspaces: usize) -> Result<(), String> {
     let created = call(
-        &mux,
+        mux,
         "workspace.create",
-        json!({"initial_content":"terminal","name":"split-here"}),
-        Some("snapshot-split-create"),
+        json!({"initial_content":"terminal","name":format!("split-here-{workspaces}")}),
+        Some(&format!("snapshot-split-create-{workspaces}")),
     );
     let pane = created["value"]["pane_id"].as_str().unwrap().to_string();
 
@@ -182,7 +200,7 @@ fn a_split_beside_a_stopped_snapshot_read_does_not_wait_for_it() {
         Arc::new((entered, Mutex::new(release_receiver)));
     let slow_thread = slow.clone();
     watch_statements(
-        &mux,
+        mux,
         Some(Arc::new(move |context: &AuthContext<'_>| {
             let AuthAction::Read { table_name, .. } = context.action else { return };
             if table_name != "terminal_hosts" {
@@ -216,7 +234,7 @@ fn a_split_beside_a_stopped_snapshot_read_does_not_wait_for_it() {
                 &mux,
                 "pane.split",
                 json!({"pane":pane,"direction":"right"}),
-                Some("snapshot-split-split"),
+                Some(&format!("snapshot-split-split-{workspaces}")),
             );
             let _ = answered.send(split);
         })
@@ -225,28 +243,77 @@ fn a_split_beside_a_stopped_snapshot_read_does_not_wait_for_it() {
     release.send(()).unwrap();
     let snapshot = snapshot.join().unwrap();
     split.join().unwrap();
-    watch_statements(&mux, None);
-    drop(mux);
-    let _ = std::fs::remove_dir_all(&root);
-    let split_answer =
-        split_answer.expect("pane.split waited for the snapshot read that was stopped beside it");
-    assert!(split_answer["value"]["pane_id"].is_string(), "the split made a pane: {split_answer}");
-    assert!(
-        snapshot["workspaces"].is_array() || snapshot["value"]["workspaces"].is_array(),
-        "the snapshot read answered: {snapshot}"
-    );
+    watch_statements(mux, None);
+    let split_answer = split_answer.map_err(|_| {
+        "pane.split waited for the snapshot read that was stopped beside it".to_string()
+    })?;
+    if !split_answer["value"]["pane_id"].is_string() {
+        return Err(format!("the split made no pane: {split_answer}"));
+    }
+    if !(snapshot["workspaces"].is_array() || snapshot["value"]["workspaces"].is_array()) {
+        return Err(format!("the snapshot read did not answer: {snapshot}"));
+    }
+    Ok(())
 }
 
 /// Readers beside a writer: each snapshot is one committed revision. Every
 /// workspace create commits its rows and its journal records together, so a
 /// snapshot whose cursor is revision R has the journal head that revision R
-/// committed: never an older one, never the head of a later revision.
+/// committed: never an older one, never the head of a later revision. At 1,
+/// 60 and 826 workspaces.
 #[test]
 fn a_snapshot_read_beside_a_writer_is_one_committed_revision() {
-    const WRITES: usize = 40;
     let root = temp_root("cut");
     let mux = session_at_rest("snapshot-cut", &root);
-    grow_to(&mux, 60);
+    let mut arms = Vec::new();
+    for workspaces in ARMS {
+        grow_to(&mux, workspaces);
+        arms.push((workspaces, cuts_beside_a_writer(&mux)));
+    }
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+
+    for (workspaces, (committed, seen)) in arms {
+        assert!(
+            committed.last().unwrap().1 > committed[0].1
+                && committed.last().unwrap().0 > committed[0].0,
+            "{workspaces} workspaces: setup: the writer moved the revision and the journal head: {committed:?}"
+        );
+        assert!(
+            seen.len() >= 2,
+            "{workspaces} workspaces: setup: the readers read beside the writer"
+        );
+        for (revision, head) in &seen {
+            let Some(index) = committed.iter().position(|(committed, _)| committed == revision)
+            else {
+                panic!(
+                    "{workspaces} workspaces: a snapshot showed revision {revision}, which no write committed: {committed:?}"
+                );
+            };
+            assert!(
+                *head >= committed[index].1,
+                "{workspaces} workspaces: a snapshot of revision {revision} has journal head {head}, older than the head {} of that revision",
+                committed[index].1
+            );
+            if let Some((_, next_head)) = committed.get(index + 1)
+                && *next_head > committed[index].1
+            {
+                assert!(
+                    head < next_head,
+                    "{workspaces} workspaces: a snapshot of revision {revision} has journal head {head}: the head of a later revision ({next_head}), newer than its topology"
+                );
+            }
+        }
+    }
+}
+
+/// (revision, journal head) pairs.
+type Cuts = Vec<(u64, u64)>;
+
+/// One arm of the cut guard: the (revision, journal head) pairs the writer
+/// committed, and the pairs two readers saw beside it.
+fn cuts_beside_a_writer(mux: &Arc<Mux>) -> (Cuts, Cuts) {
+    const WRITES: usize = 40;
     let committed_pair = |mux: &Mux| {
         let registry = mux.workspace_registry.lock().unwrap();
         let revision: String = registry
@@ -265,52 +332,28 @@ fn a_snapshot_read_beside_a_writer_is_one_committed_revision() {
             let done = done.clone();
             std::thread::spawn(move || {
                 let mut seen = Vec::new();
-                while !done.load(Ordering::Relaxed) {
+                // At least one read: a short arm can end before this thread starts.
+                loop {
                     let (snapshot, head) = public_session_snapshot_with_journal_head(&mux).unwrap();
                     let revision =
                         snapshot["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
                     seen.push((revision, head));
+                    if done.load(Ordering::Relaxed) {
+                        break;
+                    }
                 }
                 seen
             })
         })
         .collect::<Vec<_>>();
-    let mut committed = vec![committed_pair(&mux)];
+    let mut committed = vec![committed_pair(mux)];
     for _ in 0..WRITES {
         mux.create_empty_workspace(None, None, None).unwrap();
-        committed.push(committed_pair(&mux));
+        committed.push(committed_pair(mux));
     }
     done.store(true, Ordering::Relaxed);
     let seen = readers.into_iter().flat_map(|reader| reader.join().unwrap()).collect::<Vec<_>>();
-    drop(mux);
-    let _ = std::fs::remove_dir_all(&root);
-
-    assert!(
-        committed.last().unwrap().1 > committed[0].1
-            && committed.last().unwrap().0 > committed[0].0,
-        "setup: the writer moved the revision and the journal head: {committed:?}"
-    );
-    assert!(seen.len() >= 2, "setup: the readers read beside the writer");
-    for (revision, head) in &seen {
-        let Some(index) = committed.iter().position(|(committed, _)| committed == revision) else {
-            panic!(
-                "a snapshot showed revision {revision}, which no write committed: {committed:?}"
-            );
-        };
-        assert!(
-            *head >= committed[index].1,
-            "a snapshot of revision {revision} has journal head {head}, older than the head {} of that revision",
-            committed[index].1
-        );
-        if let Some((_, next_head)) = committed.get(index + 1)
-            && *next_head > committed[index].1
-        {
-            assert!(
-                head < next_head,
-                "a snapshot of revision {revision} has journal head {head}: the head of a later revision ({next_head}), newer than its topology"
-            );
-        }
-    }
+    (committed, seen)
 }
 
 /// One read: (snapshot, cursor revision, journal head, registry commit count).

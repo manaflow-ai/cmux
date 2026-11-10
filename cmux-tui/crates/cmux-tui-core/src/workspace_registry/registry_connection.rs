@@ -74,6 +74,8 @@ pub(crate) struct RegistryConnection {
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
     /// Indeterminate registry commits still owed to state (cx-g1fa.3).
     pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
+    /// The length of `unsettled`, written under its mutex, for a reader that takes no lock.
+    pub(super) unsettled_held: std::sync::atomic::AtomicUsize,
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
@@ -208,6 +210,7 @@ impl RegistryConnection {
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
+            unsettled_held: std::sync::atomic::AtomicUsize::new(0),
             durability,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
