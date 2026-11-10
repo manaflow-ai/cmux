@@ -293,13 +293,27 @@ impl Runner for Fake {
     fn fresh_name(&mut self) -> String {
         "chat-fresh".into()
     }
-    fn app(&mut self, method: &str, params: Value, _timeout: Duration) -> Option<Result<Value, Value>> {
+    fn app(
+        &mut self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
         self.called.push((method.to_owned(), params));
         self.clock += Duration::from_millis(5);
         self.stream.clone()
     }
-    fn observe(&mut self, socket: &str, surface: u64, after: u64, _wait: Duration) -> Result<Value, link_wait::Failure> {
-        self.called.push(("observe".to_owned(), json!({"socket": socket, "surface": surface, "after_seq": after})));
+    fn observe(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        after: u64,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::Failure> {
+        self.called.push((
+            "observe".to_owned(),
+            json!({"socket": socket, "surface": surface, "after_seq": after}),
+        ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
     }
@@ -395,8 +409,10 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
         exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
     ]);
     fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
-    let update = |seq: u64, at: u64, text: &str| json!({"seq": seq, "at": at, "dir": "in", "kind": "notification",
-        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
+    let update = |seq: u64, at: u64, text: &str| {
+        json!({"seq": seq, "at": at, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}})
+    };
     fake.pushes.push_back(Ok(json!({"records": [
         {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
         update(2, 2_100, "po"), update(3, 2_200, "ng"),
@@ -432,7 +448,8 @@ fn a_pushed_turn_that_fails_answers_its_error() {
         {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
         {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": "agent process closed", "errorKind": "agent_exited"}},
     ], "last_seq": 2, "ended": "turn_end"})));
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "pong", "--wait"]))
+    else {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(exit, 1);
