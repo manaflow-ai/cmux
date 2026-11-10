@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
+import type { Env } from "../src/env.ts"
+import { stackServer } from "../src/stack-server.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
-import { deliver, mirroredTeam, teamState, teamStub } from "./team-stack-support.ts"
+import { deliver, mirroredTeam, PROJECT, teamState, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
 
 /**
@@ -110,5 +112,86 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect((await teamState(t.team)).team?.deleted_at).toBeTypeOf("number")
     expect(t.w.userVmPlanWrites).toEqual([])
     expect(await carried(t.team)).toMatchObject({ vm_plan: "max", outcome: "owner_unknown" })
+  })
+
+  // Review F1: the owner's effective plan is their paid cmuxPlan or their override, whichever is higher.
+  it("never lowers an owner whose own paid plan is higher than the team's grant", async () => {
+    const t = await ownedTeamWithGrant("go")
+    t.w.userPlans.set(t.stackUser, "max")
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(t.w.userVmPlanWrites).toEqual([])
+    expect((await carried(t.team))?.outcome).toBe("kept_existing")
+  })
+
+  it("still carries a higher grant over a lower paid plan", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.userPlans.set(t.stackUser, "pro")
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(t.w.userVmPlanWrites).toEqual([{ user: t.stackUser, vm_plan: "max" }])
+    expect((await carried(t.team))?.outcome).toBe("moved")
+  })
+
+  // Review F2: the carry is done only when a read-back shows the grant.
+  it("a write a later writer overwrote is not recorded as done; the retry carries it", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.clobber.left = 1
+    expect((await deleteInStack(t)).body).toMatchObject({ ok: true, outcome: "queued" })
+    expect((await teamState(t.team)).team?.deleted_at).toBeUndefined()
+    expect(await carried(t.team)).toBeNull()
+    await inDO(teamStub(t.team), async (_instance, state) => {
+      state.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0`)
+    })
+    await fireAlarm(teamStub(t.team))
+    expect((await teamState(t.team)).team?.deleted_at).toBeTypeOf("number")
+    expect(t.w.userVmPlans.get(t.stackUser)).toBe("max")
+    expect((await carried(t.team))?.outcome).toBe("moved")
+  })
+})
+
+/** The sign-in service as HTTP: one user record whose read-only metadata other writers may change between requests. */
+const metadataService = (initial: Record<string, unknown>) => {
+  let meta: Record<string, unknown> = { ...initial }
+  const patches: Array<Record<string, unknown>> = []
+  /** Runs before each GET of the user (index = how many GETs came before): a concurrent writer. */
+  const beforeRead: Array<(m: Record<string, unknown>) => Record<string, unknown>> = []
+  let reads = 0
+  const server = stackServer({ STACK_SECRET_SERVER_KEY: "k", STACK_PROJECT_ID: PROJECT } as unknown as Env, async (req) => {
+    if (!new URL(req.url).pathname.endsWith("/users/u1")) return new Response("{}", { status: 404 })
+    if (req.method === "GET") {
+      const change = beforeRead[reads++]
+      if (change) meta = change(meta)
+      return Response.json({ id: "u1", client_read_only_metadata: meta })
+    }
+    const body = (await req.json()) as { client_read_only_metadata: Record<string, unknown> }
+    patches.push(body.client_read_only_metadata)
+    meta = body.client_read_only_metadata
+    return Response.json({ id: "u1" })
+  })!
+  return { server, patches, beforeRead, meta: () => meta }
+}
+
+describe("setUserVmPlan never overwrites a concurrent metadata change (review F2)", () => {
+  it("keeps the other keys and confirms the grant by reading it back", async () => {
+    const s = metadataService({ cmuxPlan: "pro", other: 1 })
+    expect(await s.server.setUserVmPlan("u1", "max")).toBe("set")
+    expect(s.meta()).toEqual({ cmuxPlan: "pro", other: 1, cmuxVmPlan: "max" })
+  })
+
+  it("a change between its read and its write starts over from the new record", async () => {
+    const s = metadataService({ cmuxPlan: "pro" })
+    // Billing writes cmuxPlan "max" after the first read, before the write.
+    s.beforeRead[1] = (m) => ({ ...m, cmuxPlan: "max" })
+    expect(await s.server.setUserVmPlan("u1", "max")).toBe("set")
+    expect(s.patches.every((p) => p.cmuxPlan === "max")).toBe(true)
+    expect(s.meta()).toEqual({ cmuxPlan: "max", cmuxVmPlan: "max" })
+  })
+
+  it("throws, never reports success, when the record keeps changing or the read-back disagrees", async () => {
+    const s = metadataService({ cmuxPlan: "pro" })
+    for (let i = 0; i < 40; i++) s.beforeRead[i] = (m) => ({ ...m, n: i })
+    await expect(s.server.setUserVmPlan("u1", "max")).rejects.toThrow()
+    const r = metadataService({})
+    for (let i = 0; i < 40; i++) if (i % 3 === 2) r.beforeRead[i] = (m) => ({ ...m, cmuxVmPlan: "go" })
+    await expect(r.server.setUserVmPlan("u1", "max")).rejects.toThrow()
   })
 })

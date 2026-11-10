@@ -27,6 +27,10 @@ export const stackWorld = () => {
   const vmPlans = new Map<string, string>()
   /** Each Stack user's operator Cloud grant; absent = none. */
   const userVmPlans = new Map<string, string>()
+  /** Each Stack user's paid plan (client_read_only_metadata.cmuxPlan); absent = none. */
+  const userPlans = new Map<string, string>()
+  /** A write the service takes but a later writer overwrites at once (the read-back sees this instead). */
+  const clobber = { left: 0, with: null as string | null }
   /** Every user grant the cmux side wrote in Stack, in order. */
   const userVmPlanWrites: Array<{ user: string; vm_plan: string }> = []
   /** Fail this many user grant writes first (a Stack outage). */
@@ -48,7 +52,7 @@ export const stackWorld = () => {
       calls++
       return [...members.keys()].filter((k) => k.endsWith(`:${u}`) && teams.has(k.slice(0, k.length - u.length - 1))).map((k) => k.slice(0, k.length - u.length - 1))
     },
-    getUserPlan: async () => null,
+    getUserPlan: async (u: string) => userPlans.get(u) ?? null,
     getUserVmPlan: async (u: string) => ({ vm_plan: userVmPlans.get(u) ?? null }),
     setUserVmPlan: async (u: string, vm_plan: string) => {
       calls++
@@ -58,6 +62,11 @@ export const stackWorld = () => {
       }
       userVmPlans.set(u, vm_plan)
       userVmPlanWrites.push({ user: u, vm_plan })
+      if (clobber.left > 0) {
+        clobber.left--
+        if (clobber.with === null) userVmPlans.delete(u)
+        else userVmPlans.set(u, clobber.with)
+      }
       return "set" as const
     },
     listTeamMembers: async (t: string) => {
@@ -79,7 +88,7 @@ export const stackWorld = () => {
       return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userVmPlanWrites, failWrites, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userPlans, userVmPlanWrites, failWrites, clobber, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 
