@@ -31,7 +31,7 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`, `cloud_power_pending`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and

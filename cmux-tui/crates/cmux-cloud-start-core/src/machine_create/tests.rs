@@ -63,3 +63,15 @@ fn a_pause_asks_again_only_while_indeterminate_and_within_its_attempts() {
     assert!(!power_retries("cmux.cloud.not_running", 1, 3), "any other error ends it at once");
     assert!(!power_retries(INDETERMINATE, 1, 0), "at least one attempt, never a retry past it");
 }
+
+#[test]
+fn a_start_still_indeterminate_after_its_tries_is_pending_not_failed() {
+    assert!(power_pending(START_OP, INDETERMINATE), "the start is still on its way");
+    assert!(
+        !power_pending("cloud.machine.pause", INDETERMINATE),
+        "a pause's answer frees the active slot: it stays a failure"
+    );
+    for code in ["cloud.quota.exceeded", "cmux.cloud.not_paused", "cmux.cloud.failed", ""] {
+        assert!(!power_pending(START_OP, code), "a refused start is a failure: {code}");
+    }
+}

@@ -95,6 +95,23 @@ import Testing
         #expect(await other.calls.count == 1)
     }
 
+    /// hq#7086: a start still indeterminate after its tries is on its way, not failed: it returns, and the start's
+    /// wait reads the record. Any other refusal of a start still throws.
+    @Test func aStartStillIndeterminateAfterItsTriesIsPendingNotFailed() async throws {
+        let sent = SentOps()
+        try await CloudMachinePower.run("cloud.machine.start", machine: "vm_a", origin: .script, ops: { op, args, key, origin in
+            _ = await sent.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+            throw CloudAppOpFailure(code: CloudMachinePower.indeterminate, message: "")
+        })
+        #expect(await sent.calls.count == 3)
+        #expect(Set(await sent.calls.compactMap(\.key)).count == 1, "a retry made a new key")
+        await #expect(throws: CloudAppOpFailure(code: "cloud.quota.exceeded", message: "")) {
+            try await CloudMachinePower.run("cloud.machine.start", machine: "vm_a", ops: { _, _, _, _ in
+                throw CloudAppOpFailure(code: "cloud.quota.exceeded", message: "")
+            })
+        }
+    }
+
     /// Red/green for the app side: at the cap, the person's Pause pauses that machine, then the create goes again.
     @Test func atTheCapPauseOneThenCreates() async throws {
         var calls: [String] = []

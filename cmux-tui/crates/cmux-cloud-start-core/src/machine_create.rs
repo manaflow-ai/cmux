@@ -65,5 +65,19 @@ pub fn power_retries(code: &str, attempt: u32, attempts: u32) -> bool {
     code == INDETERMINATE && attempt < attempts.max(1)
 }
 
+/// The app server's op that starts (resumes) a paused machine.
+pub const START_OP: &str = "cloud.machine.start";
+
+/// Whether a power op whose last same-key try still answered `code` is still on its way, not failed:
+/// only a start that answered indeterminate. That call joined the one in flight, which CloudDO keeps
+/// running after its wait, so the machine's record (`starting`, then `running`, or paused again with
+/// its error) says how it ended. A start's link wait then keeps waiting on that record instead of
+/// ending on the resume as failed: Leo's nightly said "didn't connect" 15 s into a start on a paused
+/// machine (three indeterminate answers), and the retry found the machine running (hq#7086,
+/// 2026-11-09). A pause keeps failing: its answer is what frees the active slot a caller waits on.
+pub fn power_pending(op: &str, code: &str) -> bool {
+    op == START_OP && code == INDETERMINATE
+}
+
 #[cfg(test)]
 mod tests;
