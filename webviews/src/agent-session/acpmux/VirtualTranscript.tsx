@@ -2388,8 +2388,9 @@ function TranscriptView({
     observer.observe(scroller);
     const row = stage?.querySelector<HTMLElement>(":scope > .acpmux-header[data-tab-row]");
     if (row) observer.observe(row);
+    // A row that comes later is read by `place` when the scroller resizes for it, so no new observer.
     return () => observer.disconnect();
-  }, [overTop, height, topInset]);
+  }, [overTop, topInset]);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -5064,7 +5065,7 @@ function TranscriptView({
         {pinnedPill && (
           // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
           // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
-          <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
+          <div className="acpmux-pinned-top" style={{ top: Math.max(pinAt.floor, pinAt.top + topInset) }}>
             <SubagentOfRow row={pinnedPill} />
           </div>
         )}
