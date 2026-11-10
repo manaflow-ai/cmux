@@ -16,7 +16,8 @@ export type VmPlanAnswer = { readonly ok: true; readonly vm_plan: string | null 
  */
 export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, now: number): Promise<VmPlanAnswer> => {
   const team = state?.team ?? null
-  let read: (s: StackServer) => Promise<string | null>
+  // undefined = the team is gone at the sign-in service: the last copy stands (a delete carries it, team-grant-carry.ts).
+  let read: (s: StackServer) => Promise<string | null | undefined>
   if (stackUser !== undefined) {
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
     if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, vm_plan: null }
@@ -24,7 +25,10 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   } else {
     if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, vm_plan: null }
     const stackTeam = team.stack_team
-    read = async (s) => (await s.getTeam(stackTeam))?.vm_plan ?? null
+    read = async (s) => {
+      const t = await s.getTeam(stackTeam)
+      return t === null ? undefined : (t.vm_plan ?? null)
+    }
   }
   ensure(sql)
   const row = sql.exec<{ vm_plan: string | null; checked_at: number }>(`SELECT vm_plan, checked_at FROM cloud_vm_plan WHERE id = 1`).toArray()[0]
@@ -32,6 +36,8 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   try {
     if (!stack) throw new Error("stack server not configured")
     const vm_plan = await read(stack)
+    // TEAM_NOT_FOUND before the delete event is processed (review F3): keep the snapshot, never overwrite it with null.
+    if (vm_plan === undefined) return { ok: true, vm_plan: row ? row.vm_plan : null }
     storeVmPlan(sql, vm_plan, now)
     return { ok: true, vm_plan }
   } catch (e) {
