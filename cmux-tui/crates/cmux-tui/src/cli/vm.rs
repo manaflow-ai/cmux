@@ -657,7 +657,8 @@ pub(super) fn app_present(
 const NEW_HELP: &str = "\
 usage: cmux vm new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
                    [--repo OWNER/NAME[@REF]] [--machine-config FILE]
-                   [--bootstrap lane --bootstrap-script FILE] [--json]
+                   [--bootstrap lane --bootstrap-script FILE]
+                   [--wait [--timeout SECONDS]] [--json]
 
 Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
@@ -668,6 +669,13 @@ sets a pause, and --persistent makes sure none is set.
 
   cmux vm new
   cmux vm new --name api-dev --size medium --repo OWNER/NAME
+  cmux vm new --name api-dev --machine-config .cmux/machine.toml --wait
+
+--wait answers once the VM is ready: running, its machine config applied
+(--machine-config, or the --repo checkout's .cmux/machine.toml) and the
+secrets that file names delivered from this Mac (`cmux vm secret set NAME`).
+A failed setup answers with its status and the log to read. --timeout
+SECONDS (default 1200) ends the wait; the VM goes on starting.
 
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
@@ -792,6 +800,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             || super::app::connect_command(&global).is_ok(),
             super::cloud_machines::app_found,
         );
+        // `--wait`: the create, then the waits a person does by hand (vm_ready.rs). The app's verbs only.
+        if app_present
+            && new_route(tail, app_present) == NewRoute::App
+            && let Some(code) = super::vm_ready::run_if_requested(&global, tail)
+        {
+            return Some(code);
+        }
         if new_route(tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {
