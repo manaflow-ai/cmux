@@ -148,6 +148,11 @@ pub(crate) const START_BUDGET: Duration = Duration::from_secs(62);
 pub(crate) const APP_START_WAIT: Duration = Duration::from_secs(75);
 /// The carrier's share of the app's wait, both ways.
 pub(crate) const CARRIER_MARGIN: Duration = Duration::from_secs(8);
+// A build whose start, cleanup and carrier do not fit the app's wait does not compile.
+const _: () = assert!(
+    START_BUDGET.as_secs() + CALL_TIMEOUT.as_secs() + CARRIER_MARGIN.as_secs()
+        <= APP_START_WAIT.as_secs()
+);
 
 /// One start's deadline: each acpmux call takes the smaller of its own cap and the time left.
 #[derive(Clone, Copy, Debug)]
