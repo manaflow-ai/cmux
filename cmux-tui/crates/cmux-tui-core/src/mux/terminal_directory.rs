@@ -97,7 +97,7 @@ impl Mux {
         let terminals =
             self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
         #[cfg(test)]
-        walk_counters::terminals_cloned(terminals.len());
+        crate::walk_counters::terminals_cloned(terminals.len());
         for surface in terminals {
             surface.publish_pending_directory();
         }

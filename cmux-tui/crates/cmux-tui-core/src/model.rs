@@ -833,7 +833,7 @@ impl State {
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
         #[cfg(test)]
-        crate::mux::walk_counters::index_rebuild_visited(self.workspaces.len());
+        crate::walk_counters::index_rebuild_visited(self.workspaces.len());
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {

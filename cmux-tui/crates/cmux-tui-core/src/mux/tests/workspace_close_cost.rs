@@ -31,7 +31,7 @@ use rusqlite::hooks::{Action, AuthAction, AuthContext, Authorization};
 
 use super::*;
 use crate::mux::resource_content::without_crosscheck;
-use crate::mux::walk_counters::walk_counts_for_test;
+use crate::walk_counters::walk_counts_for_test;
 
 /// SELECT statements that a close may run more in one session than in the other for a reason that
 /// is not the session's size.

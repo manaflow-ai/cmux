@@ -344,8 +344,6 @@ pub(crate) use terminal_sizing::host_policy;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
-#[cfg(test)]
-pub(crate) mod walk_counters;
 mod workspace_close_guard;
 mod workspace_create;
 mod workspace_identity;

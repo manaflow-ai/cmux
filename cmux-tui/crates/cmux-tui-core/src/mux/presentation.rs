@@ -16,7 +16,9 @@ use crate::workspace_registry::{
 use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
+mod decoration_walks;
 mod frontend_browser_history;
+use decoration_walks::surface_directories_in_state;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -170,19 +172,6 @@ pub struct TabPinChange {
     pub index: usize,
 }
 
-fn surface_directories_in_state(state: &State) -> Vec<(SurfaceId, String)> {
-    #[cfg(test)]
-    walk_counters::decoration_walk_visited(state.surfaces.len());
-    state
-        .surfaces
-        .iter()
-        .filter(|(surface, _)| state.pane_of(**surface).is_some())
-        .filter_map(|(surface, runtime)| {
-            runtime.presented_directory().map(|directory| (*surface, directory))
-        })
-        .collect()
-}
-
 fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: SurfaceId) -> bool {
     state
         .resource_indexes
@@ -255,43 +244,6 @@ impl Mux {
             (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
         };
         let directories = self.resolve_tab_directories(directories, true);
-        let pending_terminals = self.pending_terminals_snapshot();
-        let terminal_ends = self.terminal_ends_snapshot();
-        TreeDecorations {
-            notifications,
-            presentation,
-            directories,
-            pending_terminals,
-            terminal_ends,
-            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
-        }
-    }
-
-    /// [`Self::tree_decorations`] for a delta that serializes `workspace` only (its close): the
-    /// notifications and directories of that workspace's surfaces, and git HEADs from the cache
-    /// only. The full form walked every surface of the session and read each directory's git
-    /// HEAD from disk for one closed workspace, so a close cost more in a bigger session.
-    #[track_caller]
-    pub(crate) fn tree_decorations_of_workspace(&self, workspace: WorkspaceId) -> TreeDecorations {
-        let presentation = self.presentation_snapshot();
-        let (notifications, directories) = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let surfaces = state
-                .workspace_by_id(workspace)
-                .into_iter()
-                .flat_map(|workspace| &workspace.screens)
-                .flat_map(|screen| screen_tabs(&state, screen))
-                .collect::<Vec<_>>();
-            let directories = surfaces
-                .iter()
-                .filter_map(|surface| {
-                    let directory = state.surfaces.get(surface)?.presented_directory()?;
-                    Some((*surface, directory))
-                })
-                .collect::<Vec<_>>();
-            (self.surface_notifications_of(&state, &surfaces), directories)
-        };
-        let directories = self.resolve_tab_directories(directories, false);
         let pending_terminals = self.pending_terminals_snapshot();
         let terminal_ends = self.terminal_ends_snapshot();
         TreeDecorations {

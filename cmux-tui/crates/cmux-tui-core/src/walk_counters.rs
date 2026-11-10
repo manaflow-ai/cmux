@@ -11,6 +11,7 @@ thread_local! {
 }
 
 /// The walks this thread ran so far.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WalkCounts {
     /// Workspaces visited by a rebuild of the split index or of the public
@@ -38,6 +39,7 @@ pub(crate) fn terminals_cloned(terminals: usize) {
     add(&TERMINAL_CLONES, terminals);
 }
 
+#[cfg(unix)]
 pub(crate) fn walk_counts_for_test() -> WalkCounts {
     WalkCounts {
         index_rebuild: INDEX_REBUILD.with(Cell::get),
