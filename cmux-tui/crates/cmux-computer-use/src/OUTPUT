@@ -1,0 +1,15 @@
+ci-step cu-rewrite-remote-suite-26add4c45b90: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxRemote TakeoverTests,WorkerWireTests,RemoteHostProcessTests at 26add4c45b9076c5708321d7a0067ca58aeefa17: exit 0
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.003) seconds
+✔ Test run with 16 tests in 1 suite passed after 0.004 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.003) seconds
+✔ Test run with 14 tests in 2 suites passed after 0.137 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 3 tests in 1 suite passed after 0.272 seconds.
+TakeoverTests                                    passed                        4s
+WorkerWireTests                                  passed                        2s
+RemoteHostProcessTests                           passed                        0s
+All 3 suites passed.
+ci-step cu-rewrite-remote-suite-26add4c45b90 exited 0

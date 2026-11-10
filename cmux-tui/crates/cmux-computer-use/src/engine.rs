@@ -439,7 +439,7 @@ impl Engine {
             "screenshot" => self.screenshot(&config, ctx, args),
             "get_ui_tree" => {
                 let window = self.window(need(args, "window_id")?)?;
-                let app = self.target_of(&window, &self.app_names());
+                let app = self.app_of(&window);
                 self.authorize(&config, ctx, Access::Observe, Some(&app), false)?;
                 self.cursor.show(CursorEvent::Look {
                     session: ctx.session.clone(),
@@ -621,7 +621,7 @@ impl Engine {
     }
 
     fn window(&self, id: &str) -> Result<Window, ToolOutput> {
-        self.windows()?.into_iter().find(|w| w.id == id).ok_or_else(|| {
+        self.desktop.window(id).map_err(|e| ToolOutput::desktop(&e))?.ok_or_else(|| {
             ToolOutput::error(
                 "target_not_found",
                 format!("no window {id:?}; call list_windows for current ids"),
@@ -634,6 +634,14 @@ impl Engine {
             .list_apps()
             .map(|apps| apps.into_iter().map(|a| (a.id.to_ascii_lowercase(), a.name)).collect())
             .unwrap_or_default()
+    }
+
+    /// The app of one window, named by the desktop's lookup for it alone.
+    fn app_of(&self, window: &Window) -> TargetApp {
+        TargetApp {
+            id: window.app_id.clone(),
+            name: self.desktop.app_name(window).unwrap_or_else(|| window.app_id.clone()),
+        }
     }
 
     fn target_of(&self, window: &Window, names: &HashMap<String, String>) -> TargetApp {
@@ -725,7 +733,7 @@ impl Engine {
         window: &Window,
         delivery: Delivery,
     ) -> Result<TargetApp, ToolOutput> {
-        let app = self.target_of(window, &self.app_names());
+        let app = self.app_of(window);
         self.authorize(config, ctx, Access::Act, Some(&app), delivery == Delivery::Foreground)?;
         // Background input to a window the person is not using cannot meet
         // theirs; foreground input, or the person's own window, can.
@@ -875,7 +883,7 @@ impl Engine {
         ctx: &CallContext,
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
-        self.capture_for(config, ctx, args, true)
+        self.capture_for(config, ctx, args, true, true)
     }
 
     /// Waits for the window to settle after an acting call ([`Settle`]) and
@@ -893,7 +901,9 @@ impl Engine {
         let mut waited = s.floor;
         let args = json!({"window_id": window_id});
         let shot = loop {
-            match self.capture_for(config, ctx, &args, false) {
+            // The action was just authorized on this app; observing it needs no
+            // second check (in Ask every time it would ask the person again).
+            match self.capture_for(config, ctx, &args, false, false) {
                 Ok((shot, _)) => {
                     let changed = shot.body["unchanged"] != json!(true);
                     if changed || waited >= s.ceiling {
@@ -941,17 +951,34 @@ impl Engine {
         ctx: &CallContext,
         args: &Value,
         look: bool,
+        check: bool,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
-        let windows = self.windows()?;
-        let names = self.app_names();
+        // A window capture that holds only its window's pixels needs that
+        // window alone; everything else needs every window, to paint or leave
+        // out the denied ones.
+        let only_window =
+            args_str(args, "window_id").filter(|_| self.desktop.window_capture_isolated());
+        let (windows, names) = match only_window {
+            Some(id) => {
+                let window = self.desktop.window(id).map_err(|e| ToolOutput::desktop(&e))?;
+                let names: HashMap<String, String> = window
+                    .iter()
+                    .map(|w| (w.app_id.to_ascii_lowercase(), self.app_of(w).name))
+                    .collect();
+                (window.into_iter().collect::<Vec<_>>(), names)
+            }
+            None => (self.windows()?, self.app_names()),
+        };
         let (target, key, app, focus) = match args_str(args, "window_id") {
             Some(id) => {
                 let window = windows.iter().find(|w| w.id == id).ok_or_else(|| {
                     ToolOutput::error("target_not_found", format!("no window {id:?}"))
                 })?;
                 let app = self.target_of(window, &names);
-                self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
+                if check {
+                    self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
+                }
                 (
                     CaptureTarget::Window(id.to_string()),
                     format!("w:{id}"),
@@ -960,7 +987,9 @@ impl Engine {
                 )
             }
             None => {
-                self.authorize(config, ctx, Access::Observe, None, false)?;
+                if check {
+                    self.authorize(config, ctx, Access::Observe, None, false)?;
+                }
                 let display = args_str(args, "display").map(str::to_string);
                 let key = format!("d:{}", display.as_deref().unwrap_or("main"));
                 (CaptureTarget::Display(display), key, None, None)

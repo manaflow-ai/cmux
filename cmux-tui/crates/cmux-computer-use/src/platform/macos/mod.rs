@@ -224,6 +224,29 @@ impl Desktop for MacDesktop {
         Ok(self.windows_from(windows, &apps))
     }
 
+    /// One window from the window server and its app alone; the full list
+    /// asks every app with a window (tens of ms).
+    fn window(&self, id: &str) -> DResult<Option<Window>> {
+        let Ok(number) = id.parse::<u32>() else { return Ok(None) };
+        let Some(cg) = cgwindows::by_id(number) else { return Ok(None) };
+        let Some(app) = workspace::app_for_pid(cg.pid) else { return Ok(None) };
+        let (pid, active) = (cg.pid, app.active);
+        let apps = HashMap::from([(pid, app)]);
+        let Some(mut window) = self.windows_from(vec![cg], &apps).pop() else { return Ok(None) };
+        // Focused: the front window of the frontmost app, as in the full list.
+        if window.focused && active {
+            window.focused = cgwindows::on_screen()
+                .into_iter()
+                .find(|w| w.pid == pid && w.is_app_window())
+                .is_some_and(|w| w.id == number);
+        }
+        Ok(Some(window))
+    }
+
+    fn app_name(&self, window: &Window) -> Option<String> {
+        workspace::app_for_pid(window.pid as i32).map(|a| a.name)
+    }
+
     /// One window's own pixels (ScreenCaptureKit's window filter / PrintWindow), never a
     /// window drawn over it.
     fn window_capture_isolated(&self) -> bool {

@@ -63,8 +63,12 @@ fn a_retried_call_id_does_not_click_twice() {
     let d = Arc::new(FakeDesktop::standard());
     let e = engine(d.clone(), PolicyConfig::default());
     let args = json!({"window_id": "1", "element_id": "e1"});
-    let first = e.call(&ctx(Some("same")), "click", &args);
+    let mut first = e.call(&ctx(Some("same")), "click", &args);
     let second = e.call(&ctx(Some("same")), "click", &args);
+    // The retry returns the recorded action; the state after it came with the first reply only.
+    assert!(first.body.get("state").is_some());
+    first.body.as_object_mut().unwrap().remove("state");
+    first.png_base64 = None;
     assert_eq!(first, second);
     assert_eq!(d.events().len(), 1);
     e.call(&ctx(Some("other")), "click", &args);
@@ -440,4 +444,20 @@ fn a_floating_denied_app_only_the_capture_sees_is_left_out_and_a_refusal_falls_b
     assert!(!shot.is_error, "{:?}", shot.body);
     assert_eq!(shot.body["redacted_windows"], 1);
     assert_eq!(shot.body["left_out_apps"], 0);
+}
+
+#[test]
+fn window_calls_never_read_every_window_when_the_capture_is_isolated() {
+    let mut fake = FakeDesktop::standard();
+    fake.isolated_window_capture = true;
+    let d = Arc::new(fake);
+    let e = engine(d.clone(), PolicyConfig::default());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert!(!out.is_error && out.body["state"].is_object(), "{:?}", out.body);
+    assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+    assert_eq!(*d.window_lists.lock().unwrap(), 0);
+    // A display screenshot still reads them all, to paint out denied windows.
+    assert!(!e.call(&ctx(None), "screenshot", &json!({})).is_error);
+    assert!(*d.window_lists.lock().unwrap() >= 1);
 }

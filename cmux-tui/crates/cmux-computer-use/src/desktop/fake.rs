@@ -36,6 +36,8 @@ pub struct FakeDesktop {
     pub paint: Mutex<u8>,
     /// Captures taken so far.
     pub captures: Mutex<u32>,
+    /// Full window lists read so far.
+    pub window_lists: Mutex<u32>,
     /// From capture number `.0` on, the pixels are `.1` (an app that
     /// redraws a little after an action).
     pub repaint_from: Mutex<Option<(u32, u8)>>,
@@ -90,6 +92,7 @@ impl FakeDesktop {
             events: Mutex::new(vec![]),
             paint: Mutex::new(200),
             captures: Mutex::new(0),
+            window_lists: Mutex::new(0),
             repaint_from: Mutex::new(None),
         }
     }
@@ -126,7 +129,11 @@ impl Desktop for FakeDesktop {
         Ok(self.apps.clone())
     }
     fn list_windows(&self) -> DResult<Vec<Window>> {
+        *self.window_lists.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
         Ok(self.windows.clone())
+    }
+    fn window(&self, id: &str) -> DResult<Option<Window>> {
+        Ok(self.windows.iter().find(|w| w.id == id).cloned())
     }
     fn window_capture_isolated(&self) -> bool {
         self.isolated_window_capture

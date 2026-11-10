@@ -79,10 +79,15 @@ mod tempdir {
 fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     let dir = tempdir::new(tag);
     let path = dir.0.join("s").join("cu.sock");
-    let desktop = Arc::new(FakeDesktop::standard());
+    // The person uses Safari (window 1), so acting on it meets the takeover
+    // wait, which the gate holds.
+    let mut fake = FakeDesktop::standard();
+    fake.windows[1].focused = true;
+    let desktop = Arc::new(fake);
     let gate = Arc::new(Gate::default());
     let mut parts = EngineParts::new(desktop.clone());
     parts.takeover = gate.clone();
+    parts.sleep = Arc::new(|_| {});
     let engine = Arc::new(Engine::new(parts));
     let mut listener = transport::Listener::bind(path.to_str().unwrap()).unwrap();
     if let Some(uid) = uid {
@@ -241,7 +246,9 @@ fn a_stale_socket_is_replaced_but_a_regular_file_is_not() {
     // A crashed worker leaves its socket file behind: the next one binds over it.
     drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
     assert!(path.exists());
-    let engine = Arc::new(Engine::new(EngineParts::new(Arc::new(FakeDesktop::standard()))));
+    let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+    parts.sleep = Arc::new(|_| {});
+    let engine = Arc::new(Engine::new(parts));
     serve(engine.clone(), path.to_str().unwrap(), &SECRET).unwrap().stop();
     std::fs::write(&path, b"not a socket").unwrap();
     assert!(serve(engine, path.to_str().unwrap(), &SECRET).is_err());

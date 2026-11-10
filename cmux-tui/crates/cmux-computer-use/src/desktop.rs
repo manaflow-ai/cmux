@@ -295,6 +295,17 @@ pub trait Desktop: Send + Sync {
     fn list_apps(&self) -> DResult<Vec<App>>;
     /// All top-level windows (the engine filters by app and policy).
     fn list_windows(&self) -> DResult<Vec<Window>>;
+    /// One window by id, `None` when there is none: what most calls need,
+    /// without reading every window. The default filters [`Self::list_windows`].
+    fn window(&self, id: &str) -> DResult<Option<Window>> {
+        Ok(self.list_windows()?.into_iter().find(|w| w.id == id))
+    }
+    /// The name the person knows the app of `window` by, when known. The
+    /// default looks it up in [`Self::list_apps`].
+    fn app_name(&self, window: &Window) -> Option<String> {
+        let apps = self.list_apps().ok()?;
+        apps.into_iter().find(|a| a.id.eq_ignore_ascii_case(&window.app_id)).map(|a| a.name)
+    }
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame>;
     /// Whether a window capture holds only that window's own pixels, never a
     /// window drawn over it. When false (a composited crop of the screen), the
