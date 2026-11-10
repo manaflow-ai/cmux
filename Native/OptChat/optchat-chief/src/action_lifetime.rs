@@ -177,14 +177,20 @@ const ORGANIZE_VERBS: &[&str] = &[
     "declutter",
     "archive",
 ];
-/// What an organize request acts on.
-const ORGANIZE_OBJECTS: &[&str] = &[
-    "workspace",
-    "workspaces",
-    "sidebar",
-    "groups",
-    "tabs",
-    "panes",
+/// What an organize request acts on: the app's own things, named anywhere.
+const ORGANIZE_OBJECTS: &[&str] = &["workspace", "workspaces", "sidebar"];
+/// Things an organize request acts on only when the person points at theirs ("group the tabs",
+/// "sort my panes"), so "how Arc and Chrome group tabs" or "the customer groups" is not one.
+const ORGANIZE_OWNED: &[&str] = &[
+    "my groups",
+    "the groups",
+    "my tabs",
+    "the tabs",
+    "these tabs",
+    "all tabs",
+    "my panes",
+    "the panes",
+    "these panes",
 ];
 /// Words that make a task code work even when it names the sidebar ("move the sidebar code").
 const CODE_WORDS: &[&str] = &[
@@ -294,6 +300,36 @@ const PREFERENCE_WORDS: &[&str] = &[
     "away",
     "collapsed",
     "out",
+    "before",
+    "after",
+    "done",
+    "first",
+    "then",
+    "from",
+    "into",
+    "about",
+    "every",
+    "each",
+    "what",
+];
+
+/// Words that make a learned line about routing (which lifetime a kind of work gets). Only
+/// such a line routes: "always test it yourself before saying done" or "show me the diff before
+/// you push" are about the work, and never refuse or show a helper.
+const ROUTING_WORDS: &[&str] = &[
+    "workspace",
+    "workspaces",
+    "helper",
+    "helpers",
+    "subagent",
+    "subagents",
+    "agent",
+    "agents",
+    "sidebar",
+    "spawn",
+    "tuck",
+    "tucked",
+    "in the background",
 ];
 
 /// What a learned line asks for: a lifetime, and for a Workspace where it sits.
@@ -358,6 +394,12 @@ fn learned_for<'a>(
             _ => line,
         };
         let lower = line.to_lowercase();
+        if !ROUTING_WORDS
+            .iter()
+            .any(|w| crate::sidebar_choice::mentions(&lower, w))
+        {
+            return None;
+        }
         let intent = preference_intent(&lower)?;
         let topic = lower
             .split(|c: char| !(c.is_alphanumeric() || c == '\''))
@@ -376,7 +418,7 @@ fn learned_for<'a>(
 pub fn is_organize(text: &str) -> bool {
     let has = |w: &&str| crate::sidebar_choice::mentions(text, w);
     ORGANIZE_VERBS.iter().any(has)
-        && ORGANIZE_OBJECTS.iter().any(has)
+        && (ORGANIZE_OBJECTS.iter().any(has) || ORGANIZE_OWNED.iter().any(has))
         && !CODE_WORDS.iter().any(has)
 }
 
@@ -564,7 +606,7 @@ mod tests {
     #[test]
     fn a_remembered_preference_is_checked_before_the_rules() {
         let learned = vec![
-            "- Just look up release notes directly (learned 2026-11-10)".to_owned(),
+            "- Just look up release notes directly, no helper (learned 2026-11-10)".to_owned(),
             "- Run benchmarks in the background, no workspace (learned 2026-11-10)".to_owned(),
             "- Show me screenshots work in the sidebar (learned 2026-11-10)".to_owned(),
         ];
@@ -592,6 +634,38 @@ mod tests {
             &Rules::default(),
         );
         assert_eq!(r.lifetime, Lifetime::Direct);
+    }
+
+    #[test]
+    fn a_learned_line_about_the_work_itself_never_routes() {
+        // Review of #40148: everyday lines with "yourself" or "show me" refused coding tasks.
+        let learned = vec![
+            "- Always test it yourself before saying done (learned 2026-11-05)".to_owned(),
+            "- Show me the diff before you push (learned 2026-11-05)".to_owned(),
+        ];
+        let never = Rules::from_user(Some(&json!({"chief.subagentSidebar": "never"})), true);
+        for (rules, want) in [(&Rules::default(), None), (&never, None)] {
+            let r = route(
+                "Title: Fix login\nFix the login bug and check it works before you're done; push the diff",
+                Requested::Auto,
+                &learned,
+                rules,
+            );
+            assert_eq!(r.lifetime, Lifetime::Task, "{r:?}");
+            assert_eq!(r.visibility, want, "{r:?}");
+            assert!(!r.why.contains("you told me"), "{r:?}");
+        }
+    }
+
+    #[test]
+    fn writing_about_tabs_or_groups_is_not_an_organize_request() {
+        for ask in [
+            "Write a doc comparing how Arc and Chrome group tabs",
+            "sort the customer groups by revenue",
+        ] {
+            assert_ne!(auto(ask).lifetime, Lifetime::Direct, "{ask}");
+        }
+        assert_eq!(auto("group the tabs by site").lifetime, Lifetime::Direct);
     }
 
     #[test]

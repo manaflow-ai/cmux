@@ -459,11 +459,16 @@ fn direct_refusal(direct: &[String], why: impl Fn(&str) -> String) -> String {
         .map(|t| format!("\"{}\" ({})", crate::workspaces::title(t), why(t)))
         .collect::<Vec<_>>()
         .join("; ");
-    format!(
-        "not started: {list}. Do it yourself now with the cmux workspace tools (workspace_list, \
-         workspace_group_create with reuse, workspace_place, workspace_rename, workspace_move, \
-         workspace_group_update); no helper and no workspace."
-    )
+    let organize = direct.iter().any(|t| {
+        crate::action_lifetime::is_organize(&crate::sidebar_choice::body(t).to_lowercase())
+    });
+    let tools = if organize {
+        " with the cmux workspace tools (workspace_list, workspace_group_create with reuse, \
+         workspace_place, workspace_rename, workspace_move, workspace_group_update)"
+    } else {
+        " with your own tools"
+    };
+    format!("not started: {list}. Do it yourself now{tools}; no helper and no workspace.")
 }
 
 pub struct Spawner {
