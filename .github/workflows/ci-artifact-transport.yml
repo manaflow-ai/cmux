@@ -23,6 +23,9 @@ on:
       - tests/test_ci_r2_canary.py
       - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
+      - .github/actions/download-test-product/action.yml
+      - scripts/ci/measure-r2-artifact-run.py
+      - tests/git_fixture_env.py
   push:
     branches: [main]
     paths:
@@ -46,6 +49,9 @@ on:
       - tests/test_ci_r2_canary.py
       - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
+      - .github/actions/download-test-product/action.yml
+      - scripts/ci/measure-r2-artifact-run.py
+      - tests/git_fixture_env.py
 
 permissions:
   contents: read

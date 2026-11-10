@@ -15,9 +15,9 @@ extension WindowManager {
     // MARK: Transitions
 
     /// Applies one registry transition. `select` names, per window, the
-    /// workspaces the user just moved in; the first becomes selected there.
+    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta).
     @discardableResult
-    func transition(select preferred: [String: [String]] = [:],
+    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false,
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
@@ -30,7 +30,7 @@ extension WindowManager {
         if registry.value != before || !preferred.isEmpty {
             // Focus follows the workspaces: the window that received them.
             let receivers = Array(preferred.keys) + changes.moved.keys.sorted()
-            sync(previous: previous, preferred: preferred, receivers: receivers)
+            sync(previous: previous, preferred: preferred, receivers: receivers, gesture: gesture)
         }
         return changes
     }
@@ -41,12 +41,12 @@ extension WindowManager {
     /// or closed (at once), and when the key window closed, makes the window
     /// that received its workspaces key (else the next one in z-order).
     /// Windows whose membership did not change keep their state untouched.
-    func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = []) {
+    func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = [], gesture: Bool = false) {
         let value = registry.value
         for window in value.openWindows where controller(for: window.id) == nil {
             makeController(for: window)
         }
-        repairSelections(previous: previous, preferred: preferred)
+        repairSelections(previous: previous, preferred: preferred, gesture: gesture)
         // A window Home that moved into a window with a Home closes (cmux#27880).
         services.windowHomes.closeSurplus(previous: previous)
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
@@ -66,7 +66,7 @@ extension WindowManager {
     /// there (closed, moved to another profile or window), the window shows the most recent other profile it holds
     /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
     /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
-    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], only: String? = nil) {
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, batch: Bool = false) {
         let machines = services.machines
         let home = machines.local.store
         for window in registry.repairs(only: only) {
@@ -78,9 +78,8 @@ extension WindowManager {
             }
             var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
-            // or empty room keeps that room.
-            let waiting = claims.pending.values.contains(window.id)
-            if visible.isEmpty, !waiting,
+            // or empty room keeps that room (asked only when the room shows nothing).
+            if visible.isEmpty, !claims.pending.values.contains(window.id),
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
                 visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
@@ -89,10 +88,8 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
-            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
+            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, batch: batch, claimed: { claims.pending[$0] != nil }, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
         }
     }
 
@@ -224,7 +221,7 @@ extension WindowManager {
         // A workspace of another room: the window enters that room first, so the selection repair
         // after the move finds it shown there and picks it (Home took a second click otherwise).
         if shows { enterProfile(of: workspaceID, in: state) }
-        transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
+        transition(select: shows ? [state.id: [workspaceID]] : [:], gesture: true) { $0.move([workspaceID], to: state.id) }
         fileOpenedMachine(of: workspaceID, into: state.id)
     }
 
@@ -298,7 +295,7 @@ extension WindowManager {
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
         }
-        transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
+        transition(select: select ? [windowID: ids] : [:], gesture: true) { $0.move(ids, to: windowID) }
         return true
     }
 
@@ -335,7 +332,7 @@ extension WindowManager {
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
-        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
+        transition(select: [id: workspaces], gesture: true) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
         // Every Cloud machine the batch opens, once each (a drag can carry several).
         var machines = Set<String>()
         for workspace in workspaces {
@@ -513,7 +510,7 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
-        transition(select: preferred) { registry in
+        transition(select: preferred, gesture: false) { registry in // a delta: never the person's gesture, whatever run is current
             let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                              fallbackWindow: fallback)
             restoreClosed.keepClosed(&registry)
