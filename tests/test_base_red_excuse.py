@@ -4128,6 +4128,39 @@ class NoVerdictCompileStatus(InheritedCompileRed):
         self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
         self.assertIn(f"'{self.MAC}' (job 77)", audit)
 
+    # cmux#40667: the results service down. compile-status says so itself (no fallback runs) or compile-status-handoff
+    # does (the fallback never ran), each with the [no-verdict] marker; and the same prose without it.
+    SERVICE_DOWN = ("[no-verdict] No compile verdict: results service down (HTTP 530 for 300 s); no fallback compile "
+                    "runs here, re-run this job",
+                    "[no-verdict] No compile verdict: results service was down (HTTP 530) and no fallback compile ran; "
+                    "re-run all jobs",
+                    "No compile verdict: results service down (HTTP 530); no fallback compile runs here, re-run this job",
+                    "[no-verdict] No compile result for this head in 40 minutes",
+                    "[no-verdict] some future wording")
+
+    def test_a_service_down_status_is_ignored_when_the_mac_compile_passed(self):
+        self.mac_pass()
+        for description in self.SERVICE_DOWN:
+            with self.subTest(description=description):
+                self.status["description"] = description
+                audit = "\n".join(self.judge_status())
+                self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
+                self.assertIn(f"'{self.MAC}' (job 77)", audit)
+
+    def test_a_service_down_status_with_nothing_compiled_is_refused_not_inherited(self):
+        for state in ("error", "failure"):
+            for description in self.SERVICE_DOWN:
+                with self.subTest(state=state, description=description), \
+                        unittest.mock.patch.object(excuse, "inherited_compile_red",
+                                                   side_effect=AssertionError("judged as a compile red")):
+                    self.status["state"], self.status["description"] = state, description
+                    with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled"):
+                        self.judge_status()
+
+    def test_the_marker_is_what_cmux_next_yml_posts(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(workflow.count(f'"{excuse.COMPILE_STATUS_NO_VERDICT_MARKER} '), 5)
+
     def test_a_no_verdict_status_with_nothing_compiled_is_refused(self):
         for description in ("No compile result for this head in 40 minutes (last: running)",
                             "The compile check gave no verdict (unavailable); re-run this job",
