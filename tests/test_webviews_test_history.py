@@ -160,6 +160,27 @@ class Inputs(unittest.TestCase):
             self.git(repo, "commit", "-qm", "runner")
             self.assertNotEqual(history.inputs(repo), first)
 
+    def test_the_key_follows_the_web_bundles_routed_inputs_and_the_font_pin(self):
+        # Webview tests import the settings schema; a base break through it must not read as green at an older
+        # push's key (react-apps-base-check's known verdicts, #40223 review).
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            for path, text in (("webviews/test/a.test.ts", "1\n"), ("schemas/settings/settings-schema.json", "{}\n"),
+                               ("scripts/ci/pin-browser-test-font.sh", "pin\n")):
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            first = history.inputs(repo)
+            (repo / "schemas/settings/settings-schema.json").write_text('{"a": 1}\n')
+            self.git(repo, "commit", "-qam", "schema")
+            second = history.inputs(repo)
+            self.assertNotEqual(second, first)
+            (repo / "scripts/ci/pin-browser-test-font.sh").write_text("pin 2\n")
+            self.git(repo, "commit", "-qam", "font")
+            self.assertNotEqual(history.inputs(repo), second)
+
 
 class Record(unittest.TestCase):
     def test_keeps_the_newest_runs_in_commit_order(self):
@@ -452,8 +473,9 @@ class Workflow(unittest.TestCase):
         import yaml
         steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
         gated = {s["name"] for s in steps if "steps.history.outputs.replay != '0'" in str(s.get("if", ""))}
-        self.assertEqual(gated, {"Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
-                                 "Install webview dependencies", "Build base web bundles", "Install headless engines"})
+        # The caches restore either way: a head re-run after an all-answered replay installs from them.
+        self.assertEqual(gated, {"Use the base's bun", "Install webview dependencies", "Build base web bundles",
+                                 "Install headless engines"})
         names = [s["name"] for s in steps]
         self.assertLess(names.index("Restore the base's webview test history"), names.index("Use the base's bun"))
         compare = next(s for s in steps if s["name"] == "Run base reds and compare")

@@ -81,14 +81,28 @@ def load(path: str | Path) -> list[dict]:
             and isinstance(r.get("red"), list) and isinstance(r.get("inputs"), str) and r["inputs"]]
 
 
+# Read by the webview tests but routed by neither list: the browser tests' font pin.
+EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
+
+
 def inputs(root: str | Path = ".") -> str:
-    """HEAD's webview test inputs key: the git ids of every path web_subareas.py routes the suite on."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
+
+    That is web_subareas.py's lists and the web bundle's routed inputs (web-bundle-key.py --routed: the
+    settings schema, the string catalogs, the model catalog, the design scales ...), which webview tests
+    import too. react-apps-base-check takes a push's verdicts at this key for the merge parent's
+    (known), so a path left out would let a base break through it read as green there."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here))
     import web_subareas  # noqa: PLC0415
     paths = sorted({p.rstrip("/") for p in (*web_subareas.REACT_PREFIXES, *web_subareas.REACT_EXACT,
-                                            *web_subareas.ALL_SUBAREA_INPUTS)})
+                                            *web_subareas.ALL_SUBAREA_INPUTS, *EXTRA_INPUTS)})
     listed = subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *paths],
                             check=True, capture_output=True, text=True).stdout
+    routed = subprocess.run([sys.executable, str(here.parent / "cmux-next/web-bundle-key.py"), str(root), "--routed"],
+                            check=True, capture_output=True, text=True).stdout.split()
+    listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
+                             check=True, capture_output=True, text=True).stdout
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
 
 

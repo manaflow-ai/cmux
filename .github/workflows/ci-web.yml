@@ -754,14 +754,14 @@ jobs:
         run: scripts/cmux-next/private-bun.sh
 
       - name: Cache Bun package cache
-        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers
-        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.cache/ms-playwright
