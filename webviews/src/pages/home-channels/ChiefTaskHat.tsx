@@ -57,9 +57,7 @@ export function ChiefTaskHat({
         <RunMark status={live ? "running" : "done"} />
         <span className="lg-task-hat__title">{label}</span>
         <span className="lg-task-hat__meta">
-          {live
-            ? `${live} ${strings.t("run.status.running")}`
-            : `${tasks.length} ${strings.t("run.status.done")}`}
+          {live ? `${live} ${strings.t("run.status.running")}` : `${tasks.length} ${strings.t("run.status.done")}`}
         </span>
       </output>
     );
@@ -88,9 +86,7 @@ function TaskRow({ task, now, strings, chip }: { task: ChiefTask; now: number; s
           {task.result}
         </span>
       )}
-      <span className="lg-task-hat__meta">
-        {task.state === "stalled" ? strings.t("run.status.stale") : meta}
-      </span>
+      <span className="lg-task-hat__meta">{task.state === "stalled" ? strings.t("run.status.stale") : meta}</span>
     </li>
   );
 }

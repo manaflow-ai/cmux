@@ -40,16 +40,31 @@ test("a stall marks a task once and its report still ends it", () => {
     noteRun("n2", HAT_NOW - 40_000, "a9", "Counted 12 flaky tests.\nDetails follow."),
   ];
   expect(tasksOf(runs)).toEqual([
-    { id: "a9", title: "count tests", state: "done", startedAt: HAT_NOW - 60_000, endedAt: HAT_NOW - 40_000, result: "Counted 12 flaky tests." },
+    {
+      id: "a9",
+      title: "count tests",
+      state: "done",
+      startedAt: HAT_NOW - 60_000,
+      endedAt: HAT_NOW - 40_000,
+      result: "Counted 12 flaky tests.",
+    },
   ]);
 });
 
 test("a cancel the Chief sends ends the row; one never heard of stalls, then leaves", () => {
   const start = HAT_NOW - 60_000;
-  const spawn = spawnRun("s", start, [["a7", "count tests", "hidden: a background task with no sidebar workspace (auto)"]]);
+  const spawn = spawnRun("s", start, [
+    ["a7", "count tests", "hidden: a background task with no sidebar workspace (auto)"],
+  ]);
   const cancel = spawnRun("c", HAT_NOW - 30_000, []);
   cancel.steps.push({
-    id: "c-control", seq: 1, at: HAT_NOW - 30_000, rev: 1, kind: "tool", attachments: [], links: [],
+    id: "c-control",
+    seq: 1,
+    at: HAT_NOW - 30_000,
+    rev: 1,
+    kind: "tool",
+    attachments: [],
+    links: [],
     tool: { name: "mcp__optchat__control", input: { action: "cancel", id: "a7" }, files: [] },
   });
   expect(tasksOf([spawn, cancel]).map((t) => t.state)).toEqual(["stopped"]);

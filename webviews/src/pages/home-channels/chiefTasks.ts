@@ -49,7 +49,11 @@ function taskTitle(task: unknown, id: string): string {
 }
 
 function clip(text: string): string {
-  const line = text.split("\n").find((l) => l.trim())?.trim() ?? "";
+  const line =
+    text
+      .split("\n")
+      .find((l) => l.trim())
+      ?.trim() ?? "";
   return line.length > RESULT_CHARS ? `${line.slice(0, RESULT_CHARS - 1).trimEnd()}…` : line;
 }
 
