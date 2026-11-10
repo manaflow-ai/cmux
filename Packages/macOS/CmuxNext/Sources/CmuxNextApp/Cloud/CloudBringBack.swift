@@ -79,6 +79,8 @@ struct CloudBringBack {
         if case .move(let id)? = retries[tab.id], id != entry.machineID { pinned = true }
         let toMachine = asked || pinned
         let action = toMachine ? Self.toMachine : Self.action
+        // One run per chat at a time: a second's copy could land after the first's chat already ran there.
+        guard !services.cloud.movingBack.contains(tab.id) else { throw ActionFailure(message: CloudMoveStrings.inProgress) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         // Only the refusal toast's "Ask first, then bring back" narrows the chat on the machine.
@@ -99,9 +101,11 @@ struct CloudBringBack {
     private func perform(tab: TabModel, action: ActionID, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id, toMachine = action == Self.toMachine
-        let retries = services.cloud.bringBackRetries
+        let retries = services.cloud.bringBackRetries, cloud = services.cloud
+        cloud.movingBack.insert(tabID)
         CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moving : CloudBringBackStrings.bringing, duration: CloudMove.working)
         let work: ActionWork = Task { @MainActor in
+            defer { cloud.movingBack.remove(tabID) }
             do {
                 let machine = try await body()
                 retries[tabID] = nil
@@ -198,17 +202,22 @@ struct CloudBringBack {
         }
         // Move to Another Machine: the folder, now whole here, is seeded onto the other machine first.
         var target = pending
-        if toMachine, target == nil { target = try await CloudMove(services: services).machine(invocation, except: entry.machineID) { nil } }
+        // A stop while a new target connects names this run's Retry, never that machine: nothing was copied there yet.
+        if toMachine, target == nil {
+            do { target = try await CloudMove(services: services).machine(invocation, except: entry.machineID) { nil } } catch let failure as Failure {
+                throw Failure(message: failure.message, retry: again)
+            }
+        }
         var onto: (socket: String, vmKind: String, remote: (folder: String, chat: String))?
         if let target {
             guard let socket = await target.daemon.connection?.endpoint?.socketPath, let folder = CloudMoveFolder(chat: entry.localChat) else {
                 throw Failure(message: CloudMoveStrings.notConnected(target.machine.title), retry: again)
             }
             let suffix = "-" + String(target.machineID.prefix(8))
-            var remote = CloudMove.remote(folder, under: services.cloud.move.workRoots.first ?? "", distinct: entry.remoteFolder, suffix: suffix)
+            var remote = CloudMove.remote(folder, under: services.cloud.move.workRoots.first ?? "", suffix: suffix)
             if pending == nil {
                 remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again,
-                                                                      distinct: entry.remoteFolder, suffix: suffix)
+                                                                      suffix: suffix)
             }
             let vmKind = await CloudMove.ownerAnswer(target).vmKind
             onto = (socket, vmKind, remote)

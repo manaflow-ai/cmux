@@ -265,14 +265,14 @@ struct CloudMove {
         }
     }
 
-    /// Syncs `folder` under the first of the machine's work roots it can write. A path equal to `distinct` (the
-    /// folder on the machine a chat leaves) takes `suffix`: this Mac keeps one push record per local and machine
-    /// folder, so two machines' copies at one path would overwrite each other's.
+    /// Syncs `folder` under the first of the machine's work roots it can write, its folder name ending in `suffix`
+    /// (Move to Another Machine's machine id: this Mac keeps one push record per local and machine folder, so two
+    /// machines' copies at one path would overwrite each other's).
     func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI, retry: CloudMoveRetries.Retry,
-              distinct: String? = nil, suffix: String = "") async throws -> (folder: String, chat: String) {
+              suffix: String = "") async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = Self.remote(folder, under: root, distinct: distinct, suffix: suffix)
+            let remote = Self.remote(folder, under: root, suffix: suffix)
             do {
                 last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -286,10 +286,10 @@ struct CloudMove {
         throw Self.failure(syncing: last, machine: machine, retry: retry)
     }
 
-    /// `folder`'s place under `root` on a machine; a path equal to `distinct` takes `suffix` (``sync``).
-    static func remote(_ folder: CloudMoveFolder, under root: String, distinct: String?, suffix: String) -> (folder: String, chat: String) {
+    /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
+    static func remote(_ folder: CloudMoveFolder, under root: String, suffix: String) -> (folder: String, chat: String) {
         let remote = folder.remote(under: root)
-        guard remote.folder == distinct else { return remote }
+        guard !suffix.isEmpty else { return remote }
         return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
