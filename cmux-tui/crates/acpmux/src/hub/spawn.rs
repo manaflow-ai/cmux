@@ -367,16 +367,34 @@ impl Hub {
                 broker: false,
             };
             let cwd = std::path::Path::new(&meta.cwd);
-            if let Some(pair) = crate::claude_cloud_auth::team_pair(
-                &inputs,
-                &env,
-                cwd,
-                crate::codex_cloud_auth::host_resolves,
-            )
-            .await
-            {
+            // The launch's own `--settings`, which Claude applies over every settings file; one
+            // it cannot read keeps own.
+            let flag = crate::claude_cloud_auth::flag_settings(p.argv.get(1..).unwrap_or(&[]), cwd);
+            let pair = match &flag {
+                Ok(flag) => {
+                    crate::claude_cloud_auth::team_pair(
+                        &inputs,
+                        &env,
+                        flag.as_ref(),
+                        cwd,
+                        crate::codex_cloud_auth::host_resolves,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    tracing::info!(session = %meta.id, %error, "claude --settings does not read; it keeps its own sign-in");
+                    None
+                }
+            };
+            if let (Some(pair), Ok(flag)) = (pair, &flag) {
                 tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
-                crate::claude_cloud_auth::apply_team(&mut p.env, pair);
+                crate::claude_cloud_auth::apply_team(
+                    &mut p.env,
+                    &mut p.argv,
+                    flag.as_ref(),
+                    pair,
+                    meta.remote_origin,
+                );
             }
         }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);

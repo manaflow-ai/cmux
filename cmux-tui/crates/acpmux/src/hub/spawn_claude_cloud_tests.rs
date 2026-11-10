@@ -78,12 +78,38 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     assert_eq!(got.env.get("ANTHROPIC_BASE_URL"), None);
     assert_eq!(got.env.get("ANTHROPIC_API_KEY"), None);
 
-    // Team mode pinned over a personal token and a provider switch: the child the launch builds
-    // gets the pair and neither, from the profile or the inherited env.
-    let pinned = profile(&[
+    // A sign-in in the launch's own --settings keeps own.
+    let mut flagged = profile(&[]);
+    flagged
+        .argv
+        .extend(["--settings".to_owned(), r#"{"env":{"ANTHROPIC_AUTH_TOKEN":"t"}}"#.to_owned()]);
+    let got = hub.spawn_profile_for(&meta, &flagged, &none).await.unwrap();
+    assert_eq!(got.env.get("ANTHROPIC_BASE_URL"), None);
+    assert_eq!(got.argv, flagged.argv);
+
+    // Team mode pinned over a personal token and a provider switch in the profile, a token in the
+    // user's and the project's settings files and one in the launch's own --settings: the child
+    // the launch builds gets the pair and none of them, from the profile, the inherited env or,
+    // once Claude loads its settings, any settings file.
+    std::fs::write(
+        home.join(".claude/settings.json"),
+        r#"{"env":{"ANTHROPIC_AUTH_TOKEN":"personal-user","ANTHROPIC_BASE_URL":"https://own.test"}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::write(
+        home.join(".claude/settings.local.json"),
+        r#"{"env":{"CLAUDE_CODE_OAUTH_TOKEN":"personal-local"}}"#,
+    )
+    .unwrap();
+    let mut pinned = profile(&[
         ("CMUX_CLAUDE_AUTH", "team"),
         ("ANTHROPIC_AUTH_TOKEN", "personal-token"),
         ("CLAUDE_CODE_USE_BEDROCK", "1"),
+    ]);
+    pinned.argv.extend([
+        "--settings".to_owned(),
+        r#"{"model":"opus","env":{"ANTHROPIC_CUSTOM_HEADERS":"x-personal: 1"}}"#.to_owned(),
     ]);
     let got = hub.spawn_profile_for(&meta, &pinned, &none).await.unwrap();
     let cmd = crate::agent::harness_command(&meta.harness, &got, &home, None, None).unwrap();
@@ -106,6 +132,40 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     for key in crate::claude_cloud_auth::TEAM_CLEARS {
         assert!(!child.contains_key(key), "{key} reached the child");
         assert!(removed.iter().any(|k| k == key), "{key} not removed from the inherited env");
+    }
+    assert!(!child.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
+    // The env Claude runs on, as Claude Code 2.1.322 layers it: its process env, then the user's,
+    // the project's and the local settings `env`, then the last --settings (a later one replaces
+    // an earlier one whole).
+    let args: Vec<String> =
+        cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert_eq!(args.iter().filter(|a| *a == "--settings").count(), 1);
+    let flag = crate::claude_cloud_auth::flag_settings(&args, &home).unwrap().unwrap();
+    assert_eq!(flag["model"], "opus");
+    let settings_env = |path: std::path::PathBuf| -> Vec<(String, String)> {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+        v.get("env")
+            .and_then(|e| e.as_object())
+            .map(|e| {
+                e.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned())).collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut claude = child.clone();
+    claude.extend(settings_env(home.join(".claude/settings.json")));
+    claude.extend(settings_env(home.join(".claude/settings.local.json")));
+    claude.extend(
+        flag["env"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())),
+    );
+    assert_eq!(claude["ANTHROPIC_BASE_URL"], "https://localhost");
+    assert_eq!(claude["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
+    for key in crate::claude_cloud_auth::TEAM_CLEARS {
+        assert_eq!(claude.get(key).map(String::as_str).unwrap_or(""), "", "{key} reaches Claude");
     }
     let _ = std::fs::remove_dir_all(&root);
 }

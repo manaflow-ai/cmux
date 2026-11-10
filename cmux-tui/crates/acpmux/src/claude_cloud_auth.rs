@@ -17,9 +17,19 @@
 //! no `https://` team origin, or one that does not resolve, keeps own. Otherwise team: the pair the
 //! shell set aside, read from the model-plane env file it was persisted to, or the origin and the
 //! public placeholder. A pair the person set themselves stays.
+//!
+//! Claude applies its settings files' `env` over its process env, and a `--settings` flag over
+//! those (Claude Code 2.1.322: a `settings.json` `ANTHROPIC_AUTH_TOKEN` reached the endpoint next
+//! to the pair, and a later `--settings` replaces an earlier one whole). So the launch's own
+//! `--settings` counts as a sign-in source ([`flag_settings`]), and team mode ([`apply_team`])
+//! ends the command line with one `--settings`, the launch's own merged with the pair and
+//! [`TEAM_CLEARS`] set empty, so no user, project or local settings file moves the endpoint or
+//! adds a credential. The image's launcher does the same (`cmux-claude`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
+
+use serde_json::{Map, Value};
 
 use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 
@@ -27,9 +37,11 @@ use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 /// set, or not an owner Cloud image). `env` is the launch's effective env (`inputs.var` reads the
 /// same), `cwd` its project for project settings, and `resolves` answers whether the team
 /// origin's host resolves.
+/// `flag` is the launch's own `--settings` ([`flag_settings`]).
 pub async fn team_pair<F, Fut>(
     inputs: &Inputs<'_>,
     env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
     cwd: &Path,
     resolves: F,
 ) -> Option<[(String, String); 2]>
@@ -41,8 +53,15 @@ where
         return None;
     }
     let var = |k: &str| (inputs.var)(k).filter(|v| !v.is_empty());
+    // The flag settings' env, which Claude applies over the process env.
+    let flag_env: BTreeMap<String, String> = flag
+        .and_then(|s| s.get("env"))
+        .and_then(Value::as_object)
+        .map(|e| e.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+        .unwrap_or_default();
+    let set = |k: &str| var(k).is_some() || flag_env.get(k).is_some_and(|v| !v.is_empty());
     // A pair in the launch already (the person's, or a route's) wins, as in the launcher.
-    if var("ANTHROPIC_BASE_URL").is_some() || var("ANTHROPIC_API_KEY").is_some() {
+    if set("ANTHROPIC_BASE_URL") || set("ANTHROPIC_API_KEY") {
         return None;
     }
     let pinned = match var("CMUX_CLAUDE_AUTH").as_deref().map(str::trim) {
@@ -58,7 +77,11 @@ where
                 let mut env = env.clone();
                 env.entry("HOME".to_owned())
                     .or_insert_with(|| inputs.home.to_string_lossy().into_owned());
-                if crate::claude_auth::find_in(&env, cwd).signed_in() {
+                env.extend(flag_env.clone());
+                let flag_helper = flag.is_some_and(|s| {
+                    HELPERS.iter().any(|h| s.get(*h).is_some_and(|v| v.as_str() != Some("")))
+                });
+                if flag_helper || crate::claude_auth::find_in(&env, cwd).signed_in() {
                     return None;
                 }
             }
@@ -88,10 +111,108 @@ pub(crate) const TEAM_CLEARS: [&str; 6] = [
     "CLAUDE_CODE_USE_FOUNDRY",
 ];
 
-/// Put team mode in a Claude launch's profile env: the pair, without [`TEAM_CLEARS`] in the
-/// profile, and with them on the list the launch removes from the inherited env
-/// (`routes::UNSET_KEY`, read by `agent/command.rs`), so none reaches the child.
-pub(crate) fn apply_team(env: &mut BTreeMap<String, String>, pair: [(String, String); 2]) {
+/// The profile-env marker of a team-mode launch, for the remote chain's settings; never in the
+/// child's env (`agent/command.rs` removes it).
+pub(crate) const TEAM_MARKER: &str = "ACPMUX_CLAUDE_TEAM_PLANE";
+
+/// The team pair of a profile env [`apply_team`] marked, or None.
+pub(crate) fn marked_pair(env: &BTreeMap<String, String>) -> Option<[(String, String); 2]> {
+    env.get(TEAM_MARKER)?;
+    let get = |k: &str| Some((k.to_owned(), env.get(k)?.clone()));
+    Some([get("ANTHROPIC_BASE_URL")?, get("ANTHROPIC_API_KEY")?])
+}
+
+/// The settings keys that run a credential helper (`claude_auth.rs` counts the same).
+const HELPERS: [&str; 3] = ["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"];
+
+/// The flag settings Claude would read from `argv` (after its program): the value of its last
+/// `--settings` (or `--settings=`), inline JSON or a file relative to `cwd`, as Claude takes it.
+/// `Ok(None)` without one; `Err` when it cannot be read as a JSON object, so a caller keeps own.
+pub(crate) fn flag_settings(
+    argv: &[String],
+    cwd: &Path,
+) -> Result<Option<Map<String, Value>>, String> {
+    let Some(value) = settings_args(argv).1 else { return Ok(None) };
+    let text = if value.trim_start().starts_with('{') {
+        value
+    } else {
+        let path = cwd.join(&value);
+        std::fs::read_to_string(&path).map_err(|e| format!("--settings {}: {e}", path.display()))?
+    };
+    match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(map)) => Ok(Some(map)),
+        Ok(_) => Err("--settings is not a JSON object".to_owned()),
+        Err(e) => Err(format!("--settings: {e}")),
+    }
+}
+
+/// `argv` without any `--settings` (before a `--`), and the last one's value.
+fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
+    let mut rest = Vec::with_capacity(argv.len());
+    let mut last = None;
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        // Positional words follow `--`: none is a flag.
+        if word == "--" {
+            rest.push(word.clone());
+            rest.extend(words.cloned());
+            break;
+        }
+        if word == "--settings" {
+            last = words.next().cloned().or(last);
+        } else if let Some(value) = word.strip_prefix("--settings=") {
+            last = Some(value.to_owned());
+        } else {
+            rest.push(word.clone());
+        }
+    }
+    (rest, last)
+}
+
+/// The one `--settings` a team-mode launch ends with: `flag` (the launch's own) with the pair
+/// and every [`TEAM_CLEARS`] name set empty in its `env`, over any settings file's.
+pub(crate) fn team_settings(
+    flag: Option<&Map<String, Value>>,
+    pair: &[(String, String); 2],
+) -> String {
+    let mut settings = flag.cloned().unwrap_or_default();
+    let env = settings.entry("env").or_insert_with(|| Value::Object(Map::new()));
+    if !env.is_object() {
+        *env = Value::Object(Map::new());
+    }
+    if let Value::Object(env) = env {
+        for key in TEAM_CLEARS {
+            env.insert(key.to_owned(), Value::String(String::new()));
+        }
+        for (k, v) in pair {
+            env.insert(k.clone(), Value::String(v.clone()));
+        }
+    }
+    Value::Object(settings).to_string()
+}
+
+/// Put team mode in a Claude launch: the pair in the profile env, without [`TEAM_CLEARS`] there,
+/// and with them on the list the launch removes from the inherited env (`routes::UNSET_KEY`, read
+/// by `agent/command.rs`); and `argv`'s `--settings` replaced by [`team_settings`] at its end, so
+/// no settings file adds one either.
+/// A remote chain's command line refuses a profile `--settings` and ends with its own
+/// (`hub/remote_sandbox.rs`), so `remote` leaves `argv` alone: the chain merges
+/// [`team_settings`] into its own when the profile env carries [`TEAM_MARKER`].
+pub(crate) fn apply_team(
+    env: &mut BTreeMap<String, String>,
+    argv: &mut Vec<String>,
+    flag: Option<&Map<String, Value>>,
+    pair: [(String, String); 2],
+    remote: bool,
+) {
+    env.insert(TEAM_MARKER.to_owned(), "1".to_owned());
+    if !remote && !argv.is_empty() {
+        let mut rest = settings_args(&argv[1..]).0;
+        rest.insert(0, argv[0].clone());
+        rest.push("--settings".to_owned());
+        rest.push(team_settings(flag, &pair));
+        *argv = rest;
+    }
     let mut unset: Vec<String> = env
         .get(crate::routes::UNSET_KEY)
         .map(|list| list.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
@@ -152,7 +273,7 @@ mod tests {
         let map = env.clone();
         let var = move |k: &str| map.get(k).cloned();
         let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
-        team_pair(&inputs, &env, &m.home, |_| async move { dns }).await
+        team_pair(&inputs, &env, None, &m.home, |_| async move { dns }).await
     }
 
     #[tokio::test]
@@ -205,6 +326,13 @@ mod tests {
         assert_eq!(pair(&m, &[], true).await, None);
     }
 
+    fn team_pair_value() -> [(String, String); 2] {
+        [
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned()),
+            ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
+        ]
+    }
+
     #[test]
     fn team_mode_clears_personal_credentials_and_keeps_a_routes_list() {
         let mut env = BTreeMap::from([
@@ -212,11 +340,11 @@ mod tests {
             ("CLAUDE_CODE_OAUTH_TOKEN".to_owned(), "personal".to_owned()),
             (crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY".to_owned()),
         ]);
-        let pair = [
-            ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned()),
-            ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
-        ];
-        apply_team(&mut env, pair);
+        let mut argv: Vec<String> = ["claude", "--settings", r#"{"model":"opus"}"#, "--verbose"]
+            .map(str::to_owned)
+            .to_vec();
+        let flag = flag_settings(&argv[1..], Path::new("/")).unwrap();
+        apply_team(&mut env, &mut argv, flag.as_ref(), team_pair_value(), false);
         for key in TEAM_CLEARS {
             assert!(!env.contains_key(key));
         }
@@ -224,6 +352,66 @@ mod tests {
         assert_eq!(unset[0], "OPENAI_API_KEY");
         assert!(TEAM_CLEARS.iter().all(|k| unset.contains(k)));
         assert_eq!(env["ANTHROPIC_API_KEY"], PLACEHOLDER_KEY);
+        assert_eq!(marked_pair(&env), Some(team_pair_value()));
+        // One --settings, last: the launch's own merged with the pair and the clears.
+        assert_eq!(argv[..2], ["claude", "--verbose"]);
+        assert_eq!(argv.iter().filter(|a| *a == "--settings").count(), 1);
+        assert_eq!(argv[argv.len() - 2], "--settings");
+        let settings: Value = serde_json::from_str(argv.last().unwrap()).unwrap();
+        assert_eq!(settings["model"], "opus");
+        assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], PLACEHOLDER_KEY);
+        for key in TEAM_CLEARS {
+            assert_eq!(settings["env"][key], "");
+        }
+        // A remote chain keeps its argv; its own settings take the pair (remote_sandbox.rs).
+        let mut env = BTreeMap::new();
+        let mut argv = vec!["claude".to_owned()];
+        apply_team(&mut env, &mut argv, None, team_pair_value(), true);
+        assert_eq!(argv, ["claude"]);
+        assert!(marked_pair(&env).is_some());
+    }
+
+    #[test]
+    fn flag_settings_reads_the_last_inline_or_file_value() {
+        let m = machine("owner");
+        let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(flag_settings(&words(&["--verbose"]), &m.home).unwrap(), None);
+        let inline = flag_settings(
+            &words(&["--settings", r#"{"env":{"A":"1"}}"#, "--settings={\"env\":{\"A\":\"2\"}}"]),
+            &m.home,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(inline["env"]["A"], "2");
+        std::fs::write(m.home.join("s.json"), r#"{"apiKeyHelper":"/bin/key"}"#).unwrap();
+        let file = flag_settings(&words(&["--settings", "s.json"]), &m.home).unwrap().unwrap();
+        assert_eq!(file["apiKeyHelper"], "/bin/key");
+        assert!(flag_settings(&words(&["--settings", "missing.json"]), &m.home).is_err());
+        assert!(flag_settings(&words(&["--settings", "[1]"]), &m.home).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_in_the_launchs_own_settings_flag_keeps_own() {
+        let m = machine("owner");
+        let env = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        let read = env.clone();
+        let var = move |k: &str| read.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        let flag = |v: Value| v.as_object().cloned();
+        let (inputs, home) = (&inputs, m.home.as_path());
+        let pair = |f: Option<Map<String, Value>>| {
+            let env = env.clone();
+            async move { team_pair(inputs, &env, f.as_ref(), home, |_| async { true }).await }
+        };
+        assert!(pair(None).await.is_some());
+        let token = flag(serde_json::json!({"env": {"ANTHROPIC_AUTH_TOKEN": "t"}}));
+        assert_eq!(pair(token).await, None);
+        let helper = flag(serde_json::json!({"apiKeyHelper": "/bin/key"}));
+        assert_eq!(pair(helper).await, None);
+        let endpoint = flag(serde_json::json!({"env": {"ANTHROPIC_BASE_URL": "https://x.test"}}));
+        assert_eq!(pair(endpoint).await, None);
+        // Settings with no credential stay team.
+        assert!(pair(flag(serde_json::json!({"model": "opus"}))).await.is_some());
     }
 
     #[tokio::test]

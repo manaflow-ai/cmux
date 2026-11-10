@@ -258,7 +258,14 @@ cmux_agent_drop_model_plane_env() {
 # model-plane pair agent-config.sh set aside, unless the user exported their
 # own ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY (those always win). own: no
 # CodeRouter env at all.
+# Team mode sets cmux_claude_team_settings=1 when it put the model-plane pair
+# in the env: the launcher (/etc/cmux/claude) then starts Claude with one
+# --settings that keeps that pair and empties every personal credential and
+# provider switch, because Claude applies its user, project and local
+# settings files' env over its process env (a settings.json
+# ANTHROPIC_AUTH_TOKEN would otherwise reach CodeRouter next to the pair).
 cmux_claude_apply_auth_mode() {
+  cmux_claude_team_settings=0
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
@@ -270,6 +277,7 @@ cmux_claude_apply_auth_mode() {
       ANTHROPIC_BASE_URL=${CMUX_CODEROUTER_URL-}
       ANTHROPIC_API_KEY=$cmux_aa_placeholder
       export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+      cmux_claude_team_settings=1
       # Claude 2.1.299 reads onboarding from this isolated config home,
       # not ~/.claude.json. Seed only fresh state, never personal credentials.
       if [ ! -e "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
@@ -279,6 +287,7 @@ cmux_claude_apply_auth_mode() {
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
       export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+      cmux_claude_team_settings=1
     fi
     return 0
   fi

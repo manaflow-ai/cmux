@@ -12,4 +12,48 @@ fi
 . /etc/cmux/agent-config.sh
 . /etc/cmux/agent-auth.sh
 cmux_claude_apply_auth_mode || exit $?
+if [ "${cmux_claude_team_settings-0}" = 1 ]; then
+  # Team mode: one --settings, first (every subcommand takes it there), that
+  # merges the launch's own last --settings (inline JSON or a file; Claude
+  # keeps only the last) with the model-plane pair and empty personal
+  # credentials, over any settings file's env. One that does not read stops
+  # the launch rather than send a credential it names to CodeRouter.
+  exec python3 -I -c '
+import json, os, sys
+real = "/usr/local/libexec/cmux-claude-real"
+clears = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS",
+          "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"]
+args, rest, last, i = sys.argv[1:], [], None, 0
+while i < len(args):
+    a = args[i]
+    if a == "--":
+        rest.extend(args[i:])
+        break
+    if a == "--settings":
+        last = args[i + 1] if i + 1 < len(args) else last
+        i += 2
+        continue
+    if a.startswith("--settings="):
+        last = a[len("--settings="):]
+    else:
+        rest.append(a)
+    i += 1
+settings = {}
+if last is not None:
+    try:
+        text = last if last.lstrip().startswith("{") else open(last).read()
+        settings = json.loads(text)
+    except Exception as e:
+        sys.exit("claude: --settings does not read (%s); team mode cannot start" % e)
+    if not isinstance(settings, dict):
+        sys.exit("claude: --settings is not a JSON object; team mode cannot start")
+env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+for k in clears:
+    env[k] = ""
+for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"):
+    env[k] = os.environ.get(k, "")
+settings["env"] = env
+os.execv(real, [real, "--settings", json.dumps(settings)] + rest)
+' "$@"
+fi
 exec /usr/local/libexec/cmux-claude-real "$@"
