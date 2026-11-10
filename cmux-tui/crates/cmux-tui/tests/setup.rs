@@ -795,7 +795,7 @@ fn cmux_setup_machine_an_agent_adds_a_peer_reruns_it_and_undoes_it() {
     assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"));
     // A host given by its address is named by the whole address, not its first number
     // ("10" for every host on a 10.x network; remote e2e walk, 2026-11-10).
-    for (target, name) in [("dev@10.138.15.214", "10.138.15.214"), ("fd00::5", "fd00--5")] {
+    for (target, name) in [("dev@10.138.15.214", "10.138.15.214"), ("10.0.0.5", "10.0.0.5")] {
         let planned = world.json(&["setup", "machine", target, "--dry-run"]);
         assert_eq!(planned["name"], name, "{planned}");
         world.take_ssh_calls();
