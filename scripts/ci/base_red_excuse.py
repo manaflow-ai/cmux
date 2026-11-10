@@ -1043,6 +1043,16 @@ COMPILE_STATUS_FAIL = "The app did not compile"
 COMPILE_RECEIPT_DOWN = 500  # an HTTP answer at or above this (5xx, Cloudflare's 52x and 530) is the service down
 
 
+# The cmux-next/compile descriptions of compile-status that are no verdict (unavailable, no result in 40 minutes, a
+# result for another head); only "The app did not compile" (COMPILE_STATUS_FAIL) is a fail. With the controller off
+# every PR's status read "No compile result for this head in 40 minutes": no receipt and no base status can judge
+# that (github_compile_red refuses it), but a compile that passed at the head elsewhere can. A no-verdict status is
+# judged like the no-verdict job (NO_VERDICT_JOBS): another compile's pass at the head (compile_pass_at, the Mac
+# Release compile first) ignores it, so a down controller makes landing slower, never impossible.
+COMPILE_STATUS_NO_VERDICT = re.compile(r"No compile result for this head|The compile check gave no verdict|"
+                                       r"The compile result does not match this head")
+
+
 class ReceiptUnreachable(Refused):
     """The receipts host did not answer (a connection error, a timeout, a 5xx): no verdict, and no answer about the
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
@@ -1332,6 +1342,17 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
+        description = status.get("description") or ""
+        if COMPILE_STATUS_NO_VERDICT.match(description):
+            try:
+                proof, unread = compile_pass_at(repo, sha, github), ""
+            except Refused as why:  # the receipt is read last: nothing before it passed
+                proof, unread = None, f"; {why}"
+            if proof is None:
+                raise Refused(f"'{name}' gave no compile verdict ({description[:140]}) and nothing else compiled "
+                              f"{sha}{unread}: a no-verdict compile is never a base red; re-run it once the fleet "
+                              "answers, or once the Mac Release compile passes at this head")
+            return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github)
     url = status.get("target_url") or ""
