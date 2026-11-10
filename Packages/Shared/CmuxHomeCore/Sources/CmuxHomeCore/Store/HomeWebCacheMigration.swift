@@ -10,8 +10,11 @@ import Foundation
 ///   then its files), thread and reply (``HomeCachedSend``), Not Delivered: Retry sends the same
 ///   message under the same key, never a different one, and a send of a file alone keeps its row
 ///   too. Its files' bytes go into the blob cache and the send keeps them (`files`), so its upload
-///   job comes back and Retry uploads them again when the owner swept its uploads. The page kept
-///   no poster or preview bytes, so the parts carry none (the owner's stored ref is adopted).
+///   job comes back and Retry uploads them again when the owner swept its uploads. The parts are
+///   the page's op as it sent it (posters and previews included), so a same-key replay matches
+///   the owner's fingerprint; the job's refs carry no poster or preview (the page kept none of
+///   those bytes), and a fresh upload adopts the owner's stored ref. Text over the owner's inline
+///   budget (64 KiB of UTF-8) went as a `message.txt` attachment, as the page sent it.
 /// - Each staged part becomes a native draft attachment, in the page's tray order. Its kept bytes
 ///   (`<blob cache>-drafts/<hash>`) are copied into the blob cache as `<hash>/data.<ext>`, where the
 ///   prune keeps a draft's files. The same bytes under two names (`photo.jpg`, `photo.jpeg`) get a
@@ -55,17 +58,27 @@ enum HomeWebCacheMigration {
             for (entryKey, row) in rows {
                 let key = IdempotencyKey((row["key"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? entryKey)
                 let text = (row["text"] as? String) ?? ""
-                var parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
+                var parts: [MessagePart] = []
                 var local: [HomeCachedDraftAttachment] = []
-                for part in (row["attachments"] as? [[String: Any]]) ?? [] {
-                    guard var ref = attachmentRef(part) else { continue }
-                    ref.poster = nil
-                    ref.preview = nil
-                    let url = files.place(ref)
-                    parts.append(.attachment(ref))
-                    if !local.contains(where: { $0.ref.hash == ref.hash }) {
-                        local.append(HomeCachedDraftAttachment(LocalAttachment(ref: ref, fileURL: url)))
+                func keep(_ ref: AttachmentRef, at url: URL) {
+                    guard !local.contains(where: { $0.ref.hash == ref.hash }) else { return }
+                    var bare = ref
+                    bare.poster = nil
+                    bare.preview = nil
+                    local.append(HomeCachedDraftAttachment(LocalAttachment(ref: bare, fileURL: url)))
+                }
+                if !text.isEmpty {
+                    if let file = textFile(text, blobCache: blobCache) {
+                        parts.append(.attachment(file.ref))
+                        keep(file.ref, at: file.url)
+                    } else {
+                        parts.append(.text(text))
                     }
+                }
+                for part in (row["attachments"] as? [[String: Any]]) ?? [] {
+                    guard let ref = attachmentRef(part) else { continue }
+                    parts.append(.attachment(ref))
+                    keep(ref, at: files.place(ref))
                 }
                 guard !parts.isEmpty, !keys.contains(key) else { continue }
                 keys.insert(key)
@@ -84,6 +97,26 @@ enum HomeWebCacheMigration {
         files.removeCopiedSources()
         out.draftAttachments = attachments.isEmpty ? nil : attachments
         return (out, true)
+    }
+
+    /// The owner's inline text budget (the page's `INLINE_TEXT_BYTES`): longer text is a file.
+    static let inlineTextBytes = 64 * 1024
+
+    /// `text` as the page sent text over the inline budget: a `message.txt` (`text/plain`)
+    /// attachment, its bytes written into the blob cache. Nil for text that fits inline, or when
+    /// the file cannot be written (the text then stays a text part).
+    static func textFile(_ text: String, blobCache: URL) -> (ref: AttachmentRef, url: URL)? {
+        let data = Data(text.utf8)
+        guard data.count > inlineTextBytes else { return nil }
+        let hash = AttachmentMedia.sha256(of: data)
+        let url = AttachmentMedia.blobURL(root: blobCache, hash: hash, fileExtension: "txt")
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: url.path) { try data.write(to: url, options: .atomic) }
+        } catch {
+            return nil
+        }
+        return (AttachmentRef(hash: hash, name: "message.txt", mimeType: "text/plain", byteCount: data.count), url)
     }
 
     /// Where the page kept its parts' bytes: `<blob cache>-drafts`, beside the blob cache.

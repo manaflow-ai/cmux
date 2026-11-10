@@ -9,7 +9,7 @@ public import Foundation
 public struct HomeCachedSend: Hashable, Sendable, Codable {
     public var key: IdempotencyKey
     public var conversation: ConversationID
-    /// Text parts (with their mentions) and attachment parts.
+    /// Text parts (with their mentions), attachment parts and link previews.
     public var parts: [MessagePart]
     public var issuedAt: Date
     public var failed: Bool
@@ -40,23 +40,24 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
         self.init(key: key, conversation: conversation, parts: [.text(text)], issuedAt: issuedAt, failed: failed)
     }
 
-    /// The cached form of a logged send, nil for one the cache does not keep: acknowledged, a text
-    /// send still uploading (none is), or with a part other than text and attachments. A send with
-    /// attachments is kept in every state with its upload job's files (`upload`), as Not Delivered.
+    /// The cached form of a logged send, nil for one the cache does not keep: acknowledged, or
+    /// with a part other than text, attachments and link previews. A text send is kept as it is,
+    /// a link send whose previews are still loading too (its plain text, sent under its key at the
+    /// next launch). A send with attachments or link previews is kept in every state with its
+    /// upload job's files (`upload`), as Not Delivered.
     init?(_ entry: PendingIntent, upload: HomeStore.UploadJob? = nil) {
         guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op else { return nil }
         if case .acknowledged = entry.state { return nil }
         let textOnly = parts.allSatisfy { if case .text = $0 { true } else { false } }
         let failed = if case .failed = entry.state { true } else { false }
-        if textOnly {
-            guard !entry.isUploading else { return nil }
+        if textOnly, upload?.attachments.isEmpty ?? true {
             self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: failed,
                       threadRoot: threadRoot, parent: parent)
             return
         }
         let textAndFiles = parts.allSatisfy {
             switch $0 {
-            case .text, .attachment: true
+            case .text, .attachment, .linkPreview: true
             default: false
             }
         }

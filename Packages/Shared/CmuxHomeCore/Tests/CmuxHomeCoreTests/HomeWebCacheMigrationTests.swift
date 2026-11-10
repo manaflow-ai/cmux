@@ -92,8 +92,10 @@ import CmuxHomeCoreTestSupport
             Issue.record("k2 lost its file")
             return
         }
-        #expect(file.hash == Self.sent && file.name == "log.txt" && file.preview == nil, "the page kept no preview bytes")
+        #expect(file.hash == Self.sent && file.name == "log.txt" && file.preview?.hash == Self.gone,
+                "the part is the page's, preview included, so a same-key replay matches the owner's fingerprint")
         #expect(store.uploads[IdempotencyKey("k2")]?.attachments.map(\.ref.hash) == [Self.sent])
+        #expect(store.uploads[IdempotencyKey("k2")]?.attachments.first?.ref.preview == nil, "no preview bytes to upload")
         #expect(store.uploads[IdempotencyKey("k2")]?.reachedOwner == true)
         #expect(fileThread == MessageID("msg_root") && fileParent == MessageID("msg_parent"))
         if case .failed = fileOnly.state {} else { Issue.record("k2 comes back as not sent") }
@@ -281,5 +283,132 @@ import CmuxHomeCoreTestSupport
             message.parts.contains { if case .attachment(let ref) = $0 { ref.hash == hash } else { false } }
         }
         #expect(messages.count == 1)
+    }
+
+    /// The page committed a send with an image and its preview, and the answer was lost. After the
+    /// migration Retry replays it under the same key with the same op (no `idempotency_conflict`,
+    /// no second message): the parts keep the page's preview (Codex review of #40611 at 5aee1fa, F2).
+    @Test func aMigratedSendWhoseCommitAnswerWasLostReplaysUnderItsKey() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-web-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let image = Data("image bytes".utf8)
+        let preview = Data("preview".utf8)
+        let imageURL = root.appendingPathComponent("photo.png")
+        let previewURL = root.appendingPathComponent("preview.jpg")
+        try image.write(to: imageURL)
+        try preview.write(to: previewURL)
+        let ref = AttachmentRef(hash: sha256Hex(image), name: "photo.png", mimeType: "image/png", byteCount: image.count,
+                                width: 10, height: 20,
+                                preview: AttachmentDerivedImage(hash: sha256Hex(preview), mimeType: "image/jpeg", byteCount: preview.count))
+        let source = MockHomeSource(options: .immediate)
+        _ = try await source.upload(AttachmentUpload(conversation: Self.austin, fileURL: imageURL, ref: ref, previewURL: previewURL) { _ in })
+        let key = IdempotencyKey("k5")
+        let op = HomeOp.sendMessage(conversation: Self.austin, parts: [.attachment(ref)], threadRoot: nil, parent: nil)
+        await source.commitThenLoseAnswer(of: key)
+        _ = try? await source.submit(HomeIntent(key: key, op: op))
+
+        var snapshot = HomeCacheSnapshot()
+        snapshot.pendingWebSends = [Self.austin: [
+            "k5": try Self.json(["key": "k5", "text": "",
+                                 "attachments": [["hash": ref.hash, "name": "photo.png", "mimeType": "image/png",
+                                                  "byteCount": image.count, "width": 10, "height": 20,
+                                                  "preview": ["hash": sha256Hex(preview), "mimeType": "image/jpeg",
+                                                              "byteCount": preview.count]]],
+                                 "createdAt": 1_700_000_500_000, "failed": true]),
+        ]]
+        try JSONEncoder().encode(snapshot).write(to: root.appendingPathComponent("home.json"))
+        let store = HomeStore(source: source, blobCacheDirectory: root.appendingPathComponent("blobs"),
+                              cache: HomeCache(url: root.appendingPathComponent("home.json")), cacheWriteDelay: .zero)
+        defer { store.stop() }
+        store.primeFromCache()
+        let restored = try #require(store.log.entries.first { $0.intent.key == key })
+        #expect(restored.intent.op == op, "the migrated op is the one the owner committed")
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        await store.open(Self.austin)
+        await source.releaseWithheldEvents()
+        _ = try? await store.retry(key)
+        await waitUntil { store.log.isEmpty }
+        #expect(store.log.isEmpty, "the replay settled it")
+        let messages = try await source.snapshot(of: Self.austin, tail: 50).messages.filter { message in
+            message.parts.contains { if case .attachment(let part) = $0 { part.hash == ref.hash } else { false } }
+        }
+        #expect(messages.count == 1, "one message, not a second under a new key")
+    }
+
+    /// The page sent text over the owner's inline budget as a `message.txt` file; a pending one
+    /// migrates to that attachment with its bytes and upload job, not an inline part every retry
+    /// refuses (Codex review of #40611 at 5aee1fa, F3).
+    @Test func anOversizedPendingTextMigratesAsItsTextFile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-web-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blobs = root.appendingPathComponent("blobs")
+        let long = String(repeating: "0123456789", count: 7_200)
+        var snapshot = HomeCacheSnapshot()
+        snapshot.pendingWebSends = [Self.austin: [
+            "k6": try Self.json(["key": "k6", "text": long, "createdAt": 1_700_000_600_000, "failed": true]),
+        ]]
+        let (out, _) = HomeWebCacheMigration.migrate(snapshot, blobCache: blobs)
+        let send = try #require(out.sends.first)
+        let data = Data(long.utf8)
+        let ref = AttachmentRef(hash: sha256Hex(data), name: "message.txt", mimeType: "text/plain", byteCount: data.count)
+        #expect(send.parts == [.attachment(ref)])
+        let file = try #require(send.files?.first)
+        #expect(try Data(contentsOf: file.fileURL) == data && file.fileURL.path.hasPrefix(blobs.path))
+        #expect(send.failed && send.reachedOwner == true)
+
+        var short = HomeCacheSnapshot()
+        short.pendingWebSends = [Self.austin: ["k7": try Self.json(["key": "k7", "text": "short", "failed": true])]]
+        #expect(HomeWebCacheMigration.migrate(short, blobCache: blobs).snapshot.sends.first?.parts == [.text("short")])
+    }
+
+    /// A link send survives a quit in both phases (F1): while its previews load (its plain text,
+    /// sent under its key at the next launch) and once filled and Not Delivered (its parts and its
+    /// picture's upload job).
+    @Test func aLinkSendSurvivesAQuitWhileItsPreviewsLoadAndOnceFilled() async throws {
+        let root = try temporaryDirectory()
+        let cacheURL = root.appendingPathComponent("home.json")
+        let blobs = root.appendingPathComponent("blobs")
+        let picture = Data("picture".utf8)
+        let pictureRef = AttachmentRef(hash: sha256Hex(picture), name: "og.jpg", mimeType: "image/jpeg", byteCount: picture.count)
+        let pictureURL = AttachmentMedia.blobURL(root: blobs, hash: pictureRef.hash, fileExtension: "jpg")
+        try FileManager.default.createDirectory(at: pictureURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try picture.write(to: pictureURL)
+        let loading = IdempotencyKey("link-loading")
+        let filled = IdempotencyKey("link-filled")
+        let link = LinkPreview(url: "https://example.com", title: "Example",
+                               image: AttachmentDerivedImage(hash: pictureRef.hash, mimeType: "image/jpeg", byteCount: picture.count))
+        let filledParts: [MessagePart] = [.text("https://example.com"), .linkPreview(link)]
+
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: blobs,
+                              cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        store.log.append(HomeIntent(key: loading, op: .sendMessage(conversation: Self.austin, parts: [.text("https://example.com")],
+                                                                   threadRoot: nil, parent: nil)))
+        store.log.setUploading(loading, true)
+        store.uploads[loading] = HomeStore.UploadJob(conversation: Self.austin, attachments: [])
+        store.log.append(HomeIntent(key: filled, op: .sendMessage(conversation: Self.austin, parts: filledParts,
+                                                                  threadRoot: nil, parent: nil)))
+        store.log.fail(filled, .ownerUnreachable)
+        store.uploads[filled] = HomeStore.UploadJob(conversation: Self.austin,
+                                                    attachments: [LocalAttachment(ref: pictureRef, fileURL: pictureURL)])
+        store.ownerStateChanged()
+        await store.flushCache()
+        store.stop()
+
+        let next = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: blobs,
+                             cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        next.primeFromCache()
+        defer { next.stop() }
+        let text = try #require(next.log.entries.first { $0.intent.key == loading })
+        #expect(text.intent.op == .sendMessage(conversation: Self.austin, parts: [.text("https://example.com")], threadRoot: nil, parent: nil))
+        let back = try #require(next.log.entries.first { $0.intent.key == filled })
+        guard case .sendMessage(_, let parts, _, _) = back.intent.op else {
+            Issue.record("not a send")
+            return
+        }
+        #expect(parts == filledParts)
+        if case .failed = back.state {} else { Issue.record("it comes back Not Delivered") }
+        #expect(next.uploads[filled]?.attachments.map(\.ref.hash) == [pictureRef.hash])
     }
 }
