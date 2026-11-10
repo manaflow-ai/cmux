@@ -13,6 +13,8 @@ const [login, setLogin] = signal(null) // the GitHub login for the public API, w
 const [draft, setDraft] = signal("")
 const [needsLogin, setNeedsLogin] = signal(false)
 let loaded = false
+// Writes run one after another, so an older order never lands after a newer one.
+let writing = Promise.resolve()
 
 const message = (e) => (e instanceof Error ? e.message : String(e))
 
@@ -27,8 +29,13 @@ async function search(query) {
       throw new Error("Connect GitHub in cmux, or type your GitHub login below.")
     }
     const r = await cmux.net.fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query(login()))}&per_page=30`, {
-      headers: { Accept: "application/vnd.github+json" }
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "cmux-my-prs" }
     })
+    if (r.status === 422 || r.status === 404) {
+      // GitHub does not know this login: ask again.
+      setNeedsLogin(true)
+      throw new Error(`GitHub has no user called ${login()}.`)
+    }
     if (!r.ok) throw new Error(`GitHub answered ${r.status}`)
     return r.json().items || []
   }
@@ -87,7 +94,7 @@ function move(id, to) {
   ids.splice(from, 1)
   ids.splice(target, 0, id)
   setOrder(ids)
-  cmux.storage.set("order", ids).catch(() => undefined)
+  writing = writing.then(() => cmux.storage.set("order", ids)).catch(() => undefined)
 }
 
 function open(pr) {
@@ -102,7 +109,7 @@ function useLogin(text) {
   setLogin(name)
   setNeedsLogin(false)
   setDraft("")
-  cmux.storage.set("login", name).catch(() => undefined)
+  writing = writing.then(() => cmux.storage.set("login", name)).catch(() => undefined)
   load(true)
 }
 
@@ -143,7 +150,8 @@ function renderPRs() {
           Button("Move up", () => move(p().id, -1)),
           Button("Move down", () => move(p().id, 1)),
           Divider(),
-          Button("Refresh", () => load(true))
+          Button("Refresh", () => load(true)),
+          Button("Change GitHub login", () => setNeedsLogin(true))
         ])
     ),
     () => (error() ? EmptyState({ title: "Cannot read your pull requests", message: error(), symbol: "exclamationmark.triangle" }) : null),

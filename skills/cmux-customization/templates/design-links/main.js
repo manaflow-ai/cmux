@@ -45,9 +45,12 @@ function load() {
   )
 }
 
+// Writes run one after another: the host may finish two calls in any order, and an older list
+// landing last would drop the newer link.
+let writing = Promise.resolve()
 function save(next) {
   setLinks(next)
-  cmux.storage.set("links", next).catch(() => undefined)
+  writing = writing.then(() => cmux.storage.set("links", next)).catch(() => undefined)
 }
 
 function add(text) {

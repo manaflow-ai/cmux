@@ -18,6 +18,7 @@ function describe(code) {
   if (code <= 67) return { text: "Rain", symbol: "cloud.rain" }
   if (code <= 77) return { text: "Snow", symbol: "cloud.snow" }
   if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain" }
+  if (code <= 86) return { text: "Snow showers", symbol: "cloud.snow" }
   return { text: "Thunderstorm", symbol: "cloud.bolt" }
 }
 
@@ -44,6 +45,8 @@ async function loadWeather() {
     )
     if (!r.ok) throw new Error(`Open-Meteo answered ${r.status}`)
     const body = r.json()
+    // A city changed while this read was out: its answer is for the old one.
+    if (place() !== p) return
     setWeather({
       temperature: Math.round(body.current.temperature_2m),
       code: body.current.weather_code,
@@ -52,7 +55,7 @@ async function loadWeather() {
     })
     setError(null)
   } catch (e) {
-    setError(message(e))
+    if (place() === p) setError(message(e))
   }
 }
 

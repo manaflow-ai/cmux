@@ -343,10 +343,17 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     host.handlers["app.storage.set"] = ok()
     host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
     host.handlers["net.fetch"] = (p) =>
-      ({ ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify({ items: p.url.includes("author%3Aoctocat") ? [{ id: 7, number: 7, title: "Public one", html_url: "https://github.com/o/r/pull/7", repository_url: "https://api.github.com/repos/o/r" }] : [] }) } } })
+      p.url.includes("nobody")
+        ? { ok: true, body: { value: { status: 422, headers: {}, body: "{}" } } }
+        : { ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify({ items: p.url.includes("author%3Aoctocat") ? [{ id: 7, number: 7, title: "Public one", html_url: "https://github.com/o/r/pull/7", repository_url: "https://api.github.com/repos/o/r" }] : [] }) } } }
     host.mount("m", "renderPRs")
     await host.settle(10)
     expect(host.calls.filter((c) => c.name === "net.fetch")).toEqual([])
+    // A login GitHub does not know asks again instead of hiding the field for good.
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "nobody" })
+    await host.settle(10)
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeDefined()
+    expect(host.calls.find((c) => c.name === "net.fetch")?.params.headers["User-Agent"]).toBe("cmux-my-prs")
     host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "octocat" })
     await host.settle(10)
     expect(rowTitles(host)).toEqual(["Public one"])
