@@ -656,6 +656,41 @@ test("a subagent's steps answered with a lone dot draw no line and no dot", asyn
   }
 });
 
+// Review on #39849: a reply that says nothing ("·", ".", "…") is never the agent's own turn, even
+// when its task's call is known: the call keeps its mark, and no dot or footer draws.
+test("a lone dot answering a known call or subagent draws no row and no footer", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite and review it", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh-dot"),
+      spawned("rev-dot"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      spawned("rev-dot", "completed"),
+      ...quietTask("bg-d1", false, { kind: "shell", status: "interim", weight: "silent", origin: "sh-dot" }),
+      ...quietTask("bg-d2", false, {
+        kind: "subagent_step",
+        status: "completed",
+        weight: "silent",
+        origin: "rev-dot-call",
+      }),
+      ...quietTask("bg-d3", false, { kind: "subagent", status: "completed", weight: "result", origin: "rev-dot-call" }),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(callOf(rows(), "sh-dot")?.reaction).toMatchObject({ turn: "bg-d1" });
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    expect(view.some((row) => row.id.startsWith(BACKGROUND_END))).toBe(false);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    for (const id of ["bg-d1", "bg-d2", "bg-d3"])
+      expect(rows().find((row) => row.id === backgroundTurnRowId(id))?.background?.ownTurn).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
 test("quiet background turns in a row that ran something fold into one counted line", async () => {
   const daemon = fakeDaemon(
     record([
