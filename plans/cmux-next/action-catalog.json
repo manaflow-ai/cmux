@@ -82495,6 +82495,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -82565,6 +82566,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
