@@ -191,7 +191,8 @@ public final class CmuxMobileAuthModel {
     public var user: User? {
         if isMock {
             #if DEBUG
-            return mockSignedIn ? User(id: "mock", name: "Aziz Albahar", email: "aziz@example.com") : nil
+            let persona = MockPersona.current
+            return mockSignedIn ? User(id: "mock", name: persona.userName, email: persona.userEmail) : nil
             #else
             return nil
             #endif

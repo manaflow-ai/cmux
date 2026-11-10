@@ -5,18 +5,19 @@ import Foundation
 extension AppStore {
     /// Sample data for previews, UI verification and first-run demos.
     public static func mock(now: Date = Date(), tabMemory: TabMemory = .standard) -> AppStore {
+        let persona = MockPersona.current
         let teams = [
             // Two Macs, one asleep: the Workspaces list's realistic mix.
-            Team(id: "team-manaflow", name: "Manaflow", macs: [
-                MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
+            Team(id: "team-manaflow", name: persona.teamName, macs: [
+                MacDevice(id: "mac-studio", name: persona.mac("Mac Studio"), isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
             ]),
             Team(id: "personal-mock", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
                 // Two Macs that share a name (a reinstall, or two laptops):
                 // the lists tag each with its id ending.
-                MacDevice(id: "8c41e0d2-3f2a", name: "Aziz's MacBook Pro", isOnline: true),
-                MacDevice(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-3 * 86400)),
+                MacDevice(id: "8c41e0d2-3f2a", name: persona.mac("MacBook Pro"), isOnline: true),
+                MacDevice(id: "5b97a6f1-91c7", name: persona.mac("MacBook Pro"), isOnline: false, lastSeenAt: now.addingTimeInterval(-3 * 86400)),
             ]),
             Team(id: "team-fleet", name: "Build Fleet", macs: (1...8).map {
                 MacDevice(id: "mini-\($0)", name: "mini \($0)", isOnline: $0 % 3 != 0)
