@@ -133,7 +133,7 @@
 
 /* A refusal nudges once, side to side. */
 .acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-mark {
-  animation: acpmux-drop-refuse var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+  animation: acpmux-drop-refuse var(--cmux-motion-large, 200ms) var(--cmux-ease-out, ease-out);
 }
 @keyframes acpmux-drop-refuse {
   25% {

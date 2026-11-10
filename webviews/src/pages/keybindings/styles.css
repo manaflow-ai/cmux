@@ -834,7 +834,7 @@
    2026-10-24: the save light read too short at the ceiling); a fade, not a move, so Reduce
    Motion keeps it; motion off: none. */
 :root:not([data-cmux-motion="off"]) .keys-recorder-light {
-  animation: keys-recorder-light calc(var(--cmux-motion-large, 240ms) + 200ms) ease-out;
+  animation: keys-recorder-light calc(var(--cmux-motion-large, 200ms) + 200ms) ease-out;
 }
 
 /* The taken light rises once, then holds. */
@@ -845,5 +845,5 @@
 }
 
 :root:not([data-cmux-motion="off"]) .keys-recorder-light.danger {
-  animation: keys-recorder-light-on var(--cmux-motion-large, 240ms) ease-out;
+  animation: keys-recorder-light-on var(--cmux-motion-large, 200ms) ease-out;
 }

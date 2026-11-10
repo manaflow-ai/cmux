@@ -47,7 +47,7 @@
   --cmux-load-fade-duration: var(--cmux-motion-standard, 180ms);
 }
 .blank-load-fade-gallery[data-variant="large"] {
-  --cmux-load-fade-duration: var(--cmux-motion-large, 240ms);
+  --cmux-load-fade-duration: var(--cmux-motion-large, 200ms);
 }
 .blank-load-fade-gallery[data-variant="linear"] {
   --cmux-load-fade-easing: linear;

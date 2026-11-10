@@ -299,7 +299,7 @@
       opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
-    animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;
+    animation: acpmux-cu-preview-click var(--cmux-motion-large, 200ms) var(--agent-ease-out, ease-out) 150ms both;
   }
   @keyframes acpmux-cu-preview-click {
     from {

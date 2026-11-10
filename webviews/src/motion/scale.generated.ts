@@ -9,8 +9,8 @@ export const MOTION_MS = {
   micro: 120,
   /** Structural changes: a row or card moving, a fold opening, a scrim. */
   standard: 180,
-  /** The largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark. */
-  large: 240,
+  /** The largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark; no state change outlasts it. */
+  large: 200,
 } as const;
 
 export type MotionStep = keyof typeof MOTION_MS;
@@ -19,7 +19,7 @@ export type MotionStep = keyof typeof MOTION_MS;
 export const MOTION_EASE_OUT = "cubic-bezier(0, 0, 0.58, 1)";
 
 /**
- * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end.
+ * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 200 ms) it is visibly settled by 58% (about 116 ms) and at rest by the end.
  */
 export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
 

@@ -1,7 +1,7 @@
 // The scanner behind test/motion-scale.test.ts (Leo, 2026-10-20: "animations all around are a bit
 // slow"). Every timed fade and move of the webviews takes a step of the one motion scale
 // (schemas/motion-scale/motion-scale.json, as `--cmux-motion-*` in pages/shared/desktop.css and
-// `MOTION_MS` in src/motion/scale.generated.ts): quick 80, micro 120, standard 180, large 240 ms.
+// `MOTION_MS` in src/motion/scale.generated.ts): quick 80, micro 120, standard 180, large 200 ms.
 // It reads the page code, not a browser:
 // - CSS `transition`, `transition-duration`, `animation`, `animation-duration` and custom
 //   properties, in .css files and in the strings of .ts and .tsx files;

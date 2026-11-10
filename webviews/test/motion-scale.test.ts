@@ -1,6 +1,6 @@
 // One motion scale for every webview (Leo, 2026-10-20: "animations all around are a bit slow";
 // schemas/motion-scale/motion-scale.json): a timed fade or move takes quick 80, micro 120,
-// standard 180 or large 240 ms, or a `var(...)` of the scale. Loops of 600 ms or more (spinners,
+// standard 180 or large 200 ms, or a `var(...)` of the scale. Loops of 600 ms or more (spinners,
 // breathing, shimmer) and delays (hover intent) are not transitions. A line marked
 // `motion-allow: <reason>` is exempt. The scanner is test/motion-scale.ts; it reads source, no
 // browser.
@@ -41,7 +41,7 @@ describe("motion scale", () => {
     const points = SCALE.spring.points;
     expect(points[0]).toEqual([0, 0]);
     expect(points.at(-1)).toEqual([1, 100]);
-    // Visibly settled (within 1% of rest) from 58% of its run on: about 140 ms of the 240 ms step.
+    // Visibly settled (within 1% of rest) from 58% of its run on: about 116 ms of the 200 ms step.
     const settled = points.filter(([value]) => Math.abs(value - 1) > 0.01).at(-1)![1];
     expect((settled / 100) * MOTION_MS[MOTION_SPRING_STEP]).toBeLessThanOrEqual(MOTION_MS.large);
     expect(MOTION_SPRING).toMatch(/^linear\(0, .* 1\)$/);
@@ -93,16 +93,16 @@ describe("motion scale", () => {
     expect(finds("a.tsx", 'const c = "transition-opacity duration-150 data-scrolling:duration-0";')).toEqual([1]);
     expect(finds("a.tsx", 'const c = "transition-[height] duration-220";')).toEqual([1]);
     expect(finds("a.ts", "export const MONACO = `\n.x {\n  transition: opacity 0.4s;\n}\n`;")).toEqual([3]);
-    expect(finds("a.tsx", "export const THOUGHT_FOLD_MS = 200;")).toEqual([1]);
+    expect(finds("a.tsx", "export const THOUGHT_FOLD_MS = 210;")).toEqual([1]);
     expect(finds("a.tsx", "export const FADE_MS = 160;")).toEqual([1]);
-    expect(finds("a.ts", "const SHIFT_MS = 200;\nel.animate(frames, { duration: SHIFT_MS });")).toEqual([1, 2]);
+    expect(finds("a.ts", "const SHIFT_MS = 210;\nel.animate(frames, { duration: SHIFT_MS });")).toEqual([1, 2]);
     expect(finds("a.ts", "el.animate(frames, { duration: 250, easing: 'ease-out' });")).toEqual([1]);
     expect(finds("a.tsx", 'const style = { transition: "opacity 150ms ease" };')).toEqual([1]);
   });
 
   test("the scale, zero, vars, loops, delays and marked lines pass", () => {
     const pass = [
-      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 240ms; }",
+      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 200ms; }",
       ".a { transition: opacity 0s; animation-duration: 0.01ms !important; }",
       ".a { transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out); }",
       ".a { transition: opacity var(--cmux-motion-micro, 120ms); }",

@@ -13,7 +13,7 @@
 // once (the item's own state change is the crossfade).
 //
 // Stop conditions: no timer and no frame loop. The slide is one finite Web Animation (at most
-// --cmux-motion-large, 240 ms) that ends on its own; the next change and unmount cancel it. One
+// --cmux-motion-large, 200 ms) that ends on its own; the next change and unmount cancel it. One
 // ResizeObserver on the host and its items re-places the highlight when a size changes (a label, a
 // font load); it is disconnected on unmount. A size change during a slide is held until the slide
 // finishes, then re-placed with no motion, so the highlight never ends off its item.

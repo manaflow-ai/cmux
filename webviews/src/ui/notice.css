@@ -358,7 +358,7 @@
   transition: none;
 }
 .ui-notice-deck-card[data-settling] {
-  transition-duration: var(--cmux-motion-large, 240ms);
+  transition-duration: var(--cmux-motion-large, 200ms);
   transition-timing-function: var(--cmux-ease-spring, var(--ui-notice-deck-ease));
 }
 .ui-notice-deck-card[data-phase="fly"] {

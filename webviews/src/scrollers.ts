@@ -51,8 +51,8 @@ export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
 /// A fade out runs a third longer than its duration property (the host's, after ui.animationSpeed,
-/// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
-/// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
+/// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, past the motion
+/// scale's 200 ms ceiling, so the thumb is seen to fade (Leo 2026-10-29); a fade out, not a state change.
 const FADE_OUT_STRETCH = 4 / 3;
 
 /** The custom property a scroller's thumb takes its ink from, and that ink in full (percent). */

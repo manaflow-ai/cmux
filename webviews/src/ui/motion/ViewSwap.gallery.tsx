@@ -25,7 +25,7 @@ export default componentEntry<SwapDemoProps>({
     anchorMovePx: { value: 0, reason: "The swap animates the new panel's paint, never the layout around it." },
     settleMaxMs: {
       value: 300,
-      reason: "Every look and the tab highlight end within the 240 ms ceiling after the click frame.",
+      reason: "Every look and the tab highlight end within the 200 ms ceiling after the click frame.",
     },
   },
   covers: ["ui/motion/ViewSwap.tsx", "ui/motion/MotionDemos.tsx#SwapDemo"],

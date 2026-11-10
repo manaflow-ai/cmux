@@ -14,8 +14,8 @@ public nonisolated struct MotionScale: Sendable {
     public static let micro: TimeInterval = 0.12
     /// Structural changes: a row or card moving, a fold opening, a scrim.
     public static let standard: TimeInterval = 0.18
-    /// The largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark.
-    public static let large: TimeInterval = 0.24
+    /// The largest moves, and the ceiling: a split, a zoom, a window closing, the launch mark; no state change outlasts it.
+    public static let large: TimeInterval = 0.2
 
     /// Every step, short to long.
     public static let steps: [TimeInterval] = [quick, micro, standard, large]

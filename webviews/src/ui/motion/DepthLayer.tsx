@@ -13,7 +13,7 @@
 //
 // Stop conditions: no timer and no frame loop. The drift ends after DRIFT_S and is paused while the
 // page is hidden (one visibilitychange listener). The parallax runs only on pointer events over the
-// surface and settles within 240 ms of the last one. Both listeners are removed on unmount. Motion off
+// surface and settles within 200 ms of the last one. Both listeners are removed on unmount. Motion off
 // or Reduce Motion: still, and no pointer listener; the pointer listener is added when the reading
 // turns full (a layer that mounted while the page was hidden, once it shows) and removed, with the
 // washes back at rest, when it leaves. The drift runs only while the layer's `data-motion` reads

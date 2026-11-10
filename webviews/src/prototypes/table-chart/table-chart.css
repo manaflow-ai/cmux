@@ -249,8 +249,8 @@
 }
 .proto-picker[data-ready] .proto-picker-highlight {
   transition:
-    transform var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out),
-    width var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+    transform var(--cmux-motion-large, 200ms) var(--cmux-ease-out, ease-out),
+    width var(--cmux-motion-large, 200ms) var(--cmux-ease-out, ease-out);
 }
 .proto-picker-item {
   position: relative;

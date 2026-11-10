@@ -15,9 +15,10 @@ Leo: "animations all around are a bit slow". Every animation now keeps to one
 short scale, `schemas/motion-scale/motion-scale.json` (generated into
 `MotionScale`, the webviews' `--cmux-motion-*` and `scale.generated.ts`):
 quick 80 ms (hover and pressed fills, focus rings, anything leaving), micro
-120 ms, standard 180 ms, large 240 ms, the ceiling. Every timed fade default
-is a step or 0, and every spring ends visibly (within 0.5%,
-`perceivedDuration`) by 240 ms; entering eases out, and nothing delays input. A web fold, Show more or panel that
+120 ms, standard 180 ms, large 200 ms, the ceiling (240 ms until Leo
+2026-11-10: "the slow animations ... we need to be holding ourselves to high standards"). Every timed
+fade default is a step or 0, and every spring ends visibly (within 0.5%,
+`perceivedDuration`) by 200 ms; entering eases out, and nothing delays input. A web fold, Show more or panel that
 grows or shrinks to a new height rides the settle (`--cmux-ease-settle`,
 `cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 180 ms; TypeScript
 `MOTION_SETTLE` and `MOTION_SETTLE_MS`): a strong ease-out that starts at full
@@ -40,7 +41,7 @@ lists use it first.
 Off-scale fades went to the nearest step that is not longer (focus and
 crossfade, the Reduce Motion cap, 80 ms; paneDim and theme 120 ms; clickPulse,
 cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
-240 ms). The color change is a user setting
+200 ms). The color change is a user setting
 (`appearance.colorTransition.duration`, 200 ms) and keeps its default. Springs over the
 ceiling kept their damping and got a shorter response: zoom 0.2 (was 0.30,
 354 ms visible), exit 0.2 (0.24, 283 ms), split 0.23 (0.28, 287 ms), popover

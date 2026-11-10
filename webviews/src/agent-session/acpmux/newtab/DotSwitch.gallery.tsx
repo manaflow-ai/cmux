@@ -15,7 +15,7 @@ export default componentEntry<{ travel?: IndicatorTravel }>({
   // scale's ease-out over 180 ms, as design/new-tab.md specifies. Click a dot to compare.
   variants: {
     initial: { props: {}, note: "Shipped: the accent dot eases to a pick over 180 ms" },
-    spring: { props: { travel: "spring" }, note: "The accent dot travels on the shared spring (240 ms)" },
+    spring: { props: { travel: "spring" }, note: "The accent dot travels on the shared spring (200 ms)" },
     still: { props: { travel: "none" }, note: "The accent dot jumps to a pick, no travel" },
   },
 });

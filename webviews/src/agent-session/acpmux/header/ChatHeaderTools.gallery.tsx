@@ -680,7 +680,7 @@ const motionVariants = {
     props: motionBase("animated-cue"),
   },
   "motion-cue-plate-60ms": {
-    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (200 ms).",
     props: motionBase("animated-cue"),
     play: motionLit(["splitRight"], 60),
   },

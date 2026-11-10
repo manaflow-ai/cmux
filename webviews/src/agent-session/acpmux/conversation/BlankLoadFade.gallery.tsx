@@ -130,7 +130,7 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
       props: { variant: "standard" },
       note: "180 ms (standard), ease-out: softer, starts to read as an animation.",
     },
-    large: { props: { variant: "large" }, note: "240 ms (large), ease-out: the ceiling; visibly slow on a restart." },
+    large: { props: { variant: "large" }, note: "200 ms (large), ease-out: the ceiling; visibly slow on a restart." },
     linear: { props: { variant: "linear" }, note: "120 ms, linear: the text stays faint longer before it is legible." },
     stagger: {
       props: { variant: "stagger" },

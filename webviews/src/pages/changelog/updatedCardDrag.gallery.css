@@ -1,10 +1,10 @@
 /* The gallery's sidebar stage for the Updated card's drag (updatedCardDrag.gallery.tsx): the
    native host's settle (a spring to the new place) and the `ghosts` feel's two outlined places. */
 .wn-drag-card[data-settling] {
-  transition: translate var(--cmux-motion-large, 240ms) var(--cmux-ease-spring, var(--cmux-ease-out, ease-out));
+  transition: translate var(--cmux-motion-large, 200ms) var(--cmux-ease-spring, var(--cmux-ease-out, ease-out));
 }
 .wn-drag-list {
-  transition: inset var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+  transition: inset var(--cmux-motion-large, 200ms) var(--cmux-ease-out, ease-out);
 }
 .wn-drag-ghost {
   position: absolute;

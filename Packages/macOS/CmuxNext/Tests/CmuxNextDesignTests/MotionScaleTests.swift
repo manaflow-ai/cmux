@@ -5,7 +5,7 @@ import CmuxNextDesignTokens
 
 /// Leo 2026-10-20: "animations all around are a bit slow". Every animation keeps to one short
 /// scale (schemas/motion-scale/motion-scale.json, `MotionScale`): quick 80 ms, micro 120 ms,
-/// standard 180 ms, large 240 ms, the ceiling. Every timed fade is a step (or instant), and every
+/// standard 180 ms, large 200 ms (240 until 2026-11-10), the ceiling. Every timed fade is a step (or instant), and every
 /// spring ends visibly (within 0.5% of its travel, `SpringParameters.perceivedDuration`) by the
 /// ceiling. These read the code defaults, not a Debug Settings override.
 @MainActor @Suite struct MotionScaleTests {

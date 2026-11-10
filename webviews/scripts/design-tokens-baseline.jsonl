@@ -70,7 +70,6 @@
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"color","values":{"#fff":2}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"filter","values":{"drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent)) drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16))":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"outline","values":{"1.5px solid #fff":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"duration","property":"transition","values":{"stroke-dashoffset 120ms linear":1,"opacity 120ms ease-out":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"radius","property":"border-radius","values":{"10px":1,"3px":1,"1px":1,"7px":1}}
@@ -123,7 +122,7 @@
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"padding","values":{"0 10px":1,"2px 6px":1,"0 6px 0 4px":1,"0 6px 2px 12px":1,"0 6px":1,"4px 0 2px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"right","values":{"-5px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"top","values":{"-5px":1}}
-{"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"duration","property":"animation","values":{"acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both":1}}
+{"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"duration","property":"animation","values":{"acpmux-cu-preview-click var(--cmux-motion-large, 200ms) var(--agent-ease-out, ease-out) 150ms both":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"duration","property":"transition","values":{"left 150ms var(--agent-ease-out, ease-out), top 150ms var(--agent-ease-out, ease-out)":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"spacing","property":"margin","values":{"-7px 0 0 -7px":1}}
 {"file":"agent-session/acpmux/computerUse/computerUsePreview.css","kind":"spacing","property":"top","values":{"calc(var(--acpmux-header-height, 44px) + 8px)":1,"var(--acpmux-session-info-under-top, calc(var(--acpmux-header-height, 44px) + 8px))":1}}
@@ -591,8 +590,8 @@
 {"file":"pages/home-channels/styles.css","kind":"duration","property":"animation","values":{"hc-writing 1.4s ease-in-out infinite":1}}
 {"file":"pages/home-channels/styles.css","kind":"height","property":"height","values":{"1px":2,"30px":3,"18px":1,"34px":2}}
 {"file":"pages/home-channels/styles.css","kind":"spacing","property":"top","values":{"-14px":1}}
-{"file":"pages/keybindings/styles.css","kind":"duration","property":"animation","values":{"keys-recorder-light calc(var(--cmux-motion-large, 240ms) + 200ms) ease-out":1}}
-{"file":"pages/keybindings/styles.css","kind":"easing","property":"animation","values":{"keys-cap-in var(--cmux-motion-micro, 120ms) ease-out":1,"keys-recorder-light-on var(--cmux-motion-large, 240ms) ease-out":1}}
+{"file":"pages/keybindings/styles.css","kind":"duration","property":"animation","values":{"keys-recorder-light calc(var(--cmux-motion-large, 200ms) + 200ms) ease-out":1}}
+{"file":"pages/keybindings/styles.css","kind":"easing","property":"animation","values":{"keys-cap-in var(--cmux-motion-micro, 120ms) ease-out":1,"keys-recorder-light-on var(--cmux-motion-large, 200ms) ease-out":1}}
 {"file":"pages/keybindings/styles.css","kind":"easing","property":"transition","values":{"color var(--cmux-motion-standard, 180ms) ease-out, background-color var(--cmux-motion-standard, 180ms) ease-out":1}}
 {"file":"pages/keybindings/styles.css","kind":"font-weight","property":"font-weight","values":{"700":1}}
 {"file":"pages/keybindings/styles.css","kind":"height","property":"height","values":{"22px":1,"1px":2}}

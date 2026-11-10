@@ -14,7 +14,7 @@
 //   --cmux-motion-standard: the stylised wipe with nothing hidden.
 // - `none`: nothing moves.
 //
-// Stop conditions: no timer and no frame loop. Each swap plays finite Web Animations (at most 240 ms)
+// Stop conditions: no timer and no frame loop. Each swap plays finite Web Animations (at most 200 ms)
 // that end on their own; the next swap and unmount cancel them. Motion off, a hidden page or a zero
 // motion token: nothing moves. Reduce Motion: every look but `none` becomes the fade.
 import { type ReactNode, useLayoutEffect, useRef } from "react";

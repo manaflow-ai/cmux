@@ -9,16 +9,19 @@ public nonisolated enum MotionTunables {
 
     package static let springDefaults: [MotionSpring: (SpringParameters, String)] = [
         // Every spring ends visibly (within 0.5% of its travel, `SpringParameters.perceivedDuration`)
-        // by `MotionScale.ceiling`, 240 ms (Leo 2026-10-20: "animations all around are a bit slow";
-        // MotionScaleTests). A spring over it got a shorter response and kept its damping fraction,
-        // so its character stays. Visible ends below are simulated at 480 Hz.
+        // by `MotionScale.ceiling`, 200 ms (Leo 2026-10-20: "animations all around are a bit slow";
+        // 240 ms until Leo 2026-11-10: "the slow animations ... we need to be holding ourselves to high
+        // standards"; MotionScaleTests). A spring over it got a shorter response and kept its damping
+        // fraction, so its character stays. Visible ends below are simulated at 480 Hz.
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
-        // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
+        // 0.30 ended visibly at 354 ms; 0.2 at 235 ms (Leo 2026-10-20); 0.165 ends at 194 ms, under
+        // the 200 ms ceiling (Leo 2026-11-10).
+        .zoom: (SpringParameters(response: 0.165, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        // 0.24 ended visibly at 283 ms; 0.2 at 235 ms (Leo 2026-10-20); 0.165 ends at 194 ms, under
+        // the 200 ms ceiling (Leo 2026-11-10).
+        .exit: (SpringParameters(response: 0.165, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         // plans/cmux-next/split-spring-animation/DESIGN.md: slightly under-damped (0.95) for a short
         // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
@@ -30,10 +33,10 @@ public nonisolated enum MotionTunables {
         .split: (SpringParameters(response: 0.085, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
-        // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
-        // pointer's release velocity, and reaching 180 ms would take a 0.168 response (70% stiffer),
-        // which makes a drop snap instead of land.
-        .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
+        // Ends visibly at 198 ms, between standard and the ceiling on purpose: it carries the
+        // pointer's release velocity, and reaching 180 ms would take a 0.168 response, which makes a
+        // drop snap instead of land. 0.22 ended at 235 ms until the 200 ms ceiling (Leo 2026-11-10).
+        .settle: (SpringParameters(response: 0.185, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
         // 0.22 ended visibly at 190 ms; 0.2 ends at 173 ms, inside standard (Leo 2026-10-20).
         .scroll: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
         .screen: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Screen switch slide."),
@@ -43,16 +46,17 @@ public nonisolated enum MotionTunables {
         .panel: (SpringParameters(response: 0.165, dampingFraction: 0.85), "Hover card slide."),
         // Lawrence 2026-10-20 (Home's Chief pill popover, "animation needs to be better"): the card
         // grows out of its control on a spring with a hint of give (0.86), like an NSPopover. 0.25
-        // ended visibly at 248 ms; 0.24 ends at 238 ms, under the ceiling (Leo 2026-10-20).
-        .popover: (SpringParameters(response: 0.24, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
+        // ended visibly at 248 ms; 0.24 at 238 ms (Leo 2026-10-20); 0.2 ends at 198 ms, under the
+        // 200 ms ceiling (Leo 2026-11-10).
+        .popover: (SpringParameters(response: 0.2, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
         // Leaving: 0.16 ended visibly at 188 ms; 0.15 ends at 177 ms, inside standard and still
         // well over the 0.1 s that reads as a cut (Leo 2026-10-20).
         .popoverClose: (SpringParameters(response: 0.15, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
         // MessagesLab `SidebarPinDragging.spring` (stiffness 320, damping 30: response 0.351) ended
         // visibly at 390 ms. Its damping fraction stays, so tiles still land with the same give
-        // (about 1.6 pt overshoot on 200 pt); response 0.215 ends at 238 ms, under the ceiling
-        // (Leo 2026-10-20).
-        .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 0.8385254915624211),
+        // (about 1.6 pt overshoot on 200 pt); response 0.215 ended at 238 ms (Leo 2026-10-20); 0.18
+        // ends at 198 ms, under the 200 ms ceiling (Leo 2026-11-10).
+        .pinDrag: (SpringParameters(response: 0.18, dampingFraction: 0.8385254915624211),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 

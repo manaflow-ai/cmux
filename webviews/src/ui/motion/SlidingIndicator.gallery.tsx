@@ -24,7 +24,7 @@ export default componentEntry<IndicatorDemoProps>({
     anchorMovePx: { value: 0, reason: "The highlight moves on transform only; nothing around the tabs moves." },
     settleMaxMs: {
       value: 300,
-      reason: "The highlight travels on transform for the 240 ms spring after the click frame.",
+      reason: "The highlight travels on transform for the 200 ms spring after the click frame.",
     },
   },
   covers: ["ui/motion/SlidingIndicator.tsx", "ui/motion/MotionDemos.tsx#IndicatorDemo"],

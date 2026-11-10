@@ -5,7 +5,7 @@
 // (a cached one).
 //
 // Rules it keeps (leo-workspace design/motion-and-polish.md): transform and opacity only, so every
-// frame is the compositor's; everything settled within the 240 ms ceiling; the switch itself is not
+// frame is the compositor's; everything settled within the 200 ms ceiling; the switch itself is not
 // delayed (the new chat is in the DOM on the frame the switch lands, the motion plays over it);
 // interruptible: a switch during a switch starts each element from where it is now. No timer,
 // observer or frame loop: Web Animations that finish on their own, and stop() cancels them (the
@@ -98,10 +98,13 @@ export function chatSwitchParts(scroller: HTMLElement, arm: Exclude<ChatSwitchAr
       to: { opacity: 1, transform: "none" },
     });
   visibleRows(scroller).forEach((row, index) => {
+    const delay = Math.min(index, MAX_STAGGERED_ROWS - 1) * STAGGER_MS;
     parts.push({
       element: row,
-      delay: Math.min(index, MAX_STAGGERED_ROWS - 1) * STAGGER_MS,
-      duration: duration - Math.min(index, MAX_STAGGERED_ROWS - 1) * (STAGGER_MS / 2),
+      delay,
+      // A later row starts later and lands by the ceiling with the rest: the eighth row's 112 ms start
+      // plus its 124 ms ran to 236 ms, past the 200 ms ceiling (Leo 2026-11-10: "the slow animations").
+      duration: Math.min(duration - Math.min(index, MAX_STAGGERED_ROWS - 1) * (STAGGER_MS / 2), MOTION_MS.large - delay),
       from: { opacity: 0, transform: `translateY(${RISE_PX}px)` },
       to: { opacity: 1, transform: "none" },
     });

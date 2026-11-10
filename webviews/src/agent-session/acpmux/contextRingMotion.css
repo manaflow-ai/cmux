@@ -14,7 +14,7 @@
   initial-value: 0;
 }
 :root {
-  /* A gauge draining after a compaction reads as a drain only past the scale's 240 ms ceiling (Leo's
+  /* A gauge draining after a compaction reads as a drain only past the scale's 200 ms ceiling (Leo's
      ask); Reduce Motion and motion off take the transition to none below. */
   --acpmux-ring-ease: 600ms; /* motion-allow: the ring's drain, above */
 }
