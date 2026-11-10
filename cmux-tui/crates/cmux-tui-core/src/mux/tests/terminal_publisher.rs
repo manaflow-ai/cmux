@@ -73,6 +73,7 @@ fn queued_terminal_notifications_post_in_order_once_the_registry_is_free() {
         title: title.into(),
         body: String::new(),
         level: NotificationLevel::Info,
+        origin: crate::terminal_metadata::TerminalNotificationOrigin::Desktop,
     };
     let titles = || {
         let mut titles = mux
@@ -192,6 +193,7 @@ fn a_notification_queued_before_an_exit_posts_before_the_exit() {
                 title: "build done".into(),
                 body: String::new(),
                 level: NotificationLevel::Info,
+                origin: crate::terminal_metadata::TerminalNotificationOrigin::Desktop,
             }],
         );
         mux.surface(surface_id).unwrap().record_process_end_for_test(TerminalExit::now(

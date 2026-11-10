@@ -111,12 +111,22 @@ impl Mux {
     /// (`mux/terminal_publisher.rs`); the reader already applied the rate
     /// limit. Adoption and a terminal's first view post a record's alerts
     /// directly (`Surface::publish_pending_progress`).
+    ///
+    /// While an agent's hooks report for the terminal (its hook session is
+    /// live), the hooks post that agent's permission waits and finished
+    /// turns themselves: the agent's own desktop notification and its
+    /// record's alert for the same event post nothing, so one agent event is
+    /// one notification (bench r5: one permission was three rows).
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
         notifications: Vec<crate::terminal_metadata::TerminalNotification>,
     ) {
+        let hooks_report = self.agent_hooks_report_for(surface);
         for notification in notifications {
+            if hooks_report && notification.origin.duplicates_agent_hooks() {
+                continue;
+            }
             if self
                 .post_notification_as(
                     &Actor::Daemon,
@@ -131,6 +141,26 @@ impl Mux {
                 self.report_internal_diagnostic("terminal notification not posted");
             }
         }
+    }
+
+    /// Whether an agent's hook session is live in `surface`'s terminal: a
+    /// hook fence that has not ended (`SessionStart` set it, `SessionEnd` or
+    /// the screen seeing the agent leave ends it).
+    fn agent_hooks_report_for(&self, surface: SurfaceId) -> bool {
+        let terminal_id = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .surfaces
+                .get(&surface)
+                .or_else(|| state.terminal_runtime_by_id(surface))
+                .and_then(|surface| surface.terminal_public_id().cloned())
+        };
+        let Some(terminal_id) = terminal_id else { return false };
+        self.agent_hook_fences
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&terminal_id)
+            .is_some_and(|fence| !fence.ended)
     }
 
     /// A bell (BEL) in `surface`'s terminal marks its tab for attention like a

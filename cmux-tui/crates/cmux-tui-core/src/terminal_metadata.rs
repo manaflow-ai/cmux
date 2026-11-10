@@ -274,6 +274,42 @@ pub(crate) struct TerminalNotification {
     /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
     /// that waits on the user is a `Warning`, one that failed an `Error`.
     pub level: crate::NotificationLevel,
+    /// What in the output asked for it.
+    pub origin: TerminalNotificationOrigin,
+}
+
+/// What in a terminal's output asked for a notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalNotificationOrigin {
+    /// OSC 9, OSC 777 or OSC 99: the program's own desktop notification.
+    Desktop,
+    /// An OSC 7501 record's alert: the state it reached, and for a wait on
+    /// the person what it waits for.
+    ProgramStatus {
+        state: ghostty_vt::ProgramStatusState,
+        kind: Option<ghostty_vt::ProgramStatusKind>,
+    },
+}
+
+impl TerminalNotificationOrigin {
+    /// Whether an agent whose hooks report for the terminal already posts
+    /// this event itself: its permission wait and its finished turn are
+    /// hook notifications (`agent_hook_notification`), and an agent's own
+    /// desktop notification (Claude Code's `Claude needs your permission`)
+    /// says the same again. A wait the hooks do not report (sign-in, plain
+    /// input, a question) and a failure still post from the record.
+    pub(crate) fn duplicates_agent_hooks(self) -> bool {
+        use ghostty_vt::{ProgramStatusKind, ProgramStatusState};
+        matches!(
+            self,
+            Self::Desktop
+                | Self::ProgramStatus { state: ProgramStatusState::Done, .. }
+                | Self::ProgramStatus {
+                    state: ProgramStatusState::Blocked,
+                    kind: Some(ProgramStatusKind::Permission),
+                }
+        )
+    }
 }
 
 impl TerminalNotification {
@@ -287,7 +323,12 @@ impl TerminalNotification {
             title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
             body = String::new();
         }
-        Some(Self { title, body, level: crate::NotificationLevel::Info })
+        Some(Self {
+            title,
+            body,
+            level: crate::NotificationLevel::Info,
+            origin: TerminalNotificationOrigin::Desktop,
+        })
     }
 
     /// The notification an OSC 7501 record asks for.
@@ -301,6 +342,10 @@ impl TerminalNotification {
             title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
             body: alert.body.chars().take(MAX_NOTIFICATION_BODY_CHARS).collect(),
             level,
+            origin: TerminalNotificationOrigin::ProgramStatus {
+                state: alert.state,
+                kind: alert.kind,
+            },
         }
     }
 }
