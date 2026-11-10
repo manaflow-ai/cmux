@@ -1749,7 +1749,9 @@ pub fn twice(value: u32) -> u32 {
         self.git("fetch", "--quiet", "origin")
         self.git("checkout", "--quiet", "-b", "topic", "--no-track", "origin/main")
 
-    def test_a_main_based_push_that_adds_a_lock_unwrap_is_refused(self):
+    def test_a_main_based_push_that_adds_a_lock_unwrap_passes_as_mains_ci_passes_it(self):
+        # Lead decision (BLOCK of #39853 at 578e28ae): main's CI has no crash ratchet and main keeps no baseline, so
+        # the gate refused every new non-test unwrap of a main port that main's CI passes (6 of the last 40).
         self.main_branch()
         self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
         self.commit("main-based: a lock().unwrap() in production code")
@@ -1757,12 +1759,10 @@ pub fn twice(value: u32) -> u32 {
         result = self.push_ref("topic")
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertFalse(self.remote_has("refs/heads/topic"), "the unwrap must not reach origin")
+        self.assertEqual(result.returncode, 0, output)
+        self.assertTrue(self.remote_has("refs/heads/topic"), output)
         self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
-        self.assertIn("Crash ratchet", output)
-        self.assertIn(f"{self.CRATE_FILE}:", output)
-        self.assertIn("unwrap", output)
+        self.assertNotIn("[crash-ratchet]", output)
 
     def test_a_main_based_clean_push_passes_with_no_crash_check_warning(self):
         self.main_branch()
@@ -1990,6 +1990,40 @@ mod tests {
         self.commit("a new unwrap in the nested crate")
 
         self.assert_refused_like_ci(f"{nested}:", "cmux-fixture-outer")
+
+    def test_a_push_that_raises_only_a_rust_row_is_refused_as_ci_refuses_it(self):
+        # ratchet-path-2 (BLOCK of #39853 at 578e28ae): a push that changes only crash-safety-baseline.json ran no crash
+        # layer, and CI refused it: "crash-safety-baseline.json may only go down".
+        crate = "cmux-tui/crates/cmux-fixture-raise/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+                   "pub fn b(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-raise", "unwrap", 2)
+        self.base_commit("base: a crate at its row of 2")
+        self.set_crash_row("cmux-fixture-raise", "unwrap", 5)
+        self.commit("raise the row only")
+
+        self.assert_refused_like_ci("crash-safety-baseline.json", "may only go down", "cmux-fixture-raise")
+
+    def test_a_push_that_lowers_only_a_rust_row_passes(self):
+        crate = "cmux-tui/crates/cmux-fixture-lower/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-lower", "unwrap", 3)
+        self.base_commit("base: a crate under its row of 3")
+        self.set_crash_row("cmux-fixture-lower", "unwrap", 1)
+        self.commit("lower the row only")
+
+        self.assert_passes_like_ci()
+
+    def test_a_push_that_only_deletes_a_test_module_declaration_is_refused(self):
+        # A push that only deletes .rs files ran no crash layer; CI counts the module the deleted file declared test.
+        crate = "cmux-tui/crates/cmux-fixture-undeclared/src"
+        self.write(f"{crate}/lib.rs", "#[cfg(test)]\nmod helpers;\n")
+        self.write(f"{crate}/helpers.rs", "pub fn h(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.base_commit("base: a test module with an unwrap")
+        self.git("rm", "--quiet", f"{crate}/lib.rs")
+        self.commit("delete the file that declares the test module")
+
+        self.assert_refused_like_ci("cmux-fixture-undeclared")
 
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
