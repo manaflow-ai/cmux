@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -90,9 +91,7 @@ fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     parts.sleep = Arc::new(|_| {});
     // Each clock read is a second later: the settle wait ends at once.
     let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    parts.clock = Arc::new(move || {
-        Duration::from_secs(ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
-    });
+    parts.clock = Arc::new(move || Duration::from_secs(ticks.fetch_add(1, Ordering::SeqCst)));
     let engine = Arc::new(Engine::new(parts));
     let mut listener = transport::Listener::bind(path.to_str().unwrap()).unwrap();
     if let Some(uid) = uid {
@@ -255,9 +254,7 @@ fn a_stale_socket_is_replaced_but_a_regular_file_is_not() {
     parts.sleep = Arc::new(|_| {});
     // Each clock read is a second later: the settle wait ends at once.
     let ticks = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    parts.clock = Arc::new(move || {
-        Duration::from_secs(ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
-    });
+    parts.clock = Arc::new(move || Duration::from_secs(ticks.fetch_add(1, Ordering::SeqCst)));
     let engine = Arc::new(Engine::new(parts));
     serve(engine.clone(), path.to_str().unwrap(), &SECRET).unwrap().stop();
     std::fs::write(&path, b"not a socket").unwrap();

@@ -497,7 +497,7 @@ fn input_to_the_frontmost_app_waits_for_the_person() {
 fn pointer_input_waits_while_the_persons_pointer_is_over_the_window() {
     let d = Arc::new(FakeDesktop::standard());
     *d.pointer.lock().unwrap() = Some(Point { x: 150.0, y: 150.0 }); // inside Safari (window 1)
-    let mut parts = EngineParts::new(d.clone());
+    let mut parts = EngineParts::new(d);
     parts.takeover = Arc::new(Busy);
     instant_time(&mut parts);
     let e = Engine::new(parts);
@@ -535,7 +535,7 @@ fn the_state_is_withheld_when_the_app_is_denied_during_the_wait() {
 #[test]
 fn a_replayed_action_makes_the_next_screenshot_carry_the_image() {
     let d = Arc::new(FakeDesktop::standard());
-    let e = engine(d.clone(), PolicyConfig::default());
+    let e = engine(d, PolicyConfig::default());
     let args = json!({"window_id": "1", "element_id": "e1"});
     let first = e.call(&ctx(Some("k")), "click", &args);
     assert!(first.png_base64.is_some());
