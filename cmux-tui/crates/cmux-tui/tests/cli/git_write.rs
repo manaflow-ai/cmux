@@ -817,7 +817,7 @@ fn w6e_removing_the_last_worktree_removes_the_empty_project_folder_and_names_the
     let repo = root.join("project");
     let real = home.join(".cmux/worktrees.noindex");
     fs::create_dir_all(&real).unwrap();
-    std::os::unix::fs::symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
+    symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
     fs::create_dir_all(&repo).unwrap();
     let server = HeadlessServer::start_with_options(
         "w6e-worktree-tidy",
