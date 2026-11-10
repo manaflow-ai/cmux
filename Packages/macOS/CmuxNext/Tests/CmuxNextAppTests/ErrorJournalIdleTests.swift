@@ -29,9 +29,11 @@ import Testing
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("error-journal-idle-\(UUID().uuidString)")
         let source = CountingSource()
+        // The fix deleted `start()` (it began the read at launch and the 300 s loop), and with it
+        // the call here: the service that the app makes at launch reads nothing.
         let service = ErrorJournalService(journal: ErrorJournal(directory: directory), sources: [source])
+        #expect(service.sources.count == 1)
 
-        service.start()
         // A read at launch starts in the first milliseconds: half a second with none is none.
         for _ in 0..<50 where source.reads == 0 {
             try await Task.sleep(for: .milliseconds(10))
