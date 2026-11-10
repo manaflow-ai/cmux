@@ -52,6 +52,12 @@ pub enum CursorEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rect: Option<crate::desktop::Rect>,
     },
+    /// The person is using the mouse or keyboard where the agent would act:
+    /// the agent waits until they stop ("Paused").
+    Paused { session: String, label: String, at: Option<Point> },
+    /// An acting call was refused (policy, deny list, the person kept
+    /// control); `reason` is a short caption for the cursor.
+    Refused { session: String, label: String, at: Option<Point>, reason: String },
     /// The session stopped or its grant was revoked: hide its cursor now.
     Hide { session: String },
 }
@@ -70,6 +76,8 @@ impl CursorEvent {
             | CursorEvent::Scroll { session, .. }
             | CursorEvent::Drag { session, .. }
             | CursorEvent::Look { session, .. }
+            | CursorEvent::Paused { session, .. }
+            | CursorEvent::Refused { session, .. }
             | CursorEvent::Hide { session } => session,
         }
     }

@@ -691,3 +691,42 @@ fn a_batch_on_a_denied_app_is_refused_like_a_single_call() {
     assert_eq!(out.body["results"][0]["code"], "app_denied");
     assert!(d.events().is_empty());
 }
+
+#[test]
+fn the_cursor_shows_a_refusal_and_a_wait_for_the_person() {
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+    instant_time(&mut parts);
+    parts.cursor = rec.clone();
+    let e = Engine::new(parts);
+    // A denied app: refused, and the cursor says why.
+    e.call(&ctx(None), "click", &json!({"window_id": "2", "x": 1, "y": 1}));
+    assert!(rec.0.lock().unwrap().iter().any(
+        |e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "App is on the deny list")
+    ));
+    // A bad argument is an ordinary error, not a refusal.
+    rec.0.lock().unwrap().clear();
+    e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "cmd+nonsense"}));
+    assert!(!rec.0.lock().unwrap().iter().any(|e| matches!(e, CursorEvent::Refused { .. })));
+
+    // The person keeps typing in the frontmost app: Paused first, then refused.
+    let mut fake = FakeDesktop::standard();
+    fake.apps[0].frontmost = true;
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(Arc::new(fake));
+    instant_time(&mut parts);
+    parts.cursor = rec.clone();
+    parts.takeover = Arc::new(Busy);
+    let e = Engine::new(parts);
+    e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
+    let ev = rec.0.lock().unwrap();
+    let paused = ev.iter().position(|e| matches!(e, CursorEvent::Paused { .. })).expect("paused");
+    let refused = ev
+        .iter()
+        .position(|e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "You're in control"))
+        .expect("refused");
+    assert!(paused < refused);
+    assert!(!ev.iter().any(|e| matches!(e, CursorEvent::Typing { .. })), "{ev:?}");
+    let v = serde_json::to_value(&ev[refused]).unwrap();
+    assert_eq!((v["kind"].as_str(), v["reason"].as_str()), (Some("refused"), Some("You're in control")));
+}

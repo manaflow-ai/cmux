@@ -61,6 +61,35 @@ import UniformTypeIdentifiers
         ]
     }
 
+    /// The agent waits for the person (amber) and a refused step (red): drawn at 2x, the pointer
+    /// takes the alert's color.
+    static var alertStates: [(String, [AgentCursorEvent], (Int, Int, Int))] {
+        [
+            ("19-paused", [event(.move), event(.paused)], (0xFF, 0x9F, 0x0A)),
+            ("20-refused", [event(.move), event(.refused, at: nil, text: "App is on the deny list")], (0xFF, 0x45, 0x3A)),
+        ]
+    }
+
+    @Test func pausedAndRefusedRenderInTheirColors() throws {
+        let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
+        for (name, events, rgb) in Self.alertStates {
+            let image = try #require(AgentCursorOverlay.render(events, label: "Claude Code", size: Self.size, scale: 2,
+                                                               backdrop: Self.backdrop), "\(name)")
+            let px = Self.pixels(image)
+            var hits = 0
+            for i in stride(from: 0, to: px.count, by: 4) where px[i + 3] > 200 {
+                if abs(Int(px[i]) - rgb.0) < 18, abs(Int(px[i + 1]) - rgb.1) < 18, abs(Int(px[i + 2]) - rgb.2) < 18 { hits += 1 }
+            }
+            #expect(hits > 150, "\(name): \(hits) pixels in the alert color")
+            if let dir {
+                let url = dir.appendingPathComponent("\(name).png")
+                let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+                CGImageDestinationAddImage(dest, image, nil)
+                #expect(CGImageDestinationFinalize(dest))
+            }
+        }
+    }
+
     @Test func everyInteractionRendersSharpInCmuxBlue() throws {
         let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
         if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }

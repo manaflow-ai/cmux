@@ -5,7 +5,7 @@ import Foundation
 /// One `cursor` callback (cursor.rs `CursorEvent`, JSON tagged by `kind`).
 struct AgentCursorEvent: Equatable, Sendable {
     enum Kind: String, Sendable {
-        case move, click, typing, keys, scroll, drag, look, hide
+        case move, click, typing, keys, scroll, drag, look, paused, refused, hide
     }
 
     var kind: Kind
@@ -15,6 +15,7 @@ struct AgentCursorEvent: Equatable, Sendable {
     /// Global desktop points, top-left origin. A drag's end.
     var at: CGPoint?
     /// Typing: the text (shortened for the caption). Keys: the combo ("cmd+s").
+    /// Refused: the reason (a short caption from the engine).
     var text: String
     /// Click: the button ("left", "right", "middle") and the count (2: double click).
     var button: String = "left"
@@ -39,7 +40,7 @@ struct AgentCursorEvent: Equatable, Sendable {
               let kind = (object["kind"] as? String).flatMap(Kind.init(rawValue:)),
               let session = object["session"] as? String else { return nil }
         let at = Self.point(object["at"]) ?? Self.point(object["to"])
-        let text = object["text"] as? String ?? object["keys"] as? String ?? ""
+        let text = object["text"] as? String ?? object["keys"] as? String ?? object["reason"] as? String ?? ""
         self.init(kind: kind, session: session, label: object["label"] as? String ?? "", at: at, text: text)
         button = object["button"] as? String ?? "left"
         count = min(max((object["count"] as? NSNumber)?.intValue ?? 1, 1), 3)

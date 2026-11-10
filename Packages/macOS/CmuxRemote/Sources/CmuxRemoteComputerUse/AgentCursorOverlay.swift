@@ -118,6 +118,23 @@ enum CursorChip: Equatable {
     case text(String)
     case typing(String)
     case keys([String])
+    /// The agent waits for the person (amber) or an action was refused (red). The pointer
+    /// takes the same color until the next step.
+    case alert(String, CursorAlert)
+}
+
+enum CursorAlert: Equatable {
+    case paused
+    case refused
+
+    var color: NSColor {
+        switch self {
+        case .paused: NSColor(srgbRed: 0xFF / 255, green: 0x9F / 255, blue: 0x0A / 255, alpha: 1)
+        case .refused: NSColor(srgbRed: 0xFF / 255, green: 0x45 / 255, blue: 0x3A / 255, alpha: 1)
+        }
+    }
+
+    var textColor: NSColor { self == .paused ? NSColor(white: 0.1, alpha: 1) : .white }
 }
 
 /// One session's cursor: its panel (on the screen it is on) and layers. `body` holds the pointer,
@@ -303,6 +320,12 @@ private final class SessionCursor {
             if let rect = event.rect.map({ geometry.appKit($0) }) { frame(rect, animated: animated, speed: speed) }
             if animated { pulse(speed: speed) }
             chip(.text(ComputerUseText.t("computerUse.cursor.looking", "Looking")))
+        case .paused:
+            if let point { glide(to: point, animated: animated, speed: speed) }
+            chip(.alert(ComputerUseText.t("computerUse.cursor.paused", "Paused \u{00B7} you\u{2019}re in control"), .paused))
+        case .refused:
+            chip(.alert(AgentCursorEvent.caption(event.text, limit: 40), .refused))
+            shake(animated: animated, speed: speed)
         case .hide:
             break
         }
@@ -450,6 +473,17 @@ private final class SessionCursor {
     }
 
     /// The pointer dips as it presses (a click or a key).
+    /// A refused step: the pointer shakes no.
+    func shake(animated: Bool, speed: Double) {
+        guard animated else { return }
+        // motion: allow called only when the cursor switches and Reduce Motion allow animation.
+        let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        shake.values = [0, -5, 5, -3, 3, 0]
+        shake.duration = 0.32 / max(speed, 0.25)
+        pointer.add(shake, forKey: "shake")
+        shadow.add(shake, forKey: "shake")
+    }
+
     func press(animated: Bool, speed: Double) {
         guard animated else { return }
         // motion: allow called only when the cursor switches and Reduce Motion allow animation.
@@ -567,7 +601,23 @@ private final class SessionCursor {
         let padX: CGFloat = 8, padY: CGFloat = 4, gap: CGFloat = 4
         var x = padX
         var height: CGFloat = 0
+        let alert: CursorAlert? = if case .alert(_, let kind) = content { kind } else { nil }
+        chipLayer.backgroundColor = alert?.color.cgColor ?? NSColor(white: 0.08, alpha: 0.86).cgColor
+        pointer.fillColor = alert?.color.cgColor ?? AgentCursorOverlay.blue.cgColor
+        nameTag.backgroundColor = alert?.color.cgColor ?? AgentCursorOverlay.blue.cgColor
+        name.foregroundColor = (alert?.textColor ?? .white).cgColor
+        dot.backgroundColor = (alert?.textColor ?? .white).cgColor
         switch content {
+        case .alert(let text, let kind):
+            let label = CATextLayer()
+            Self.style(label, size: Self.captionSize, weight: .semibold, color: kind.textColor)
+            label.string = text
+            let size = Self.size(of: text, size: Self.captionSize, weight: .semibold)
+            label.frame = CGRect(x: x, y: padY, width: size.width, height: size.height)
+            chipLayer.addSublayer(label)
+            chipContent.append(label)
+            x += size.width
+            height = size.height
         case .text(let text), .typing(let text):
             let label = CATextLayer()
             Self.style(label, size: Self.captionSize, weight: .medium, color: .white)
@@ -634,13 +684,23 @@ private final class SessionCursor {
         CATransaction.commit()
         chipTimer?.invalidate()
         // The chip's bounded display time; a one-shot hide, replaced by the next step.
-        let hold: TimeInterval = { if case .typing = content { return 2.4 } else { return 1.6 } }()
+        // Paused holds for the takeover wait (cursor.rs TAKEOVER_WAIT); the next step replaces it.
+        let hold: TimeInterval = switch content {
+        case .typing: 2.4
+        case .alert(_, .paused): 15
+        case .alert(_, .refused): 2.4
+        default: 1.6
+        }
         chipTimer = Timer.scheduledTimer(withTimeInterval: hold, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 self.chipLayer.isHidden = true
+                self.pointer.fillColor = AgentCursorOverlay.blue.cgColor
+                self.nameTag.backgroundColor = AgentCursorOverlay.blue.cgColor
+                self.name.foregroundColor = NSColor.white.cgColor
+                self.dot.backgroundColor = NSColor.white.cgColor
                 CATransaction.commit()
             }
         }

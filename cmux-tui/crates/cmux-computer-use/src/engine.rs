@@ -108,6 +108,23 @@ impl ToolOutput {
     }
 }
 
+/// The cursor's caption for an acting call that was refused, or None for an
+/// ordinary failure (a bad argument, a missing window).
+fn refusal_caption(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "computer_use_off" => "Computer Use is off",
+        "app_protected" => "Protected app",
+        "app_denied" => "App is on the deny list",
+        "look_only" => "Look only",
+        "app_never_allowed" => "Not allowed",
+        "remote_not_allowed" | "foreign_account" => "Not allowed from there",
+        "foreground_not_allowed" => "Foreground input is off",
+        "person_in_control" => "You're in control",
+        "approval_denied" | "approval_unavailable" => "Not approved",
+        _ => return None,
+    })
+}
+
 /// A question for the person.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Question {
@@ -403,6 +420,16 @@ impl Engine {
         };
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
+        }
+        if tool.acts()
+            && let Some(reason) = out.code.as_deref().and_then(refusal_caption)
+        {
+            self.cursor.show(CursorEvent::Refused {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: None,
+                reason: reason.to_string(),
+            });
         }
         // After the record: a retry returns the action's result, and the agent
         // takes a fresh screenshot for the state then.
@@ -822,6 +849,15 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
+        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+            // The person is using the mouse or keyboard right now: show that the
+            // agent waits for them before it waits.
+            self.cursor.show(CursorEvent::Paused {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: Some(center(&window.frame)),
+            });
+        }
         if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",

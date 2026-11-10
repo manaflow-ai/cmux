@@ -1388,6 +1388,17 @@
         }
       }
     },
+    "computerUse.cursor.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused \u00b7 you\u2019re in control"
+          }
+        }
+      }
+    },
     "computerUse.cursor.looking": {
       "extractionState": "manual",
       "localizations": {

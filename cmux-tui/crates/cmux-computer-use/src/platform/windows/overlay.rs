@@ -282,7 +282,9 @@ impl Cursor {
             | CursorEvent::Drag { to: at, .. } => Some(*at),
             CursorEvent::Typing { at, .. }
             | CursorEvent::Keys { at, .. }
-            | CursorEvent::Look { at, .. } => *at,
+            | CursorEvent::Look { at, .. }
+            | CursorEvent::Paused { at, .. }
+            | CursorEvent::Refused { at, .. } => *at,
             CursorEvent::Hide { .. } => None,
         };
         match at {

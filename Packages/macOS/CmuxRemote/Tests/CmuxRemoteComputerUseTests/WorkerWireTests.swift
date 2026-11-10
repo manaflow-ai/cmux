@@ -144,6 +144,9 @@ import Testing
         let typing = try #require(AgentCursorEvent(json: Data(#"{"kind":"typing","session":"s","label":"C","at":null,"text":"hi"}"#.utf8)))
         #expect(typing.at == nil && typing.text == "hi")
         #expect(try #require(AgentCursorEvent(json: Data(#"{"kind":"hide","session":"s"}"#.utf8))).kind == .hide)
+        #expect(try #require(AgentCursorEvent(json: Data(#"{"kind":"paused","session":"s","label":"C","at":null}"#.utf8))).kind == .paused)
+        let refused = try #require(AgentCursorEvent(json: Data(#"{"kind":"refused","session":"s","label":"C","at":null,"reason":"Look only"}"#.utf8)))
+        #expect(refused.kind == .refused && refused.text == "Look only")
         #expect(AgentCursorEvent(json: Data(#"{"kind":"warp","session":"s"}"#.utf8)) == nil)
         #expect(AgentCursorEvent(json: Data(#"{"kind":"move"}"#.utf8)) == nil)
     }
