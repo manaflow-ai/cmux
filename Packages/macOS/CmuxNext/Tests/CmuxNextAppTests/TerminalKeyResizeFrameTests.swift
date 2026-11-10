@@ -87,7 +87,7 @@ struct TerminalKeyResizeFrameTests {
         // showed a frame of a new size: a terminal that keeps one frame through the spring (the defect) fails here.
         var changes = Array(repeating: 0, count: before.count)
         // Frames in which a terminal showed a frame of another pixel size than its pane's area (the same rule as the
-        // divider drag test's): bounded below.
+        // divider drag test's): asserted below.
         var behind = Array(repeating: 0, count: before.count)
         // Frames in which a terminal's area changed by a device pixel or more: what `changes` is compared with.
         var moved = Array(repeating: 0, count: before.count)

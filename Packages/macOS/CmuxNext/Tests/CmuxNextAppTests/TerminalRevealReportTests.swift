@@ -117,7 +117,9 @@ struct TerminalRevealReportTests {
         watch.watch(probe: { waiting }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
         try await clock.waitForSleeper()
         clock.advance(by: TerminalBlankWatch.limit)
-        for _ in 0..<50 where watch.isWatching { await Task.yield() }
+        // The timer stops watching before its check runs on the main actor: yield all 50 times, so that a report
+        // of the waiting layer scale has the time to arrive.
+        for _ in 0..<50 { await Task.yield() }
         #expect(!watch.isWatching, "the check at the limit did not run")
         #expect(mismatch.items.isEmpty && blank.items.isEmpty, "a kept frame at its own scale, no frame since the reveal, was reported")
     }
@@ -145,6 +147,9 @@ struct TerminalRevealReportTests {
             fixture.clock.advance(by: TerminalBlankWatch.limit)
             for _ in 0..<50 where fixture.recorder.revealed.isEmpty { await Task.yield() }
         }
+        // The timer may be taken in the last yield above: its report still needs its turn on the main actor.
+        for _ in 0..<50 where fixture.recorder.revealed.isEmpty { await Task.yield() }
+        #expect(!fixture.session.blankWatch.isWatching, "the check of this reveal did not run")
         let again = try #require(fixture.recorder.revealed.last, "the scales still disagreed at the limit and the session reported nothing")
         #expect(fixture.recorder.revealed.count == 1, "\(fixture.recorder.revealed.count) reports for one check")
         #expect(!again.scalesAgree, "\(again.message)")

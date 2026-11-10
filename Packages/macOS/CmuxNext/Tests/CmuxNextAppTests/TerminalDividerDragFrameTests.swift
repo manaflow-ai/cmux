@@ -77,7 +77,7 @@ struct TerminalDividerDragFrameTests {
 
         var misplaced: [String] = [], unsized: [String] = [], stretched: [String] = []
         // Frames in which a terminal showed a frame of another size than its pane's area (a size waits a frame or more
-        // for its frame to be drawn): bounded below.
+        // for its frame to be drawn): asserted below.
         var behind = Array(repeating: 0, count: before.count)
         var changes = Array(repeating: 0, count: before.count)
         var frameless: [String] = []
