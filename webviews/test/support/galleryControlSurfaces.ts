@@ -13,8 +13,8 @@
 // Eight parts, not four: each part starts its own dev server, so the runner runs them in its
 // dev-server pool (CMUX_WEB_TEST_DEV_JOBS at once, each on its own Vite cache). Four parts of 163
 // cases, two at once on an 8 vCPU runner (the per-core load of CI's four at once on 16), both ran
-// out of the 240 s warm-up (2026-11-10, runs 42900294454 and 42911160967), while one alone passed. Eight parts of
-// about 82 cases each warm in about half that time.
+// out of the 240 s warm-up (2026-11-10, runs 42900294454 and 42911160967), while one alone
+// passed. Eight parts of about 82 cases each warm in about half that time.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
