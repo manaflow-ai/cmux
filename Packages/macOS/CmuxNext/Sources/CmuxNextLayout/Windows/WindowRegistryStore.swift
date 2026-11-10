@@ -76,6 +76,21 @@ public final class WindowRegistryStore {
         return closeWork
     }
 
+    /// What membership turns did since the last `takeMembershipWork()` (`WindowMembershipWork`).
+    @ObservationIgnored public private(set) var membershipWork = WindowMembershipWork()
+
+    /// The counts since the last call; counts from zero again.
+    public func takeMembershipWork() -> WindowMembershipWork {
+        defer { membershipWork = WindowMembershipWork() }
+        return membershipWork
+    }
+
+    /// Runs one build of a daemon's workspace order for a membership turn, counted in `membershipWork`.
+    public func orderBuild<Order>(_ build: () -> Order) -> Order {
+        membershipWork.orderBuilds += 1
+        return build()
+    }
+
     /// The windows a selection repair visits, counted in `closeWork`: every window, or window `only` alone. A close
     /// names its window: the rows it hides are that window's, and no other window lists them (one window owns a
     /// workspace, `WindowRegistry.violations`), so no other selection can change and no other list is read.
@@ -127,11 +142,12 @@ public final class WindowRegistryStore {
         }
         for id in value.discarding { answers[id] = true }
         for id in answered {
-            if answers[id] == nil { incognitoByWorkspace[id] = nil }
-            if owners[id] == nil { ownerByWorkspace[id] = nil }
+            if answers[id] == nil { incognitoByWorkspace[id] = nil; membershipWork.answerWrites += 1 }
+            if owners[id] == nil { ownerByWorkspace[id] = nil; membershipWork.answerWrites += 1 }
         }
         for (id, answer) in answers { incognitoByWorkspace[id] = answer }
         for (id, owner) in owners { ownerByWorkspace[id] = owner }
+        membershipWork.answerWrites += answers.count + owners.count
         answered = Set(answers.keys)
     }
 }
