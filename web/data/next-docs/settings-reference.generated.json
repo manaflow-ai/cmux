@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 620,
+  "count": 621,
   "sections": [
     {
       "id": "general",
@@ -2142,6 +2142,19 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.unreadBanner",
+          "title": "Unread Banner",
+          "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+          "kind": "choice",
+          "default": "expanded",
+          "group": "Agent Chat",
+          "values": [
+            "expanded",
+            "collapsed",
+            "off"
+          ]
+        },
+        {
           "key": "agentPane.display.vscodeMinimap",
           "title": "VS Code Minimap",
           "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -3746,14 +3759,15 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
           "kind": "choice",
           "default": "auto",
           "group": "Sidebar",
           "values": [
             "auto",
             "glass",
-            "solid"
+            "solid",
+            "sections"
           ]
         },
         {

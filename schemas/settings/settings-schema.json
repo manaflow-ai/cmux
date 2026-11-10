@@ -1226,6 +1226,7 @@
               "agentPane.display.pinnedPlan",
               "agentPane.display.trayTucked",
               "agentPane.display.trayHandle",
+              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead",
               "agentPane.display.senderIcon.badge",
               "agentPane.display.senderIcon.corner",
@@ -46410,6 +46411,175 @@
     },
     {
       "accepts" : [
+        "expanded",
+        "collapsed",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.expanded",
+            "text" : "Expanded"
+          },
+          "value" : "expanded"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.collapsed",
+            "text" : "Collapsed"
+          },
+          "value" : "collapsed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "expanded",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.unreadBanner.help",
+        "text" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.unreadBanner",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "unread",
+        "new",
+        "banner",
+        "since",
+        "jump",
+        "mark",
+        "read",
+        "collapse",
+        "expand",
+        "hide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "unreadBanner"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.unreadBanner"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.unreadBanner",
+        "text" : "Unread Banner"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "family",
         "session"
       ],
@@ -61436,7 +61606,8 @@
       "accepts" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -61461,6 +61632,13 @@
             "text" : "Solid"
           },
           "value" : "solid"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundSections",
+            "text" : "Sections"
+          },
+          "value" : "sections"
         }
       ],
       "consumers" : [
@@ -61474,7 +61652,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -61489,7 +61667,11 @@
         "opaque",
         "translucent",
         "fill",
-        "header"
+        "header",
+        "sections",
+        "section",
+        "heading",
+        "plain"
       ],
       "kind" : "choice",
       "page_hidden" : false,
