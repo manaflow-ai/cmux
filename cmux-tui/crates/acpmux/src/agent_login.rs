@@ -155,7 +155,61 @@ pub mod reason {
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
     /// A `sessionId` that names no chat here or on a peer.
     pub const UNKNOWN_SESSION: &str = "unknown_session";
+    /// `start {agent: "<agent>@gateway"}` on a machine whose team cmux's gateway does not
+    /// serve for that agent ([`Machine::gateway_access`]).
+    pub const NO_GATEWAY: &str = "no_gateway";
 }
+
+/// `start {agent: "claude@gateway"}` (or `codex@gateway`): the chat's agent uses cmux's
+/// gateway (SR2: the team's CodeRouter account, through the machine's edge) instead of a sign-in
+/// of its own, as `cr use team <agent>` records it. The suffix rides the sign-in card's existing
+/// `start` step, so every host and relay that carries a sign-in carries this too.
+pub const GATEWAY_SUFFIX: &str = "@gateway";
+
+/// The agent a `start` names with [`GATEWAY_SUFFIX`]: only the agents the image's
+/// `/etc/cmux/agent-auth.sh` routes through the gateway (Claude, Codex).
+pub fn gateway_agent(name: &str) -> Option<Agent> {
+    let agent = Agent::parse(name.strip_suffix(GATEWAY_SUFFIX)?)?;
+    matches!(agent, Agent::Claude | Agent::Codex).then_some(agent)
+}
+
+/// The switch for the gateway fallback: with it on, a Cloud chat whose Claude has no credential,
+/// on a machine whose team cmux's gateway serves, uses the gateway without asking (its first send
+/// goes again there, `hub/auto_resume/first_send.rs`). Off by default until the founders turn
+/// billing on; the machine's daemon environment turns it on (`CMUX_GATEWAY_FALLBACK=1`).
+pub const GATEWAY_FALLBACK_ENV: &str = "CMUX_GATEWAY_FALLBACK";
+
+/// Whether `value` (the [`GATEWAY_FALLBACK_ENV`] value) turns the fallback on: only an explicit
+/// `1`, `true`, `yes` or `on`. Unset, empty or anything else is off.
+pub fn gateway_fallback(value: Option<&str>) -> bool {
+    value.is_some_and(|v| {
+        let v = v.trim();
+        ["1", "true", "yes", "on"].iter().any(|on| v.eq_ignore_ascii_case(on))
+    })
+}
+
+/// [`gateway_fallback`] of this daemon's environment.
+pub fn gateway_fallback_on() -> bool {
+    gateway_fallback(std::env::var(GATEWAY_FALLBACK_ENV).ok().as_deref())
+}
+
+/// How long [`Machine::gateway_access`] waits for the image's answer (its own request gives up
+/// after 5 s; an answer is kept 60 s).
+pub const GATEWAY_ACCESS_WAIT: Duration = Duration::from_secs(10);
+
+/// Asks the image's own check (`cmux_agent_team_access`, the one every launcher and `cr use`
+/// run), with the model plane loaded the way `cr` loads it when this daemon's environment lacks
+/// it. Arguments: the agent-auth library, the machine's `model-plane.env`, the agent. Exit 0: the
+/// team has an account for the agent; 1: none; 2: no answer; 3: unreachable.
+const GATEWAY_ACCESS_SH: &str = r#"lib=$1 plane=$2 agent=$3
+if [ -z "${CMUX_CODEROUTER_URL-}" ]; then
+  for f in "${HOME:-/root}/.config/cmux/model-plane.env" "$plane"; do
+    if [ -f "$f" ]; then set -a; . "$f"; set +a; break; fi
+  done
+fi
+. "$lib" || exit 2
+cmux_agent_team_access "$agent"
+"#;
 
 /// An agent whose own sign-in this runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -375,6 +429,52 @@ impl Machine {
         private_dir(&dir)?;
         write_private(&dir.join(agent.name()), b"own\n")?;
         Ok(true)
+    }
+
+    /// Records that `agent` uses cmux's gateway here, as `cr use team <agent>` does
+    /// (`~/.config/cmux/agent-auth/<agent>` = `team`), and drops the image's kept team-access
+    /// answer (`~/.cache/cmux/agent-access`) as `cr use` does, so the next launch asks again.
+    /// Only on a cmux Cloud image.
+    pub fn choose_team(&self, agent: Agent) -> std::io::Result<bool> {
+        if !self.cloud_image() {
+            return Ok(false);
+        }
+        let dir = self.home.join(".config/cmux/agent-auth");
+        private_dir(&dir)?;
+        write_private(&dir.join(agent.name()), b"team\n")?;
+        match std::fs::remove_file(self.home.join(".cache/cmux/agent-access")) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(true),
+        }
+    }
+
+    /// Whether cmux's gateway serves `agent` for this machine's team, answered by the image's
+    /// own `/etc/cmux/agent-auth.sh` (`cmux_agent_team_access`, one `GET
+    /// /api/coderouter/agent-access` through the machine's edge, kept 60 s), never a check of
+    /// its own: `Some(true)` the team has an account for it, `Some(false)` none, `None` not a
+    /// cmux Cloud image, an agent the image does not route, or no answer.
+    pub async fn gateway_access(&self, agent: Agent) -> Option<bool> {
+        if !matches!(agent, Agent::Claude | Agent::Codex) || !self.cloud_image() {
+            return None;
+        }
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg(GATEWAY_ACCESS_SH)
+            .arg("sh")
+            .arg(self.root.join("etc/cmux/agent-auth.sh"))
+            .arg(self.root.join("etc/cmux/model-plane.env"))
+            .arg(agent.name())
+            .env("HOME", &self.home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let status = tokio::time::timeout(GATEWAY_ACCESS_WAIT, cmd.status()).await.ok()?.ok()?;
+        match status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        }
     }
 
     fn refuse_shared(&self) -> Result<(), LoginError> {
