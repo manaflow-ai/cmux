@@ -25,7 +25,7 @@ enum HomeChiefActions {
     }
 
     /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
-    private static func frontHome() -> HomeChiefSurface? {
+    static func frontHome() -> HomeChiefSurface? {
         guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
         return firstChiefHome(in: root)
     }

@@ -210,15 +210,17 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
           ?.recallHistory(record(params).older === false ? "newer" : "older") ?? false,
     })),
   ];
+  // Up and Down outside the box step its history; none without a document (a test host).
+  const doc = globalThis.document as Document | undefined;
   const onKey = (event: KeyboardEvent) => void recallFromOutside(event, latest().nav.composer());
-  document.addEventListener("keydown", onKey);
-  stops.push(() => document.removeEventListener("keydown", onKey));
+  doc?.addEventListener("keydown", onKey);
+  stops.push(() => doc?.removeEventListener("keydown", onKey));
   // The app's menu on selected message text: Quote in Reply.
   let ended = false;
   let unsubscribe: (() => void) | undefined;
   void host
     .subscribe<PageCommand>(PAGE_COMMAND, (data) => {
-      if (data?.command === "quoteSelection") quoteSelection(document, latest().nav.composer());
+      if (data?.command === "quoteSelection" && doc) quoteSelection(doc, latest().nav.composer());
     })
     .then((stop) => {
       if (ended) stop();
