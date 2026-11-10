@@ -137,21 +137,19 @@ fn stop_reads_on(
 }
 
 /// The cut of a rebuild at `floor`: the end of the last sealed segment
-/// that ends at or below it (0: none), and the sequences through it. A
-/// segment is left out whole or kept whole, and live rows always stay.
+/// that ends at or below it (0: none), and the records of the segments
+/// through it (their stored counts: a segment an earlier rebuild packed
+/// counts what it holds, not the sequences it spans, so a run that is
+/// already pruned never asks for a rebuild again). A segment is left out
+/// whole or kept whole, and live rows always stay.
 fn floor_cut(source: &Connection, floor: u64) -> anyhow::Result<(u64, u64)> {
-    let cut: i64 = source.query_row(
-        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments WHERE end_sequence <= ?1",
+    let (cut, records): (i64, i64) = source.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0), COALESCE(SUM(record_count), 0)
+         FROM journal_segments WHERE end_sequence <= ?1",
         [i64::try_from(floor).unwrap_or(i64::MAX)],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    let first: i64 = source.query_row(
-        "SELECT COALESCE(MIN(start_sequence), ?1 + 1) FROM journal_segments
-         WHERE end_sequence <= ?1",
-        [cut],
-        |row| row.get(0),
-    )?;
-    Ok((u64::try_from(cut)?, u64::try_from((cut - first + 1).max(0))?))
+    Ok((u64::try_from(cut)?, u64::try_from(records)?))
 }
 
 /// The cut this staging file is built at: the one it recorded when that is

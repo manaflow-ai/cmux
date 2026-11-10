@@ -42,8 +42,8 @@
 //! of its records. The floor is rounded down to a segment end, so a segment
 //! goes whole or stays whole and live rows always stay. All that is left
 //! out before the first kept record is one pruned range. The rule: the
-//! segments at or below the floor cover at least
-//! `PUT_RECORDS_WORTH_A_CLEANUP` sequences. After the swap no segment ends
+//! segments at or below the floor hold at least
+//! `PUT_RECORDS_WORTH_A_CLEANUP` records. After the swap no segment ends
 //! at or below that floor, so the same floor never rebuilds twice. A
 //! staging file built at a higher floor than the caller's is discarded.
 //!

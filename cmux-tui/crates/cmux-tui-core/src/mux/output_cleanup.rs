@@ -119,7 +119,8 @@ impl Mux {
         // The retention floor of this start. A registry the one-time cleanup
         // is done for is staged again only for a floor.
         let floor = REBUILD_FLOOR;
-        if floor == 0 && registry.output_cleanup_done()? {
+        let done = registry.output_cleanup_done()?;
+        if floor == 0 && done {
             return Ok(());
         }
         drop(registry);
@@ -150,7 +151,10 @@ impl Mux {
                     return;
                 }
                 let not_needed = run_output_cleanup(&db_path, floor, &worker_control, &pending);
+                // A registry already marked keeps its mark: a swap's mark
+                // names the backup's registry until the backup is removed.
                 if not_needed
+                    && !done
                     && !worker_control.is_stopped()
                     && let Some(mux) = weak_mux.upgrade()
                 {
