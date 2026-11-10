@@ -23,12 +23,16 @@ impl Label {
     fn copied(text: &[u8]) -> Self {
         let len = text.len().min(LABEL_BYTES);
         let mut bytes = [0; LABEL_BYTES];
-        bytes[..len].copy_from_slice(&text[..len]);
+        // `zip` stops at the shorter side: a longer text is cut at `LABEL_BYTES`.
+        for (slot, byte) in bytes.iter_mut().zip(text) {
+            *slot = *byte;
+        }
         Self { len: len as u8, bytes }
     }
 
     pub(super) fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.bytes[..usize::from(self.len)]).unwrap_or_default()
+        let text = self.bytes.get(..usize::from(self.len)).unwrap_or_default();
+        std::str::from_utf8(text).unwrap_or_default()
     }
 
     /// A command name, an operation name or an error code: `[a-z0-9._-]{1,48}`.
@@ -80,7 +84,8 @@ impl Label {
     /// every byte outside `[A-Za-z0-9_.:-]` replaced by `_`.
     pub(crate) fn word(text: &str) -> Option<Self> {
         let mut label = Self::copied(text.as_bytes());
-        for byte in &mut label.bytes[..usize::from(label.len)] {
+        let len = usize::from(label.len);
+        for byte in label.bytes.iter_mut().take(len) {
             if !matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b':' | b'-')
             {
                 *byte = b'_';
@@ -230,8 +235,10 @@ impl<'de> Visitor<'de> for Fields<'_> {
                 }
                 Key::Params if top => map.next_value_seed(Fields { out: &mut *out, top: false })?,
                 Key::Id(index) => {
-                    if let Some(id) = map.next_value_seed(Slot::Id)? {
-                        out.ids[index] = Some(id);
+                    if let Some(id) = map.next_value_seed(Slot::Id)?
+                        && let Some(slot) = out.ids.get_mut(index)
+                    {
+                        *slot = Some(id);
                     }
                 }
                 _ => {

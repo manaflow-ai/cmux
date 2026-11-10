@@ -326,7 +326,7 @@ impl LockStats {
         if held >= LOCK_STALL_THRESHOLD
             && let Some((name, log)) = self.long_holds.get()
         {
-            log.long_hold(*name, site, held, waited);
+            log.long_hold(name, site, held, waited);
         }
     }
 
