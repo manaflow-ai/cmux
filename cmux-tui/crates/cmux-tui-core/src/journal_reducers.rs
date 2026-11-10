@@ -44,8 +44,10 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// re-fold clears rows that stayed working after either. Version 10 keeps a
 /// quiet hook row when the plugin reads the state it already holds (W6-A: a
 /// restarted daemon's plugin took idle hook rows); the re-fold gives those
-/// rows back their hook source and session.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 10;
+/// rows back their hook source and session. Version 11 keeps each terminal's
+/// last hook transcript path, so a restarted daemon reads the agent's last
+/// reply from it; the re-fold finds the path for every retained session.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 11;
 /// The oldest roster version whose snapshot [`AgentRoster::migrate`] takes.
 /// Version 6 added the hook session fences: a snapshot without them would
 /// let a late event from an ended session bring its row back while the
@@ -637,6 +639,12 @@ pub(crate) struct AgentRoster {
     /// a turn running to the turn now open ([`Self::screen_ends_hook_row`]).
     #[serde(default)]
     hook_turn_started_at: HashMap<String, HookTurnStart>,
+    /// The last harness transcript path a hook named on each terminal
+    /// (`normalized.transcript_path`). A restarted daemon reads the agent's
+    /// last reply from it (`agent_transcript.rs`); the reply text itself is
+    /// never kept here.
+    #[serde(default)]
+    hook_transcripts: HashMap<String, String>,
 }
 
 impl AgentRoster {
@@ -871,6 +879,12 @@ impl AgentRoster {
                 self.screen_evidence.remove(terminal_id);
             }
             self.hook_fences.insert(terminal_id.to_string(), next);
+            if let Some(transcript) = event
+                .normalized("transcript_path")
+                .filter(|path| std::path::Path::new(path).is_absolute() && !path.contains('\0'))
+            {
+                self.hook_transcripts.insert(terminal_id.to_string(), transcript.to_string());
+            }
             if event.kind == "agent.turn.started" {
                 let start = HookTurnStart {
                     at_ms: event.committed_at_ms,
@@ -1105,6 +1119,15 @@ impl AgentRoster {
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]
     }
 
+    /// Each terminal's last hook transcript path (W6-A): a restarted daemon
+    /// reads the agent's last reply from it.
+    pub(crate) fn hook_transcripts(&self) -> Vec<(String, String)> {
+        self.hook_transcripts
+            .iter()
+            .map(|(terminal, path)| (terminal.clone(), path.clone()))
+            .collect()
+    }
+
     /// Each terminal's hook session id (ended or not) and the harness its
     /// roster entry names, from the journal: a restarted daemon shows the
     /// session a resume needs again (W5-R).
@@ -1127,7 +1150,8 @@ impl AgentRoster {
         let evidence = self.screen_evidence.remove(terminal_id).is_some();
         let program = self.program_status_evidence.remove(terminal_id).is_some();
         let turn = self.hook_turn_started_at.remove(terminal_id).is_some();
-        entry || fence || evidence || program || turn
+        let transcript = self.hook_transcripts.remove(terminal_id).is_some();
+        entry || fence || evidence || program || turn || transcript
     }
 
     fn record_plugin_exit_fence(

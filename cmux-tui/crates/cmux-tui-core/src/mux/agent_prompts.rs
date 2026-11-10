@@ -20,7 +20,10 @@
 //! The last reply also stays with its terminal after the banner took it (`last_replies`,
 //! W3-H): `agent.list` and `session.snapshot` show it folded and cut to 200 characters as the
 //! agent value's `extra.last_reply`, so `cmux terminal list --agents` names each agent's last
-//! answer. Memory only like the rest: a daemon restart or a closed terminal forgets it.
+//! answer. Memory only like the rest: a closed terminal forgets it. A daemon restart reads it
+//! back once from the harness transcript the agent's hooks named (`transcript_path`, which the
+//! journal keeps; `agent_transcript.rs`, W6-A bench round 5 row 4): the harness owns that file,
+//! and cmux still persists no reply text.
 //! `agent.list` for one terminal also shows it whole as `extra.last_reply_text`, with the
 //! time the daemon kept it as `extra.last_reply_at_ms` (W5-Q), so `cmux terminal NAME send`
 //! answers the reply of its own turn, not the screen's wrapped lines.
@@ -57,6 +60,9 @@ pub(crate) struct AgentTexts {
     /// The question each terminal's agent waits on, with the ledger id of the notification
     /// that asked it: `list-notifications` shows it on that row until the agent moves on.
     questions: HashMap<TerminalPublicId, (String, Arc<Value>)>,
+    /// The harness transcripts a restarted daemon reads each terminal's last reply from, once,
+    /// when a reply is first asked for (`Mux::restore_transcript_replies`).
+    transcripts: HashMap<TerminalPublicId, std::path::PathBuf>,
 }
 
 impl AgentTexts {
@@ -75,6 +81,18 @@ impl AgentTexts {
         Self { last_sessions, ..Self::default() }
     }
 
+    /// These texts with each terminal's last hook transcript (`AgentRoster::hook_transcripts`),
+    /// read for the last reply when one is first asked for.
+    pub(crate) fn with_transcripts(mut self, transcripts: Vec<(String, String)>) -> Self {
+        self.transcripts = transcripts
+            .into_iter()
+            .filter_map(|(terminal, path)| {
+                Some((TerminalPublicId::parse(&terminal).ok()?, std::path::PathBuf::from(path)))
+            })
+            .collect();
+        self
+    }
+
     pub(crate) fn forget(&mut self, terminal: &TerminalPublicId) {
         self.prompts.remove(terminal);
         self.replies.remove(terminal);
@@ -82,6 +100,7 @@ impl AgentTexts {
         self.last_sessions.remove(terminal);
         self.noted_questions.remove(terminal);
         self.questions.remove(terminal);
+        self.transcripts.remove(terminal);
     }
 }
 
@@ -171,10 +190,36 @@ impl Mux {
         }
     }
 
+    /// After a restart, reads each terminal's last reply from its hook transcript, once: the
+    /// transcripts are taken under the lock and read without it, and a reply kept meanwhile
+    /// (a hook after the restart) wins over the transcript's.
+    fn restore_transcript_replies(&self) {
+        let transcripts: Vec<_> = {
+            let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+            if texts.transcripts.is_empty() {
+                return;
+            }
+            texts.transcripts.drain().collect()
+        };
+        let read: Vec<_> = transcripts
+            .into_iter()
+            .filter_map(|(terminal, path)| {
+                let (reply, at_ms) = crate::agent_transcript::last_assistant_text(&path)?;
+                let reply = crate::agent_hooks::live_message_text(&reply)?;
+                Some((terminal, Arc::<str>::from(reply), at_ms))
+            })
+            .collect();
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        for (terminal, reply, at_ms) in read {
+            texts.last_replies.entry(terminal).or_insert_with(|| vec![(reply, at_ms)]);
+        }
+    }
+
     /// Every terminal's last reply, folded and cut to `LIVE_PROMPT_CHARS`, keyed by terminal
     /// id, for `extra.last_reply`. Read before a registry projection lock is taken: this lock
     /// is never held across another `Mux` lock.
     pub(crate) fn agent_last_replies(&self) -> HashMap<String, String> {
+        self.restore_transcript_replies();
         let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         texts
             .last_replies
@@ -190,6 +235,7 @@ impl Mux {
     /// kept, for a one-terminal `agent.list` ([`with_last_reply_text`]). Read before a
     /// registry projection lock is taken, as [`Mux::agent_last_replies`] is.
     pub(crate) fn agent_last_reply_text(&self, terminal: &TerminalPublicId) -> Option<LastReply> {
+        self.restore_transcript_replies();
         let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         texts
             .last_replies
