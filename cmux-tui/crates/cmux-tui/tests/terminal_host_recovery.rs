@@ -5328,6 +5328,9 @@ use process_support::*;
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
 
+#[path = "terminal_host_recovery/detached_template.rs"]
+mod detached_template;
+
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
 
