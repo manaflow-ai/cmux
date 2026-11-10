@@ -1242,6 +1242,36 @@ def crash_tree(repo: Path, rev: str, crates: list[str], dest: Path, baseline: di
                            check=True, env=env, capture_output=True)
 
 
+def rust_path_declarers(repo: Path, base: str, head: str) -> dict[str, list[str]]:
+    """{rev: the .rs files under cmux-tui/crates that have a `#[path` attribute} for BASE and HEAD (one `git grep`
+    over both trees, about 0.3 s). A superset of the `#[cfg(test)] #[path]` declarations: the ratchet resolves them."""
+    result = subprocess.run(["git", "-C", str(repo), "grep", "-l", "-z", "-E", r"#\[path", base, head, "--",
+                             f"{RUST_CRATES}*.rs"], capture_output=True)
+    if result.returncode not in (0, 1):  # 1: no match
+        raise SystemExit(f"prepush-gate: git grep for #[path] failed: {result.stderr.decode(errors='replace')}")
+    entries = [e for e in result.stdout.decode(errors="replace").split("\0") if e]
+    return {rev: [e[len(rev) + 1:] for e in entries if e.startswith(rev + ":")] for rev in (base, head)}
+
+
+def cross_crate_test_links(repo: Path, declarers: dict[str, list[str]], ratchet, work: Path) -> set[tuple[str, str]]:
+    """(declaring crate, declared crate) for each `#[cfg(test)] #[path]` module, at either rev of DECLARERS, whose
+    file is in another crate. CI's ratchet (RATCHET's rust_test_modules, never a copy of its rule) reads every crate,
+    so that file is test code in CI only while the declaring crate says so."""
+    links: set[tuple[str, str]] = set()
+    for side, (rev, paths) in enumerate(declarers.items()):
+        root = work / f"side-{side}"
+        add_blobs(repo, root, rev, paths)
+        crates_root = root / RUST_CRATES
+        for path in paths:
+            own = path.split("/")[2]
+            files, _ = ratchet.rust_test_modules([str(root / path)])
+            for target in files:
+                rel = os.path.relpath(target, crates_root).split(os.sep)
+                if len(rel) >= 2 and rel[0] not in (own, "..", "."):
+                    links.add((own, rel[0]))
+    return links
+
+
 def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, crates: list[str],
                            trusted_scripts: Path | None, work: Path) -> tuple[list["Finding"], float]:
     """(findings, seconds): CI's crash ratchet verdict on the crates the push touches, and the hit lines it added.
@@ -1251,14 +1281,17 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
     crash_ratchet.py over two trees: every .rs file of each crate the push touches (a changed or deleted file, or a
     Rust baseline row it changes) at the base (exported) and the head (a checkout), each with its own baseline's Rust
     rows. Whole crates, as CI reads them: a crate under its row passes, a hit moved into a crate whose row the head
-    does not carry is refused, and test code is told from every file of the crate. A crate the push does not touch
-    gives the same verdict on both sides, so leaving it out changes nothing. Swift crash rows stay the Crash safety
+    does not carry is refused, and test code is told from every file of the crate. A crate that declares a
+    `#[cfg(test)] #[path]` module in a touched crate, or whose such module a touched crate declares, joins the trees
+    (cross_crate_test_links), as CI tells test code from every crate. A crate the push does not touch otherwise gives
+    the same verdict on both sides, so leaving it out changes nothing. Swift crash rows stay the Crash safety
     scanner's. On a refusal, each hit line the head adds in a red row is named at its place in a changed file. A
     main-based push gets no verdict ([]): main's CI has no crash ratchet and main keeps no baseline."""
     started = time.monotonic()
     if main_based(repo, head, head_tree):
         return [], time.monotonic() - started
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        declarers = pool.submit(rust_path_declarers, repo, base, head)
         deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
                                   "--", RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
         blobs = [blob_at(repo, rev, f"{SCRIPTS}/crash-safety-baseline.json") for rev in (base, head)]
@@ -1270,12 +1303,17 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
                                         ("waived", (b or {}).get(waived, {})))
                  for lang, kinds in langs.items() for kind, modules in kinds.items()
                  for module, n in modules.items() if n} for b in baselines]
-        touched = sorted({p.split("/")[2] for p in crates + deleted if p.count("/") >= 3}
-                         | {row[3] for row in rows[0].keys() | rows[1].keys() if rows[0].get(row) != rows[1].get(row)})
+        grown = ({p.split("/")[2] for p in crates + deleted if p.count("/") >= 3}
+                 | {row[3] for row in rows[0].keys() | rows[1].keys() if rows[0].get(row) != rows[1].get(row)})
+        ratchet = load_crash_ratchet(head_tree, trusted_scripts)
+        if grown:
+            links = cross_crate_test_links(repo, declarers.result(), ratchet, work / "path-declarers")
+            while any((a in grown) != (b in grown) for a, b in links):
+                grown |= {c for link in links if grown & set(link) for c in link}
+        touched = sorted(grown)
         base_dir, head_dir = work / "crash-base", work / "crash-head"
         trees = ([pool.submit(crash_tree, repo, base, touched, base_dir, baselines[0], False),
                   pool.submit(crash_tree, repo, head, touched, head_dir, baselines[1], True)] if touched else [])
-        ratchet = load_crash_ratchet(head_tree, trusted_scripts)
         compare = load_crash_compare(repo, trusted_scripts, work)
         for job in trees:
             job.result()
