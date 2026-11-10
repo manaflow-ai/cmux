@@ -47,5 +47,4 @@ describe("needs you wire", () => {
     expect(parseNeedsYou({ rows: [{ id: "r", headline: "h" }] })).toBeUndefined();
     expect(parseNeedsYou({ title: "T", rows: [{ id: "r", headline: "h" }], look: "odd" })?.look).toBe("rows");
   });
-
 });

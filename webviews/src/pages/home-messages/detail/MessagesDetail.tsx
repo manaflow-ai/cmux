@@ -56,6 +56,7 @@ import {
   chatAppearance,
   DEFAULT_APPEARANCE,
   DetailOps,
+  homeToastAvoidance,
   linkPreviewFetch,
   NO_FIRST_RUN,
   NO_HEADER_PANELS,
@@ -67,6 +68,7 @@ import {
   useHostStream,
   type FirstRunFacts,
 } from "./detailHost";
+import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import "../sheets/sheets.css";
 import "../cards/cards.css";
 import "./detail.css";
@@ -113,6 +115,9 @@ export function MessagesDetail(props: MessagesDetailProps) {
   // Photos and videos go through the app's preparation before they upload (location removed
   // unless Settings > Home keeps it), as the native composer's did. No host (a browser): as they are.
   const prepareFile = useMemo(() => (host ? hostPrepareFile(host) : undefined), [host]);
+  // The app's toasts rest above the shown compose bar (the conversation's, a thread's or New
+  // Message's); no host (a browser): nothing to tell.
+  const toastAvoidance = useMemo(() => (host ? homeToastAvoidance(host) : undefined), [host]);
   const links = useMemo<RowLinks>(
     () => ({
       fetchPreview: linkPreviewFetch(host),
@@ -260,6 +265,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     needsYou,
     chiefFace,
     chiefPlace,
+    toastAvoidance,
   };
 
   const rows = useMemo(() => [...snapshot.conversations.values()], [snapshot.conversations]);
@@ -317,6 +323,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
                   nav.composeText = text;
                 }}
                 {...(dictation ? { dictation } : {})}
+                toastAvoidance={toastAvoidance}
               />
             </div>
           )}
@@ -389,6 +396,7 @@ interface ConversationViewProps {
   needsYou: NeedsYouState | undefined;
   chiefFace: ChiefFace | undefined;
   chiefPlace: ChiefPlace | undefined;
+  toastAvoidance: ToastAvoidanceReports | undefined;
 }
 
 /** The open conversation: its transcript and composer, a Chief's first run while it is empty. */
@@ -606,6 +614,7 @@ function ConversationView(
           : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
+        toastAvoidance={props.toastAvoidance}
         initialDraft={nav.draft(id)}
         onDraftChange={(text) => nav.keepDraft(id, text)}
         composerKey={String(nav.draftVersion(id))}
@@ -766,6 +775,7 @@ function ThreadView(
       }
       {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
       {...(props.dictation ? { dictation: props.dictation } : {})}
+      toastAvoidance={props.toastAvoidance}
       {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
       spellChecking={props.spellChecking}
       // One message box, as the native one: the conversation's draft and files go on into the thread.

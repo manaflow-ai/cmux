@@ -33,7 +33,6 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     let route: HomeMessagesPageRoute
     let host: HomeMessagesHostProvider
     private let dragStrip = HomeWindowDragStrip()
-    private lazy var toastRoom = HomePageToastRoom(page: page)
     private weak var services: AppServices?
     /// Follows `HomeService.pendingSelection` (a conversation a sheet, the CLI or a run started), the
     /// preferred Chief and the unread colour.
@@ -62,6 +61,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         page.autoresizingMask = [.width, .height]
         addSubview(page)
         addSubview(dragStrip)
+        host.toastAvoidance.attach(self, page: page)
         watch(services.home)
         wireChief()
     }
@@ -94,7 +94,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         super.layout()
         dragStrip.frame = dragStrip.frame(in: bounds)
         updateWindowControls()
-        toastRoom.follow()
+        host.toastAvoidance.moved()
     }
 
     override func viewDidMoveToWindow() {
@@ -331,8 +331,8 @@ extension HomeComposerHandoff {
     }
 }
 
-extension HomeMessagesPage: CmuxToastReserving {
-    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { toastRoom.settled(rect, duration: duration) }
+extension HomeMessagesPage: CmuxToastAvoiding {  // toasts rest above the compose bar (HomePageToastAvoidance)
+    var toastAvoidanceRect: NSRect { host.toastAvoidance.rect(in: self) }
 }
 
 extension HomeMessagesPage: HomeChiefShowing {

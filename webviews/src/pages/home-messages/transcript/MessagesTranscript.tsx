@@ -23,6 +23,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import { AttachmentContext } from "../../home-channels/AttachmentViews";
 import type { AttachmentService } from "../../home-channels/attachmentService";
 import { conversationName } from "../../home-channels/model";
@@ -89,6 +90,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   /** What each attached file goes through before it uploads (the app's location removal). */
   prepareFile?: PrepareFile;
   dictation?: DictationCall;
+  /** The app's toasts rest above the composer (MessageComposer `toastAvoidance`). */
+  toastAvoidance?: ToastAvoidanceReports | undefined;
   /** The page's files per conversation (they outlive this conversation's composer); absent: the composer's own. */
   attachmentDrafts?: AttachmentDrafts;
   initialDraft?: string;
@@ -507,6 +510,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           }
           history={history}
           dictation={props.dictation}
+          toastAvoidance={props.toastAvoidance}
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}

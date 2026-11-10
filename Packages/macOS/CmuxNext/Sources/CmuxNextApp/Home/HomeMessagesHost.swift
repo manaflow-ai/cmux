@@ -54,7 +54,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation",
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageToastAvoidance.op,
                            HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
     private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "chief.settings",
                                                   "chief.place", "needsYou.open", "needsYou.answer", "needsYou.showAll"]  // a click only
@@ -96,7 +96,7 @@ final class HomeMessagesHostProvider: PageProvider {
     var window: () -> NSWindow? = { nil }
     /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
     let composerFiles = HomeComposerFiles()
-    let dictation = HomePageDictation()
+    let dictation = HomePageDictation(), toastAvoidance = HomePageToastAvoidance()  // the mic; the compose bar's box toasts rest above
 
     init(services: AppServices, widthKey: String) {
         self.services = services
@@ -112,7 +112,7 @@ final class HomeMessagesHostProvider: PageProvider {
         let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
         if let userOnly, Self.personOnly.contains(name) { throw userOnly }
-        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) { return answer }
+        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) ?? toastAvoidance.call(name, fields) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }

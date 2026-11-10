@@ -22,7 +22,6 @@ final class HomeConversationPage: NSView {
     let host: HomeMessagesHostProvider
     let chief: HomeChiefSurface
     private weak var services: AppServices?
-    private lazy var toastRoom = HomePageToastRoom(page: page)
     /// How long the page call that gives the message box the keyboard waits for the page.
     static let answerDeadline: Duration = .seconds(5)
 
@@ -36,6 +35,7 @@ final class HomeConversationPage: NSView {
         setAccessibilityIdentifier("cmux.homeConversation")
         wantsLayer = true
         addSubview(page)
+        host.toastAvoidance.attach(self, page: page)
         host.chiefShown = { [weak self] id in id == conversation ? self?.chief : nil }
         host.follow(chief)
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
@@ -67,7 +67,7 @@ final class HomeConversationPage: NSView {
     override func layout() {
         super.layout()
         page.frame = bounds
-        toastRoom.follow()
+        host.toastAvoidance.moved()
     }
 
     /// The popover is a child panel of the window, not a subview: the page leaving its window (a tab
@@ -113,14 +113,14 @@ final class HomeConversationPage: NSView {
     }
 }
 
-/// Up and Down while the tab has the keyboard outside the page step its box's history; toasts keep
-/// the page's composer clear (``HomePageToastRoom``).
-extension HomeConversationPage: PrimaryInputTarget, CmuxToastReserving {
+/// Up and Down while the tab has the keyboard outside the page step its box's history; toasts rest
+/// above the page's compose bar (``HomePageToastAvoidance``).
+extension HomeConversationPage: PrimaryInputTarget, CmuxToastAvoiding {
     var primaryInputView: NSView? { nil }
     var acceptsRedirectedTyping: Bool { true }
     func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool { false }
     func routesToPrimaryInput(_ event: NSEvent) -> Bool { HomeComposerHandoff.historyArrow(event, outside: page) != nil }
-    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { toastRoom.settled(rect, duration: duration) }
+    var toastAvoidanceRect: NSRect { host.toastAvoidance.rect(in: self) }
     func beginTyping(with event: NSEvent) { recallHistory(event, page: page) }
 }
 

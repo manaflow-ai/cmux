@@ -28,6 +28,7 @@ import {
   type Ref,
 } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
+import { elementBox, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
 import { isActive, useDictation } from "../../../agent-session/acpmux/dictation";
@@ -89,6 +90,9 @@ export interface MessageComposerProps {
   chief?: ComposerChief;
   /** Over the field: the page's toast (Stop all agents' answer). */
   toast?: ReactNode;
+  /** The host's toasts rest above this compose bar (its tray, notices and quote too): its box goes
+   * to the host while it is mounted (detailHost.ts `homeToastAvoidance`). Absent: no host. */
+  toastAvoidance?: ToastAvoidanceReports | undefined;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -121,6 +125,7 @@ export function MessageComposer({
   onRemoveQuote,
   chief,
   toast,
+  toastAvoidance,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -137,6 +142,11 @@ export function MessageComposer({
   const [emoji, setEmoji] = useState<{ anchor: Element; table?: EmojiTable } | undefined>();
   const editor = useRef<PromptEditorHandle | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
+  // The app's toasts never cover the compose bar and never move it (Leo, 2026-11-07: "The composer
+  // should never ever rise up because there's some sort of ... tooltip type thing"): the bar's box
+  // goes to the host, which lifts its toasts above it, as the agent pane's (toastAvoidance.ts).
+  const [bar, setBar] = useState<HTMLDivElement | null>(null);
+  useEffect(() => (bar && toastAvoidance ? toastAvoidance.report(bar, elementBox) : undefined), [bar, toastAvoidance]);
   /** The files each hand-off group added, by group (a design card's files go back together). */
   const groups = useRef(new Map<string, string[]>());
   const [browse] = useState(() => new ComposerHistory());
@@ -277,7 +287,7 @@ export function MessageComposer({
   }));
 
   return (
-    <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
+    <div ref={setBar} className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
       {toast}
       {notice && (
         <div className={`mt-notice${notice.alert ? " alert" : ""}`} role={notice.alert ? "alert" : "status"}>

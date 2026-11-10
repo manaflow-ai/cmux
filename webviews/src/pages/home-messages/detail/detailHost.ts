@@ -21,10 +21,13 @@
 //                      menu may offer in this conversation (bubbleMenu.ts)
 //   bubble.retryReply {conversation, message}, bubble.forward {text}, bubble.share {text | url},
 //   bubble.file {action, path | attachment {conversation, message, partIndex, part}}: its rows' runs
+//   toastAvoidance {rects: [{left, top, right, bottom}] | []}: the compose bar's box (viewport CSS
+//                      pixels), which the app's toasts rest above (HomePageToastAvoidance.swift)
 // Stop, Stop all agents, Continue, Restart and Start now are transcript/chiefTurn.ts's.
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
+import { toastAvoidanceReports, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import type { HomeConversation } from "../../home-channels/types";
 import { isPageError, type PageClient } from "../../shared/pageClient";
 import type { HeaderPanelState } from "../cards/header/HeaderPanelBar";
@@ -63,6 +66,7 @@ export const DetailOps = {
   bubbleForward: "cmux.home.messages.bubble.forward",
   bubbleShare: "cmux.home.messages.bubble.share",
   bubbleFile: "cmux.home.messages.bubble.file",
+  toastAvoidance: "cmux.home.messages.toastAvoidance",
 } as const;
 
 type Json = Record<string, unknown>;
@@ -380,4 +384,12 @@ export function bubbleHostActions(host: PageClient | null) {
             },
       ),
   };
+}
+
+// ---------- Toast avoidance ----------
+
+/** The compose bars' reports to `host` (toastAvoidance.ts's stack, over this page's own op): the
+ * app's toasts rest above the newest mounted bar, and none once every bar is gone. */
+export function homeToastAvoidance(host: PageClient): ToastAvoidanceReports {
+  return toastAvoidanceReports((rects) => host.call(DetailOps.toastAvoidance, { rects }));
 }
