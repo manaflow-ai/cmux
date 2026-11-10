@@ -102,6 +102,8 @@ struct Written {
     rows: Rows,
     link: Link,
     snapshot_len: u64,
+    /// When the snapshot was written: a replacement of the same length is still found.
+    snapshot_modified: Option<std::time::SystemTime>,
     journal_len: u64,
 }
 
@@ -200,7 +202,10 @@ impl OnDisk {
                 }
                 return Ok(Wrote::default());
             }
-            Plan::Append(line, kept) => self.append(&journal, &line, kept, link),
+            Plan::Append(line, kept) => match self.0.as_mut() {
+                Some(written) => append(written, dir, &journal, &line, kept, link),
+                None => self.compact(&snap, &journal, rows, link),
+            },
             Plan::Compact => self.compact(&snap, &journal, rows, link),
         };
         if result.is_err() {
@@ -208,24 +213,6 @@ impl OnDisk {
             self.0 = None;
         }
         result
-    }
-
-    fn append(
-        &mut self,
-        journal: &Path,
-        line: &[u8],
-        rows: Rows,
-        link: Link,
-    ) -> anyhow::Result<Wrote> {
-        use std::io::Write;
-        let mut file = crate::config::private_state_append(journal)?;
-        file.write_all(line)?;
-        file.sync_data()?;
-        let w = self.0.as_mut().expect("append follows a snapshot");
-        w.journal_len += line.len() as u64;
-        w.rows = rows;
-        w.link = link;
-        Ok(Wrote { snapshot: 0, journal: line.len() as u64 })
     }
 
     fn compact(
@@ -260,19 +247,51 @@ impl OnDisk {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
+        let snapshot_modified = std::fs::metadata(snap).and_then(|m| m.modified()).ok();
         self.0 = Some(Written {
             base,
             rows: rows.into_iter().map(|(key, row)| (key, Kept::new(&row))).collect(),
             link,
             snapshot_len: bytes.len() as u64,
+            snapshot_modified,
             journal_len: 0,
         });
         Ok(Wrote { snapshot: bytes.len() as u64, journal: 0 })
     }
 }
 
+/// Appends `line` to the journal and syncs it; a new journal's directory entry is synced too,
+/// so a power loss does not lose the file the line went to.
+fn append(
+    written: &mut Written,
+    dir: &Path,
+    journal: &Path,
+    line: &[u8],
+    rows: Rows,
+    link: Link,
+) -> anyhow::Result<Wrote> {
+    use std::io::Write;
+    let mut file = crate::config::private_state_append(journal)?;
+    file.write_all(line)?;
+    file.sync_data()?;
+    #[cfg(unix)]
+    if written.journal_len == 0 {
+        std::fs::File::open(dir)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+    written.journal_len += line.len() as u64;
+    written.rows = rows;
+    written.link = link;
+    Ok(Wrote { snapshot: 0, journal: line.len() as u64 })
+}
+
 /// Whether both files are as `written` left them (no other writer, no removal since).
 fn files_are(written: &Written, snap: &Path, journal: &Path) -> bool {
+    let modified = std::fs::metadata(snap).and_then(|m| m.modified()).ok();
+    if modified.is_none() || modified != written.snapshot_modified {
+        return false;
+    }
     let len = |p: &Path| match std::fs::symlink_metadata(p) {
         Ok(m) if m.is_file() => Some(m.len()),
         Ok(_) => None,
@@ -368,7 +387,7 @@ pub(super) fn remove(dir: &Path, peer: &str) {
 /// `peer`'s saved state as JSON, journal applied: what a test reads instead of the snapshot.
 #[cfg(test)]
 pub(crate) fn saved_json(dir: &Path, peer: &str) -> Value {
-    let saved = load(dir, peer).unwrap_or_else(|| panic!("no saved cache for {peer}"));
+    let Some(saved) = load(dir, peer) else { return Value::Null };
     json!({
         "lastSeen": saved.last_seen,
         "downSince": saved.down_since,
