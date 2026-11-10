@@ -13,6 +13,11 @@ import Observation
 /// every tab of the store. What a workspace's observation reads must be that workspace's own (its fields, its tabs, a
 /// cell kept for it): a read of the store's tab index, its workspace list or the whole window registry there is woken
 /// by a tab added in any workspace, once per workspace.
+///
+/// The work after one workspace's change does not grow with the session (the person's session has 826 workspaces): the
+/// changed workspace's favicons arrive as one change (`ObservedItems.Change`), and the table is updated for that
+/// workspace's sites only, from the places that hold each site (``SortedPositions``: the first holder gives the
+/// favicon). Only a change of the workspace list reads the items of every workspace and builds the table again.
 @Observable @MainActor public final class OpenTabFavicons {
     /// One open tab's favicon: its site origin and the favicon address it shows.
     nonisolated public struct Favicon: Equatable, Sendable {
@@ -28,6 +33,10 @@ import Observation
     public private(set) var byOrigin: [String: String] = [:]
     @ObservationIgnored private var observed: ObservedItems<WorkspaceModel, [Favicon]>?
     @ObservationIgnored private var listed: [WorkspaceModel] = []
+    /// Each listed workspace's favicons as its observation handed them out last, in list order.
+    @ObservationIgnored private var items: [[Favicon]] = []
+    /// By site origin: the places in ``items`` that have a favicon of that site.
+    @ObservationIgnored private var holders: [String: SortedPositions] = [:]
     @ObservationIgnored private var listTask: Task<Void, Never>?
 
     public init() {}
@@ -39,13 +48,13 @@ import Observation
                       favicons: @escaping @MainActor @Sendable (WorkspaceModel) -> [Favicon]) {
         guard listTask == nil else { return }
         observed = ObservedItems(item: { workspace in favicons(workspace) }, same: { $0 == $1 },
-                                 changed: { [weak self] in self?.settle() })
+                                 changedItem: { [weak self] change in self?.itemChanged(change) })
         // task-owner: the app's services (live for the app); event-driven (Observation)
         listTask = Task { [weak self] in
             for await models in ObservationStream({ workspaces() }) {
                 guard let self else { return }
                 listed = models
-                settle()
+                listChanged()
             }
         }
     }
@@ -87,11 +96,39 @@ import Observation
         return byOrigin.filter { $0.value != $0.key + "/favicon.ico" }
     }
 
-    /// The listed workspaces' favicons now: only workspaces new to the list are read (their own observations keep the
-    /// rest); the table is written only when it changed.
-    private func settle() {
+    /// The workspace list changed: the listed workspaces' favicons now. Only workspaces new to the list are read (their
+    /// own observations keep the rest), but every listed workspace is visited, so this runs for a list change only. The
+    /// table is written only when it changed.
+    private func listChanged() {
         guard let observed else { return }
-        let table = Self.table(observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }))
+        items = observed.items(for: listed, id: { "\(ObjectIdentifier($0))" })
+        holders = [:]
+        for (position, favicons) in items.enumerated() {
+            for favicon in favicons { holders[favicon.origin, default: SortedPositions()].insert(position) }
+        }
+        let table = Self.table(items)
         if byOrigin != table { byOrigin = table }
+    }
+
+    /// One workspace's favicons changed: the table's entries of that workspace's sites (before and now) are found again
+    /// from the first holder of each site, as ``table(_:)`` gives them. No other workspace is visited.
+    private func itemChanged(_ change: ObservedItems<WorkspaceModel, [Favicon]>.Change) {
+        // A place outside the items kept is a list this owner did not read yet: read it (never keep a wrong table).
+        guard items.indices.contains(change.position) else { return listChanged() }
+        items[change.position] = change.new
+        let before = Set(change.old.map(\.origin))
+        let now = Set(change.new.map(\.origin))
+        for origin in before.subtracting(now) {
+            holders[origin]?.remove(change.position)
+            if holders[origin]?.isEmpty == true { holders[origin] = nil }
+        }
+        for origin in now.subtracting(before) { holders[origin, default: SortedPositions()].insert(change.position) }
+        let origins = before.union(now)
+        ObservationWork.visited(origins.count, "OpenTabFavicons.join")
+        for origin in origins {
+            let address = holders[origin]?.first.flatMap { first in items[first].first { $0.origin == origin }?.address }
+            let shown = address == origin + "/favicon.ico" ? nil : address
+            if byOrigin[origin] != shown { byOrigin[origin] = shown }
+        }
     }
 }

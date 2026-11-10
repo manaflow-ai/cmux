@@ -71,7 +71,7 @@ fn a_plain_copy_leaves_credential_folders_and_files_here() {
     for relative in kept {
         write(&top, relative);
     }
-    let set = collect(&top, Rules::Copy).unwrap();
+    let set = collect(&top, Rules::Copy, None).unwrap();
     for relative in secrets {
         assert!(!set.files.contains_key(relative), "{relative} went: {:?}", set.files.keys());
     }
@@ -100,6 +100,7 @@ fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
             skipped: 0,
             skips: Skips::new(&top),
             git: false,
+            cap: None,
         };
         // As the walk descends into a name it listed as a folder.
         let _ = walk_plain(&mut set, Rules::Copy, &|_| true, &top, &dir);
@@ -132,6 +133,7 @@ fn an_entry_of_an_open_folder_swapped_away_is_read_through_its_descriptor() {
         skipped: 0,
         skips: Skips::new(&top),
         git: false,
+        cap: None,
     };
     let path = top.join("a/link");
     entry_in(&mut set, Rules::Copy, "a/link", &path, &handle, "link", place::Entry::Link).unwrap();
@@ -213,7 +215,7 @@ fn a_symlinked_git_config_goes_as_the_file_it_names() {
     let (config, real) = (repo.join(".git/config"), root.join("dotfiles-config"));
     std::fs::rename(&config, &real).unwrap();
     let config_text =
-        |repo: &Path| match collect(repo, Rules::Copy).unwrap().files.remove(".git/config") {
+        |repo: &Path| match collect(repo, Rules::Copy, None).unwrap().files.remove(".git/config") {
             Some(LocalFile { source: super::Source::Bytes(bytes), .. }) => {
                 String::from_utf8(bytes).unwrap()
             }
@@ -269,7 +271,7 @@ fn a_stray_file_in_a_borrowed_store_stays_here() {
     git(&root, &["clone", "-q", "--shared", "base", "copy"]);
     let copy = root.join("copy");
 
-    let set = collect(&copy, Rules::Copy).unwrap();
+    let set = collect(&copy, Rules::Copy, None).unwrap();
     let borrowed: Vec<&str> =
         set.files.keys().filter_map(|path| path.strip_prefix(".git/objects/")).collect();
     assert!(

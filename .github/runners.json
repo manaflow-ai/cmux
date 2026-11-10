@@ -425,6 +425,7 @@
       "class": "apple-ios",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
+    "ios-reliability-matrix.yml#ios": "apple-ios",
     "ios-screenshots.yml#screenshots": "apple-ios",
     "ios-streamed-validate.yml#validate": {
       "class": "apple-ios",
