@@ -178,6 +178,47 @@ mod tests {
         assert_eq!(boxed.get(1).map(|option| option.label.as_str()), Some("No, exit"));
     }
 
+    /// W6-B (bench round 5 orchestration row 3): Claude Code 2.1.321 draws
+    /// its choices without numbers, the cursor on one row and the others
+    /// indented to the same column. They are read in screen order (`number`
+    /// is the position), in a box too, and the accept keys move the cursor.
+    #[test]
+    fn w6bc_unnumbered_cursor_rows_are_options() {
+        let screen = " Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n \
+                      Enter to confirm · Esc to cancel";
+        let read = options(screen);
+        assert_eq!(
+            read,
+            [
+                DialogOption { number: 1, label: "No, exit".into(), selected: true },
+                DialogOption {
+                    number: 2,
+                    label: "Yes, I trust this folder".into(),
+                    selected: false,
+                },
+            ]
+        );
+        assert_eq!(accept_keys(&read), Some(vec!["down", "enter"]));
+        assert_eq!(accept_label(&read), Some("Yes, I trust this folder"));
+        let boxed = options(
+            "│ Pick one        │\n│   Later         │\n│ ❯ Yes, go on    │\n│   No            │",
+        );
+        let labels: Vec<&str> = boxed.iter().map(|option| option.label.as_str()).collect();
+        assert_eq!(labels, ["Later", "Yes, go on", "No"]);
+        assert_eq!(accept_keys(&boxed), Some(vec!["enter"]));
+    }
+
+    /// W6-B: an agent's input box (a prompt mark with a rule above or
+    /// below), its wrapped echo and a lone cursor row are no options.
+    #[test]
+    fn w6bc_an_input_box_or_a_lone_cursor_row_is_no_options() {
+        let composer =
+            "────────────────\n❯ fix the test\n  and the build\n────────────────\n  ? for help";
+        assert!(options(composer).is_empty());
+        assert!(options(" ❯ Only one choice\n\n Enter to confirm").is_empty());
+        assert!(options(" ❯ No, exit\n     deeper indent is no sibling").is_empty());
+    }
+
     /// W5-Q review (PR C): the folder-trust reason is localized, names the
     /// terminal (never the placeholder `NAME`), names the option the keys
     /// pick, and warns when that option also turns approvals off (a Codex
