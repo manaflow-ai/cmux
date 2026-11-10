@@ -38,6 +38,9 @@ use serde_json::{Value, json};
 use super::agents::turn::{self, Begin};
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_cloud_start_core::machine_repo::Repo;
+
+mod local_repo;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &[
@@ -48,6 +51,7 @@ const TAKES_VALUE: &[&str] = &[
     "--harness",
     "--model",
     "--cwd",
+    "--repo",
     "--name",
     "--timeout",
     "--attach",
@@ -92,8 +96,8 @@ const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODEL]
-                 [--cwd DIR] [--name NAME] [--attach FILE]... [--wait] [--timeout SECONDS]
-                 [--json] [[--prompt] TEXT]
+                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
+                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -119,6 +123,10 @@ Starts an agent chat, right here unless --on names another target:
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (a chat here)
   --cwd DIR          The chat's folder (absolute)
+  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
+                     git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
+                     with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
+                     a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
   --wait             Wait for the chat's turn to end and print the reply
@@ -127,6 +135,7 @@ Starts an agent chat, right here unless --on names another target:
 EXAMPLES
   cmux chat 'Summarize README.md'
   cmux chat --prompt 'Summarize README.md' --wait --json
+  cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
@@ -153,6 +162,8 @@ pub(super) struct Start {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+    /// `--repo`: the repository a chat here starts in a clone of (local_repo.rs).
+    pub repo: Option<Repo>,
     pub name: Option<String>,
     pub prompt: Option<String>,
     /// `--attach` files for the first prompt (a chat here; a Cloud chat refuses them).
@@ -234,6 +245,7 @@ pub(super) fn parse_with(
         agent: None,
         model: None,
         cwd: None,
+        repo: None,
         name: None,
         prompt: None,
         attach: Vec::new(),
@@ -293,6 +305,12 @@ pub(super) fn parse_with(
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
             "--cwd" => start.cwd = Some(value()?),
+            "--repo" => {
+                if start.repo.is_some() {
+                    return Err(UsageError::new("give --repo once"));
+                }
+                start.repo = Some(local_repo::parse(value()?.trim()).map_err(UsageError::new)?);
+            }
             "--name" => start.name = Some(value()?),
             "--attach" => start.attach.push(value()?),
             "--environment" => {
@@ -624,6 +642,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
+    // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
+    if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
+        return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+    }
     let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
@@ -631,6 +653,29 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     let route = match in_environment(&start, route) {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
+    };
+    let start = match route {
+        // Every other argument is checked before anything is cloned.
+        // So are the files `--attach` names: the start below refuses the same ones.
+        Route::Here
+            if start.repo.is_some()
+                && (here_preflight(&start).is_err()
+                    || super::agents::chat_control::checked_attachments(&start.attach)
+                        .is_err()) =>
+        {
+            start
+        }
+        Route::Here => match in_repo(start, global.output) {
+            Ok(start) => start,
+            Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
+            Err(Failure::Repo(error)) => {
+                return super::wire::print_local_error(&error, global.output, 1);
+            }
+        },
+        Route::Cloud(_) if start.repo.is_some() => {
+            return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+        }
+        Route::Cloud(_) => start,
     };
     match route {
         Route::Here => match here_wait(&start) {
@@ -662,6 +707,48 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Err(error) => usage_failure(&error, global.output),
         },
     }
+}
+
+/// Whether target `on` is a Cloud selector (`cloud`, `vm`, `vm:…`), never a chat here.
+pub(super) fn names_cloud(on: &str) -> bool {
+    on == "cloud" || on == "vm" || on.starts_with("vm:")
+}
+
+/// Why [`in_repo`] started nothing.
+enum Failure {
+    Usage(UsageError),
+    Repo(Value),
+}
+
+const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
+     repository with cmux chat cd SESSION --repo REPO once it has started";
+
+/// `start` with `--repo`'s clone made (or found) and its folder as the chat's `--cwd`; without
+/// `--repo`, `start` as it is. `--cwd` with `--repo` names where the clone goes.
+fn in_repo(mut start: Start, output: OutputMode) -> Result<Start, Failure> {
+    let Some(repo) = start.repo.clone() else { return Ok(start) };
+    let dir = match &start.cwd {
+        Some(cwd) if std::path::Path::new(cwd).is_absolute() => std::path::PathBuf::from(cwd),
+        Some(cwd) => {
+            return Err(Failure::Usage(UsageError::new(format!(
+                "--cwd {cwd}: give the clone's folder as an absolute path"
+            ))));
+        }
+        None => {
+            let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+                return Err(Failure::Usage(UsageError::new(
+                    "--repo clones into ~/cmux/repos, but HOME is not set; give --cwd DIR",
+                )));
+            };
+            local_repo::default_dir(std::path::Path::new(&home), &repo)
+        }
+    };
+    if output == OutputMode::Human {
+        eprintln!("cmux: {} in {}", repo.display(), dir.display());
+    }
+    local_repo::ensure(&repo.url(), repo.r#ref.as_deref(), &dir).map_err(Failure::Repo)?;
+    start.cwd = Some(dir.to_string_lossy().into_owned());
+    Ok(start)
 }
 
 /// Where `start` runs. An environment makes the chat's machine, so `--on cloud --environment`
@@ -770,6 +857,21 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
     Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
 }
 
+/// Every check a chat here makes of its arguments before it starts, run before `--repo` clones
+/// anything: the wait's, and `agents chat new`'s own (`parse_new`). The prompt is not read from
+/// stdin for it; the start reads it once.
+pub(super) fn here_preflight(start: &Start) -> Result<(), UsageError> {
+    here_wait(start)?;
+    let mut checked = start.clone();
+    if checked.cwd.is_none() && checked.repo.is_some() {
+        // The clone's folder, which is absolute: `--repo`'s own.
+        checked.cwd = Some("/".to_owned());
+    }
+    let words = new_words(&checked, checked.prompt.clone())?;
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    super::agents::chat_control::parse_new(&words).map(drop)
+}
+
 /// `agents chat new …` with this start's settings, after the same globals.
 pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>, UsageError> {
     let mut words = prefix.to_vec();
@@ -780,6 +882,15 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
 
 /// The words after `agents chat new` for this start (`-` read from stdin now).
 pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
+    let prompt = match &start.prompt {
+        Some(prompt) if prompt == "-" => Some(read_stdin().map_err(UsageError::new)?),
+        prompt => prompt.clone(),
+    };
+    new_words(start, prompt)
+}
+
+/// [`new_args`] with `prompt` as the prompt's text.
+fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, UsageError> {
     let mut words = Vec::new();
     for (flag, value) in [
         ("--harness", &start.agent),
@@ -793,9 +904,7 @@ pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
     }
     // Inline, so a path that starts with `-` stays a path.
     words.extend(start.attach.iter().map(|file| format!("--attach={file}")));
-    if let Some(prompt) = &start.prompt {
-        let prompt =
-            if prompt == "-" { read_stdin().map_err(UsageError::new)? } else { prompt.clone() };
+    if let Some(prompt) = prompt {
         words.extend(["--".to_owned(), prompt]);
     }
     Ok(words)

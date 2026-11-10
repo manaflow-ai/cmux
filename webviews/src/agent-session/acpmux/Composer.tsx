@@ -1,12 +1,21 @@
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind, OffloadKind } from "./environments";
+import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -100,6 +109,7 @@ import {
   noteDraftHeld,
   noteDraftSent,
   readDurableDraftState,
+  readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
   useDraftActionsVersion,
@@ -107,6 +117,7 @@ import {
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
+import { sendsHeldForHost } from "./sendWhenReady";
 import { remoteComposer } from "./remoteEditing";
 import { UsageRingMenu } from "./composerChrome";
 import { useComposerChrome } from "./composerChromeModel";
@@ -260,6 +271,9 @@ export type ComposerWake = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The chat's saved draft was read into the prompt, or acpmux answered that it can't say: the
+  /// prompt holds what it will hold, so the last launch's copy may give way (App.tsx, firstPaint.ts).
+  onDraftSettled?(sessionId: string): void;
   /// The harnesses the @ menu offers as read-only guests: only where the chat's daemon serves
   /// them (App's `guestsHere`). Undefined: none.
   guestHarnesses?: AcpmuxSnapshot["catalog"];
@@ -402,6 +416,8 @@ type Props = {
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (see ComposerContext).
+  offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
@@ -493,6 +509,7 @@ function ComposerFrame({
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
+  onDraftSettled,
   onTyping,
   onPromptEdit,
   onSuggestionTaken,
@@ -518,6 +535,7 @@ function ComposerFrame({
   onConnect,
   onOffload,
   offloads,
+  offloadReasons,
   onRefreshMachines,
   folderNote,
   runMode,
@@ -546,6 +564,8 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
+  // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
+  const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
   // (peerLink.ts).
   const machineLink = peerLink(snapshot);
@@ -1148,6 +1168,9 @@ function ComposerFrame({
     let current = true;
     void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
+      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+      // drafts, a dropped read): not while no client can ask yet.
+      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
       // acpmux did not answer (its action map not installed yet, a connection that failed or
       // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
       // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
@@ -1166,7 +1189,7 @@ function ComposerFrame({
     return () => {
       current = false;
     };
-  }, [sessionId, draftActionsVersion]);
+  }, [sessionId, draftActionsVersion, onDraftSettled]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
@@ -2349,6 +2372,7 @@ function ComposerFrame({
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
       {...(offloads ? { offloads } : {})}
+      {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
@@ -2620,7 +2644,7 @@ function ComposerFrame({
         pending={pending}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
-        attachError={attachError}
+        attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));

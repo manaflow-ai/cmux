@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts"
-import { poolsMachineTime } from "./billing-catalog.ts"
+import { markupPriceVersion, poolsMachineTime } from "./billing-catalog.ts"
 import { usagePriceSet } from "./billing-usage-sync.ts"
 import { readRawBody, timingSafeEqual } from "./ingress/verify.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
@@ -13,11 +13,15 @@ import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
  *
  * A shared team is named by its sign-in service team id, a personal team by its owner's user id;
  * this route maps them to team ids (domains/user.ts), so the mapping has one implementation. The
- * answer per item is the sum of the team's AI spend facts recorded in [from, to), in integer
- * micro-dollars (UsageMeterDO.level). Read only. The route does not exist (404) without the key.
+ * answer per item is the period's level as the usage sync bills it, in integer micro-dollars
+ * (UsageMeterDO.billedLevel): `micros` the billed level (under price set v2 the model overage above the
+ * pool at list + 10%, Leo 2026-11-09; the sum of the facts at cost under v1 and e2e), `cost_micros` the
+ * facts at cost, `included_micros` the pool the sync used (null for a period it never saw), and
+ * `meter_micros` what the Stripe meter summary should show (per seat the billed level above the pool).
+ * Read only. The route does not exist (404) without the key.
  */
 export const BILLING_LEVELS_PATH = "/v1/internal/billing/levels"
-/** The pricing of every AI usage level: pass-through cost (Lawrence 2026-10-13). A price change is a new version. */
+/** The pricing of an AI usage level under v1 and e2e: pass-through cost (Lawrence 2026-10-13); v2 names its markup (usagePriceVersion). A price change is a new version. */
 export const AI_PRICE_VERSION = "ai-passthrough-v1"
 const MAX_ITEMS = 100
 const MAX_BODY = 64 * 1024
@@ -71,8 +75,9 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
   const levels = await Promise.all(
     items.map(async (item) => {
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(item.team))
-      const l = await meter.level(item.team, item.from, item.to, poolsMachineTime(usagePriceSet(env)))
-      return { ...item, micros: l.micros, facts: l.facts, last_at: l.last_at, price_version: AI_PRICE_VERSION }
+      const l = await meter.billedLevel(item.team, item.from, item.to, poolsMachineTime(usagePriceSet(env)))
+      // The period's pinned markup names the version; pass-through keeps the version this read has always named.
+      return { ...item, micros: l.micros, cost_micros: l.cost_micros, models_micros: l.models_micros, machine_micros: l.machine_micros, included_micros: l.included_micros, meter_micros: l.meter_micros, markup_bp: l.markup_bp, facts: l.facts, last_at: l.last_at, price_version: l.markup_bp === 10_000 ? AI_PRICE_VERSION : markupPriceVersion(l.markup_bp) }
     })
   ).catch((e: unknown) => {
     console.error(JSON.stringify({ msg: "billing.levels.meter_failed", error: String(e).slice(0, 160) }))
