@@ -111,6 +111,7 @@ export interface AcpmuxRequests {
   "_acpmux/process/background": { params: ProcessBackgroundParams; result: ProcessBackgroundResult };
   "_acpmux/worktree/report": { params: unknown; result: unknown };
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
+  "_acpmux/worktree/free_stale": { params: unknown; result: unknown };
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/kill": { params: KillParams; result: unknown };
@@ -456,6 +457,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/process/background", kind: "request", acp: false, typed: true },
   { name: "_acpmux/worktree/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/worktree/free_stale", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/retention", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },

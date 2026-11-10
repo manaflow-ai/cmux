@@ -760,6 +760,10 @@ pub mod method {
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
+    /// Session Info's Storage: `{only}` -> the pass's report, freeing only those folders and only
+    /// while stale. Its own method, so a daemon from before it refuses it rather than running
+    /// `clean` without `staleOnly`.
+    pub const MUX_WORKTREE_FREE_STALE: &str = "_acpmux/worktree/free_stale";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?}` -> the pass's report.

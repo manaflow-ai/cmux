@@ -783,6 +783,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/worktree/free_stale",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/restore",
       "params": true,
       "result": true

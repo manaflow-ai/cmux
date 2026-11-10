@@ -167,7 +167,7 @@ test("a less-used section dragged above the line stays in view", async () => {
 });
 
 test("tuckedSections: what the order puts under the line", () => {
-  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["changes", "usage", "connectors"]);
+  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["changes", "usage", "connectors", "storage"]);
   // Usage moved above the line: placed by the person; Sources moved under it: tucked.
   const moved = [
     "environment",

@@ -401,6 +401,9 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
         measure: true,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
@@ -543,6 +546,9 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
         measure: false,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     pass::run(&options, &store).unwrap();
@@ -594,10 +600,198 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
         measure: false,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     assert_eq!(item.verdict.action, Action::Keep, "{}", item.verdict.reason);
     assert!(wt.exists());
+}
+
+/// A branch in its own worktree, pushed, then merged into origin/main.
+fn merged_worktree(main: &Path, wt: &Path, branch: &str) {
+    git(main, &["worktree", "add", "-q", "-b", branch, wt.to_str().unwrap()]);
+    write(&wt.join(format!("{}.txt", branch.replace('/', "-"))), "done\n");
+    git(wt, &["add", "."]);
+    git(wt, &["commit", "-qm", branch]);
+    git(wt, &["push", "-q", "origin", &format!("HEAD:{branch}")]);
+    git(main, &["merge", "-q", "--no-ff", "-m", &format!("merge {branch}"), branch]);
+    git(main, &["push", "-q", "origin", "HEAD:main"]);
+    git(main, &["fetch", "-q", "origin"]);
+}
+
+/// The Storage panel's frees (`stale_only`) over three merged worktrees:
+/// a dirty one, one a live chat works in, and a clean idle one. Only the
+/// last is stale, measured and freed; the others stay whole.
+#[test]
+fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones() {
+    let (base, main) = repository("stale");
+    let dirty = base.join("wt-dirty");
+    let live = base.join("wt-live");
+    let done = base.join("wt-done");
+    merged_worktree(&main, &dirty, "feat/dirty");
+    merged_worktree(&main, &live, "feat/live");
+    merged_worktree(&main, &done, "feat/done");
+    write(&dirty.join("notes.md"), "not committed\n");
+    // A clean, pushed worktree whose branch never merged: not stale either.
+    let unmerged = base.join("wt-unmerged");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/open-pr", unmerged.to_str().unwrap()]);
+    write(&unmerged.join("pr.txt"), "in review\n");
+    git(&unmerged, &["add", "."]);
+    git(&unmerged, &["commit", "-qm", "open pr"]);
+    git(&unmerged, &["push", "-q", "-u", "origin", "HEAD:feat/open-pr"]);
+    let zero = [0, 0, 0];
+    let options = |apply: bool, only: Vec<PathBuf>| Options {
+        roots: vec![base.clone()],
+        sessions: vec![cmux_worktree_care::policy::Session {
+            name: "chat".into(),
+            cwd: live.clone(),
+            open: true,
+            updated_ms: 0,
+        }],
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        apply,
+        pressure: Some(Pressure::Critical),
+        only,
+        measure: !apply,
+        stale_only: true,
+        measure_budget: Some(std::time::Duration::from_secs(20)),
+        sessions_now: None,
+    };
+    let store = Store::open(base.join("store")).unwrap();
+
+    let report = pass::run(&options(false, Vec::new()), &store).unwrap();
+    let item = |path: &Path| report.items.iter().find(|i| i.path == path).unwrap();
+    assert!(item(&done).stale, "{}", item(&done).verdict.reason);
+    assert!(item(&done).bytes.is_some_and(|b| b > 0), "the stale one is measured");
+    for path in [&dirty, &live, &unmerged] {
+        assert!(!item(path).stale, "{}: {}", path.display(), item(path).verdict.reason);
+        assert!(item(path).bytes.is_none(), "{} is not measured", path.display());
+    }
+    assert_eq!(item(&live).verdict.action, Action::Keep);
+    assert_eq!(report.reclaimable, item(&done).bytes.unwrap());
+
+    // Asked to free all four by folder, it frees only the stale one.
+    let every = vec![dirty.clone(), live.clone(), done.clone(), unmerged.clone()];
+    let freed = pass::run(&options(true, every), &store).unwrap();
+    let outcome = freed.items.iter().find(|i| i.path == done).unwrap().outcome.as_ref().unwrap();
+    assert!(outcome.ok, "{:?}", outcome.error);
+    assert!(!done.exists(), "the merged clean worktree is freed");
+    assert!(git(&main, &["worktree", "list"]).lines().all(|l| !l.contains("wt-done")));
+    assert!(dirty.join("notes.md").exists(), "the dirty worktree is untouched");
+    assert!(live.exists() && unmerged.exists());
+    for path in [&dirty, &live, &unmerged] {
+        let skipped = freed.items.iter().find(|i| i.path == *path).unwrap();
+        assert!(skipped.outcome.is_none(), "{} was not acted on", path.display());
+    }
+}
+
+/// A chat that opens in a stale worktree after the scan, before the free
+/// reaches it, keeps it: the pass reads the live sessions again right
+/// before each removal (`sessions_now`).
+#[test]
+fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
+    let (base, main) = repository("late-chat");
+    let wt = base.join("wt-late");
+    merged_worktree(&main, &wt, "feat/late");
+    let zero = [0, 0, 0];
+    let late = wt.clone();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: vec![wt.clone()],
+        measure: false,
+        stale_only: true,
+        measure_budget: None,
+        sessions_now: Some(Arc::new(move || {
+            vec![cmux_worktree_care::policy::Session {
+                name: "late".into(),
+                cwd: late.clone(),
+                open: true,
+                updated_ms: 0,
+            }]
+        })),
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = report.items.iter().find(|i| i.path == wt).unwrap();
+    assert!(item.stale, "stale at the scan: {}", item.verdict.reason);
+    let outcome = item.outcome.as_ref().expect("acted on");
+    assert!(!outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("late")), "{outcome:?}");
+    assert!(wt.exists(), "the late chat's worktree stays");
+}
+
+#[test]
+fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
+    let (base, main) = repository("archiving-chat");
+    let wt = base.join("wt-archiving");
+    merged_worktree(&main, &wt, "feat/archiving");
+    let zero = [0, 0, 0];
+    let late = wt.clone();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = reads.clone();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: vec![wt.clone()],
+        measure: false,
+        stale_only: true,
+        measure_budget: None,
+        // No chat when the free decides again; one by the time the folder
+        // would go.
+        sessions_now: Some(Arc::new(move || {
+            if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return Vec::new();
+            }
+            vec![cmux_worktree_care::policy::Session {
+                name: "archiving".into(),
+                cwd: late.clone(),
+                open: true,
+                updated_ms: 0,
+            }]
+        })),
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = report.items.iter().find(|i| i.path == wt).unwrap();
+    let outcome = item.outcome.as_ref().expect("acted on");
+    assert!(
+        !outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("while it was archived")),
+        "{outcome:?}"
+    );
+    assert!(reads.load(std::sync::atomic::Ordering::SeqCst) >= 2, "read again before removal");
+    assert!(wt.exists(), "the chat's worktree stays");
 }

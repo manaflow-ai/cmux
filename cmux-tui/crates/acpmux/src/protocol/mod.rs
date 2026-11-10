@@ -286,6 +286,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
+        untyped(method::MUX_WORKTREE_FREE_STALE, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),

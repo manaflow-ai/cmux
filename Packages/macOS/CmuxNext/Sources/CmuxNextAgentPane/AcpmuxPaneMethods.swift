@@ -154,6 +154,13 @@ nonisolated enum AcpmuxPaneMethods {
         // backgroundWork) of a chat in the pane's scope: they stop or move work like `_acpmux/kill`,
         // so no gesture. A kill names its chat; acpmux stops only that chat's process.
         "_acpmux/process/kill", "_acpmux/process/background",
+        // Session Info's Storage (direct.ts worktreeReport, cleanWorktrees): this Mac's stale
+        // worktrees (clean, merged, no live chat in them) and their sizes, and freeing the ones the
+        // person checked. free_stale acts on nothing else and checks each again right before
+        // `git worktree remove`; an acpmux from before it refuses it, never running an unscoped
+        // `clean`. acpmux serves both only to this Mac's clients (server/worktrees.rs). Free
+        // removes folders, so it needs the person's click.
+        "_acpmux/worktree/report", "_acpmux/worktree/free_stale",
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
@@ -400,6 +407,9 @@ nonisolated enum AcpmuxPaneMethods {
         // match the facts against its offer, so Accept and Dismiss go only on the person's click
         // (direct.ts resolveMemory sends with no await before it).
         "_acpmux/memory_resolve": .always,
+        // Storage's Free removes worktrees, so only on the person's click (direct.ts cleanWorktrees
+        // sends with no await before it).
+        "_acpmux/worktree/free_stale": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

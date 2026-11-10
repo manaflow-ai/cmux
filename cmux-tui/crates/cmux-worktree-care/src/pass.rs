@@ -39,7 +39,20 @@ pub struct Options {
     pub only: Vec<PathBuf>,
     /// Measure the bytes each worktree a pass would act on takes.
     pub measure: bool,
+    /// Act only on stale worktrees (`policy::stale`), and measure only
+    /// them: the Storage panel's frees, which never touch work in progress.
+    pub stale_only: bool,
+    /// How long measuring may take in all; worktrees after it go
+    /// unmeasured (`bytes` absent). None: no limit but `MEASURE` each.
+    pub measure_budget: Option<std::time::Duration>,
+    /// The sessions as they are now, read again right before each action
+    /// (the daemon's live list): a chat that opened in a worktree while the
+    /// pass scanned and measured keeps it. `sessions` is the scan's.
+    pub sessions_now: Option<Arc<SessionsNow>>,
 }
+
+/// Reads the sessions as they are now (`Options::sessions_now`).
+pub type SessionsNow = dyn Fn() -> Vec<Session> + Send + Sync;
 
 /// One worktree's line in a report.
 #[derive(Debug, Serialize)]
@@ -59,6 +72,8 @@ pub struct Item {
     /// With `apply`: what happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<Outcome>,
+    /// Clean, finished and used by nothing live (`policy::stale`).
+    pub stale: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +134,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         expired: Vec::new(),
     };
     let now = now_ms();
+    let measure_until = options.measure_budget.map(|budget| std::time::Instant::now() + budget);
     let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
     for common in repositories {
         let repo = match inventory::scan_with_memo(&common, &[], Arc::clone(&finished)) {
@@ -134,7 +150,9 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 continue;
             }
             if worktree.prunable {
-                if options.apply && !pruned {
+                // A stale-only pass touches only the folders it was given:
+                // `git worktree prune` is repository-wide.
+                if options.apply && !pruned && !options.stale_only {
                     pruned = true;
                     let _ = crate::git::user_git(
                         repo.main_root.as_deref().unwrap_or(&repo.common_dir),
@@ -157,10 +175,13 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 now,
             );
             let facts = worktree.facts.as_ref().ok();
-            let bytes = (options.measure && verdict.action != Action::Keep)
-                .then(|| measure(worktree, verdict.action, facts));
+            let stale = policy::stale(&verdict, facts);
+            let acts = verdict.action != Action::Keep && (stale || !options.stale_only);
+            let in_budget = measure_until.is_none_or(|until| std::time::Instant::now() < until);
+            let bytes = (options.measure && acts && in_budget)
+                .then(|| measure(worktree, verdict.action, facts, measure_until));
             report.reclaimable += bytes.unwrap_or(0);
-            let outcome = (options.apply && verdict.action != Action::Keep)
+            let outcome = (options.apply && acts)
                 .then(|| outcome(act(&repo, &worktree.path, &verdict, options, pressure, store)));
             if let Some(outcome) = &outcome {
                 report.freed += outcome.freed;
@@ -173,6 +194,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 facts: facts.cloned(),
                 bytes,
                 outcome,
+                stale,
             });
         }
     }
@@ -200,10 +222,14 @@ fn act(
 ) -> Result<(u64, Option<String>), String> {
     let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;
+    let mut sessions = options.sessions.clone();
+    if let Some(now) = &options.sessions_now {
+        sessions.extend(now());
+    }
     let verdict = policy::decide(
         &fresh,
         repo.main_root.as_deref(),
-        &options.sessions,
+        &sessions,
         &processes,
         pressure,
         &options.settings,
@@ -213,10 +239,13 @@ fn act(
         return Err(format!("it changed since the scan ({}); it stays", verdict.reason));
     }
     let facts = fresh.facts.as_ref().map_err(Clone::clone)?;
+    if options.stale_only && !policy::stale(&verdict, Some(facts)) {
+        return Err(format!("it is no longer stale ({}); it stays", verdict.reason));
+    }
     match verdict.action {
         Action::Keep => Ok((0, None)),
         Action::Trim => archive::trim(&fresh, facts, &*options.uses).map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive => archive::reclaim(
+        Action::Reclaim | Action::Archive => archive::reclaim_unless(
             repo,
             &fresh,
             facts,
@@ -225,6 +254,14 @@ fn act(
             store,
             &*options.uses,
             &*options.open,
+            // Archiving can take minutes: the chats are read once more
+            // right before the folder goes.
+            &|| {
+                let now = options.sessions_now.as_ref()?;
+                now().into_iter().find(|s| s.open && policy::inside(&s.cwd, &fresh.path)).map(|s| {
+                    format!("session {} opened in it while it was archived", s.name)
+                })
+            },
         )
         .map(|manifest| (manifest.freed, Some(manifest.id))),
     }
@@ -236,8 +273,10 @@ fn measure(
     worktree: &inventory::Worktree,
     action: Action,
     facts: Option<&inventory::Facts>,
+    until: Option<std::time::Instant>,
 ) -> u64 {
-    let deadline = std::time::Instant::now() + MEASURE;
+    let own = std::time::Instant::now() + MEASURE;
+    let deadline = until.map_or(own, |until| until.min(own));
     let parts: Vec<PathBuf> = facts
         .map(|f| f.build_output.iter().map(|p| PathBuf::from(p.trim_end_matches('/'))).collect())
         .unwrap_or_default();

@@ -45,6 +45,10 @@ pub const SETTING_AUTO_CLEANUP: &str = "worktrees.autoCleanup";
 
 const MINUTE_MS: u64 = 60 * 1000;
 
+/// How long a Storage panel report may spend measuring stale worktrees in
+/// all: the rest show no size rather than hold the panel.
+const STALE_MEASURE_BUDGET: Duration = Duration::from_secs(20);
+
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
 
@@ -142,7 +146,7 @@ impl Hub {
         });
     }
 
-    async fn care_if_due(&self, why: &'static str) {
+    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
@@ -177,7 +181,7 @@ impl Hub {
         .flatten();
         let Some(claim) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
-        match self.care_run(claim, true, Vec::new()).await {
+        match self.care_run(claim, true, Vec::new(), false).await {
             Ok(report) => tracing::info!(
                 why,
                 freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -187,12 +191,16 @@ impl Hub {
         }
     }
 
-    /// `_acpmux/worktree/report` and `_acpmux/worktree/clean`: a pass now,
+    /// `_acpmux/worktree/report`, `clean` and `free_stale`: a pass now,
     /// acting with `apply`. A report-only pass measures what would be freed.
+    /// With `stale_only` (the Storage panel) it acts on and measures only
+    /// stale worktrees (`policy::stale`), measuring for at most
+    /// `STALE_MEASURE_BUDGET` in all.
     pub(crate) async fn care_pass(
         self: &Arc<Self>,
         apply: bool,
         only: Vec<PathBuf>,
+        stale_only: bool,
     ) -> Result<Value, RpcError> {
         let busy = || RpcError::internal("a worktree cleanup pass or report is already running");
         let Some(_running) = Running::claim(&CARE.running) else { return Err(busy()) };
@@ -211,20 +219,31 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))??;
-        self.care_run(claim, apply, only).await
+        self.care_run(claim, apply, only, stale_only).await
     }
 
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        &self,
+        self: &Arc<Self>,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
+        stale_only: bool,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
         let live = self.care_sessions();
         let daemon_home = crate::config::home();
+        // Read again before each removal, this daemon's chats and every other
+        // daemon's on disk: a chat may open in a worktree while the pass
+        // scans or archives. Weak: a pass never keeps the hub.
+        let hub = Arc::downgrade(self);
+        let (now_home, now_daemon) = (home.clone(), daemon_home.clone());
+        let sessions_now: Arc<pass::SessionsNow> = Arc::new(move || {
+            let mut sessions = hub.upgrade().map(|hub| hub.care_sessions()).unwrap_or_default();
+            sessions.extend(crate::worktree_sessions::on_disk(&now_home, Some(&now_daemon)));
+            sessions
+        });
         let report = tokio::task::spawn_blocking(move || {
             let mut sessions = live;
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
@@ -241,6 +260,9 @@ impl Hub {
                 pressure: None,
                 only,
                 measure: !apply,
+                stale_only,
+                measure_budget: stale_only.then_some(STALE_MEASURE_BUDGET),
+                sessions_now: Some(sessions_now),
             };
             let store = archive_store()?;
             let report = pass::run(&options, &store);
