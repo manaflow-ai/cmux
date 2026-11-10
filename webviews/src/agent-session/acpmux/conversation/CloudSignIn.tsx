@@ -9,14 +9,22 @@
 // token). Where the host cannot open that tab (WebKit, a machine without remote localhost), and on
 // "Paste a code instead", Claude's other page gives a code to paste back. Codex's page asks for the
 // code the card shows, copied on the start. Use an API key, a link
-// beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
-// person's click.
+// beside it, saves one on the machine instead. Grok signs in like Codex (a page and a code) and takes
+// no saved key, so it has no Use an API key; Gemini takes a key only, so Use an API key is its one
+// button. Once signed in, the failed prompt goes again on the person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
-import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
+import {
+  LoginStepError,
+  signsInByPage,
+  takesApiKey,
+  type CloudSignIn as SignIn,
+  type LoginFailure,
+  type LoginStart,
+} from "../cloudAgentLogin";
 import { cancelResize, playResize } from "./fold";
 import { motionMode } from "../../../ui/motion/motionMode";
 
@@ -32,8 +40,13 @@ type Stage =
   | { at: "sent" }
   | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
 
-/// What the card's lead says: the agent's own name, as the person knows it.
-const SIGN_IN_LABEL = { claude: "turn.signIn.claude", codex: "turn.signIn.codex" } as const;
+/// What the card's lead says: the agent's own name, as the person knows it. Gemini has no sign-in
+/// page here (a key only).
+const SIGN_IN_LABEL = {
+  claude: "turn.signIn.claude",
+  codex: "turn.signIn.codex",
+  grok: "turn.signIn.grok",
+} as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   bad_code: "turn.signIn.error.badCode",
@@ -298,30 +311,45 @@ export function CloudSignIn({
     </button>
   );
 
+  // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok).
+  const agent = signIn.agent;
+  const pageLabel = agent === "gemini" ? undefined : SIGN_IN_LABEL[agent];
+  const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
+  const offersKey = takesApiKey(agent);
   switch (stage.at) {
     case "idle":
     case "starting":
+      if (!offersPage && !offersKey) return null;
       return (
         <>
-          {!keyOnly && (
+          {offersPage && pageLabel && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
               disabled={stage.at === "starting"}
               onClick={start}
             >
-              {t(SIGN_IN_LABEL[signIn.agent])}
+              {t(pageLabel)}
             </button>
           )}
-          <button
-            type="button"
-            // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
-            className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
-            disabled={stage.at === "starting"}
-            onClick={() => setStage({ at: "key" })}
-          >
-            {t("turn.signIn.apiKey")}
-          </button>
+          {offersKey && (
+            <button
+              type="button"
+              // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button,
+              // filled when it leads the card (Gemini), outlined on a team machine (Switch model leads).
+              className={
+                offersPage
+                  ? "cv-turn-error__offer-link"
+                  : keyOnly
+                    ? "cv-turn-auth-action"
+                    : "cv-turn-auth-action cv-turn-error__primary"
+              }
+              disabled={stage.at === "starting"}
+              onClick={() => setStage({ at: "key" })}
+            >
+              {t("turn.signIn.apiKey")}
+            </button>
+          )}
         </>
       );
     case "approve":

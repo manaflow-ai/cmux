@@ -1,6 +1,6 @@
 //! Reading a sign-in's offer from an agent CLI's terminal output: the https
-//! link to open (only on a host of [`ALLOWED_HOSTS`]) and, for Codex's device
-//! flow, the one-time code. Escape sequences are dropped first; an OSC-8
+//! link to open (only on a host of [`ALLOWED_HOSTS`]) and, for Codex's and
+//! Grok's device flows, the one-time code. Escape sequences are dropped first; an OSC-8
 //! hyperlink's target counts as a link too (Claude Code wraps its link in one
 //! under a terminal). A link or code counts only once it is complete: followed
 //! by whitespace, or the target of a finished OSC-8 sequence.
@@ -15,6 +15,8 @@ pub const ALLOWED_HOSTS: &[&str] = &[
     "console.anthropic.com",
     "auth.anthropic.com",
     "auth.openai.com",
+    "accounts.x.ai",
+    "auth.x.ai",
 ];
 
 /// The longest link accepted.
@@ -24,7 +26,7 @@ const MAX_URL: usize = 4096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
     pub url: String,
-    /// The device flow's one-time code (Codex).
+    /// The device flow's one-time code (Codex, Grok).
     pub user_code: Option<String>,
 }
 
@@ -142,14 +144,61 @@ pub fn device_code(plain: &str) -> Option<String> {
     ok.then(|| code.to_owned())
 }
 
+/// A device-flow code as Grok may print it: groups of 3 to 8 of `A-Z` and
+/// `0-9` joined by single dashes (2 to 4 groups, `XXXX-XXXX`), at most 32.
+fn code_shaped(word: &str) -> bool {
+    let groups: Vec<&str> = word.split('-').collect();
+    word.len() <= 32
+        && (2..=4).contains(&groups.len())
+        && groups.iter().all(|g| {
+            (3..=8).contains(&g.len())
+                && g.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        })
+}
+
+/// Grok's one-time code (`grok login --device-auth`, whose exact words are
+/// not pinned): on a complete line that mentions "code", the first word shaped
+/// like a code ([`code_shaped`], quotes and punctuation around it dropped,
+/// links skipped); else the first non-empty line after it, when that whole
+/// line is one.
+pub fn grok_code(plain: &str) -> Option<String> {
+    let complete = plain.get(..plain.rfind('\n')?).unwrap_or_default();
+    let lines: Vec<&str> = complete.lines().collect();
+    let trim = |w: &str| {
+        w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            .trim_matches('-')
+            .to_owned()
+    };
+    for (i, line) in lines.iter().enumerate() {
+        if !line.to_ascii_lowercase().contains("code") {
+            continue;
+        }
+        let on_line = line
+            .split_whitespace()
+            .filter(|w| !w.contains("://"))
+            .map(trim)
+            .find(|w| code_shaped(w));
+        if on_line.is_some() {
+            return on_line;
+        }
+        let next = lines.iter().skip(i + 1).map(|l| l.trim()).find(|l| !l.is_empty());
+        if let Some(next) = next.map(trim).filter(|w| code_shaped(w)) {
+            return Some(next);
+        }
+    }
+    None
+}
+
 /// What `agent`'s sign-in output offers so far, once it is complete: Claude's
-/// link; Codex's link and code.
+/// link; Codex's and Grok's link and code. Gemini signs in with a key only.
 pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
     let (plain, links) = strip_terminal(output);
     let url = first_url(&plain, &links)?;
     match agent {
         Agent::Claude => Some(Offer { url, user_code: None }),
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
+        Agent::Grok => Some(Offer { url, user_code: Some(grok_code(&plain)?) }),
+        Agent::Gemini => None,
     }
 }
 
