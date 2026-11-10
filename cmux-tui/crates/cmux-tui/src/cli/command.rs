@@ -35,7 +35,9 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod session_reset;
-pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
+pub(super) use session_reset::{
+    end_stopped_terminal_state, purge_stopped_session_state, run_session_reset_state,
+};
 pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
@@ -290,14 +292,17 @@ fn parse_server(
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
-/// defaults to the bound `server ensure` gives a restore
-/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+/// [--purge] [--restore-wait-seconds <n>]`. `--purge` ends the terminals too.
+/// The wait for an owner that still restores defaults to the bound `server
+/// ensure` gives a restore (`local_owner::RESTORE_DEADLINE`), and is at most
+/// an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    let purge = flags.boolean("purge");
     Ok(super::lifecycle::ServerAction::Stop {
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
-        end_terminals: flags.boolean("end-terminals"),
+        end_terminals: flags.boolean("end-terminals") || purge,
+        purge,
     })
 }
 

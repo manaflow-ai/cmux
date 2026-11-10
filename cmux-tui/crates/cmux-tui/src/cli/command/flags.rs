@@ -53,6 +53,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "focus",
     "force",
     "end-terminals",
+    // `daemon stop --purge`: the whole session folder goes after the stop.
+    "purge",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.

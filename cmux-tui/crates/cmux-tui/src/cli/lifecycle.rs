@@ -45,6 +45,10 @@ pub(super) enum ServerAction {
     Stop {
         force: bool,
         end_terminals: bool,
+        /// `--purge` (W6-E): after the stop, the session's whole folder and
+        /// terminal-host records go (`session <name> reset-state` in one
+        /// step). Implies `end_terminals`.
+        purge: bool,
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
         restore_wait: Duration,
@@ -171,7 +175,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let restart = matches!(plan.action, ServerAction::Restart { .. });
     let action = match plan.action {
         ServerAction::Restart { force, restore_wait } => {
-            ServerAction::Stop { force, end_terminals: false, restore_wait }
+            ServerAction::Stop { force, end_terminals: false, purge: false, restore_wait }
         }
         action => action,
     };
@@ -189,13 +193,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         )
     };
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
+    if let ServerAction::Stop { force, end_terminals, purge, restore_wait } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
-            retry_flags: (force, end_terminals),
+            retry_flags: (force, end_terminals, purge),
             restart,
             output: global.output,
         };
@@ -211,16 +215,25 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
             // A start lock an earlier owner left goes too.
             let removed = remove_start_lock(&socket);
-            return print_success(
-                json!({
-                    "status":"not_running",
-                    "session":expected_session,
-                    "socket":socket_output,
-                    "removed":removed,
-                    "message":crate::localization::catalog().local_server.not_running,
-                }),
-                global.output,
-            );
+            let mut stopped = json!({
+                "status":"not_running",
+                "session":expected_session,
+                "socket":socket_output,
+                "removed":removed,
+                "message":crate::localization::catalog().local_server.not_running,
+            });
+            // No owner answers here, so nothing to wait for: the reset's own
+            // lease refuses a session another owner still runs.
+            if let (ServerAction::Stop { purge: true, .. }, Some(fields)) =
+                (&action, stopped.as_object_mut())
+            {
+                fields.extend(super::command::purge_stopped_session_state(
+                    expected_session.as_deref(),
+                    None,
+                    None,
+                ));
+            }
+            return print_success(stopped, global.output);
         }
         Err(_) => {
             return local_error(
@@ -426,7 +439,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals, .. } => {
+        ServerAction::Stop { force, end_terminals, purge, .. } => {
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -535,6 +548,17 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     crate::localization::catalog().local_server.stopped
                 },
             });
+            // `--purge`: the whole session folder goes once the owner
+            // released it, in the state root the owner named when it did.
+            if let (true, Some(fields)) = (purge, stopped.as_object_mut()) {
+                let session_dir = result.get("session_dir").and_then(Value::as_str);
+                fields.extend(super::command::purge_stopped_session_state(
+                    Some(actual_session),
+                    session_dir.map(std::path::Path::new),
+                    Some(Instant::now() + Duration::from_secs(10)),
+                ));
+                return print_success(stopped, global.output);
+            }
             // Every terminal ended, so nothing is left to resume: the
             // terminal and resume state goes too, and every other store of
             // the session stays. A plain stop keeps it (`agent resume`
@@ -604,8 +628,8 @@ struct StopWait<'a> {
     socket_is_derived: bool,
     session: Option<&'a str>,
     limit: Duration,
-    /// `--force` and `--end-terminals`, repeated in the retry command.
-    retry_flags: (bool, bool),
+    /// `--force`, `--end-terminals` and `--purge`, repeated in the retry command.
+    retry_flags: (bool, bool, bool),
     /// A `server restart`'s stop: the retry command restarts, never only stops.
     restart: bool,
     output: OutputMode,
@@ -743,12 +767,15 @@ impl StopWait<'_> {
         } else {
             super::fix_command::stop_daemon(&cli, self.socket)
         };
-        let (force, end_terminals) = self.retry_flags;
+        let (force, end_terminals, purge) = self.retry_flags;
         if force {
             retry.push_str(" --force");
         }
         if end_terminals {
             retry.push_str(" --end-terminals");
+        }
+        if purge {
+            retry.push_str(" --purge");
         }
         retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
         let message = crate::localization::catalog().local_server.stop_gave_up(

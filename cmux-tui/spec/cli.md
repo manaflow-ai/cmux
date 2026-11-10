@@ -307,9 +307,20 @@ cmux daemon start [START OPTIONS]
 cmux daemon status [--session <name>] [--socket <path>]
 cmux daemon stats [--session <name>] [--socket <path>] [--json]
 cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
-  [--restore-wait-seconds <n>]
+  [--purge] [--restore-wait-seconds <n>]
 cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
+
+`daemon stop --purge` implies `--end-terminals`; once the owner released its
+session locks it removes the session's whole saved-state folder and its
+terminal-host records, as `cmux session <name> reset-state --force` does with
+the preview's token, and drops the session's queued hook events. On a session
+that is not running it does the same with no stop. A session another owner
+still runs is refused, and no other session's folder is touched. The result
+adds `removed_session_state` (true once none is left), `removed_terminal_hosts`,
+`dropped_hook_events` (or `hook_queue_error`), and on failure
+`session_state_error` (a `session.reset_state.*` code; the stop itself still
+succeeds).
 
 `daemon stats` prints the `server-stats` diagnostics (registry lock contention
 with holder sites, journal writer batches and commit latency, connection
