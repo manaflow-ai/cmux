@@ -48,9 +48,19 @@ impl Run<'_> {
 
 /// [`Run::is_nested`] over one `agent.list` read (`None` when it failed).
 fn nested_in(run: &Run<'_>, read: impl FnOnce() -> Option<Value>) -> bool {
-    // W5-N3 red: no check yet.
-    let _ = (run.terminal, run.session, run.start_source, read);
-    false
+    let (Some(terminal), Some(session)) = (run.terminal, run.session) else { return false };
+    if matches!(run.start_source, Some("clear" | "resume")) {
+        return false;
+    }
+    let Some(rows) = read() else { return false };
+    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
+    rows.as_array().into_iter().flatten().any(|row| {
+        let live = row.get("extra").and_then(|extra| text(extra, "agent_session_id"));
+        text(row, "terminal_id").as_deref() == Some(terminal)
+            && text(row, "source").as_deref() == Some("hook")
+            && text(row, "state").as_deref() != Some("done")
+            && live.is_some_and(|live| live != session)
+    })
 }
 
 #[cfg(test)]

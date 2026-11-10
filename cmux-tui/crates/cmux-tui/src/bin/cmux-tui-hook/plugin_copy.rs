@@ -107,11 +107,11 @@ fn claimed_by_another(
     terminal: Option<&str>,
     getenv: &impl Fn(&str) -> Option<OsString>,
 ) -> bool {
-    // W5-N3 red: the route terminal and the process are not read yet.
     let Some(claim) = claim(getenv) else { return false };
-    let _ = (terminal, claim.pid.as_deref(), claude_pid(getenv));
-    terminal_of(getenv).as_deref() == Some(claim.terminal.as_str())
+    let here = terminal.map(str::to_owned).or_else(|| terminal_of(getenv));
+    here.as_deref() == Some(claim.terminal.as_str())
         && session != Some(claim.session.as_str())
+        && claim.pid.is_none_or(|pid| claude_pid(getenv).as_deref() != Some(pid.as_str()))
 }
 
 /// After a Claude `SessionStart` that reports (any copy: the plugin, the
@@ -136,7 +136,7 @@ pub(super) fn claim_terminal(
             && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
     };
     let (Some(terminal), Some(session), Some(file)) = (
-        terminal.and(None).or_else(|| terminal_of(&getenv)),
+        terminal.map(str::to_owned).or_else(|| terminal_of(&getenv)),
         session.filter(plain),
         getenv(CLAUDE_ENV_FILE).filter(|file| !file.is_empty()),
     ) else {
@@ -145,7 +145,10 @@ pub(super) fn claim_terminal(
     if !plain(&terminal.as_str()) {
         return;
     }
-    let line = format!("export {OWNER_ENV}={terminal}/{session}\n");
+    let line = match claude_pid(&getenv) {
+        Some(pid) => format!("export {OWNER_ENV}={terminal}/{session}/{pid}\n"),
+        None => format!("export {OWNER_ENV}={terminal}/{session}\n"),
+    };
     let _ = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
