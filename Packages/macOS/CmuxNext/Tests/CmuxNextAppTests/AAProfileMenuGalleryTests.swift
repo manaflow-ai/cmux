@@ -128,7 +128,7 @@ import Testing
         for (offset, row) in rows.enumerated() { menu.insertItem(row, at: after + offset) }
         if check == .bare {
             // The team section's rows keep the text column with an empty slot (as `keepOneTextColumn` does).
-            for row in rows where !row.isSeparatorItem && row.state == .off { row.image = ProfileMenuBuilder.emptyIcon() }
+            for row in rows where !row.isSeparatorItem && row.state == .off { row.image = NSImage(size: NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)) }
         }
         menu.themeRows(in: ThemeScope(level: .room))
         if check == .before {
