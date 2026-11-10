@@ -1933,6 +1933,39 @@ class SupersededCancelledRun(unittest.TestCase):
         self.assertIn(f"excused '{SWIFT}'", lines)
         self.assertNotIn("ignored", lines)
 
+    def test_a_check_named_whose_green_has_a_newer_failed_job_is_no_superseding_green(self):
+        # supersede-rev-1 F1 on #40209: GitHub's latest check run of a name is the one with the highest check run id,
+        # but recency is the linked job id (test_recency_is_the_linked_job_id_not_the_check_run_id). A green job 5
+        # with the higher check run id must not supersede the cancelled job 1 while job 7, newer by job id, failed.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.gh.jobs[5] = dict(failed_job(5, 11, HEAD), conclusion="success")
+        self.gh.jobs[7] = failed_job(7, 12, HEAD)
+        self.gh.logs[7] = self.gh.logs[1]
+
+        def check(check_id, run, job_id, conclusion):
+            return {"id": check_id, "name": SWIFT, "status": "completed", "conclusion": conclusion,
+                    "app": {"slug": "github-actions"},
+                    "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{job_id}"}
+
+        checks = [check(1, 10, 1, "cancelled"), check(900, 11, 5, "success"), check(3, 12, 7, "failure")]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": copy.deepcopy(checks)}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        with self.assertRaises(excuse.Refused) as caught:
+            self.check()
+        self.assertNotIn("ignored", str(caught.exception))
+        # A newer skip is no verdict: it does not stop the green from superseding the cancel.
+        checks[2] = check(3, 12, 7, "skipped")
+        self.gh.jobs[7] = dict(failed_job(7, 12, HEAD), conclusion="skipped", steps=[])
+        lines = self.check()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
 
 class SlimRunRecordGitHub(FakeGitHub):
     """A lane VM's gh chain: `actions/runs/ID` answers glaeda's 12-field run summary (no workflow_id or path), and a
