@@ -105,9 +105,13 @@ pub enum Removal {
     /// An authoritative list (loaded, signed in, the Run's own scope) shows no machine with the id
     /// or the name, and no create of that name on its way.
     Gone,
-    /// Not yet: the machine is still listed (a delete was asked for, or is under way), or no list
-    /// could say (the app not running, signed out, not loaded, another team). Read again later.
+    /// Not yet: the machine is still listed (a delete was asked for, or is under way), or the list
+    /// cannot say (signed out, not loaded, another team). Read again later.
     Later(String),
+    /// No list could be read at all: the app not running, or its Cloud verbs refused (Cloud turned
+    /// off by an organization). Read again later; this time never counts toward giving up, so a
+    /// Mac that was closed or a policy that was on never strands the machine with no delete tried.
+    Unheard(String),
     /// A list of this other account, one the app was on during the Run's start
     /// ([`Steps::elsewhere`]), shows no machine and no create of the Run's name: the start made
     /// none there (or its delete is done).
@@ -142,9 +146,11 @@ pub trait Steps: Send + Sync {
 pub struct Timing {
     pub retry_first: Duration,
     pub retry_max: Duration,
-    /// How long after its end a Run's cleanup keeps being tried.
+    /// How long a Run's cleanup keeps being tried while the app answers (time it could not be
+    /// asked, [`Removal::Unheard`], does not count).
     pub give_up: Duration,
-    /// How long an ended Run is kept for a wait.
+    /// How long an ended Run is kept for a wait: past the app's follower's week, so a wait it
+    /// sends for one of the daemon's Runs never finds it gone (nor sends it to classic Cloud).
     pub keep_ended: Duration,
     /// After a cut-off start: how long past the task's timeout the app may still be making the machine.
     pub start_settle: Duration,
@@ -156,7 +162,7 @@ impl Default for Timing {
             retry_first: Duration::from_secs(30),
             retry_max: Duration::from_secs(600),
             give_up: Duration::from_secs(3 * 24 * 60 * 60),
-            keep_ended: Duration::from_secs(24 * 60 * 60),
+            keep_ended: Duration::from_secs(8 * 24 * 60 * 60),
             start_settle: Duration::from_secs(120),
         }
     }
@@ -202,6 +208,9 @@ struct Run {
     /// The app's account and team when the task started ([`Steps::scope`]).
     #[serde(default)]
     scope: Option<String>,
+    /// How long the cleanup has been tried with the app answering ([`Timing::give_up`]).
+    #[serde(default)]
+    heard_ms: i64,
 }
 
 impl Run {
@@ -327,6 +336,16 @@ impl Engine {
         let mut state = State::default();
         let now = now_ms();
         let mut resumed = Vec::new();
+        // A store this build cannot read is kept aside, never written over: its Runs' cleanups
+        // are not forgotten with nothing said.
+        if let Some(path) = store.as_deref()
+            && path.exists()
+            && load(path).is_none()
+        {
+            let aside = path.with_extension(format!("unreadable-{now}.json"));
+            let _ = std::fs::rename(path, &aside);
+            eprintln!("cloud runs: the store could not be read; kept as {}", aside.display());
+        }
         if let Some(runs) = store.as_deref().and_then(load) {
             for mut run in runs {
                 if !run.ended() {
@@ -516,6 +535,7 @@ impl Engine {
             scope: Some(account),
             incognito: args.get("incognito").and_then(Value::as_bool).unwrap_or(false),
             elsewhere: Vec::new(),
+            heard_ms: 0,
         };
         let answer = created(&run);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -667,22 +687,16 @@ impl Engine {
     /// Deletes the Run's machine until it is deleted or confirmed gone, or until the cleanup is given up.
     fn clean(&self, id: &str) {
         let mut pause = self.timing.retry_first;
+        let mut since = now_ms();
         loop {
-            let (name, machine, scope, settle, finished, elsewhere) = {
+            let (name, machine, scope, settle, elsewhere) = {
                 let state = self.lock();
                 let Some(run) = state.runs.get(id) else { return };
                 if run.cleanup != "pending" {
                     return;
                 }
                 let run = run.clone();
-                (
-                    run.machine_name,
-                    run.machine,
-                    run.scope,
-                    run.settle_ms,
-                    run.finished_ms,
-                    run.elsewhere,
-                )
+                (run.machine_name, run.machine, run.scope, run.settle_ms, run.elsewhere)
             };
             let removal =
                 self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere);
@@ -697,9 +711,24 @@ impl Engine {
                 self.save(&state);
             }
             let now = now_ms();
+            // The time since the last pass counts toward giving up only when the app answered.
+            let heard =
+                if matches!(removal, Removal::Unheard(_)) { 0 } else { (now - since).max(0) };
+            since = now;
+            let heard_ms = {
+                let mut state = self.lock();
+                let total = state.runs.get_mut(id).map_or(0, |run| {
+                    run.heard_ms = run.heard_ms.saturating_add(heard);
+                    run.heard_ms
+                });
+                if heard > 0 {
+                    self.save(&state);
+                }
+                total
+            };
             // Gone from the Run's own account's list, and no other account left to hear from.
             let done = removal == Removal::Gone && elsewhere.is_empty() && now >= settle;
-            let given_up = finished.is_some_and(|at| now - at >= ms(self.timing.give_up));
+            let given_up = heard_ms >= ms(self.timing.give_up);
             if done || given_up {
                 let mut state = self.lock();
                 if let Some(run) = state.runs.get_mut(id) {
@@ -719,7 +748,7 @@ impl Engine {
                 }
                 // Another account's list is still to say: read again soon.
                 Removal::Cleared(_) => self.timing.retry_first,
-                Removal::Gone | Removal::Later(_) => {
+                Removal::Gone | Removal::Later(_) | Removal::Unheard(_) => {
                     let wait = pause;
                     pause = (pause * 2).min(self.timing.retry_max);
                     wait

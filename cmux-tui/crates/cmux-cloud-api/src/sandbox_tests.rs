@@ -583,3 +583,49 @@ fn the_apps_list_answer_names_the_account_whatever_ffi_it_links() {
     app["account"]["team_id"] = Value::Null;
     assert_eq!(account_scope(&app).as_deref(), Some("user:u1|personal"));
 }
+
+/// The audit of #39022 before 16d6160c's push (P1): the give-up clock ran from the Run's end, so a
+/// Mac closed (or Cloud turned off) for longer than the give-up time abandoned the cleanup at its
+/// first pass after, with no delete ever tried, and the machine billed on. Time the app could not
+/// be asked never counts now; time it answers still does.
+#[test]
+fn a_cleanup_the_app_could_not_hear_is_never_given_up() {
+    let replied = || Outcome::Replied { reply: "hi".into(), machine: Some("m-1".into()) };
+    let quiet = Timing { give_up: Duration::from_millis(40), ..quick() };
+    let unheard = (0..15).map(|_| Removal::Unheard("cmux is not running".into())).collect();
+    let fake = Fake::new(Some(replied()), unheard);
+    let engine = Engine::open(None, fake.clone(), quiet);
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed", "{snapshot}");
+    assert_eq!(
+        fake.removes.load(Ordering::Acquire),
+        16,
+        "it was asked again once the app answered"
+    );
+
+    // A machine the app keeps listing is still given up after the give-up time it answered.
+    let listed = (0..1_000).map(|_| Removal::Later("still listed".into())).collect();
+    let fake = Fake::new(Some(replied()), listed);
+    let engine = Engine::open(None, fake, quiet);
+    let id = create(&engine, "k2").get("id").and_then(Value::as_str).unwrap().to_owned();
+    assert_eq!(settled(&engine, &id, "abandoned")["receipt"]["cleanup"], "abandoned");
+}
+
+/// The same audit (P2): a store this build cannot read was written over with an empty list, and
+/// every Run's pending cleanup was forgotten. It is kept aside now.
+#[test]
+fn a_store_that_cannot_be_read_is_kept_aside_never_written_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("cloud-runs.json");
+    std::fs::write(&store, b"{\"version\": 999, \"runs\": [\"from a later build\"]}").unwrap();
+    let _engine = Engine::open(Some(store.clone()), Fake::new(None, vec![]), quick());
+    let kept: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains("unreadable"))
+        .collect();
+    assert_eq!(kept.len(), 1, "the unreadable store is kept");
+    let bytes = std::fs::read(kept[0].path()).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("from a later build"));
+}

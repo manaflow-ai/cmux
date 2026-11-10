@@ -498,7 +498,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
     loop {
         let Some((server, budget)) = wait_slice(Instant::now(), deadline, probe) else {
             // Past the deadline the run is not worth more VM time: cancel it, which destroys its
-            // VM before it answers (bounded; the server's reaper covers a cancel that fails).
+            // VM before it answers (bounded; the daemon's cleanup covers a cancel that fails).
             let mut params = Map::new();
             params.insert("id".into(), json!(id));
             let cancelled = call(global, "runs.cancel", params, CANCEL_TIMEOUT);
@@ -582,7 +582,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
                 continue;
             }
             // Signed out or Cloud turned off after the run started: the run goes on to its own
-            // timeout, where the server destroys its VM. Exit 3 with that said.
+            // timeout, where the daemon deletes its machine. Exit 3 with that said.
             Err(mut refused) if is_gate_refusal(&refused.error) => {
                 let reason =
                     refused.error.get("message").and_then(Value::as_str).unwrap_or_default();

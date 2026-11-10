@@ -45,6 +45,9 @@ use crate::Mux;
 const START_MARGIN: Duration = Duration::from_secs(60);
 /// A list or a delete.
 const STEP_BOUND: Duration = Duration::from_secs(180);
+/// The account read at every wait and cancel: a main-actor read in the app, under a wait's own
+/// bound, so a hung app answers "not signed in" (kept, never gone) before the caller gives up.
+const ACCOUNT_BOUND: Duration = Duration::from_secs(8);
 /// How often a running child is checked for a cancel or its bound.
 const POLL: Duration = Duration::from_millis(250);
 /// Between two starts of one Run's chat while the app is still making its machine.
@@ -433,7 +436,7 @@ impl Steps for AppVerbs {
         // The app's sign-in (`cmux cloud run-account`, its `auth.status`), never its machine list:
         // an organization's Cloud policy refuses the list, and a Run that exists is still waited on
         // and cancelled with Cloud turned off (its cleanup reads the list again once it is back).
-        let ran = self.cmux(&["cloud", "run-account"], None, STEP_BOUND, None);
+        let ran = self.cmux(&["cloud", "run-account"], None, ACCOUNT_BOUND, None);
         answer(&ran).ok().as_ref().and_then(account_scope)
     }
 
@@ -499,7 +502,8 @@ impl Steps for AppVerbs {
     ) -> Removal {
         let list = match self.list() {
             Ok(list) => list,
-            Err(message) => return Removal::Later(message),
+            // No list at all (the app not running, or Cloud turned off): no time toward giving up.
+            Err(message) => return Removal::Unheard(message),
         };
         let id = match judge_everywhere(&list, machine_name, machine, scope, elsewhere) {
             Judgement::Gone => return Removal::Gone,
