@@ -132,12 +132,15 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
         "detail": code,
         "retryable": github_cli::retryable(&code),
     });
-    if connect {
-        error["connect"] = json!({
-            "action": "accounts.githubConnect",
-            "cli": "cmux accounts github-connect",
-            "title": "Connect GitHub",
-        });
+    if connect && let Some(fields) = error.as_object_mut() {
+        fields.insert(
+            "connect".into(),
+            json!({
+                "action": "accounts.githubConnect",
+                "cli": "cmux accounts github-connect",
+                "title": "Connect GitHub",
+            }),
+        );
     }
     json!({
         "content": [{"type": "text", "text": text}],
@@ -402,8 +405,10 @@ impl Bridge {
                         with_id(reply)
                     }
                     Err(Ok(refused)) => {
-                        let text = refusal_result(Some(&repo), &refused)["content"][0]["text"]
-                            .as_str()
+                        let result = refusal_result(Some(&repo), &refused);
+                        let text = result
+                            .pointer("/content/0/text")
+                            .and_then(Value::as_str)
                             .unwrap_or_default()
                             .to_owned();
                         err(-32002, text)

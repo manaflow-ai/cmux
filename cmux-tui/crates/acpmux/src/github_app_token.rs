@@ -308,10 +308,14 @@ fn app_error(code: &str) -> RpcError {
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
     let mut data = json!({"reason": reason, "code": code});
-    if reason == "github.not_connected" {
-        data["retryable"] = json!(true);
-        data["connect"] =
-            json!({"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"});
+    if reason == "github.not_connected"
+        && let Some(fields) = data.as_object_mut()
+    {
+        fields.insert("retryable".into(), json!(true));
+        fields.insert(
+            "connect".into(),
+            json!({"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"}),
+        );
     }
     RpcError::new(number, message).with_data(data)
 }
