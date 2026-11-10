@@ -231,6 +231,23 @@ fn each_verb_carries_its_arguments() {
         pin.args,
         ["link", "start-chat", "pin", "--key", "k", "--account", "a", "--machine", "m"]
     );
+    // The ledger verbs are a locked file change on this Mac: a minute, never the 30 of a copy.
+    assert_eq!(pin.timeout_seconds, Some(START_CHAT_LEDGER_TIMEOUT_SECONDS));
+    for ledger in [
+        json!({"verb": "start-chat-create-begin", "key": "k", "account": "a", "name": "n", "createKey": "c"}),
+        json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"}),
+        json!({"verb": "start-chat-create-refused", "key": "k", "account": "a", "createKey": "c"}),
+        json!({"verb": "start-chat-target-pane", "key": "k", "account": "a", "machine": "m", "pane": "p"}),
+        json!({"verb": "start-chat-import", "entries": "[]"}),
+    ] {
+        assert_eq!(
+            call(ledger.clone()).timeout_seconds,
+            Some(START_CHAT_LEDGER_TIMEOUT_SECONDS),
+            "{ledger}"
+        );
+    }
+    // A plan reaches the platform and a copy moves the folder: they keep the default.
+    assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(
         call(json!({"verb": "bring-back-pull", "socket": "/s", "local": "/l", "remote": "/r"}))
             .args
