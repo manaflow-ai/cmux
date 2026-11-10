@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: collapsing the sidebar no longer slides its + over the toolbar band. Reported (nightly
+  1.0.0-nightly.4269066450801): "when the user collapses the left sidebar, the '+' (new workspace) button in the top
+  titlebar/toolbar row jumps all the way to the left instead of animating; it looks weird". The titlebar row rode the
+  panel's edge over the toggle, Back, Forward and the traffic lights to the window's edge in about four frames. The
+  row now keeps right of the band's edge on screen (`SidebarView.titlebarControlsFloor`, re-applied by the
+  container's layout on every frame of the width slide) and the sidebar's clip closes over it there; an expand runs
+  backwards. At rest nothing moves; Reduce Motion still snaps. Regression: `SidebarPlusSlideTests`.
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
