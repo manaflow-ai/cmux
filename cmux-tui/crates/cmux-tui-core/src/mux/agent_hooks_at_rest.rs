@@ -42,8 +42,13 @@
 //! - after a row of the terminal whose result is not known (its append
 //!   failed or timed out, or it was a retry the registry answered): the
 //!   table no longer knows what the journal holds;
-//! - while the projection of an earlier row of the terminal waits for a
-//!   retry: the next row's projection runs that retry.
+//! - while the projection of an earlier row of the terminal still waits
+//!   after the retry this report ran (below).
+//!
+//! A row's projection can fail and wait for a retry. A row of the terminal
+//! runs that retry before its own projection
+//! (`reconcile_preceding_agent_hooks`); a report at rest is no row, so it
+//! runs the terminal's retry itself, before its answer.
 //!
 //! The table is memory only. After a restart the first report of each
 //! terminal is appended again, and the roster folds to the same state because
@@ -97,11 +102,14 @@ struct HookSlot {
     /// The highest sequence noted: commits can finish out of order.
     noted_sequence: u64,
     stored: Option<StoredHookFacts>,
-    /// A journal row of this terminal waits for its projection
-    /// (`enqueue_agent_hook_pending`). Until a retry finds none left, no
-    /// report of the terminal is answered from memory: each one goes the
-    /// path that runs the retry.
+    /// The projection of a journal row of this terminal failed and waits for
+    /// a retry (`enqueue_agent_hook_pending`). While set, a report at rest
+    /// runs the terminal's retry first and is answered from memory only when
+    /// the retry left nothing.
     projection_pending: bool,
+    /// How many times a projection of this terminal was noted as waiting. A
+    /// retry clears the flag only when none was noted since it read this.
+    projection_pending_notes: u64,
     /// The latest reports by origin and idempotency key, with the answer of
     /// each one that got no row (`None`: the report was appended, and the
     /// registry holds its receipt).
@@ -436,18 +444,6 @@ fn kind_filter_matches_at_rest_kind(kinds: &[String]) -> bool {
         })
 }
 
-/// The terminal a row of the hook producer is about.
-fn hook_row_terminal(ingress: &crate::JournalIngress) -> Option<TerminalPublicId> {
-    if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
-        return None;
-    }
-    ingress
-        .subjects
-        .iter()
-        .find(|subject| subject.kind == "terminal")
-        .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
-}
-
 impl Mux {
     #[cfg(all(test, unix))]
     pub(crate) fn agent_hook_slots_for_test(&self) -> usize {
@@ -572,18 +568,28 @@ impl Mux {
         if self.journal_reader_keeps_row(AT_REST_KIND, sensitivity) {
             return None;
         }
+        // The projection of an earlier row of the terminal waits: run its
+        // retry now, as the projection of an appended row does. Before the
+        // table is held: the projector takes the registry.
+        if self.agent_hook_projection_is_pending(&facts.terminal) {
+            let _ = self.retry_pending_agent_hooks_for_terminal(&facts.terminal);
+        }
         // Held through the presence change: a later row of this terminal (a
         // turn's end) waits here, so its presence change comes after this one.
         let mut terminals = self.agent_hooks_at_rest.terminals();
         let slot = terminals.get_mut(&facts.terminal)?;
+        // The retry left a projection waiting: this report is a row, and its
+        // projection waits behind that one.
+        if slot.projection_pending {
+            return None;
+        }
         // A retry gets its first answer and has no second effect; the retry
         // of an appended report goes to the registry, which holds its receipt.
         let key = receipt_key(origin, idempotency_key);
         if let Some((_, answer)) = slot.recent.iter().find(|(recent, _)| *recent == key) {
             return answer.clone();
         }
-        let stored =
-            slot.stored.as_ref().filter(|_| slot.in_flight == 0 && !slot.projection_pending)?;
+        let stored = slot.stored.as_ref().filter(|_| slot.in_flight == 0)?;
         if !stored.holds(&facts) {
             return None;
         }
@@ -626,18 +632,23 @@ impl Mux {
     }
 
     /// The projection of a journal row of the hook producer failed and waits
-    /// for a retry. The retry runs when a later row of the terminal is
-    /// projected (`reconcile_preceding_agent_hooks`) and after a report that
-    /// reaches the registry (`retry_pending_agent_hooks_for_terminal`); an
-    /// answer from memory runs neither. So no report of the terminal is
-    /// answered from memory until a retry finds nothing left.
+    /// for a retry. No entry for a terminal that has none: its first report
+    /// is a row, and that row's projection runs the retry.
     pub(super) fn note_agent_hook_projection_pending(&self, ingress: &crate::JournalIngress) {
-        let Some(terminal) = hook_row_terminal(ingress) else { return };
-        let mut terminals = self.agent_hooks_at_rest.terminals();
-        let Some(slot) = self.open_terminal_slot(&mut terminals, &terminal) else { return };
-        slot.stored = None;
-        slot.unknown_results += 1;
-        slot.projection_pending = true;
+        // Every row of the hook producer is projected, not only a hook
+        // helper's report (`HookFacts::of`).
+        let Some(terminal) = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
+        else {
+            return;
+        };
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&terminal) {
+            slot.projection_pending = true;
+            slot.projection_pending_notes += 1;
+        }
     }
 
     /// Whether a hook projection of `terminal` waits for a retry.
@@ -648,9 +659,26 @@ impl Mux {
             .is_some_and(|slot| slot.projection_pending)
     }
 
-    /// A retry found no hook projection of `terminal` left.
-    pub(super) fn note_no_agent_hook_projection_pending(&self, terminal: &TerminalPublicId) {
-        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal) {
+    /// How many times a projection of `terminal` was noted as waiting. A
+    /// retry reads it before it reads the retry table.
+    pub(super) fn agent_hook_projection_pending_notes(&self, terminal: &TerminalPublicId) -> u64 {
+        self.agent_hooks_at_rest
+            .terminals()
+            .get(terminal)
+            .map_or(0, |slot| slot.projection_pending_notes)
+    }
+
+    /// A retry found no hook projection of `terminal` left in the table it
+    /// read after `notes`. A projection noted since then (a row of another
+    /// thread that failed after that read) keeps the flag.
+    pub(super) fn note_no_agent_hook_projection_pending(
+        &self,
+        terminal: &TerminalPublicId,
+        notes: u64,
+    ) {
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal)
+            && slot.projection_pending_notes == notes
+        {
             slot.projection_pending = false;
         }
     }
@@ -716,20 +744,6 @@ impl Mux {
         if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&facts.terminal) {
             slot.stored = None;
             slot.unknown_results += 1;
-            // The row can be in the journal with its projection not done
-            // (its commit seeds the retry row): the next row runs the retry.
-            slot.projection_pending = true;
-        }
-    }
-
-    /// After a row of the hook producer was projected: when a projection of
-    /// its terminal waits for a retry, run the terminal's retry now, which
-    /// ends the wait when it finds none left. One memory lock for a terminal
-    /// with nothing pending.
-    pub(super) fn retry_flagged_agent_hook_projections(&self, ingress: &crate::JournalIngress) {
-        let Some(terminal) = hook_row_terminal(ingress) else { return };
-        if self.agent_hook_projection_is_pending(&terminal) {
-            let _ = self.retry_pending_agent_hooks_for_terminal(&terminal);
         }
     }
 
