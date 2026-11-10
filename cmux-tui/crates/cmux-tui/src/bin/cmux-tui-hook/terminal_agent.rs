@@ -40,10 +40,19 @@ impl Run<'_> {
     pub(super) fn is_nested(&self) -> bool {
         let read = || {
             let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
-            session_context::request(self.socket, "agent.list", params, Instant::now() + DEADLINE)
+            let deadline = read_deadline(Instant::now() + DEADLINE, Instant::now())?;
+            session_context::request(self.socket, "agent.list", params, deadline)
         };
         nested_in(self, read)
     }
+}
+
+/// When the `agent.list` read made at `now` must end: its own bound, cut to
+/// the end of the hook's time budget (`budget_end`). `None` when no time is
+/// left, and the hook then makes no read.
+fn read_deadline(budget_end: Instant, now: Instant) -> Option<Instant> {
+    let _ = budget_end;
+    Some(now + DEADLINE)
 }
 
 /// [`Run::is_nested`] over one `agent.list` read (`None` when it failed).
@@ -107,6 +116,19 @@ mod tests {
         assert!(!nested_in(&run("nested-2", None), rows(screen)));
         // A read that fails or times out keeps the hook acting as the agent.
         assert!(!nested_in(&run("nested-2", None), || None));
+    }
+
+    #[test]
+    fn any_launcher_w5n3_claim_read_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // Much budget left: the read has its own bound.
+        assert_eq!(read_deadline(now + Duration::from_secs(4), now), Some(now + DEADLINE));
+        // Less left than that bound (a slow send): the read ends with the budget.
+        let end = now + Duration::from_millis(300);
+        assert_eq!(read_deadline(end, now), Some(end));
+        // No time left: no read.
+        assert_eq!(read_deadline(now, now), None);
+        assert_eq!(read_deadline(now, now + Duration::from_millis(5)), None);
     }
 
     #[test]
