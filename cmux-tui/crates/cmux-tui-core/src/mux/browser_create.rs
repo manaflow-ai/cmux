@@ -152,7 +152,13 @@ impl Mux {
         opener_surface: SurfaceId,
         url: String,
     ) -> anyhow::Result<Option<Arc<Surface>>> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        // Held from the creation size until the tab is in the tree, so a
+        // cell-pixel update either sees the tab or ran before its size was
+        // read. Released before the commit: a failed commit closes the tab
+        // under its workspace lifecycle, and a terminal create holds that
+        // lifecycle while it takes this one.
+        let cell_pixel_lifecycle =
+            self.cell_pixel_lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {
@@ -173,6 +179,7 @@ impl Mux {
                 BrowserSurfaceAttach::MissingPane => return Ok(None),
                 BrowserSurfaceAttach::Attached(delta) => delta,
             };
+        drop(cell_pixel_lifecycle);
         let identity = surface
             .resource_identity()
             .context("adopted browser surface omitted its public identity")?;
