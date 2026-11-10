@@ -39,7 +39,9 @@ structure = importlib.util.module_from_spec(_tspec)
 _tspec.loader.exec_module(structure)
 
 SURFACES = [("chief-panel", "home.openChief"), ("home", "home.show")]
-SETTLE_SECONDS = 4.0
+SETTLE_SECONDS = 3.0
+# A web page's tree fills in after its first paint: each surface is read again until a thread shows.
+READS = 6
 # The compiled tests/ui-structure/ax_dump.swift (--ax-dump; console-session.sh passes no environment).
 AX_DUMP = ""
 
@@ -91,17 +93,25 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
         reply = call(Path(socket_path), "action.run", {"action": action, "focus": True})
         entry: dict = {"action": action, "reply": reply}
         result["surfaces"][surface] = entry
-        time.sleep(SETTLE_SECONDS)
-        status, tree, why = ax_dump(binary, int(report.get("pid") or process.pid))
-        if status == 3:
-            result["why"] = "the dumper is not trusted for accessibility"
-            return []
+        tree, snap = None, None
+        for _ in range(READS):
+            time.sleep(SETTLE_SECONDS)
+            status, tree, why = ax_dump(binary, int(report.get("pid") or process.pid))
+            if status == 3:
+                result["why"] = "the dumper is not trusted for accessibility"
+                return []
+            if tree is None:
+                continue
+            snap = structure.normalize(tree, surface, source=f"{app.name} {surface} (ax_dump)")
+            if snap["thread_frame"]:
+                break
         if tree is None:
             entry["why"] = why
             continue
         if out:
             (Path(out) / f"ax-{surface}.json").write_text(json.dumps(tree))
-        snap = structure.normalize(tree, surface, source=f"{app.name} {surface} (ax_dump)")
+            # Evidence only, never the verdict (screencapture may lack the Screen Recording grant).
+            subprocess.run(["screencapture", "-x", str(Path(out) / f"shot-{surface}.png")], capture_output=True, timeout=30)
         entry["snapshot"] = snap
         if out:
             (Path(out) / f"thread-{surface}.json").write_text(json.dumps(snap, indent=1))
@@ -119,6 +129,23 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return failures
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain in the fresh home, as a real install has: without one the first Chromium
+    Safe Storage read puts up "Keychain Not Found" over the window (as stable_next_ui_journey.py)."""
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    for args in (["create-keychain", "-p", "", str(keychain)],
+                 ["list-keychains", "-d", "user", "-s", str(keychain)],
+                 ["default-keychain", "-d", "user", "-s", str(keychain)],
+                 ["set-keychain-settings", str(keychain)]):
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            raise smoke.CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+
+
 def main(argv: list[str] | None = None) -> int:
     global AX_DUMP
     args = list(argv if argv is not None else sys.argv[1:])
@@ -127,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         AX_DUMP = args[i + 1]
         del args[i:i + 2]
     smoke.AFTER_RENDER = journey
+    smoke.PREPARE_HOME = login_keychain
     status = smoke.main(args)
     out = None
     if "--out" in args:
