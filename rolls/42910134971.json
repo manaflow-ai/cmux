@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42910134971",
+  "recorded_at": "2026-11-10T22:09:37Z",
+  "reason": "cmux-tui 6b2d2b4dc103 changes the image's cmux-tui (pinned d9ee7a4b120d)",
+  "dry_run": false,
+  "cmux_tui": "6b2d2b4dc103c07fbf87fcbca01c52fc1a19a9d6",
+  "fixes": [
+    {
+      "sha": "4b9be487adc4cda2b5ed8b509732cd2f1716b840",
+      "mergedAt": "2026-11-10T13:40:32-08:00",
+      "subject": "fix(acpmux): live_ages test hub uses the memory store; LiveAges is crate-visible for clippy"
+    },
+    {
+      "sha": "e979b355f24186ee96fff15c523e28a7e35fdfa0",
+      "mergedAt": "2026-11-10T13:40:32-08:00",
+      "subject": "fix(acpmux): a live Claude row drops the \"Claude \" vendor word from its name"
+    },
+    {
+      "sha": "bd25f40ed2e77977f2e63538293ab0ce58dce898",
+      "mergedAt": "2026-11-10T13:40:32-08:00",
+      "subject": "test(acpmux): a gateway row's \"Claude \" vendor prefix leaves the model name (red)"
+    },
+    {
+      "sha": "d2e49fb28109af75e788a0fab426e9e6fa06c4d9",
+      "mergedAt": "2026-11-10T13:40:32-08:00",
+      "subject": "fix(model picker): new releases appear without a restart and lead their family"
+    },
+    {
+      "sha": "52f9461b0f82c241262d3702a2c72d2bb2afe50c",
+      "mergedAt": "2026-11-10T13:40:32-08:00",
+      "subject": "test(acpmux): a models read after 15 min probes Claude Code's list again (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T22:09:37Z",
+    "snapshot_id": "sh-6b93fd7daa5f4c40b85d665b82bcd57d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42910134971): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f501acc86d61844b273e49ec7b069dba1baa33e5",
+    "image": "cloud-native-auto-6b2d2b4d-42910134971-1",
+    "revision": "ci-42910134971-1",
+    "at": "2026-11-10T22:09:37Z"
+  },
+  "rolled_back": false
+}
