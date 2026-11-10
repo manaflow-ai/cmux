@@ -974,6 +974,10 @@ path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_api_error_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_upload_batching.py"
 lane = "linux-guard"
 
@@ -2241,6 +2245,10 @@ path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_classic_deploy_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
@@ -2271,4 +2279,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_rust_cache_runner_cargo_home.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_publish_supersede.py"
 lane = "linux-guard"

@@ -16,9 +16,9 @@ import { isPlainEmailLocalPart } from "./access";
 import {
   AccountDeletionMutationBlockedError,
   AccountDeletionUserMutationInProgressError,
-  withAccountDeletionUserMutation,
   type AccountDeletionUserMutationLease,
 } from "../account/deletionLock";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
 import {
   AccountMetadataUserUnavailableError,
   type AccountMetadataUserLoader,
@@ -380,7 +380,7 @@ function metadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function defaultAdminStackApp(): AdminStackApp {
+export function defaultAdminStackApp(): AdminStackApp {
   const app = getStackServerApp();
   return {
     getUser: (userId) => app.getUser(userId),
@@ -545,14 +545,9 @@ export async function setTeamManualPlanGrant(input: {
   return adminTeamRow(reloaded, await billing(reloaded.id), await memberCount(reloaded));
 }
 
-/** Team lease key. Teams share the account-mutation lease table under a prefixed id. */
-function teamMutationKey(teamId: string): string {
-  return `team:${teamId}`;
-}
-
-function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
+export function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
   return async (teamId, operation) =>
-    await withAccountDeletionUserMutation(cloudDb(), teamMutationKey(teamId), async (lease) => {
+    await withTeamMetadataMutation(cloudDb(), teamId, async (lease) => {
       const team = await app.getTeam(teamId);
       if (!team || team.id !== teamId) throw new AdminTeamNotFoundError(teamId);
       return await operation(team, lease);

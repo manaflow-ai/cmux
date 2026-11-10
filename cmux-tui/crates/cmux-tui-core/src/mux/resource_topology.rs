@@ -2555,6 +2555,10 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
+                #[cfg(test)]
+                if let Some(hook) = self.topology_effect_before_execute.lock().unwrap().clone() {
+                    hook();
+                }
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
                     Err(error)
@@ -2590,12 +2594,12 @@ impl Mux {
                                 error,
                             ));
                         };
-                        let actual = match self
-                            .workspace_registry
-                            .lock()
-                            .unwrap()
-                            .resource_topology_snapshot()
-                        {
+                        // The read is its own statement: its registry guard ends here,
+                        // before an Err arm that marks the effect indeterminate (and so
+                        // locks the registry again).
+                        let snapshot =
+                            self.workspace_registry.lock().unwrap().resource_topology_snapshot();
+                        let actual = match snapshot {
                             Ok(snapshot) => snapshot.revision,
                             Err(error) => {
                                 return Err(self.indeterminate_topology_effect(
@@ -2784,6 +2788,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -2808,6 +2813,28 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
+        if guard.requires_unplaced() {
+            // The registry lock serializes placement commits and the creation
+            // fence excludes a creation between runtime and placement, so
+            // this check cannot race a new view of the terminal.
+            let placed = !state
+                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                .is_empty()
+                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
+                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+                });
+            if placed {
+                return Err(TerminalCloseGuardFailed::Placed.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
+            }
+        }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
         })?;

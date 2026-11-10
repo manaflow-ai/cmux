@@ -185,7 +185,10 @@ jobs:
     name: lint (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -240,7 +243,10 @@ jobs:
         with:
           workspaces: cmux-tui -> target
 
+      # Formatting is host-independent: a focused run checks it on Linux only,
+      # so the macOS row is clippy alone.
       - name: cargo fmt
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         id: rustfmt-check
         working-directory: cmux-tui
         run: cargo fmt --check
@@ -484,7 +490,16 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
+    # The runnable tests the focused filter selected on each host. Each leg sets
+    # only its own key, so neither leg overwrites the other's count in the
+    # matrix's combined outputs; hosted-verification reads both.
+    outputs:
+      focused_selected_linux: ${{ steps.focused.outputs.selected_linux }}
+      focused_selected_macos: ${{ steps.focused.outputs.selected_macos }}
     strategy:
       fail-fast: false
       matrix:
@@ -574,15 +589,20 @@ jobs:
             echo "- exact cache hit: \`$CACHE_HIT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # In focused mode the macOS row runs only its setup and the filtered tests
+      # (cargo test, below); full mode runs every step. Before, every focused
+      # dispatch also ran these fixed steps and held a shared Mac runner for
+      # them while about 100 jobs queued for the pool (2026-11-09). The focused
+      # journal sentinels run on Linux; full mode runs their macOS tests in the
+      # workspace suite.
       - name: Test isolated TUI test-runner policy
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
+      # No cargo fmt here: lint checks formatting once, so a format diff does
+      # not stop the tests (as on feat-cmux-next, #17095).
       - name: userland agent plugin package tests
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the
         # daemon workspace test does not compile it. Keep this explicit check
@@ -598,13 +618,8 @@ jobs:
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
-      - name: focused macOS journal process-fence tests
-        if: inputs.mode == 'focused' && runner.os == 'macOS'
-        working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
-
       - name: focused journal writer shutdown test
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
           cargo test -p cmux-tui-core --lib
@@ -612,7 +627,7 @@ jobs:
           -- --exact
 
       - name: focused final journal ownership tests
-        if: inputs.mode == 'focused'
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: |
           cargo test -p cmux-tui-core --lib \
@@ -626,11 +641,13 @@ jobs:
             -- --exact
 
       - name: cargo test
+        id: focused
         working-directory: cmux-tui
         env:
           CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
+          HOST_OS: ${{ matrix.os }}
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
@@ -672,9 +689,14 @@ jobs:
             echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
             exit 1
           fi
+          # Host-only tests (Linux-only files, macOS-only tests) compile to
+          # nothing on the other host, so a host with no matching test passes.
+          # hosted-verification fails the run when both hosts selected none.
+          selected="$(grep -c . "$runnable_names" || true)"
+          echo "selected_${HOST_OS}=${selected:-0}" >> "$GITHUB_OUTPUT"
           if [[ ! -s "$normal_names" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
-            exit 1
+            echo "::notice::test_filter '$TEST_FILTER' selects no Rust test on this host; hosted verification fails the run only if the other host selects none too"
+            exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER"
 
@@ -1019,6 +1041,9 @@ jobs:
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
+      TEST_FILTER: ${{ inputs.test_filter }}
+      LINUX_FOCUSED_SELECTED: ${{ needs.test.outputs.focused_selected_linux }}
+      MACOS_FOCUSED_SELECTED: ${{ needs.test.outputs.focused_selected_macos }}
       WINDOWS_TEST_RESULT: ${{ needs.test-windows.result }}
       CDP_BROWSER_RESULT: ${{ needs.cdp-browser-smoke.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
@@ -1049,4 +1074,31 @@ jobs:
             require_success "Valgrind" "$VALGRIND_RESULT"
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
+          fi
+          # Each host lets a filter that selects no test there pass (host-only
+          # tests), so the verdict on a filter that selects nothing anywhere is
+          # here. An empty count is never read as 0. The reserved chatmux_relay
+          # selector runs a package without a listing, so it reports no count;
+          # any other focused filter must have a count from each host, so a
+          # broken output wiring cannot let a typo filter pass.
+          if [[ "$MODE" == "focused" ]]; then
+            linux_count="${LINUX_FOCUSED_SELECTED:-}"
+            macos_count="${MACOS_FOCUSED_SELECTED:-}"
+            echo "focused tests selected: linux=${linux_count} macos=${macos_count}"
+            if [[ "$TEST_FILTER" != "chatmux_relay" && "$TEST_FILTER" != "chatmux-relay" ]]; then
+              if [[ -z "$linux_count" || -z "$macos_count" ]]; then
+                echo "::error::the test job reported no focused test count (linux='${linux_count}' macos='${macos_count}'); check the test job's outputs" >&2
+                exit 1
+              fi
+              if [[ "$linux_count" == "0" && "$macos_count" == "0" ]]; then
+                echo "::error::test_filter '$TEST_FILTER' selected no Rust tests on Linux or macOS" >&2
+                exit 1
+              fi
+              if [[ "$linux_count" == "0" ]]; then
+                echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on Linux; macOS ran $macos_count"
+              fi
+              if [[ "$macos_count" == "0" ]]; then
+                echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on macOS; Linux ran $linux_count"
+              fi
+            fi
           fi

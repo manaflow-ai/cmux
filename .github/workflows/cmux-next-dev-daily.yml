@@ -308,6 +308,48 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Cancels older publish runs this one supersedes before their Mac jobs
+  # start (scripts/ci/cmux_next_dev_publish_supersede.py has the rule). On
+  # 2026-11-09 13:30Z seven publish runs were open, each with its Linux jobs
+  # done and its Mac jobs queued on glaeda-std-xcode-26.6 (1 of 57 runners
+  # online); the runner owner cancelled four by hand. Publish and tip refuse to
+  # roll back (not_newer), so such an older run can never publish once a newer
+  # source is in flight, yet it holds a Mac queue slot. The oldest waiting run
+  # is kept, being nearest a runner, so the channel still moves when the Mac
+  # wait is longer than the handoff interval: cancelling every older run would
+  # starve it the way a concurrency group did (the sign job's comment). A run
+  # with any job running, or with a newer source, is never cancelled.
+  # It runs once this run has a signed app: a run that publishes nothing
+  # (no app, an ineligible source) supersedes nothing. Nothing needs it, so it
+  # adds no time to verify or publish; and continue-on-error, so a failure here
+  # (the shared API budget) never fails the run, which would make the
+  # dispatcher hand this source over again. No secrets, no app code.
+  supersede:
+    name: Cancel older DEV publish runs this one supersedes
+    needs: sign
+    if: needs.sign.outputs.signed == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout the supersede script from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cmux_next_dev_publish_supersede.py
+          sparse-checkout-cone-mode: false
+
+      - name: Cancel superseded publish runs whose Mac jobs have not started
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: python3 -I scripts/ci/cmux_next_dev_publish_supersede.py --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --source-run-id "$SOURCE_RUN_ID"
+
   # Offers verify to the owned Macs (Leo, 2026-10-24: owned Macs before
   # Blacksmith). It runs e2e_runner_pool.py, test-e2e.yml's picker, as
   # iroh-release-gate.yml does: an owned pool on the lane's Xcode pin while

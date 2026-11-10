@@ -106,6 +106,8 @@ use crate::ui::{
 mod attention_jump;
 pub(crate) mod copy_mode;
 mod host_notify_ops;
+#[cfg(test)]
+mod test_deadline;
 
 #[cfg(test)]
 thread_local! {
@@ -7388,6 +7390,9 @@ pub struct App {
     pub config: Config,
     #[cfg(test)]
     config_reload_applications: usize,
+    /// Ends the test binary when a test that owns this `App` hangs.
+    #[cfg(test)]
+    _test_deadline: Option<test_deadline::TestDeadline>,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
@@ -9707,6 +9712,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         config,
         #[cfg(test)]
         config_reload_applications: 0,
+        #[cfg(test)]
+        _test_deadline: None,
         chrome,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
@@ -32720,9 +32727,21 @@ mod tests {
         assert_eq!(initial_host_mouse_capture(false), Some(true));
     }
 
+    /// Surface options whose child writes nothing until it reads a line. A live
+    /// shell prints while a test inspects the terminal; the busy terminal lock
+    /// makes `try_pointer_semantics` report contention and the app then falls
+    /// back to the last applied capture, so tests that read terminal state
+    /// without a frame must not race a shell (port of feat ea2bf547).
+    fn quiet_surface() -> SurfaceOptions {
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()]),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
-        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-mouse-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
@@ -32753,7 +32772,7 @@ mod tests {
     /// the inner application still owns the mouse.
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
-        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-canonical-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
@@ -46979,6 +46998,7 @@ mod tests {
             durable_notice_ack_retry_at: None,
             config: Config::default(),
             config_reload_applications: 0,
+            _test_deadline: Some(super::test_deadline::TestDeadline::arm()),
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),

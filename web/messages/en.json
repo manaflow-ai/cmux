@@ -5167,11 +5167,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Preview builds of the next cmux app",
-    "metaTitle": "cmux NEXT NIGHTLY — Preview Builds",
-    "metaDescription": "Download cmux NEXT NIGHTLY, a preview of the next cmux app built automatically from its latest commit. Runs alongside cmux with its own auto-updates.",
+    "metaTitle": "cmux NEXT — Chief and your coding agents, in one Mac app",
+    "metaDescription": "cmux NEXT is the next cmux for Mac. Tell Chief what you want done, and it starts coding agents in their own workspaces and reports back.",
     "description": "cmux NEXT NIGHTLY is a preview of the next version of cmux, built automatically from its latest commit. It installs as cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), so it replaces cmux NIGHTLY and runs alongside cmux. It requires a Mac with Apple silicon.",
     "download": "Download NEXT NIGHTLY for Mac",
-    "warning": "NEXT NIGHTLY builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release."
+    "warning": "NEXT NIGHTLY builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release.",
+    "landing": {
+      "tagline": "Tell Chief what you want done. It runs the agents.",
+      "subtitle": "cmux NEXT is the next version of cmux: a native Mac app built on Ghostty. Chief, its built-in assistant, starts coding agents in their own workspaces, watches them, and tells you when one needs you. A terminal, a real browser and diffs sit beside every agent.",
+      "requirements": "Apple silicon · macOS 14 or later · Runs alongside cmux",
+      "featuresTitle": "Features",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Tell it what you want done. It starts agents, hands big jobs to subagents, and reports back."
+        },
+        "home": {
+          "title": "Home",
+          "body": "One chat list for Chief and every agent, with unread dots when one needs you."
+        },
+        "agents": {
+          "title": "Any coding agent",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi and more, as real chats with their edits and diffs in view."
+        },
+        "floating": {
+          "title": "Floating Chief",
+          "body": "⌘I brings Chief over the workspace you're in. ⌥⇧Space brings it up from any app."
+        },
+        "search": {
+          "title": "Search everything",
+          "body": "⌘⇧A finds workspaces, tabs, agent chats, browser history and past commands."
+        },
+        "spaces": {
+          "title": "Spaces",
+          "body": "Separate sets of windows for separate work. ⌃⌥⌘← and → to switch."
+        },
+        "browser": {
+          "title": "A real browser",
+          "body": "Chromium in a tab, with extensions, DevTools and profiles, next to your agents."
+        },
+        "machines": {
+          "title": "Your machines",
+          "body": "Run workspaces over SSH, or on cmux Cloud machines that pause when idle (cmux Pro)."
+        },
+        "history": {
+          "title": "Bring your history",
+          "body": "Import Claude Code and Codex history as searchable chats, and pick up where you left off."
+        },
+        "terminal": {
+          "title": "Ghostty terminal",
+          "body": "GPU-rendered, and it reads your Ghostty config."
+        },
+        "sidebar": {
+          "title": "Your own sidebar",
+          "body": "Add sidebar sections as lists or grids, built as small JavaScript apps."
+        },
+        "phone": {
+          "title": "iPhone (beta)",
+          "body": "Answer an agent's permission prompt from your phone."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home with Chief on the left, a Claude Code agent and the files it edited on the right",
+      "demosTitle": "See it",
+      "demos": {
+        "docked": {
+          "caption": "Chief docked beside a workspace.",
+          "alt": "Chief docked to the right of a terminal workspace"
+        },
+        "floating": {
+          "caption": "⌘I floats Chief over whatever you're doing.",
+          "alt": "Chief floating over a terminal workspace"
+        },
+        "agents": {
+          "caption": "An agent's chat next to Chief's.",
+          "alt": "An agent conversation next to a chat with Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P runs any action by name.",
+          "alt": "The Command Palette open over a conversation"
+        },
+        "history": {
+          "caption": "Bring over Claude Code and Codex history.",
+          "alt": "The import screen listing Claude Code, Codex and other sources"
+        },
+        "machines": {
+          "caption": "Pick the machine a workspace group runs on.",
+          "alt": "Choosing which machine a workspace group runs on"
+        }
+      },
+      "nightlyTitle": "About NEXT NIGHTLY",
+      "nightlyBody": "A new build lands every night from the latest commit, and the app updates itself.",
+      "iconAlt": "cmux NEXT NIGHTLY icon"
+    }
   },
   "languageSwitcher": {
     "label": "Language"

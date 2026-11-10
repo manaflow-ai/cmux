@@ -230,6 +230,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the classic deploy guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_classic_deploy_guard.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -1318,6 +1322,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_batching.py
 
+      - name: Validate failed gh api reads never become workflow values
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_gh_api_error_capture.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
@@ -1422,6 +1430,10 @@ jobs:
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
           python3 tests/test_nightly_next_canary_feed_origin.py
+
+      - name: Validate the cmux NEXT DEV publisher cancels only superseded runs
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_publish_supersede.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}

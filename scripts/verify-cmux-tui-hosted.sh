@@ -21,6 +21,11 @@ cannot select that crate.
 Both modes build and download matching macOS arm64 cmux-tui and userland agent-plugin
 artifacts from the exact pushed HEAD.
 
+One open run per commit, mode and filter: when a cmux-tui run for the same
+commit, mode and test filter is still open (queued, in progress, waiting), the
+script does not dispatch a second one. It prints that run's id and URL and
+exits with status 4; wait on that run with glaeda-gh wait run instead.
+
 The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
@@ -237,7 +242,45 @@ trap 'exit_on_signal 129' HUP
 trap interrupt_hosted_run INT
 trap 'exit_on_signal 143' TERM
 
-request_id="${commit:0:12}-$(date +%s)-$$"
+# The run API does not return a run's inputs, so the run-name (title) carries
+# the filter: request_id is <sha12>-f<hash8>-<epoch>-<pid>, where hash8 is the
+# first 8 hex digits of the filter's git blob hash (the empty filter in full
+# mode). validate-inputs accepts [A-Za-z0-9._-]; the lookup below reads the token.
+filter_hash="$(printf '%s' "$test_filter" | git hash-object --stdin)"
+filter_hash="${filter_hash:0:8}"
+request_id="${commit:0:12}-f${filter_hash}-$(date +%s)-$$"
+
+# One open run per commit, mode and filter (2026-11-09: about 37 cmux-tui runs
+# queued for the shared Mac pool, often several for one commit). A run of this
+# commit whose title has this mode and this filter's token, and that is not
+# completed, is the run to wait on: do not dispatch a second one. The run is
+# not attached to here: it belongs to the caller that dispatched it, and this
+# script cancels its own run on Ctrl-C and --cancel-on-timeout. A failed lookup
+# only warns, so a run-list outage cannot block verification.
+open_run_lookup="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$commit" \
+  --event workflow_dispatch --limit 50 --json databaseId,status,displayTitle,url \
+  --jq '.[] | [.databaseId, .status, .displayTitle, .url] | @tsv' 2>"$temp_dir/open-run.err")" || {
+  printf 'warning: could not look for an open cmux-tui run of this commit, dispatching anyway: %s\n' \
+    "$(cat "$temp_dir/open-run.err")" >&2
+  open_run_lookup=""
+}
+while IFS=$'\t' read -r open_id open_status open_title open_url; do
+  [[ -n "$open_id" && "$open_status" != "completed" ]] || continue
+  [[ "$open_title" == "cmux-tui $mode "*" @ $commit" ]] || continue
+  open_request="${open_title#"cmux-tui $mode "}"
+  open_request="${open_request%" @ $commit"}"
+  # Full mode has no filter, so any open full run of the commit counts. A
+  # focused run counts only with this filter's token (a run dispatched before
+  # the token existed has an unknown filter and does not count).
+  if [[ "$mode" == "focused" && "$open_request" != *"-f${filter_hash}-"* ]]; then
+    continue
+  fi
+  echo "error: cmux-tui run $open_id ($open_status) already verifies $commit in $mode mode${test_filter:+ with filter $test_filter}; not dispatching a second run" >&2
+  echo "Run: $open_url" >&2
+  echo "Wait on it: glaeda-gh wait run $REPO/$open_id" >&2
+  echo "When it is done: gh run view --repo $REPO $open_id --log-failed, or gh run download --repo $REPO $open_id" >&2
+  exit 4
+done <<< "$open_run_lookup"
 
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
@@ -314,20 +357,51 @@ fi
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 cancel_on_interrupt=true
 
-# Re-read the run before accepting it so a branch/ref race cannot make us
-# watch a run for a different revision. The dispatch named this run, so its
-# title (run-name, with request_id) is not checked: GitHub renders it a moment
-# after the dispatch, and a run read sooner is titled only "cmux-tui".
-run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event \
-  --jq '[.headSha, .headBranch, .event] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
-if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" ]]; then
-  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
-  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+# Read the run before accepting it so a branch/ref race cannot make us accept
+# a run of a different revision. The dispatch named this run, so its title
+# (run-name, with request_id) is not checked: GitHub renders it a moment after
+# the dispatch, and a run read sooner is titled only "cmux-tui".
+#
+# GitHub can answer 404 or 500 for a few seconds after it creates a run (run
+# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so such a
+# read is not a failure and is not retried here: the script names the run,
+# gives the wait to glaeda-gh wait run (the single poller), and checks the
+# revision again before it accepts the result or an artifact. A network drop
+# is waited out the same way. Any other error (401, 403, a broken gh) does
+# not heal by waiting: it exits 1 at once.
+run_identity_confirmed=false
+check_run_identity() {
+  local identity
+  identity="$(gh run view --repo "$REPO" "$run_id" \
+    --json headSha,headBranch,event \
+    --jq '[.headSha, .headBranch, .event] | @tsv' 2>"$temp_dir/identity.err")" || return 2
+  IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$identity"
+  if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+        "$run_event" != "workflow_dispatch" ]]; then
+    echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
+    printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+    printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+    return 1
+  fi
+  run_identity_confirmed=true
+}
+identity_status=0
+check_run_identity || identity_status=$?
+if [[ $identity_status -eq 1 ]]; then
   exit 1
+elif [[ $identity_status -eq 2 ]]; then
+  identity_error="$(tr '\n' ' ' < "$temp_dir/identity.err")"
+  # Waited out: 404 or 5xx (GitHub has not shown the new run yet) and a
+  # network drop with no HTTP code. Exit at once: any other HTTP error (401,
+  # 403) and a gh that fails without a network error (a broken gh).
+  if ! grep -Eqi 'HTTP (404|5[0-9][0-9])|error connecting to|connection (reset|refused)|timed? ?out|i/o timeout|no such host|TLS handshake|unexpected EOF' <<<"$identity_error" || \
+      grep -Eq 'HTTP (40[0-35-9]|4[1-9][0-9])' <<<"$identity_error"; then
+    printf 'error: could not read run %s that the dispatch created (%s); it is not cancelled: %s\n' \
+      "$run_id" "$identity_error" "$run_url" >&2
+    exit 1
+  fi
+  printf 'note: GitHub created run %s but could not show it yet (%s); waiting on it, its revision is checked before the result counts\n' \
+    "$run_id" "$identity_error" >&2
 fi
 
 echo "Run: $run_url"
@@ -522,11 +596,30 @@ if [[ "$run_finished" != true ]]; then
   fi
   echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
   echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
-  echo "Do not run this script again for this commit: that starts a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  if [[ "$run_identity_confirmed" == true ]]; then
+    echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  else
+    # Its first read failed, so no artifact of it may be used until its revision is read.
+    echo "The run's revision is not confirmed (its first read failed). When it is done, check it with: gh run view --repo $REPO $run_id --json headSha,headBranch,event; it must be $commit on $remote_branch (workflow_dispatch) before its result or artifacts count." >&2
+  fi
   exit 3
 fi
 cancel_on_interrupt=false
 exec 3>&-
+
+# The first read of the run failed: check its revision now, before its result
+# or an artifact counts.
+if [[ "$run_identity_confirmed" != true ]]; then
+  identity_status=0
+  check_run_identity || identity_status=$?
+  if [[ $identity_status -eq 2 ]]; then
+    printf 'error: could not read run %s to confirm its revision (%s); its result is not accepted: %s\n' \
+      "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" "$run_url" >&2
+    exit 1
+  elif [[ $identity_status -ne 0 ]]; then
+    exit 1
+  fi
+fi
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
