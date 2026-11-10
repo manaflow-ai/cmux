@@ -213,6 +213,10 @@ extension SidebarListViewComponents {
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
+        // The header that sticks over the new rows draws there (its target below); the one that let go moves home.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
@@ -296,7 +300,7 @@ extension SidebarListViewComponents {
         defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
         for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
             let row = layout.rows[index]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             framesComputed += 1
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
@@ -325,7 +329,9 @@ extension SidebarListViewComponents {
                         view.clipsToBounds = true
                         view.opens += 1
                     } else {
-                        view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
+                        // A header that sticks shows at its stuck place, not flying in from its own place far above.
+                        let stuck = row.key == stuckHeader?.key
+                        view.frame = animate && !stuck ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
                     }
                 }
             }
@@ -416,6 +422,8 @@ extension SidebarListViewComponents {
         var indices = Set(realize.isNull ? 0..<0 : layout.rowIndices(from: realize.minY, to: realize.maxY))
         for key in rowViews.keys { if let index = layout.position(of: key) { indices.insert(index) } }
         for key in reopened { if let index = layout.position(of: key) { indices.insert(index) } }
+        // The stuck header draws in view though its own place is far above.
+        if let key = stuckHeader?.key, let index = layout.position(of: key) { indices.insert(index) }
         return indices.sorted()
     }
 
@@ -593,6 +601,11 @@ extension SidebarListViewComponents {
             view.frame = target
         }
         decorations.frame = bounds
+        // The stuck header (set home above) takes the new width at its stuck place.
+        if stuckHeader != nil {
+            stuckHeader = nil
+            followStuckHeader()
+        }
     }
     /// Adds views for rows scrolled into range and drops far-away ones. Only
     /// the rows in range are visited (binary search by y), so a scroll costs
@@ -616,6 +629,7 @@ extension SidebarListViewComponents {
             RowMotion.place(view, at: target, opening: opening, hidden: suppressed.contains(row.key), in: self)
             rowViews[row.key] = view
         }
+        followStuckHeader()
         pruneOffscreen()
         // A block's own items (a long Pinned or custom section) realize with the scroll too.
         for view in rowViews.values { (view as? SidebarBlockRowView)?.region.realizeItems() }
@@ -631,7 +645,7 @@ extension SidebarListViewComponents {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
-            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),
+            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect), key != stuckHeader?.key,
                   inlineRename.session?.key != key, key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[key] = nil
