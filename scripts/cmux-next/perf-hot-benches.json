@@ -11,11 +11,6 @@
       "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
       "owner": "PL-daemon"
     },
-    "feed-live-event": {
-      "what": "one Feed owner event while the Feed list is open: FeedOrderedIndex.apply (binary search per moved id, one array move per inserted or removed row, for the list and the timeline) and the changed rows. FeedOrder.sortedNewest is not on this path: only FeedInboxGroups(items:) and tests call it; the live Inbox groups the ledger's ordered sections with no sort (FeedInboxGroups(sections:filter:now:)).",
-      "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
-      "owner": "Feed"
-    },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us); fleet entry scripts/measure/chromium-host-bench.sh",
@@ -76,6 +71,11 @@
       "bench": "scripts/cmux-next/activation-perf.py (workspace_switch.* rows)",
       "owner": "PL-switch"
     },
+    "pane-verb-turn": {
+      "what": "Toggle Pane Zoom and Swap Pane, from the action's handler to the layout the window shows: one store intent, then one layout apply per window that shows the workspace, all in the input's turn (no daemon wait)",
+      "bench": "PaneVerbsKeyTurnTests and PaneLayoutIntentTests (the change is in the layout model when the handler returns; the daemon's echo applies no layout), then scripts/cmux-next/pane-perf-terminal.py --actions zoom",
+      "owner": "Performance Lead"
+    },
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
@@ -90,6 +90,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "main-task-record": {
+      "what": "every scheduled main-thread task's always-on per-owner time record (MainTaskTimes.record from MainFrameBudget.run: the owner's slot lookup, one bucket and a few stores; debug.main_budget's owners)",
+      "bench": "CMUX_MAIN_TASK_RECORD_BENCH=1 swift test -c release --filter MainTaskRecordBench (ns per task for owners interned first, after 1500 names, and 400 owners in turn)",
+      "owner": "Performance Lead"
     },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",

@@ -483,10 +483,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 

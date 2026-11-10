@@ -44,6 +44,7 @@ pub const ALL_MODELS: &str = "*";
 /// The most models one endpoint harness lists.
 pub const MAX_MODELS: usize = 100;
 /// How long a model-list fetch may take, connect included.
+// timeout: one model-list fetch from the person's endpoint while a harness is checked; a slow one fails that check with a message and can be retried
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The most bytes of a model-list answer read.
 pub(crate) const MAX_LIST_BYTES: usize = 4 << 20;
@@ -440,6 +441,7 @@ pub async fn fetch_models(
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::builder()
         .timeout(timeout)
+        // timeout: connecting to the endpoint's model list (a check of a harness being added); the whole fetch keeps FETCH_TIMEOUT
         .connect_timeout(timeout.min(std::time::Duration::from_secs(5)))
         .redirect(reqwest::redirect::Policy::none())
         .build()

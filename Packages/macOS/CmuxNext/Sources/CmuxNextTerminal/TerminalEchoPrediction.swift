@@ -149,7 +149,7 @@ nonisolated final class TerminalEchoPrediction: Sendable {
 
     /// The main actor's redraw for every event whose answer changes what is drawn.
     func onRedraw(_ body: (@MainActor @Sendable () -> Void)?) {
-        redraw.withLock { $0 = body }
+        redraw.store(body)
     }
 
     /// Whether the overlay shows glyphs now (set by the overlay's owner after each draw).
@@ -214,7 +214,7 @@ nonisolated final class TerminalEchoPrediction: Sendable {
         // the renderer lock, and the redraw reads grid metrics, which take that lock too.
         MainDelivery().later { [self] in
             redrawQueued.store(false, ordering: .releasing)
-            redraw.withLock { $0 }?()
+            redraw.load()?()
         }
     }
 }

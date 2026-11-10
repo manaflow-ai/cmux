@@ -993,7 +993,7 @@ impl Session {
                     tree::tree_from_state_with_notifications(
                         state,
                         &notifications,
-                        &presentation.tab_attention,
+                        &presentation,
                         &git_branches,
                     )
                 })

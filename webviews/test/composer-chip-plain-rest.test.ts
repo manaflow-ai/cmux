@@ -2,7 +2,8 @@
 // The composer's model button is plain text and icon at rest (Leo 2026-10-19: "✳ Opus 5.5 ⌄" and
 // "Medium ⌄" showed a filled pill all the time). Since Leo 2026-10-20 it is one button that names the
 // model and its effort ("Opus 5.5  Medium"); no effort chip of its own is drawn. The button draws a
-// background only under the pointer, on keyboard focus or while its menu is open, and that
+// background only under the pointer, on keyboard focus (a real Tab: code focus draws none, FOCUS-RING,
+// src/ui/focusModality.ts) or while its menu is open, and that
 // background is the soft pill of the Claude app's chips (composer-chip-press.test.ts covers the
 // press).
 //
@@ -12,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -117,10 +119,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         const rest = await look(page, chip);
         expect({ filled: rest.filled, ring: rest.ring }, "plain at rest").toEqual({ filled: false, ring: false });
 
-        // Keyboard focus draws the background (the chip's own :focus-visible). A key press first makes
-        // the focus that follows keyboard focus, as Tab would.
-        await page.keyboard.press("Shift");
-        await page.locator(chip).first().focus();
+        // Keyboard focus draws the background (the chip's own :focus-visible), earned by a real Tab.
+        await focusByKey(page, chip);
         expect(
           await page
             .locator(chip)

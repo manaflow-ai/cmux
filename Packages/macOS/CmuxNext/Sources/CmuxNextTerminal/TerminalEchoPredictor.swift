@@ -12,8 +12,8 @@ import QuartzCore
 /// a small overlay over the cursor row of the live surface and keeps the one timer for when that answer changes on its
 /// own. Nothing here writes to the terminal grid, so a wrong guess is withdrawn by hiding a glyph and the screen stays
 /// what the remote said. Input reaches the engine on Ghostty's IO thread (`ghosttyIOWrite`), output on the output lane
-/// after Ghostty parsed it (``TerminalOutputLane``), frames from the surface layer (``TypingFrameProbe``); each asks
-/// for one ``refresh()`` only when its answer changes what is drawn.
+/// after Ghostty parsed it (``TerminalOutputLane``), frames from Ghostty's present callback (``TerminalPresents``);
+/// each asks for one ``refresh()`` only when its answer changes what is drawn.
 @MainActor
 final class TerminalEchoPredictor {
     let engine: TerminalEchoPrediction
@@ -44,7 +44,6 @@ final class TerminalEchoPredictor {
         overlay.removeFromSuperview()
         overlay.hide()
         view.addSubview(overlay)
-        if let layer = view.layer { TypingFrameProbe.watchPresents(of: layer, for: engine) }
         engine.seedAlternateScreen(view.isAlternateScreen)
         refresh()
     }

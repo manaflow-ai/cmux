@@ -61,6 +61,12 @@ public struct LinkMachine: Sendable {
         /// (again): its host may have restarted under a live link, whose
         /// peer is then gone. Probe now, not at the next heartbeat.
         case macSignaled
+        /// The phone's network changed or came back (the path monitor). A
+        /// dial in flight started on the old path, and its offer may have
+        /// gone out on a socket that died with it: start it again on the new
+        /// one, as for `macSignaled`. A live link roams in place (the dialer's
+        /// `networkChanged`), so it is left alone.
+        case networkChanged
     }
 
     public enum Effect: Equatable, Sendable {
@@ -173,6 +179,15 @@ public struct LinkMachine: Sendable {
             // offer unanswered until the 25 s dial timeout). Presence frames
             // come only when a Mac's socket connects, closes or is renamed, so
             // this restarts a dial only when the host is newly reachable.
+            case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            default: return []
+            }
+        case .networkChanged:
+            switch phase {
+            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            // Without this a retry dial on the dead path waited out its whole
+            // dial timeout (25 s) and then a backoff step after the network
+            // was back (iOS reliability matrix, network_back_during_inflight_dial).
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
             default: return []
             }

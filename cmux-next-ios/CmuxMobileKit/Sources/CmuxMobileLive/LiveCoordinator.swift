@@ -293,15 +293,18 @@ public final class LiveCoordinator {
         case .lost:
             log.info("network lost")
             ConnectTimeline.shared.mark("network_lost")
+            // The offline banner and the Workspaces page's offline wording (CMUX-49).
+            if !store.isOffline { store.isOffline = true }
         case .changed(let path):
             log.info("network changed: \(path, privacy: .public)")
+            if store.isOffline { store.isOffline = false }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
             focused.link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
             for session in sessions.values where session !== focused {
-                if case .waiting = session.link.phase { session.link.send(.foreground) }
+                session.link.send(.networkChanged)
             }
         }
     }
@@ -465,8 +468,10 @@ public final class LiveCoordinator {
         } catch {
             guard !Task.isCancelled else { return }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
-            // A warm start keeps its cached list; the retry below catches up.
-            if !warm { store.teamDataState = .failed }
+            // Failed either way: a warm start's cached rows stay on screen
+            // (WorkspacesLaunchState keeps them and says they are the last known);
+            // the retry below catches up.
+            store.teamDataState = .failed
             // Try again on its own (the list's Retry also works).
             do { try await clock.sleep(for: .seconds(5)) } catch { return }
             guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }

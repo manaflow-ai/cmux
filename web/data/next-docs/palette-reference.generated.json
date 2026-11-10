@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1390,
+    "entries": 1389,
     "shortcuts": 188
   },
   "sections": [
@@ -2098,10 +2098,22 @@
           "command": null
         },
         {
+          "id": "divider.hide",
+          "title": "Hide Divider",
+          "shortcut": null,
+          "command": "cmux divider hide"
+        },
+        {
           "id": "increaseWorkspaceTerminalFontSize",
           "title": "Increase Workspace Font Size",
           "shortcut": "⌘=",
           "command": null
+        },
+        {
+          "id": "divider.insertNew",
+          "title": "Insert New",
+          "shortcut": null,
+          "command": "cmux divider insert"
         },
         {
           "id": "column.moveLeft",
@@ -2522,6 +2534,12 @@
           "title": "Show Artifacts",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "divider.show",
+          "title": "Show Divider",
+          "shortcut": null,
+          "command": "cmux divider show"
         },
         {
           "id": "pane.focus",
@@ -6238,12 +6256,6 @@
           "command": "cmux chief memory"
         },
         {
-          "id": "chief.toggleComputer",
-          "title": "Chief: Toggle Computer",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "chief.toggleMemoryInspector",
           "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
@@ -6478,12 +6490,6 @@
           "command": null
         },
         {
-          "id": "agentPane.togglePointerInspector",
-          "title": "Inspect UI Element",
-          "shortcut": null,
-          "command": "cmux agent toggle-ui-pointer"
-        },
-        {
           "id": "palette.addHarness",
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
@@ -6596,6 +6602,12 @@
           "title": "Open Voice Room",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.togglePointerInspector",
+          "title": "Point at Element",
+          "shortcut": null,
+          "command": "cmux agent toggle-ui-pointer"
         },
         {
           "id": "agentPane.previousBookmarkedPrompt",
@@ -6916,12 +6928,6 @@
           "command": "cmux cloud bring-back"
         },
         {
-          "id": "cloud.computerControl",
-          "title": "Chief Computer Control…",
-          "shortcut": null,
-          "command": "cmux cloud computer-control"
-        },
-        {
           "id": "cloudPortClose",
           "title": "Close Forwarded Machine Port…",
           "shortcut": null,
@@ -7112,6 +7118,12 @@
           "title": "List Forwarded Machine Ports",
           "shortcut": null,
           "command": "cmux cloud port-list"
+        },
+        {
+          "id": "cloudMoveToMachine",
+          "title": "Move to Another Machine",
+          "shortcut": null,
+          "command": "cmux cloud move-to-machine"
         },
         {
           "id": "cloudMove",
@@ -7316,12 +7328,6 @@
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
           "command": null
-        },
-        {
-          "id": "cloud.chiefComputer",
-          "title": "Use Chief’s Own Computer…",
-          "shortcut": null,
-          "command": "cmux cloud chief-computer"
         },
         {
           "id": "cloudFileWrite",
@@ -8270,18 +8276,6 @@
           "title": "Upgrade to cmux Pro",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "appearance.animations.bounce.none",
-          "title": "Use Animations Without Bounce",
-          "shortcut": null,
-          "command": "cmux settings use-animations-without-bounce"
-        },
-        {
-          "id": "appearance.animations.bounce.subtle",
-          "title": "Use Bouncy Animations",
-          "shortcut": null,
-          "command": "cmux settings use-bouncy-animations"
         },
         {
           "id": "browser.defaultEngine.chromium",

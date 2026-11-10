@@ -276,6 +276,7 @@ public final class MacHomeFeed {
             await opened?.close()
             guard mine == generation else { return }
             problem = Self.reason(error)
+            readAnswered()
         }
     }
 
@@ -338,6 +339,7 @@ public final class MacHomeFeed {
         closeSessions()
         self.macID = macID
         link = nil
+        readAnswered()
         let old = detach()
         Task { await old?.close() }
     }
@@ -369,6 +371,44 @@ public final class MacHomeFeed {
 
     /// Reads the rows: one read at a time, and a request during a read runs one more after it.
     public func refresh() { refresh(relist: false) }
+
+    /// ``refresh()``, returning once the next read (or the channel open it needs)
+    /// has answered, so a Retry shows its spinner for as long as the load and no
+    /// longer. It returns at once with nothing to read from (no channel, no link),
+    /// on cancellation, and after `cap` (a channel that goes quiet without closing
+    /// never answers; Retry must come back to be tapped again).
+    public func reload(cap: Duration = .seconds(15)) async {
+        refresh(relist: false)
+        guard client != nil || opening else { return }
+        readWaiterCount += 1
+        let id = readWaiterCount
+        // task-owner: the cap of one reload; ends at the cap or with the reload's own end
+        let capTask = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: cap)
+            self?.endReadWait(id)
+        }
+        defer { capTask.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { readWaiters[id] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.endReadWait(id) }
+        }
+    }
+
+    /// Reloads waiting for the next read's answer, by id.
+    @ObservationIgnored private var readWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored private var readWaiterCount = 0
+
+    private func endReadWait(_ id: Int) {
+        readWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    /// A read or an open answered (either way): every waiting reload returns.
+    private func readAnswered() {
+        let waiting = readWaiters
+        readWaiters = [:]
+        for waiter in waiting.values { waiter.resume() }
+    }
 
     private func refresh(relist: Bool) {
         guard let client else {
@@ -406,6 +446,7 @@ public final class MacHomeFeed {
                     guard mine == self.generation else { return }
                     self.problem = Self.reason(error)
                 }
+                self.readAnswered()
                 if !self.readAgain { break }
             }
         }
