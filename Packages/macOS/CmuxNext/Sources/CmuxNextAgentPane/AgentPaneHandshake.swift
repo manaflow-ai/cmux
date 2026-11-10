@@ -131,10 +131,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cloudHandoffs: Bool?
     /// True when this pane has an authenticated cmux-tui route for Cloud repository actions.
     public var cloudRepositoryAvailable: Bool?
-    /// True when this Cloud chat takes whole-machine turn checkpoints and rewinds to them
-    /// (`chat.turnCheckpoint`, `chat.rewindTurn`): signed in and `cloud.turnCheckpoints` on.
-    /// Absent otherwise; pages that predate it ignore it.
-    public var cloudTurnRewind: Bool?
+    /// The prompt row ids (`user-<seq>`) whose turn has a whole-machine Cloud checkpoint taken
+    /// before it (`chat.rewindTurn {rowId}`; `chat.turnCheckpoint {afterSeq}` saves one): present
+    /// only for a signed-in Cloud chat with `cloud.turnCheckpoints` on. Pages that predate it ignore it.
+    public var cloudTurnRewind: [String]?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?

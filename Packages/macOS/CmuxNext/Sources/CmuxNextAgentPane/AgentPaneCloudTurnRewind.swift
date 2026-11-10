@@ -7,8 +7,9 @@ import Foundation
 public nonisolated enum AgentPaneCloudTurnRewind: Equatable, Sendable {
     /// `chat.turnCheckpoint {afterSeq}`: the checkpoint before the turn after completed turn `afterSeq`.
     case checkpoint(afterSeq: Int)
-    /// `chat.rewindTurn {turnSeq}`: the machine back to the checkpoint taken before turn `turnSeq`
-    /// (the one `chat.turnCheckpoint {afterSeq: turnSeq - 1}` saved).
+    /// `chat.rewindTurn {rowId}` (the sent prompt's row, `user-<seq>`) or `{turnSeq}`: the machine
+    /// back to the checkpoint nearest before that prompt, the one `chat.turnCheckpoint` saved after
+    /// the turn before it ended.
     case rewind(turnSeq: Int)
 
     public static let checkpointMethod = "chat.turnCheckpoint"
@@ -21,7 +22,7 @@ public nonisolated enum AgentPaneCloudTurnRewind: Equatable, Sendable {
             guard let seq = Self.number(params, "afterSeq", from: 0) else { return nil }
             self = .checkpoint(afterSeq: seq)
         case Self.rewindMethod:
-            guard let seq = Self.number(params, "turnSeq", from: 1) else { return nil }
+            guard let seq = Self.number(params, "turnSeq", from: 1) ?? Self.promptSeq(params) else { return nil }
             self = .rewind(turnSeq: seq)
         default:
             return nil
@@ -41,6 +42,17 @@ public nonisolated enum AgentPaneCloudTurnRewind: Equatable, Sendable {
         case .checkpoint: Self.checkpointMethod
         case .rewind: Self.rewindMethod
         }
+    }
+
+    /// The page's prompt row id (`user-<seq>`, the prompt's transcript sequence) as a turn number.
+    public static func rowID(turnSeq: Int) -> String { "user-\(turnSeq)" }
+
+    /// `{rowId: "user-<seq>"}`'s seq: digits only, no leading zero, at least 1.
+    private static func promptSeq(_ params: [String: Any]?) -> Int? {
+        guard let params, Set(params.keys) == ["rowId"], let row = params["rowId"] as? String,
+              row.hasPrefix("user-"), case let digits = row.dropFirst(5), (1...15).contains(digits.count),
+              digits.allSatisfy({ $0.isASCII && $0.isNumber }), digits.first != "0" else { return nil }
+        return Int(digits)
     }
 
     /// The only key of `params`, a whole number of at least `minimum` (below 2^50).

@@ -69,9 +69,7 @@ func runCloudTurnRewind(chat key: String, session: String, request: AgentPaneClo
           let connection = services.machines.local.connection else {
         throw NSError(domain: "cloud.turnRewind", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cloud chat is unavailable"])
     }
-    let team = (try? await services.cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
-    let credential = CloudTurnRewindClient.Credential(api: FeedService.apiBaseURL(auth: services.cloud.auth).absoluteString,
-                                                      accessToken: try await services.cloud.auth.tokens().access, team: team)
+    let credential = try await cloudTurnCredential(services)
     let client = CloudTurnRewindClient(connection: connection)
     // The platform keys a checkpoint by workspace, session and turn, so the turn names its key; a
     // rewind is a new one each click (the same key would answer the first rewind again).
@@ -84,7 +82,25 @@ func runCloudTurnRewind(chat key: String, session: String, request: AgentPaneClo
         answer = try await client.rewind(credential, workspace: place.workspace, session: session, turnSeq: request.turnSeq,
                                          clientKey: "cmux-rewind-\(request.turnSeq)-\(UUID().uuidString.prefix(8))")
     }
-    return (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(answer))) as? [String: Any] ?? [:]
+    var reply = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(answer))) as? [String: Any] ?? [:]
+    reply["rowId"] = AgentPaneCloudTurnRewind.rowID(turnSeq: request.turnSeq)
+    return reply
+}
+
+/// The prompt rows of `session` with a checkpoint before them (the ready handshake's `cloudTurnRewind`).
+@MainActor
+func cloudTurnRewindRows(chat key: String, session: String, services: AppServices?) async -> [String] {
+    guard let services, cloudTurnRewindIsOn(services), let place = cloudChatPlace(chat: key, session: session, services: services),
+          let connection = services.machines.local.connection, let credential = try? await cloudTurnCredential(services) else { return [] }
+    let turns = await CloudTurnRewindClient(connection: connection).readyTurns(credential, workspace: place.workspace, session: session)
+    return turns.map(AgentPaneCloudTurnRewind.rowID(turnSeq:))
+}
+
+@MainActor
+private func cloudTurnCredential(_ services: AppServices) async throws -> CloudTurnRewindClient.Credential {
+    let team = (try? await services.cloud.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:))
+    return .init(api: FeedService.apiBaseURL(auth: services.cloud.auth).absoluteString,
+                 accessToken: try await services.cloud.auth.tokens().access, team: team)
 }
 
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.

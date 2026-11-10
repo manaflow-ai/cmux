@@ -1632,6 +1632,29 @@ mod turn_checkpoints {
     }
 
     #[test]
+    fn a_rewind_takes_the_checkpoint_nearest_before_the_prompt() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t3-g0", 100), capture("sess-1", "auto-t7-g1", 300),
+                capture("sess-1", "auto-t12-g2", 900), capture("sess-2", "auto-t9-g2", 950),
+            ]})
+            .to_string()),
+            target if target.ends_with("/rewind") => ok(r#"{"generation":3,"rewindId":"rw-2"}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let request =
+            request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({ "turnSeq": 10 })));
+        let answer = go(&request).unwrap();
+        assert_eq!(answer["turn"], "auto-t7-g1");
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|s| s.target() == "POST /v1/workspaces/ws-1/machine/turns/auto-t7-g1/rewind")
+        );
+    }
+
+    #[test]
     fn a_rewind_refused_for_good_is_not_retried() {
         let (origin, seen) = fake(|s| {
             match s.target().as_str() {

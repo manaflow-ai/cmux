@@ -46,13 +46,31 @@ public struct CloudTurnRewindClient: Sendable {
         ])
     }
 
-    private func call(_ operation: String, _ credential: Credential, key: String, args: [String: JSONValue]) async throws -> JSONValue {
+    /// `owner.turns {workspace, session}`: the session's ready checkpoints' turn numbers, newest first
+    /// (none for a read that failed: the page then offers no rewind until its next handshake).
+    public func readyTurns(_ credential: Credential, workspace: String, session: String) async -> [Int] {
+        let sent = Self.params(credential, args: ["workspace": .string(workspace), "session": .string(session)])
+        let listed = try? await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "cloud.owner.turns", params: sent, idempotencyKey: nil)
+        }, as: JSONValue.self, timeout: .seconds(10), requiring: "cloud-api-v1")
+        guard case .object(let answer)? = listed, case .array(let captures)? = answer["captures"] else { return [] }
+        return captures.compactMap { capture in
+            guard case .object(let fields) = capture, case .number(let seq)? = fields["turnSeq"] else { return nil }
+            return Int(exactly: seq)
+        }
+    }
+
+    private static func params(_ credential: Credential, args: [String: JSONValue]) -> [String: JSONValue] {
         var params: [String: JSONValue] = [
             "api": .string(credential.api), "auth": .string("owner"), "access_token": .string(credential.accessToken),
             "args": .object(args),
         ]
         if let team = credential.team { params["team"] = .string(team) }
-        let sent = params
+        return params
+    }
+
+    private func call(_ operation: String, _ credential: Credential, key: String, args: [String: JSONValue]) async throws -> JSONValue {
+        let sent = Self.params(credential, args: args)
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: sent, idempotencyKey: key)
         }, as: ResourceMutationResult<JSONValue>.self, timeout: Self.timeout, requiring: "cloud-api-v1").value

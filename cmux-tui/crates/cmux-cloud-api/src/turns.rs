@@ -10,7 +10,8 @@
 //!   best effort. Answers `{turn, turnSeq, snapshotId, generation, machineId, connectionMachine,
 //!   imported, seconds, retention: {kept, deleted, failed}}`.
 //! - `owner.turn_rewind {workspace, session, turnSeq, clientKey}` reads the live fence, rewinds
-//!   to the newest checkpoint of this session before turn `turnSeq` (the same key again while the platform answers a
+//!   to this session's checkpoint nearest before turn `turnSeq` (the highest checkpoint turn number
+//!   not past it, the newest of those), sending the same key again while the platform answers a
 //!   retryable 5xx, for at most [`REWIND_DEADLINE`]) and reads the new connection. Answers
 //!   `{turn, turnSeq, generation, machineId, connectionMachine, rewindId, seconds}`.
 //! - `owner.turns {workspace, session?}` answers `{captures}`: the ready checkpoints (of `session`
@@ -450,18 +451,22 @@ pub(crate) async fn rewind(
         Duration::from_secs(30),
     )
     .await?;
-    // The newest checkpoint before turn `seq` of this session (an older generation's too).
-    let turn = ready_captures(&listed, Some(session))
+    // The checkpoint nearest before turn `seq` of this session (the highest turn number not past
+    // it, the newest of those; an older generation's too): a prompt's turn number is its own
+    // transcript sequence, and the checkpoint before it was taken after the turn before it ended.
+    let captures = ready_captures(&listed, Some(session));
+    let nearest = captures.iter().filter_map(|c| c.seq).filter(|n| *n <= seq).max();
+    let turn = captures
         .into_iter()
-        .find(|c| c.seq == Some(seq))
+        .find(|c| c.seq.is_some() && c.seq == nearest)
         .map(|c| c.turn)
         .ok_or_else(|| {
-            Failure::http(
-                404,
-                Some("machine.turn_capture_not_found".into()),
-                Some(format!("no checkpoint before turn {seq}")),
-            )
-        })?;
+        Failure::http(
+            404,
+            Some("machine.turn_capture_not_found".into()),
+            Some(format!("no checkpoint before turn {seq}")),
+        )
+    })?;
     let segments = ["v1", "workspaces", workspace, "machine", "turns", &turn, "rewind"];
     let body = json!({
         "session": session, "clientKey": key, "expectedMachine": live.machine,
