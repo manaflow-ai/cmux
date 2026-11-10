@@ -258,6 +258,8 @@ class CliAndWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/ci/language_boundaries.py", text)
         self.assertIn(".github/language-boundaries.toml", text)
         self.assertNotIn("github.event.pull_request.head.sha }}\n          fetch-depth", text)
+        # The script reads one JSON object per line; gh's --jq would print an object across many lines.
+        self.assertEqual(text.count("| tojson'"), 3)
 
 
 if __name__ == "__main__":

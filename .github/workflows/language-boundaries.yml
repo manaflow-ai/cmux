@@ -85,15 +85,16 @@ jobs:
           fi
           set -- --files "$files" --labels-json "$LABELS_JSON" --expected-files "$CHANGED_FILES"
           if printf '%s' "$LABELS_JSON" | grep -q '"leo-approved-port"'; then
-            # Only with the label on: who added it, and Leo's approval line (comments and reviews).
+            # Only with the label on: who added it, and Leo's approval line (comments and reviews), one compact
+            # JSON object per line (`tojson`, so a body's newlines stay escaped).
             gh api --paginate "repos/$REPOSITORY/issues/$PR/events?per_page=100" \
-              --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), app: (.performed_via_github_app.slug // null)}' \
+              --jq '.[] | {event, label: (.label.name // null), actor: (.actor.login // null), app: (.performed_via_github_app.slug // null)} | tojson' \
               > "$RUNNER_TEMP/events.jsonl"
             gh api --paginate "repos/$REPOSITORY/issues/$PR/comments?per_page=100" \
-              --jq '.[] | {user: (.user.login // null), body, app: (.performed_via_github_app.slug // null)}' \
+              --jq '.[] | {user: (.user.login // null), body, app: (.performed_via_github_app.slug // null)} | tojson' \
               > "$RUNNER_TEMP/notes.jsonl"
             gh api --paginate "repos/$REPOSITORY/pulls/$PR/reviews?per_page=100" \
-              --jq '.[] | {user: (.user.login // null), body, app: null}' >> "$RUNNER_TEMP/notes.jsonl"
+              --jq '.[] | {user: (.user.login // null), body, app: null} | tojson' >> "$RUNNER_TEMP/notes.jsonl"
             set -- "$@" --events "$RUNNER_TEMP/events.jsonl" --notes "$RUNNER_TEMP/notes.jsonl"
           fi
           python3 scripts/ci/language_boundaries.py "$@"
