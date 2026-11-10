@@ -224,6 +224,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // Before anything can draw: every frame the layer shows is reported (``TerminalPresents``).
+        bridge.takeUnretainedValue().presents.install(on: surface, layer: layer.map(ObjectIdentifier.init), userdata: userdata)
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
@@ -235,7 +237,6 @@ public final class TerminalSurfaceView: NSView {
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
                                   frameLayer: layer.map(ObjectIdentifier.init), prediction: bridge.takeUnretainedValue().prediction)
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)

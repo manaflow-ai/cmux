@@ -49,6 +49,13 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
+  "bookmarks-bar": {
+    "read": [
+      "bookmarks.children"
+    ],
+    "gesture": [],
+    "confirm": []
+  },
   "feed": {
     "read": [
       "feed.github.find_work",
@@ -175,6 +182,7 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
   "bookmarks": {
     "owner": "bookmarks.tree",
     "read": [
+      "bookmarks.children",
       "bookmarks.export",
       "bookmarks.list",
       "bookmarks.rank",
