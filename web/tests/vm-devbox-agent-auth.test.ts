@@ -228,8 +228,7 @@ describe("Claude Code sign-in precedence", () => {
     expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
     expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe("<unset>");
     expect(env.args).toBe("--resume x");
-    // An explicit choice with a sign-in needs no account check (with none, the one check is for
-    // the gateway fallback switch).
+    // An explicit choice needs no account check.
     expect(existsSync(m.calls)).toBe(false);
   });
 
@@ -630,8 +629,8 @@ describe("OpenCode sign-in precedence", () => {
   });
 });
 
-/** An agent-access answer with the platform's gateway fallback switch on. */
-const withFallback = (answer: string) => JSON.stringify({ ...JSON.parse(answer), gatewayFallback: true });
+/** A launch whose machine model plane has the platform's gateway fallback switch on. */
+const withFallback = (answer: string, on = "1") => ({ FAKE_ACCESS: answer, CMUX_GATEWAY_FALLBACK: on });
 
 /** `cmux_agent_gateway_available <agent>`'s exit code, from a machine shell. */
 async function gatewayAvailable(m: Machine, agent: Agent, extra: Record<string, string> = {}): Promise<number> {
@@ -653,7 +652,7 @@ describe("the gateway fallback (off until the platform turns it on)", () => {
   test("with the fallback on, an agent chosen own with no credential uses the team's gateway", async () => {
     const m = machine();
     choose(m, "own");
-    const claude = await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) });
+    const claude = await launch(m, "claude", withFallback(ALL));
     expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
   });
@@ -661,21 +660,21 @@ describe("the gateway fallback (off until the platform turns it on)", () => {
   test("with the fallback on, a team without an account for the agent keeps its own sign-in", async () => {
     const m = machine();
     choose(m, "own");
-    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(NONE) })).ANTHROPIC_API_KEY).toBe("<unset>");
+    expect((await launch(m, "claude", withFallback(NONE))).ANTHROPIC_API_KEY).toBe("<unset>");
   });
 
   test("an own login, or a key the chat card saved in settings.json, is never moved to the gateway", async () => {
     const m = machine();
     choose(m, "own");
     signIn(m);
-    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) })).ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect((await launch(m, "claude", withFallback(ALL))).ANTHROPIC_BASE_URL).toBe("<unset>");
     const keyed = machine();
     choose(keyed, "own");
     // What acpmux's _acpmux/agent_login/api_key writes: Claude reads it from its own settings, so
     // own mode leaves the launch env free of the CodeRouter pair and the key reaches Claude.
     mkdirSync(path.join(keyed.home, ".claude"), { recursive: true });
     writeFileSync(path.join(keyed.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "sk-ant-card" } }));
-    const claude = await launch(keyed, "claude", { FAKE_ACCESS: withFallback(ALL) });
+    const claude = await launch(keyed, "claude", withFallback(ALL));
     expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
     expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
     // A credential here: no account check at all, so the key went nowhere.
@@ -708,12 +707,18 @@ describe("the gateway fallback (off until the platform turns it on)", () => {
     expect(await gatewayAvailable(signedIn, "codex", { FAKE_ACCESS: ALL })).toBe(1);
   });
 
-  test("an account answer cached before the switch existed reads as off", async () => {
-    const m = machine();
-    choose(m, "own");
-    mkdirSync(path.join(m.home, ".cache/cmux"), { recursive: true });
-    writeFileSync(path.join(m.home, ".cache/cmux/agent-access"), `${Math.floor(Date.now() / 1000)} 0 0 0\n`);
-    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) })).ANTHROPIC_API_KEY).toBe("<unset>");
+  test("only an explicit on turns the fallback on; with it off no account call is made", async () => {
+    for (const value of ["0", "false", "off", "", "maybe"]) {
+      const m = machine();
+      choose(m, "own");
+      expect((await launch(m, "claude", withFallback(ALL, value))).ANTHROPIC_API_KEY).toBe("<unset>");
+      expect(existsSync(m.calls)).toBe(false);
+    }
+    for (const value of ["true", "YES", "on"]) {
+      const m = machine();
+      choose(m, "own");
+      expect((await launch(m, "claude", withFallback(ALL, value))).ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    }
   });
 });
 

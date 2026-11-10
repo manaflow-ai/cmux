@@ -8,12 +8,6 @@ import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTe
 // proxy would only ever answer with a retryable "exhausted". Booleans only:
 // no account names or counts. Every Cloud machine asks about once a minute
 // before a launch, so each answer is a metadata read (nothing is decrypted).
-//
-// `gatewayFallback`: whether a machine whose agent was set to its own
-// sign-in, and has no credential at all, uses the team's gateway instead of
-// stopping at "Not logged in" (agent-auth.sh `gateway-fallback`). Off unless
-// this deployment sets CMUX_GATEWAY_FALLBACK (Leo, 2026-11-10: off "until the
-// founders turn billing on").
 import { hasActiveClaudeAccount } from "../../../../services/coderouter/claudeUpstream";
 import { hasConfiguredAccount } from "../../../../services/coderouter/repository";
 import { RESPONSES_PROVIDERS } from "../../../../services/coderouter/types";
@@ -24,22 +18,12 @@ export type AgentAccessDependencies = {
   readonly resolveUsageTeam: typeof resolveCoderouterUsageTeam;
   readonly hasActiveClaude: typeof hasActiveClaudeAccount;
   readonly hasConfigured: typeof hasConfiguredAccount;
-  /** The raw CMUX_GATEWAY_FALLBACK value; read by {@link gatewayFallbackEnabled}. */
-  readonly gatewayFallbackEnv?: () => string | undefined;
 };
-
-export const GATEWAY_FALLBACK_ENV = "CMUX_GATEWAY_FALLBACK";
-
-/** The gateway fallback switch: on only for an explicit 1, true, yes or on; off when unset. */
-export function gatewayFallbackEnabled(raw: string | undefined): boolean {
-  return ["1", "true", "yes", "on"].includes(raw?.trim().toLowerCase() ?? "");
-}
 
 const defaultDependencies: AgentAccessDependencies = {
   resolveUsageTeam: resolveCoderouterUsageTeam,
   hasActiveClaude: hasActiveClaudeAccount,
   hasConfigured: hasConfiguredAccount,
-  gatewayFallbackEnv: () => process.env[GATEWAY_FALLBACK_ENV],
 };
 
 export function makeAgentAccessHandler(dependencies: AgentAccessDependencies = defaultDependencies) {
@@ -58,11 +42,7 @@ export function makeAgentAccessHandler(dependencies: AgentAccessDependencies = d
         dependencies.hasConfigured({ teamId, provider: "opencode-go", access }),
       ]));
       return Response.json(
-        {
-          teamId,
-          agents: { claude, codex, opencode },
-          gatewayFallback: gatewayFallbackEnabled(dependencies.gatewayFallbackEnv?.()),
-        },
+        { teamId, agents: { claude, codex, opencode } },
         { headers: { "cache-control": "no-store" } },
       );
     } catch (error) {

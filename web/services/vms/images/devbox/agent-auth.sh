@@ -18,9 +18,9 @@
 # own; otherwise team when the team has an account for the agent, else own,
 # so the agent shows its normal sign-in instead of a CodeRouter refusal.
 #
-# The gateway fallback (CodeRouter's agent-access `gatewayFallback`, off until
-# the platform turns it on with CMUX_GATEWAY_FALLBACK; Leo, 2026-11-10: "until
-# the founders turn billing on"): an agent chosen `own` that has no credential
+# The gateway fallback (CMUX_GATEWAY_FALLBACK in the machine's model plane,
+# off unless the platform sets it on; Leo, 2026-11-10: "until the founders
+# turn billing on"): an agent chosen `own` that has no credential
 # of any kind here then uses the team's gateway instead of stopping at "Not
 # logged in". The chat's sign-in card offers the same switch as a choice
 # (acpmux `_acpmux/agent_login/start {agent: "gateway:<agent>"}`, which asks
@@ -130,11 +130,14 @@ cmux_agent_gateway_available() {
   cmux_agent_team_access "$1"
 }
 
-# 0 when the account check's answer (the one cmux_agent_team_access just
-# fetched or reused) says the platform turned the gateway fallback on. Off
-# for an answer without it, an older cache line, or no answer.
+# 0 when the platform turned the gateway fallback on for this machine
+# (CMUX_GATEWAY_FALLBACK in its model plane: 1, true, yes or on). Off when
+# unset or any other value.
 cmux_agent_gateway_fallback() {
-  [ "$(printf '%s\n' "${cmux_aa_line-}" | cut -d ' ' -f 5)" = 1 ]
+  case "$(printf '%s' "${CMUX_GATEWAY_FALLBACK-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # 0 when <agent> has its own sign-in on this machine.
@@ -184,8 +187,7 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
 # plane, an error or unreadable reply, a server without the endpoint),
 # 3 CodeRouter is unreachable from this machine (its address does not
 # resolve or connect), so team mode could not work either.
-# One GET /api/coderouter/agent-access answers every agent (and the gateway
-# fallback switch, cmux_agent_gateway_fallback); the answer is
+# One GET /api/coderouter/agent-access answers every agent; the answer is
 # reused for 60 s (~/.cache/cmux/agent-access) so back-to-back launches,
 # including headless runs, pay for the check at most once a minute. `cr use`
 # clears it, so its report and the next launch are current.
@@ -215,8 +217,8 @@ cmux_agent_team_access() {
   case "$cmux_aa_code" in 0|1|3) return "$cmux_aa_code" ;; *) return 2 ;; esac
 }
 
-# Prints "<claude> <codex> <opencode> <fallback>" codes (0 account, 1 none,
-# 2 unknown, 3 unreachable; fallback 1 on, 0 off, absent on no answer).
+# Prints "<claude> <codex> <opencode>" codes (0 account, 1 none, 2 unknown,
+# 3 unreachable).
 cmux_agent_team_access_fetch() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   case "$cmux_aa_origin" in https://*) ;; *) echo "2 2 2"; return 0 ;; esac
@@ -233,15 +235,13 @@ cmux_agent_team_access_fetch() {
   printf '%s' "$cmux_aa_body" | python3 -c '
 import json, sys
 try:
-    answer = json.load(sys.stdin)
-    agents = answer["agents"]
+    agents = json.load(sys.stdin)["agents"]
 except Exception:
-    answer, agents = {}, {}
+    agents = {}
 def code(name):
     value = agents.get(name) if isinstance(agents, dict) else None
     return "0" if value is True else "1" if value is False else "2"
-fallback = "1" if isinstance(answer, dict) and answer.get("gatewayFallback") is True else "0"
-print(code("claude"), code("codex"), code("opencode"), fallback)
+print(code("claude"), code("codex"), code("opencode"))
 ' 2>/dev/null || echo "2 2 2"
 }
 
@@ -282,8 +282,9 @@ cmux_agent_auth_resolve() {
   if [ -n "$cmux_agent_auth_mode" ]; then
     cmux_agent_auth_reason=chosen
     # Chosen own with nothing to sign in with: the gateway, only when the
-    # platform turned the fallback on (file header).
-    if [ "$cmux_agent_auth_mode" = own ] && cmux_agent_gateway_available "$1" && cmux_agent_gateway_fallback; then
+    # platform turned the fallback on (file header). The switch is read
+    # first, so with it off nothing makes an account call.
+    if [ "$cmux_agent_auth_mode" = own ] && cmux_agent_gateway_fallback && cmux_agent_gateway_available "$1"; then
       cmux_agent_auth_mode=team
       cmux_agent_auth_reason=gateway-fallback
     fi
