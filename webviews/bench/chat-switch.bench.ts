@@ -54,6 +54,7 @@ const WARM = 6;
 const MAX_WARM = Number(process.env.MAX_WARM ?? 400);
 const CHURN = Number(process.env.CHURN ?? 40);
 const SAMPLE_EVERY = 4;
+const QUIET_MS = 1_000;
 if (!Number.isInteger(CHURN) || CHURN <= 5 * SAMPLE_EVERY || CHURN % SAMPLE_EVERY)
   throw new Error(`CHURN must be a multiple of ${SAMPLE_EVERY} over ${5 * SAMPLE_EVERY}`);
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -796,6 +797,17 @@ try {
           const log = debug.acpLog({ limit: 1 });
           return { oldest: log.stats.oldestSeq ?? 0, newest: log.entries[0]?.seq ?? 0 };
         });
+      // A sample waits until the stand-in has had no call for QUIET_MS, longer than the idle read-ahead delay: a
+      // god chat's older pages and the read-ahead land after its newest page paints, and a sample taken while
+      // they arrive measures where the load is, not what the switch kept.
+      const standInQuiet = async () => {
+        const deadline = Date.now() + 30_000;
+        for (let quietFor = 0; quietFor < QUIET_MS && Date.now() < deadline; ) {
+          // fixed-wait: waits out the stand-in's last call, re-armed by each new one, to a deadline.
+          await Bun.sleep(QUIET_MS - quietFor);
+          quietFor = Date.now() - (calls.at(-1)?.at ?? 0);
+        }
+      };
       while (op < WARM) await switchOnce();
       // Turned over: the oldest entry kept was logged after the first WARM switches, so the log holds only
       // switches' messages and each new one replaces an old one.
@@ -811,6 +823,7 @@ try {
       while (op < warm + CHURN) {
         await switchOnce();
         if ((op - warm) % SAMPLE_EVERY) continue;
+        await standInQuiet();
         samples.push(await sampleGrowth(cdp, op));
         if (snapshotAt.includes(op - warm)) snapshots.push(await takeSnapshot(cdp));
       }
