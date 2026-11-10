@@ -263,6 +263,7 @@ impl Machine<'_> {
             app_version: None,
             local_only: false,
             max_bytes: None,
+            data_bytes: None,
         };
         let (_, answer) = perform(&self.http, &request, now_ms).await;
         if !(200..300).contains(&answer.status) {
