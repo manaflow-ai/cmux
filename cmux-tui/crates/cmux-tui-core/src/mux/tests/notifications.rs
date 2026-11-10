@@ -975,3 +975,111 @@ fn attention_a_bell_posts_one_notification_event_without_a_desktop_banner() {
     assert_eq!(bell.surface, Some(surface.id));
     assert_eq!(bell.source, NotificationSource::Terminal);
 }
+
+/// What Claude Code prints in its terminal for one permission request, one
+/// finished turn and one sign-in wait, each when the test writes a line:
+/// its own desktop notification (OSC 777), then OSC 7501 records.
+const W6D_CLAUDE_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]777;notify;Claude Code;Claude needs your permission to use Bash\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=claude-code\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=done:app=claude-code\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
+);
+
+/// Runs [`W6D_CLAUDE_OUTPUT`] in a new terminal. `hooks` reports Claude's
+/// hook events for it: `SessionStart` first, `PermissionRequest` after its
+/// desktop notification, `Stop` after its done record. Returns the titles
+/// of the terminal's notifications, sorted, once the sign-in wait (posted
+/// last, and posted under every rule) arrived.
+fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
+    let mux = Mux::new_for_test(
+        name,
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), W6D_CLAUDE_OUTPUT.into()]),
+            ..SurfaceOptions::default()
+        },
+    );
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let screen = || surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+    let ready = Instant::now() + Duration::from_secs(20);
+    while !screen().contains("w6d-ready") {
+        assert!(Instant::now() < ready, "the script never started; screen: {:?}", screen());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let hook = |event: &str, sequence: u64, native: Value| {
+        if hooks {
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                native,
+            )
+            .unwrap();
+            mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+        }
+    };
+    // A terminal's notifications are at least 1 s apart (its rate limit):
+    // each step must pass it, as Claude's real output does.
+    let next_step = || {
+        std::thread::sleep(Duration::from_millis(1_100));
+        surface.write_bytes(b"\n").unwrap();
+    };
+    hook("SessionStart", 1, serde_json::json!({}));
+    hook("UserPromptSubmit", 2, serde_json::json!({}));
+    surface.write_bytes(b"\n").unwrap();
+    hook("PermissionRequest", 3, serde_json::json!({"tool_name": "Bash"}));
+    next_step();
+    next_step();
+    hook("Stop", 4, serde_json::json!({}));
+    next_step();
+    let titles = || {
+        let mut titles = mux
+            .resource_notifications(32)
+            .into_iter()
+            .filter(|notification| notification.terminal_id.as_ref() == Some(&terminal_id))
+            .map(|notification| notification.title)
+            .collect::<Vec<_>>();
+        titles.sort();
+        titles
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !titles().iter().any(|title| title == "claude-code needs sign-in")
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let titles = titles();
+    let _ = mux.close_surface(surface.id);
+    titles
+}
+
+/// W6-D (bench r5 #5): one Claude permission request made three unread
+/// notifications (Claude's own OSC 777, its OSC 7501 record and the hook)
+/// and each finished turn two. While Claude's hooks report for the
+/// terminal, the hooks post each agent event once; Claude's own desktop
+/// notifications and the records the hooks also report post nothing. A
+/// wait the hooks do not report (sign-in) still posts from the record.
+#[test]
+fn w6d_a_claude_terminal_with_hooks_posts_one_notification_per_agent_event() {
+    assert_eq!(
+        w6d_notification_titles("w6d-notify-once-hooks", true),
+        ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// Without hooks the terminal's own notifications are the only ones: each
+/// still posts.
+#[test]
+fn w6d_a_terminal_without_agent_hooks_keeps_its_own_notifications() {
+    assert_eq!(
+        w6d_notification_titles("w6d-notify-once-no-hooks", false),
+        [
+            "Claude Code",
+            "claude-code is done",
+            "claude-code needs approval",
+            "claude-code needs sign-in"
+        ],
+    );
+}
