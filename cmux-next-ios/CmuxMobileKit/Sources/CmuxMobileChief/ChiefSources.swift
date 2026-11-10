@@ -48,6 +48,10 @@ public final class ChiefSources {
     /// This service answered a Chief brain route (403 or 200, never 404): only
     /// then does the phone offer to make a chief here.
     public private(set) var brainsAvailable = false
+    /// The chief a Turn On (``turnOn(_:)``) is running for.
+    public private(set) var turningOnChief: String?
+    /// Why the last Turn On did not take, while that chief's brain is still off (``offCard``).
+    public private(set) var turnOnRefusal: ChiefOffCard.Refusal?
 
     /// The model and effort a Chief made or turned on here runs with.
     nonisolated static let defaultModel = "claude-opus-5-5"
@@ -113,6 +117,12 @@ public final class ChiefSources {
         return nil
     }
 
+    /// Home's card while the Cloud Chief does not answer because its brain is off.
+    public var offCard: ChiefOffCard? {
+        guard case let .turnOn(chief)? = cloudAction else { return nil }
+        return ChiefOffCard.decide(offChief: chief.id, turningOn: turningOnChief, refusal: turnOnRefusal)
+    }
+
     /// The Cloud Chief Home shows, when it is ready.
     public var cloudChief: CloudChief? {
         if case let .ready(chief) = cloudState { return chief }
@@ -173,6 +183,8 @@ public final class ChiefSources {
     /// Back in the foreground or on a new network: a ready Cloud Chief checks
     /// its socket now; one that was not reachable is looked up again.
     func wake() {
+        // The service's owner list may have changed while the app was away: offer Turn On again.
+        if turnOnRefusal?.kind == .unavailable { turnOnRefusal = nil }
         if case .ready = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
             backend.reconnectNow()
             // The chief may have been archived or its brain turned off elsewhere.
@@ -200,6 +212,8 @@ public final class ChiefSources {
         cloudChiefs = []
         changeError = nil
         brainsAvailable = false
+        turningOnChief = nil
+        turnOnRefusal = nil
         pathMonitor?.cancel()
         pathMonitor = nil
         lastPath = nil
@@ -243,6 +257,8 @@ public final class ChiefSources {
     }
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
+        // A Turn On's follow-up read (or any newer one) answered: the card shows what it found.
+        turningOnChief = nil
         // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
         // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
         if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
@@ -294,18 +310,26 @@ public final class ChiefSources {
         }
     }
 
-    /// Turns a chief's Cloud brain on (``defaultModel``, ``defaultEffort``).
+    /// Turns a chief's Cloud brain on (``defaultModel``, ``defaultEffort``):
+    /// Home's Turn On, the person's own tap. A read never turns a brain on.
+    /// Its outcome is ``offCard``'s: a refusal stays on the card (Try Again,
+    /// or no button when the account may not run the model), not in ``changeError``.
     public func turnOn(_ chief: CloudChief) async {
         guard let http, !isChanging else { return }
         isChanging = true
+        turningOnChief = chief.id
         changeError = nil
         defer { isChanging = false }
         do {
             try await Self.turnOn(http, chiefID: chief.id)
+            turnOnRefusal = nil
             selectedChiefID = chief.id
+            // The card keeps its spinner until this read lands (``apply(_:userID:http:)``),
+            // so it never flashes Turn On again before the Chief's row replaces it.
             refresh()
         } catch {
-            changeError = Self.changeMessage(error)
+            turningOnChief = nil
+            turnOnRefusal = ChiefOffCard.refusal(of: chief.id, for: error)
         }
     }
 
@@ -371,6 +395,8 @@ public final class ChiefSources {
             unchanged = false
         }
         cloudState = .ready(chief)
+        // It answers now: an old refusal must not come back if its brain is turned off later.
+        turnOnRefusal = nil
         guard !unchanged else { return }
         cloud.status = nil
         let backend = ChiefCloudBackend(
