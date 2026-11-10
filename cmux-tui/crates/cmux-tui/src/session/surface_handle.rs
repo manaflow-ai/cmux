@@ -210,6 +210,27 @@ impl SurfaceHandle {
         }
     }
 
+    /// Whether the terminal holds DEC private `mode` now; `None` for a
+    /// surface with no terminal. Reads only: unlike [`Self::with_terminal`],
+    /// nothing is synchronized from the terminal afterwards. A mirror lock
+    /// poisoned by a panic elsewhere still answers: a mode read never
+    /// writes the terminal.
+    pub fn with_terminal_mode(&self, mode: u16) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.with_terminal(|term| term.mode(mode, false))
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => Some(
+                surface
+                    .term
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .mode(mode, false),
+            ),
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     /// Run `f` against the surface's terminal state (the mirror, for
     /// remote surfaces — modes and keyboard state replay there too).
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
