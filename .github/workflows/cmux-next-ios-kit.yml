@@ -303,10 +303,10 @@ jobs:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
-      # The same bench on the simulator, alone, on the build above (TEST_RUNNER_ passes the
+      # The same bench on the simulator, alone, on the build above when there is one (TEST_RUNNER_ passes the
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
-        if: ${{ !cancelled() && steps.ios-sim.outputs.udid != '' }}
+        if: ${{ !cancelled() }}
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
           TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
@@ -314,6 +314,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/instant-perf"
+          # A red macOS test step skips the simulator test step above, and with it the
+          # simulator choice: the bench then picks its own, so its numbers never go missing.
+          if [[ -z "$UDID" ]]; then
+            UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-26" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          fi
+          if [[ -z "$UDID" ]]; then
+            echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
+            exit 1
+          fi
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
             -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
             -only-testing:CmuxMobileInstantPerfTests \
