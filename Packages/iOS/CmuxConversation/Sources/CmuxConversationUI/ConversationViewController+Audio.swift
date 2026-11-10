@@ -607,11 +607,14 @@ final class AudioRecordingFieldView: UIView {
         timeLabel.frame = CGRect(x: layout.timerTrailing - timerWidth, y: layout.midY - 10, width: timerWidth, height: 20)
         waveform.frame = layout.waveform
         waveform.mode = recording ? .live : .review
-        playButton.frame = layout.play
+        // Bounds and center: play and send carry a scale while they grow in,
+        // and a frame set under a transform is scaled by it.
+        for (view, rect) in [(playButton, layout.play), (continueButton, layout.pill), (sendButton, layout.send)] as [(UIView, CGRect)] {
+            view.bounds = CGRect(origin: .zero, size: rect.size)
+            view.center = CGPoint(x: rect.midX, y: rect.midY)
+        }
         playButton.layer.cornerRadius = layout.play.height / 2
-        continueButton.frame = layout.pill
         continueButton.layer.cornerRadius = layout.pill.height / 2
-        sendButton.frame = layout.send
         stopButton.alpha = recording ? 1 : 0
         timeLabel.alpha = recording ? 1 : 0
         for view in [playButton, continueButton, sendButton] as [UIView] {
