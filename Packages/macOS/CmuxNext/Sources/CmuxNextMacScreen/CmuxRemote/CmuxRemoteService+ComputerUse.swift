@@ -224,10 +224,14 @@ extension CmuxRemoteService {
         return answer
     }
 
-    /// ``computerUseSession(_:session:label:)`` for a menu row: a refusal is logged, not thrown.
-    public func computerUseSessionReporting(_ action: ComputerUseSessionAction, session: String) async {
-        do { try await computerUseSession(action, session: session) } catch {
-            computerUseLogger.notice("cmux Remote Computer Use \(action.rawValue, privacy: .public) refused: \(String(describing: error), privacy: .public)")
+    /// ``computerUseSession(_:session:label:)`` for a menu row, which returns at once: a refusal is
+    /// logged, not thrown.
+    public func sendComputerUseSession(_ action: ComputerUseSessionAction, session: String) {
+        // task-owner: one request to cmux Remote's worker through the daemon; the menu has closed.
+        Task { [weak self] in
+            do { try await self?.computerUseSession(action, session: session) } catch {
+                computerUseLogger.notice("cmux Remote Computer Use \(action.rawValue, privacy: .public) refused: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

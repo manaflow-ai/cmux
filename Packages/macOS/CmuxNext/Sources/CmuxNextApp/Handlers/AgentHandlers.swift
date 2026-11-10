@@ -287,8 +287,10 @@ enum AgentHandlers {
         let services = context.services
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: RemoteComputerUseSessions(remote: services.cmuxRemote,
-                                                phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
+            sessions: CmuxRemoteComputerUseSessions(remote: services.cmuxRemote, ready: { [weak services] in
+                let now = services?.onboarding.computerUseSetup.phase ?? .off
+                guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
+            }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),
             focus: AppComputerUseFocus(services: services))
     }
 
@@ -549,35 +551,5 @@ enum AgentHandlers {
         if let editor = opening.editor {
             context.services.editorApps.open(opening.url, withApplicationAt: editor)
         }
-    }
-}
-
-/// Computer Use sessions in cmux Remote's worker, as its activity reports them; Stop ends one, or all.
-private final class RemoteComputerUseSessions: ComputerUseSessionControlling {
-    let remote: CmuxRemoteService, phase: @MainActor () -> ComputerUseSetup.Phase
-    init(remote: CmuxRemoteService, phase: @escaping @MainActor () -> ComputerUseSetup.Phase) { self.remote = remote; self.phase = phase }
-    func liveSessions() async throws -> [ComputerUseLiveSession] { try ready(); return remote.computerUse.sessions.map(\.live) }
-    func stop(_ id: String) async throws {
-        try ready()
-        let label = remote.computerUse.sessions.first { $0.id == id }?.agent
-        do { try await remote.computerUseSession(.stop, session: id, label: label) } catch {
-            throw ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\(error)"))
-        }
-    }
-    /// Every listed session is stopped (its agent is told so), then every grant ends.
-    func stopAll() async throws {
-        try ready()
-        for session in remote.computerUse.sessions where !session.stopped {
-            _ = try? await remote.computerUseSession(.stop, session: session.id, label: session.agent)
-        }
-        do { try await remote.stopComputerUseSessions() } catch { throw ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\(error)")) }
-    }
-    func raiseWindow(_ id: String) async throws {
-        try ready()
-        try await remote.computerUseSession(.raiseWindow, session: id)
-    }
-    private func ready() throws {
-        let now = phase()
-        guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
     }
 }

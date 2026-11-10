@@ -17,13 +17,7 @@ extension AppServices: MenuBarExtraHost {
     var menuBarUnread: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: false) }
     var menuBarRunning: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: true) }
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }
-    func menuBarResumeComputerUse(_ session: String) {
-        // task-owner: one request to cmux Remote's worker through the daemon; the menu has closed.
-        Task { [cmuxRemote] in await cmuxRemote.computerUseSessionReporting(.resume, session: session) }
-    }
-    func menuBarShowComputerUseCursor(_ session: String) {
-        // task-owner: one request to cmux Remote's worker through the daemon; the menu has closed.
-        Task { [cmuxRemote] in await cmuxRemote.computerUseSessionReporting(.spotlight, session: session) }
-    }
+    func menuBarResumeComputerUse(_ session: String) { cmuxRemote.sendComputerUseSession(.resume, session: session) }
+    func menuBarShowComputerUseCursor(_ session: String) { cmuxRemote.sendComputerUseSession(.spotlight, session: session) }
     func menuBarOpenChat(_ id: String) { if let lane = AgentPriorityChats.app.lane(id) { SidebarPriorityFeed.open(lane, services: self) } }
 }

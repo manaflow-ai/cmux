@@ -119,7 +119,11 @@ fn later_calls_are_refused_with_the_text_the_agent_sees_and_resume_works() {
     // Resume: the same call id runs now (a refused call left no retry record).
     assert!(e.resume_session("s1"));
     assert!(!e.resume_session("s1"));
-    let out = e.call(&ctx("s1", "click"), "click", &json!({"window_id": "1", "element_id": "e1", "observe": false}));
+    let out = e.call(
+        &ctx("s1", "click"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "observe": false}),
+    );
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(d.events().len(), 1);
 }
@@ -128,7 +132,11 @@ fn later_calls_are_refused_with_the_text_the_agent_sees_and_resume_works() {
 fn other_sessions_are_unaffected() {
     let (d, e, _, _) = engine(None);
     e.stop_session("s1", "Claude");
-    let out = e.call(&ctx("s2", "c"), "click", &json!({"window_id": "1", "element_id": "e1", "observe": false}));
+    let out = e.call(
+        &ctx("s2", "c"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "observe": false}),
+    );
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(d.events().len(), 1);
     assert!(!e.is_stopped("s2"));

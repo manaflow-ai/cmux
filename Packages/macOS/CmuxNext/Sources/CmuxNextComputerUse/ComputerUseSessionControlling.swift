@@ -1,9 +1,7 @@
-import CmuxNextComputerUse
-
 /// The live Computer Use sessions on this Mac and the user's stop: cmux Remote's Computer Use
-/// worker in the App (``RemoteComputerUseSessions``), a fake in tests.
+/// worker in the App (`CmuxRemoteComputerUseSessions`), a fake in tests.
 @MainActor
-protocol ComputerUseSessionControlling: AnyObject {
+public protocol ComputerUseSessionControlling: AnyObject {
     /// The live sessions, newest action first.
     func liveSessions() async throws -> [ComputerUseLiveSession]
     /// Stops session `id` as the user: its in-flight call ends at its next step and every later call

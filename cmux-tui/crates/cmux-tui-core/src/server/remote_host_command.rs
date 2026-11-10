@@ -251,7 +251,10 @@ mod computer_use_session_tests {
             json!({"action": "stop", "session": "x".repeat(257)}),
             json!({"action": "end", "session": "s1"}),
         ] {
-            assert_eq!(computer_use_session(&caller(true), &params).unwrap_err().code, "bad_request");
+            assert_eq!(
+                computer_use_session(&caller(true), &params).unwrap_err().code,
+                "bad_request"
+            );
         }
     }
 }
