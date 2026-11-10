@@ -330,6 +330,216 @@ class Excusing(unittest.TestCase):
         self.assertNotIn("run 20", str(caught.exception))
 
 
+class AttemptsGitHub(FakeGitHub):
+    """FakeGitHub with run attempts and the head's check runs. A job's run_attempt is 1 unless a test sets it;
+    jobs?filter=latest lists a run's newest attempt, as GitHub does, and the head's check runs (every attempt, any
+    filter) link each job on HEAD, the check run id being the job id unless a test sets CHECK_IDS."""
+
+    def __init__(self):
+        super().__init__()
+        self.check_ids: dict[int, int] = {}
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
+            self.routes.append(route)
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            jobs = [job for job in self.jobs.values() if job["run_id"] == run]
+            newest = max((job.get("run_attempt") or 1 for job in jobs), default=1)
+            return [{"jobs": [copy.deepcopy(job) for job in jobs if (job.get("run_attempt") or 1) == newest]}]
+        if route.split("?", 1)[0].endswith(f"commits/{HEAD}/check-runs"):
+            self.routes.append(route)
+            return [{"check_runs": [{"id": self.check_ids.get(job["id"], job["id"]), "name": job["name"],
+                                     "status": job["status"], "conclusion": job["conclusion"],
+                                     "app": {"slug": "github-actions"},
+                                     "details_url": f"https://github.com/{REPO}/actions/runs/{job['run_id']}"
+                                                    f"/job/{job['id']}"}
+                                    for job in self.jobs.values() if job["head_sha"] == HEAD]}]
+        return super().json(route, paginate=paginate)
+
+
+class SupersededCancelledRun(unittest.TestCase):
+    """Port of feat-cmux-next's rule (cmux#36965 at 004465b3): run 42179149655's 'risk evidence' was cancelled by
+    concurrency while the newer run 42179187468 of the same workflow passed it. The newest completed run of a check
+    name in the same workflow on the head is its verdict; only a cancelled (or stale) job is passed over, and a skip
+    (cmux#39863 at 5bba0857: a hand dispatch of cmux-next.yml on the PR branch) is no verdict that supersedes one.
+    The owned-pool rescue cancels a run and re-runs it: the rerun's green is the newest run of the name."""
+
+    def setUp(self):
+        self.gh = AttemptsGitHub()
+
+    def judge(self, runs=(10,)):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh)
+
+    def check(self, name=SWIFT):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def newer(self, conclusion, run=11, job_id=5, **extra):
+        self.gh.jobs[job_id] = dict(failed_job(job_id, run, HEAD), conclusion=conclusion, **extra)
+        self.gh.logs[job_id] = self.gh.logs[1]
+
+    def skipped(self, job_id, run):
+        self.gh.jobs[job_id] = dict(failed_job(job_id, run, HEAD), conclusion="skipped", steps=[])
+
+    def test_a_cancelled_run_with_a_newer_green_run_of_its_name_is_not_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5"),
+                        lines)
+        # Nothing was compared with the base: no base run was listed.
+        self.assertFalse(any("/workflows/7/runs?" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_a_stale_run_with_a_newer_green_run_of_its_name_is_not_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "stale"
+        self.newer("success")
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its stale job in run 10 is superseded by job 5"),
+                        lines)
+
+    def test_recency_is_the_linked_job_id_not_the_check_run_id(self):
+        # A check run's own id need not be its job's: the newer run's check run here has the lower id.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.check_ids = {1: 900, 5: 3}
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+
+    def test_an_older_job_of_a_newer_check_run_supersedes_nothing(self):
+        # The cancelled job 6 is newer than the green job 5, whatever their check runs' ids say.
+        self.gh.jobs = {6: dict(failed_job(6, 10, HEAD), conclusion="cancelled"), 2: self.gh.jobs[2]}
+        self.newer("success")
+        self.gh.check_ids = {6: 3, 5: 900}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_cancelled_run_with_nothing_newer_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_of_another_workflow_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.run_workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_still_running_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer(None, status="in_progress")
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_cancelled_run_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("cancelled")
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_cancelled_run_with_a_newer_failure_is_judged_by_that_failure(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("failure")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+        # The newer failure is the verdict: a red the base does not have stays the head's.
+        self.gh.logs[5] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaisesRegex(excuse.Refused, "somethingNew"):
+            self.judge()
+
+    def test_a_failure_with_a_newer_green_run_stays_a_red(self):
+        # A failure is a verdict: a later run's green never launders it (merge_hold's _superseded_cancels).
+        self.newer("success")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_a_newer_skip_does_not_supersede_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_green_run_under_a_newer_skip_still_supersedes_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.skipped(6, 12)
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_cancelled_one_is_not_a_red(self):
+        # gh-merge-green names a red required check by --check: the newest run of the name is the green one.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_failure_stays_a_red(self):
+        self.newer("success")
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_cancelled_run_is_another_workflows_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.run_workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_newest_run_is_cancelled_is_judged_by_a_newer_job(self):
+        # GitHub's newest check run (by check run id) is the cancelled one; the newer job of the name decides.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.check_ids = {1: 900, 5: 3}
+        lines = self.check()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job 1 is superseded by job 5 "), lines)
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.check()
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_failure(self):
+        self.skipped(5, 11)
+        lines = "\n".join(self.check())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_the_rescues_green_rerun_supersedes_its_cancelled_attempt(self):
+        # The owned-pool rescue cancelled run 10 (attempt 1) and re-ran it: attempt 2 passed. GitHub still lists the
+        # cancelled attempt's check run, and gh-merge-green names the check red.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success", run=10, run_attempt=2)
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_the_rescues_rerun_red_is_judged_by_its_failure(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("failure", run=10, run_attempt=2)
+        lines = "\n".join(self.check())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_a_cancelled_rerun_after_a_green_attempt_stays_a_red(self):
+        # The newest attempt decides: a green attempt 1 does not hide its rerun's cancel.
+        self.gh.jobs[1]["conclusion"] = "success"
+        self.newer("cancelled", run=10, run_attempt=2)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
     return log(job, TEST_STEP, *extra,
