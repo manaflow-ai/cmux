@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42888042827",
+  "recorded_at": "2026-11-10T19:50:50Z",
+  "reason": "cmux-tui 0d054bd81e07 changes the image's cmux-tui (pinned 35d6a202b436)",
+  "dry_run": false,
+  "cmux_tui": "0d054bd81e07abcab62377f0588528ecfe4f918a",
+  "fixes": [
+    {
+      "sha": "0d054bd81e07abcab62377f0588528ecfe4f918a",
+      "mergedAt": "2026-11-10T19:21:55Z",
+      "subject": "cmux-tui: a restart and a create stop reading the whole session per item (#40700)"
+    },
+    {
+      "sha": "b5a31e64516302d25ac4e56ad75ca4fbe5019657",
+      "mergedAt": "2026-11-10T19:21:37Z",
+      "subject": "Cloud Codex: the model-plane file follows the shell's precedence (#40632 F1) (#40694)"
+    },
+    {
+      "sha": "9bef956af4a0c4d938c53db3220272bd38bfebb4",
+      "mergedAt": "2026-11-10T11:16:02-08:00",
+      "subject": "Cloud copy: a huge Git folder is refused while it's listed; --allow-large is a parsed flag, cmux chat takes it (#40704)"
+    },
+    {
+      "sha": "252d5d1b1163ea80b50e58e5eaef7efc69eead02",
+      "mergedAt": "2026-11-10T11:14:39-08:00",
+      "subject": "Settings: the app takes the daemon's settings lock for every write of cmux-next.json (#40464)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T19:50:50Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
