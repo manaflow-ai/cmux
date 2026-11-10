@@ -139,9 +139,11 @@ fn a_waiter_of_the_person_does_not_wait_for_a_slot_of_the_line() {
     assert_eq!(turn, Ok(true), "the person's waiter waited for the turn of the line to end");
 }
 
-/// The line is never starved: 5 waiters of the person in a row and one
-/// ticket of the line behind them, 1 slot. Every one gets its turn, the
-/// line's too.
+/// The line gets its turn when the person's waiters have had theirs: 5
+/// waiters of the person in a row and one ticket of the line behind them, 1
+/// slot. Every one gets its turn, the line's too. (This passed before the
+/// two kinds of turns: it guards the new counters. Waiters of the person
+/// that never stop do hold the line back; that is the rule.)
 #[test]
 fn the_line_gets_its_turn_after_waiters_of_the_person_in_a_row() {
     let gate = Arc::new(StartupAdoptionGate::with_slots(1));

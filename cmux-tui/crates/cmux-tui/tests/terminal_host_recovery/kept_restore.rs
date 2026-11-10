@@ -237,16 +237,17 @@ fn every_kept_terminal_is_alive_after_a_restore_whose_launches_failed_one_time()
 /// one for the CPU and the PTY opens.
 ///
 /// 12 kept agent tabs in 12 workspaces, the middle one selected, a restart
-/// with 2 slots and each launch held 1 s in its turn: the first wave has at
+/// with 2 slots and each launch held 2 s in its turn: the first wave has at
 /// most 2 hidden terminals, and the selected workspace's terminal is one of
-/// the first 3 that restart (it does not wait for a turn of the hidden ones
-/// to end; judged by the order, not by a clock, so a loaded host changes
-/// nothing).
+/// the first 3 that restart, less than half a hold after the first one: it
+/// does not wait for a turn of the hidden ones to end. A terminal that waits
+/// for such a turn restarts one full hold (2 s) after the first, so the
+/// margin for a loaded host is 1 s.
 #[test]
 fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
     const TABS: usize = 12;
     const SLOTS: usize = 2;
-    const HOLD_MS: u64 = 1_000;
+    const HOLD_MS: u64 = 2_000;
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("kept-restore-turns");
     let shown_index = TABS / 2;
@@ -319,6 +320,15 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
         "the shown workspace's terminal restarted as number {} of {TABS}: it waited behind \
          hidden terminals in line",
         place + 1
+    );
+    // The order alone passes when the shown terminal takes the first free
+    // slot of the line (it is then number 3 too): the time tells the two
+    // apart, with half a hold of margin.
+    let waited = restarted_at[&shown] - first;
+    assert!(
+        waited < HOLD_MS / 2,
+        "the shown workspace's terminal restarted {waited} ms after the first one: it waited for \
+         a turn of a hidden terminal to end ({HOLD_MS} ms per turn)"
     );
 }
 
@@ -416,8 +426,9 @@ fn the_wait_for_a_restarted_terminals_prompt_holds_no_turn() {
 /// ended, beside the launch that had the turn. After the wait it takes its
 /// place at the end of the line, as a try with no wait does.
 ///
-/// 4 kept tabs in hidden workspaces (a shown one goes first, which changes
-/// the order), 1 slot, each launch held 3 s in its turn, and the first 5
+/// 4 kept agent tabs in hidden workspaces (the tabs that wait in the line;
+/// a shown one goes first, which changes the order), 1 slot, each launch
+/// held 3 s in its turn, and the first 5
 /// launches fail: the terminal that is first in line fails two times, so its
 /// third try waits 7.5 s and comes due in the middle of the last terminals'
 /// turns. The other 3 terminals restart one turn (3 s) apart; the try with
@@ -430,6 +441,9 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
     let mut harness = RecoveryHarness::start("kept-restore-wait-turn");
     // One more workspace is the shown one; its tab is not restarted.
     create_workspaces(&harness, "late", TABS + 1);
+    // Tabs kept for a start at a frontend's connect: their restarts and the
+    // tries after them are the line. Any other kept tab is the person's.
+    run_agent_sessions(&harness, &all_tabs(&harness));
     end_sessions_keep_layout(&mut harness);
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
     harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
@@ -481,7 +495,8 @@ fn a_try_after_a_wait_takes_its_turn_in_the_respawn_gate() {
 }
 
 /// A restart the person asks for (Restart Shell Here, the first show of a
-/// workspace, `cmux tab restart`) goes before each restore start that has
+/// parked tab's workspace; `cmux tab restart` of a script is the same
+/// request and gets the same place) goes before each restore start that has
 /// not begun, in a hidden workspace too. It took a place at the end of the
 /// line: with the person's session (170 kept agent terminals) a Restart
 /// Shell Here in a hidden workspace ran 6 to 13 s later, after every agent.
