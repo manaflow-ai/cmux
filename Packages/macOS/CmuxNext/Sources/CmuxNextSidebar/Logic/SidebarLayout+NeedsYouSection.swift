@@ -4,8 +4,8 @@ public import CoreGraphics
 // very top of the sidebar, only when something is in it, the yellow rows (waiting on you) then the blue ones (finished,
 // unread) from every project and every loose workspace, at most 3, then "N more". It mirrors rows that also stay in
 // place below. A click opens the row; it collapses like a project. Rust picks and orders the rows
-// (`RustSidebarCaps.needsYou`); the model passes only the active rows and caches the answer by `sectionsRevision`
-// (`SidebarModel+NeedsYouSection`). This file only draws them.
+// (`RustSidebarCaps.needsYou`); the model passes only the active rows and caches the answer by the sections' revision
+// at their last structural set (`SidebarModel+NeedsYouSection`). This file only draws them.
 
 /// A row of the Needs you section (`SidebarRowKey.needsYou`).
 public nonisolated enum SidebarNeedsYouRowKey: Hashable, Sendable {

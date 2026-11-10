@@ -92,7 +92,7 @@ import Testing
         #expect(!Self.keys(model).contains(.needsYou(.header)))
     }
 
-    /// The rows Rust saw are found once per structural change; reads between cost the drawn rows only.
+    /// The rows Rust saw are found once per structural set; reads between, and folds, cost the drawn rows only.
     @Test func theRowsAreCachedByTheSectionsRevision() {
         let model = Self.model()
         _ = SidebarPerfCounters.report(reset: true)
@@ -102,6 +102,10 @@ import Testing
         _ = model.needsYouRows()
         _ = model.needsYouRows()
         #expect(SidebarPerfCounters.report(reset: true)["needs_you_builds"] == 1)
+        // A project's fold moves no row: it walks no row either, and the folded project's rows still list.
+        #expect(model.setGroupCollapsed(GroupID("p"), false))
+        #expect(model.needsYouRows()?.entries.first?.workspace.id == WorkspaceID("p2"))
+        #expect(SidebarPerfCounters.report(reset: true)["needs_you_builds"] == nil)
     }
 
     /// A cached answer still draws each row's content now: a title patch keeps the revision and moves no row.

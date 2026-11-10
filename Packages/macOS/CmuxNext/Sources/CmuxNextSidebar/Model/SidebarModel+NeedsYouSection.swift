@@ -1,7 +1,8 @@
 import Foundation
 
-/// The Needs you section's rows as Rust picked them at one `sectionsRevision` (`SidebarModel.needsYouRows`): the places
-/// of the rows drawn, so a later read takes each row's content now (a row patch moves no row and keeps the revision).
+/// The Needs you section's rows as Rust picked them at one structural set of the sections (`structureRevision`, the
+/// `sectionsRevision` of the last set; `SidebarModel.needsYouRows`): the places of the rows drawn, so a later read takes
+/// each row's content now. A row patch moves no row, and a group's fold moves none either: both keep the places.
 struct SidebarNeedsYouCache {
     struct Key: Equatable {
         var revision: UInt64
@@ -34,14 +35,16 @@ extension SidebarModel {
 
     /// The Needs you section (Leo 2026-11-10: "why don't we bring back the blue at the top?"), nil when its setting is
     /// off. Rust orders and caps it (`RustSidebarCaps.needsYou`); this passes only the rows that are yellow or blue (or
-    /// running, with Include Working), never the quiet ones. The answer is cached by `sectionsRevision`: a row that
-    /// turns yellow or blue moves the revision (`movesRows`), and a read between costs the drawn rows only.
+    /// running, with Include Working), never the quiet ones. The answer is cached by the sections' revision at their
+    /// last structural set (`structureRevision`): a row that turns yellow or blue makes one (`movesRows`); a fold, which
+    /// moves `sectionsRevision` alone, keeps it, so folding a project costs its rows, not a walk of every row. A read
+    /// between costs the drawn rows only.
     func needsYouRows() -> SidebarNeedsYouRows? {
         guard projectCaps.needsYouSection else {
             needsYouCache = nil
             return nil
         }
-        let key = SidebarNeedsYouCache.Key(revision: sectionsRevision, includesWorking: projectCaps.includesWorking,
+        let key = SidebarNeedsYouCache.Key(revision: structureRevision, includesWorking: projectCaps.includesWorking,
                                            expanded: needsYouExpanded)
         let cache = needsYouCache?.key == key ? needsYouCache : makeNeedsYouCache(key)
         needsYouCache = cache
