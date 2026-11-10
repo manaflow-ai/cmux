@@ -146,6 +146,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders. |
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage. |
+| `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before. |
+| `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths. |
 | `screenshots.findTools` | boolean | `true` |  | Find Screenshot Apps. The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap. |
@@ -202,10 +204,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
 | `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`, `blocks` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
-| `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once. |
+| `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
-| `ui.animations.bounce` | string | `"none"` | `none`, `subtle` | Animation Bounce. None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
 | `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding. |

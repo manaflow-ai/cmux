@@ -419,6 +419,20 @@
       "title" : "Only Above Context Used (%)",
       "type" : "number"
     },
+    "agents.chats.coldArchive" : {
+      "default" : false,
+      "description" : "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+      "title" : "Compress Old Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldArchiveAfterDays" : {
+      "default" : 30,
+      "description" : "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+      "maximum" : 3650,
+      "minimum" : 1,
+      "title" : "Compress Chats Idle For",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -5388,16 +5402,6 @@
       "title" : "Terminal Type (TERM)",
       "type" : "string"
     },
-    "ui.animations.bounce" : {
-      "default" : "none",
-      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-      "enum" : [
-        "none",
-        "subtle"
-      ],
-      "title" : "Animation Bounce",
-      "type" : "string"
-    },
     "ui.animations.cursor" : {
       "default" : true,
       "description" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -5500,7 +5504,7 @@
     },
     "ui.paneAnimations" : {
       "default" : true,
-      "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+      "description" : "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
     },
