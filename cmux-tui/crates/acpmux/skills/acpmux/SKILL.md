@@ -359,7 +359,10 @@ relative program such as `./agent`, `python3 -m NAME`, an env value such as
 `PYTHONPATH=.`, a relative `PATH` entry, a program that `PATH` finds in the
 folder, a runner such as `npx`, `uvx` or `bun`, a file of the folder that an
 option names or an interpreter or wrapper runs: `--config agent.json`,
-`env python3 agent.py`, a bare `NODE_OPTIONS` preload such as `--require hook`),
+`env python3 agent.py`, a bare `NODE_OPTIONS` preload such as `--require hook`;
+acpmux believes the claim only from a launch whose every word it understands, so
+`sh -c`, `bash -lc`, an unknown wrapper such as `pyenv exec`, PyPy and
+`python3` with only `PYTHONSAFEPATH` count too),
 from an entry, defaults or preset changed or removed after the start, or from
 a fork or moved chat that has a copy of another agent's claim. Each claim is in
 the session events as `asks_before_tools_claim`, with `trusted` and, when

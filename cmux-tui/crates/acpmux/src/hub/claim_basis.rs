@@ -31,10 +31,6 @@ use std::collections::BTreeMap;
 const PACKAGE_RUNNERS: &[&str] =
     &["npx", "bunx", "pnpx", "npm", "pnpm", "yarn", "bun", "deno", "uv", "uvx", "pipx"];
 
-/// Node's flags that run code given on the command line, which resolves packages from the
-/// working folder.
-const NODE_EVAL: &[&str] = &["-e", "--eval", "-p", "--print"];
-
 /// Node's flags that preload a module: a bare name resolves from the working folder.
 const NODE_PRELOAD: &[&str] = &["-r", "--require", "--import", "--loader", "--experimental-loader"];
 
@@ -103,95 +99,32 @@ fn judge(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> Option<&'sta
     reads_folder(spawned, cwd, path).then_some("launch_reads_folder")
 }
 
-/// Whether launch `spawned` runs code that folder `cwd` chose. It does when:
-/// - its program is a package runner, a relative path with a folder in it (`./agent`), or an
-///   absolute path inside the folder; under a wrapper (`env`, `nice`, `timeout`, [`WRAPPERS`]),
-///   every later word is judged as the program it may run;
-/// - Python runs a module or code of the command line (`-m`, `-c`, also in a cluster such as
-///   `-um`, or stdin), which imports from the folder first (not with `-P` or `-I`, nor with
-///   `PYTHONSAFEPATH` unless `-E` drops it); Node runs code of the command line or preloads a
-///   module by a name that is no absolute path, also in `NODE_OPTIONS`;
-/// - an argument (or an option's value: `--flag=value`, `-rvalue`) is a path inside the folder,
-///   a relative path to something the folder holds (so a model name such as `zai/glm-5` is no
-///   path), or a bare word that names something the folder holds when acpmux cannot tell that it
-///   is no path: an option's value (the word after `-x`/`--xx` or after `=`), or any word of a
-///   launch that names an interpreter or a wrapper. A bare word of another program that follows
-///   no option (`opencode acp`, `agent .`) is a subcommand or the program's own argument;
-/// - an env value, or a part of one (a list, `KEY=path`, `--flag path`), is a path inside the
-///   folder, `.`/`..` or a `./`/`../` path, a relative path to a file the folder holds, or any
-///   relative or empty entry of a `*PATH` list;
-/// - a `PATH` entry is empty or relative (it names the folder), or a bare program resolves, on
-///   `PATH`, to a file whose real path is inside the folder (a chat in the home folder counts
-///   `~/.local/bin/agent` as the folder's: fail closed). A link in a `PATH` folder to a program
-///   outside the chat folder is that program.
+/// Whether launch `spawned` may run code that folder `cwd` chose. Fail closed: it reads nothing of
+/// the folder only when acpmux understands every word of it ([`Launch::understood`]), its env
+/// names nothing of the folder ([`env_names_folder`]), and no `PATH` entry is empty or relative
+/// (it names the folder). A bare program that `PATH` resolves to a file whose real path is inside
+/// the folder is the folder's (a chat in the home folder counts `~/.local/bin/agent` as the
+/// folder's); a link in a `PATH` folder to a program outside the chat folder is that program.
 ///
 /// The root folder holds every program, so it chooses none.
 fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool {
     if cwd.parent().is_none() {
         return false;
     }
-    let argv = &spawned.argv;
-    let Some((program, args)) = argv.split_first() else { return false };
     let folder = Folder::of(cwd);
-    // The program, and under a wrapper each later word that may be the program it runs.
-    let wrapped = WRAPPERS.contains(&name_of(program));
-    let mut programs = std::iter::once(0).chain((1..argv.len()).filter(|_| wrapped));
-    if programs.any(|i| match argv.get(i..) {
-        Some([program, rest @ ..]) => {
-            runs_folder_program(program, rest, i == 0, spawned, &folder, path)
-        }
-        _ => false,
-    }) {
+    if spawned.env.iter().any(|(key, value)| env_names_folder(key, value, &folder))
+        || path.iter().any(|dir| dir.as_os_str().is_empty() || dir.is_relative())
+    {
         return true;
     }
-    // A bare word is judged when acpmux cannot tell that it is no path (see above).
-    let interpreted =
-        argv.iter().any(|w| is_interpreter(name_of(w)) || WRAPPERS.contains(&name_of(w)));
-    let mut after_option = false;
-    for arg in args {
-        for (word, option_value) in arg_paths(arg, after_option) {
-            let at = Path::new(word);
-            let inside = if at.is_absolute() {
-                folder.holds(at)
-            } else {
-                (word.contains('/') || interpreted || option_value) && cwd.join(word).exists()
-            };
-            if inside {
-                return true;
-            }
-        }
-        after_option = arg.starts_with('-') && arg != "-" && arg != "--" && !arg.contains('=');
-    }
-    if spawned.env.iter().any(|(key, value)| env_in_folder(key, value, &folder)) {
-        return true;
-    }
-    if spawned.env.get("NODE_OPTIONS").is_some_and(|v| bare_preload(v.split_whitespace())) {
-        return true;
-    }
-    path.iter().any(|dir| dir.as_os_str().is_empty() || dir.is_relative())
+    !Launch { folder: &folder, path }.understood(&spawned.argv, spawned.env.clone())
 }
 
-/// Whether `program` run with `rest` runs code the folder chose: a package runner, a relative
-/// path with a folder in it (for a word under a wrapper, `first` false: one the folder holds, so
-/// a model name such as `zai/glm-5` is none), an absolute path inside the folder, an interpreter
-/// that loads the folder's modules, or a bare program that `path` resolves inside the folder.
-fn runs_folder_program(
-    program: &str,
-    rest: &[String],
-    first: bool,
-    spawned: &HarnessProfile,
-    folder: &Folder,
-    path: &[PathBuf],
-) -> bool {
-    let named = name_of(program);
-    let at = Path::new(program);
-    PACKAGE_RUNNERS.contains(&named)
-        || (program.contains('/')
-            && at.is_relative()
-            && (first || folder.written.join(at).exists()))
-        || (at.is_absolute() && folder.holds(at))
-        || runs_folder_modules(named, rest, &spawned.env)
-        || (!program.contains('/') && resolves_in_folder(program, path, folder))
+/// Whether env entry `key`=`value` names something of `folder`: [`env_in_folder`], or a
+/// `NODE_OPTIONS` preload by a name that is no absolute path ([`bare_preload`]).
+fn env_names_folder(key: &str, value: &str, folder: &Folder) -> bool {
+    env_in_folder(key, value, folder)
+        || (key == "NODE_OPTIONS" && bare_preload(value.split_whitespace()))
 }
 
 /// The file name of program word `word` (`python3` of `/usr/bin/python3`).
@@ -199,40 +132,374 @@ fn name_of(word: &str) -> &str {
     Path::new(word).file_name().and_then(|n| n.to_str()).unwrap_or(word)
 }
 
-/// Programs that run a script or code named by their arguments.
-const INTERPRETERS: &[&str] = &[
-    "node", "nodejs", "ruby", "perl", "php", "lua", "bash", "sh", "zsh", "dash", "tsx", "ts-node",
-    "pypy", "pypy3",
-];
+/// Interpreters that run a script named by their first argument, which acpmux accepts with no
+/// option at all (any option may run code of the command line: `sh -c`, `ruby -e`, `perl -I.`).
+const SCRIPT_INTERPRETERS: &[&str] =
+    &["ruby", "perl", "php", "lua", "bash", "sh", "zsh", "dash", "ksh", "fish", "tsx", "ts-node"];
 
-/// Whether `named` is an interpreter ([`INTERPRETERS`], or any `python*`).
-fn is_interpreter(named: &str) -> bool {
-    named.starts_with("python") || INTERPRETERS.contains(&named)
-}
-
-/// Programs that run another program named by a later word (`env python3 agent.py`,
-/// `timeout 3600 node agent.js`).
-const WRAPPERS: &[&str] = &[
+/// Programs that may run the words after them as a program: the wrappers [`wrapped`] reads, and
+/// others it does not (`sudo`, `pyenv`, `mise`, `op`...). A word of a launch that names one, an
+/// interpreter or a package runner makes the launch one acpmux does not understand.
+const WRAPPER_NAMES: &[&str] = &[
     "env",
     "nice",
     "nohup",
     "timeout",
     "stdbuf",
     "time",
-    "command",
+    "caffeinate",
+    "setsid",
+    "sudo",
+    "doas",
     "exec",
+    "command",
+    "xcrun",
+    "arch",
+    "sandbox-exec",
+    "pyenv",
+    "mise",
+    "asdf",
+    "rtx",
+    "direnv",
+    "op",
+    "dotenv",
+    "nix",
+    "nix-shell",
+    "conda",
+    "poetry",
+    "pipenv",
+    "flock",
     "ionice",
     "taskset",
     "chrt",
-    "setsid",
-    "caffeinate",
-    "arch",
-    "sudo",
-    "doas",
-    "xcrun",
     "unbuffer",
-    "flock",
+    "script",
 ];
+
+/// Whether word `word` names a program that may run other code: an interpreter, a wrapper or a
+/// package runner.
+fn names_runner(word: &str) -> bool {
+    let named = name_of(word);
+    named.starts_with("python")
+        || named.starts_with("pypy")
+        || named == "node"
+        || named == "nodejs"
+        || SCRIPT_INTERPRETERS.contains(&named)
+        || WRAPPER_NAMES.contains(&named)
+        || PACKAGE_RUNNERS.contains(&named)
+}
+
+/// Node's options that load or run nothing.
+const NODE_SAFE_FLAGS: &[&str] = &[
+    "--no-warnings",
+    "--enable-source-maps",
+    "--trace-warnings",
+    "--no-deprecation",
+    "--trace-uncaught",
+];
+
+/// Node's options whose `=value` loads or runs nothing.
+const NODE_SAFE_VALUED: &[&str] =
+    &["--max-old-space-size", "--stack-size", "--unhandled-rejections"];
+
+/// Where wrapper `named` (a program of a closed list, its own options parsed fully) runs the
+/// program it wraps: `Some(Some(i))` at `args[i]` (`args.len()` for none), `Some(None)` when an
+/// option is one acpmux does not know, and `None` when `named` is no such wrapper. `env` is read
+/// apart ([`Launch::env_wrapper`]).
+fn wrapped(named: &str, args: &[String]) -> Option<Option<usize>> {
+    let (takes_value, switches): (&[&str], &[&str]) = match named {
+        "nohup" => (&[], &[]),
+        "nice" => (&["-n", "--adjustment"], &[]),
+        "timeout" => (
+            &["-s", "--signal", "-k", "--kill-after"],
+            &["--preserve-status", "--foreground", "-v", "--verbose"],
+        ),
+        "stdbuf" => (&["-i", "-o", "-e", "--input", "--output", "--error"], &[]),
+        "time" => (&[], &["-p"]),
+        "caffeinate" => (&["-w", "-t"], &["-d", "-i", "-m", "-s", "-u"]),
+        "setsid" => (&[], &["-w", "-f", "-c", "--wait", "--fork", "--ctty"]),
+        _ => return None,
+    };
+    let mut i = 0;
+    while let Some(arg) = args.get(i).map(String::as_str) {
+        if !arg.starts_with('-') {
+            break;
+        }
+        i += 1;
+        if arg == "--" {
+            break;
+        }
+        if switches.contains(&arg) {
+            continue;
+        }
+        if takes_value.contains(&arg) {
+            if args.get(i).is_none() {
+                return Some(None);
+            }
+            i += 1;
+            continue;
+        }
+        // A value joined to its option (`--signal=KILL`, `-n10`, `-oL`), or nice's old `-10`.
+        let joined = takes_value.iter().any(|f| {
+            arg.strip_prefix(f).is_some_and(|v| {
+                if f.starts_with("--") { v.starts_with('=') } else { !v.is_empty() }
+            })
+        });
+        let old_nice = named == "nice"
+            && arg
+                .strip_prefix('-')
+                .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+        if !(joined || old_nice) {
+            return Some(None);
+        }
+    }
+    if named == "timeout" {
+        // The duration, then the program.
+        if args.get(i).is_none() {
+            return Some(None);
+        }
+        i += 1;
+    }
+    Some(Some(i))
+}
+
+/// The forms of a launch that acpmux understands to read nothing of the chat folder. Every other
+/// form reads it (fail closed): an unknown wrapper, an unknown interpreter option, a relative
+/// script, a module or code of the command line without Python's safe path, a shell's command
+/// string, PyPy.
+struct Launch<'a> {
+    folder: &'a Folder,
+    path: &'a [PathBuf],
+}
+
+impl Launch<'_> {
+    /// Whether `argv`, run with env `env`, is understood to read nothing of the folder:
+    /// - its program is an absolute path outside the folder, or a bare name that `PATH` does not
+    ///   resolve into the folder, and no package runner;
+    /// - a wrapper of [`wrapped`], or `env` (its `KEY=VALUE` words judged as env, `-u` and `-i`
+    ///   applied), runs an understood launch;
+    /// - Python runs, with options of its safe list, a script by an absolute path outside the
+    ///   folder, or a module, code of the command line or stdin with the safe path (`-P`, `-I`,
+    ///   or `PYTHONSAFEPATH` on a Python known to be 3.11 or later: `python3.12`, not `python3`);
+    /// - Node runs, with options of its safe list (a preload by an absolute path outside the
+    ///   folder), a script by an absolute path outside the folder;
+    /// - a script interpreter ([`SCRIPT_INTERPRETERS`]) runs, with no option, a script by an
+    ///   absolute path outside the folder;
+    /// - any other program, with arguments that [`Self::args_understood`].
+    fn understood(&self, argv: &[String], env: BTreeMap<String, String>) -> bool {
+        let Some((program, args)) = argv.split_first() else { return true };
+        let named = name_of(program);
+        if PACKAGE_RUNNERS.contains(&named) || !self.program_outside(program) {
+            return false;
+        }
+        if named == "env" {
+            return self.env_wrapper(args, env);
+        }
+        if let Some(at) = wrapped(named, args) {
+            return at.is_some_and(|at| self.understood(args.get(at..).unwrap_or_default(), env));
+        }
+        if named.starts_with("pypy") {
+            return false;
+        }
+        if named.starts_with("python") {
+            return self.python(named, args, &env);
+        }
+        if named == "node" || named == "nodejs" {
+            return self.node(args);
+        }
+        if SCRIPT_INTERPRETERS.contains(&named) {
+            return args.split_first().is_some_and(|(script, rest)| {
+                self.script_outside(script) && self.args_understood(rest, true)
+            });
+        }
+        self.args_understood(args, false)
+    }
+
+    /// Whether program word `program` runs a file outside the folder: an absolute path outside
+    /// it, or a bare name that `PATH` does not resolve into it.
+    fn program_outside(&self, program: &str) -> bool {
+        if program.contains('/') {
+            return self.script_outside(program);
+        }
+        !resolves_in_folder(program, self.path, self.folder)
+    }
+
+    /// Whether `word` is an absolute path outside the folder.
+    fn script_outside(&self, word: &str) -> bool {
+        let at = Path::new(word);
+        at.is_absolute() && !self.folder.holds(at)
+    }
+
+    /// Whether arguments `args` name nothing of the folder and no program that may run other code
+    /// ([`names_runner`]: it may be a wrapper acpmux does not know). A word (or an option's
+    /// value: `--flag=value`, `-rvalue`) names something of the folder when it is a path inside
+    /// it, a relative path to something it holds (so a model name such as `zai/glm-5` is none),
+    /// or a bare word that names something it holds as an option's value (the word after
+    /// `-x`/`--xx`) or, `interpreted`, as any argument of a script. A bare word of another
+    /// program that follows no option (`opencode acp`, `agent .`) is a subcommand or the
+    /// program's own argument: the one form acpmux takes as no path without proof (lead).
+    fn args_understood(&self, args: &[String], interpreted: bool) -> bool {
+        let cwd = self.folder.written.as_path();
+        let mut after_option = false;
+        for arg in args {
+            for (word, option_value) in arg_paths(arg, after_option) {
+                let at = Path::new(word);
+                let inside = if at.is_absolute() {
+                    self.folder.holds(at)
+                } else {
+                    (word.contains('/') || interpreted || option_value) && cwd.join(word).exists()
+                };
+                if inside || names_runner(word) {
+                    return false;
+                }
+            }
+            after_option = arg.starts_with('-') && arg != "-" && arg != "--" && !arg.contains('=');
+        }
+        true
+    }
+
+    /// `env` with arguments `args`, given env `env`: its options (`-i`, `-u NAME`, `--`) change
+    /// the env; any other option is one acpmux does not know. Its `KEY=VALUE` words are env,
+    /// judged as the entry's env is (and a `PATH` of its own is one acpmux does not follow).
+    fn env_wrapper(&self, args: &[String], mut env: BTreeMap<String, String>) -> bool {
+        let mut i = 0;
+        while let Some(arg) = args.get(i).map(String::as_str) {
+            if !arg.starts_with('-') {
+                break;
+            }
+            i += 1;
+            match arg {
+                "--" => break,
+                "-" | "-i" | "--ignore-environment" => env.clear(),
+                "-u" | "--unset" => {
+                    let Some(key) = args.get(i) else { return false };
+                    i += 1;
+                    env.remove(key.as_str());
+                }
+                _ => match arg.strip_prefix("--unset=").or_else(|| arg.strip_prefix("-u")) {
+                    Some(key) if !key.is_empty() => {
+                        env.remove(key);
+                    }
+                    _ => return false,
+                },
+            }
+        }
+        while let Some((key, value)) = args.get(i).and_then(|a| a.split_once('=')) {
+            if key == "PATH" || env_names_folder(key, value, self.folder) {
+                return false;
+            }
+            env.insert(key.to_owned(), value.to_owned());
+            i += 1;
+        }
+        self.understood(args.get(i..).unwrap_or_default(), env)
+    }
+
+    /// Python `named` with arguments `args` and env `env` ([`Self::understood`]). Its short
+    /// options are read as clusters (`-um` is a module run).
+    fn python(&self, named: &str, args: &[String], env: &BTreeMap<String, String>) -> bool {
+        // `PYTHONSAFEPATH` exists from 3.11; a `python3` the folder's `.python-version` may
+        // choose is not known to have it.
+        let knows_safe_path = named
+            .strip_prefix("python3.")
+            .and_then(|minor| minor.parse::<u32>().ok())
+            .is_some_and(|minor| minor >= 11);
+        let safe_env = knows_safe_path && env.get("PYTHONSAFEPATH").is_some_and(|v| !v.is_empty());
+        let (mut safe_flag, mut no_env) = (false, false);
+        let mut i = 0;
+        while let Some(arg) = args.get(i) {
+            i += 1;
+            let safe = safe_flag || (safe_env && !no_env);
+            if arg == "-" {
+                return safe && self.args_understood(args.get(i..).unwrap_or_default(), true);
+            }
+            if arg == "--" {
+                return match args.get(i) {
+                    Some(script) => {
+                        self.script_outside(script)
+                            && self.args_understood(args.get(i + 1..).unwrap_or_default(), true)
+                    }
+                    None => safe,
+                };
+            }
+            if arg == "--check-hash-based-pycs" {
+                i += 1;
+                continue;
+            }
+            if arg.starts_with("--") {
+                return false;
+            }
+            let Some(cluster) = arg.strip_prefix('-') else {
+                return self.script_outside(arg)
+                    && self.args_understood(args.get(i..).unwrap_or_default(), true);
+            };
+            let mut letters = cluster.chars();
+            while let Some(letter) = letters.next() {
+                match letter {
+                    // A module or code of the command line (the rest of the cluster or the next
+                    // word), then its arguments.
+                    'm' | 'c' => {
+                        let safe = safe_flag || (safe_env && !no_env);
+                        let rest = if letters.as_str().is_empty() { i + 1 } else { i };
+                        return safe
+                            && self.args_understood(args.get(rest..).unwrap_or_default(), true);
+                    }
+                    'P' | 'I' => safe_flag = true,
+                    'E' => no_env = true,
+                    'u' | 'B' | 's' | 'S' | 'O' | 'q' | 'b' | 'd' | 'v' | 'x' | 'R' => {}
+                    // Options whose value is the rest of the cluster or the next word.
+                    'W' | 'X' => {
+                        if letters.as_str().is_empty() {
+                            i += 1;
+                        }
+                        break;
+                    }
+                    _ => return false,
+                }
+            }
+        }
+        // No script: code from stdin.
+        safe_flag || (safe_env && !no_env)
+    }
+
+    /// Node with arguments `args` ([`Self::understood`]): no script is stdin or the REPL, and
+    /// `-e`, `-p`, `--run` and every option not of its safe list are not understood.
+    fn node(&self, args: &[String]) -> bool {
+        let mut i = 0;
+        while let Some(arg) = args.get(i).map(String::as_str) {
+            i += 1;
+            if NODE_PRELOAD.contains(&arg) {
+                let Some(value) = args.get(i) else { return false };
+                i += 1;
+                if !self.script_outside(value) {
+                    return false;
+                }
+                continue;
+            }
+            if let Some(value) = NODE_PRELOAD
+                .iter()
+                .find_map(|f| arg.strip_prefix(f).and_then(|v| v.strip_prefix('=')))
+            {
+                if !self.script_outside(value) {
+                    return false;
+                }
+                continue;
+            }
+            if NODE_SAFE_FLAGS.contains(&arg)
+                || NODE_SAFE_VALUED
+                    .iter()
+                    .any(|f| arg.strip_prefix(f).is_some_and(|v| v.starts_with('=')))
+            {
+                continue;
+            }
+            if arg.starts_with('-') {
+                return false;
+            }
+            return self.script_outside(arg)
+                && self.args_understood(args.get(i..).unwrap_or_default(), true);
+        }
+        false
+    }
+}
 
 /// The chat folder as a start judges it: as written and as its real path (links resolved), and
 /// whether its volume ignores case (APFS by default), so a path that differs only in case is in
@@ -351,31 +618,6 @@ fn arg_paths(arg: &str, after_option: bool) -> Vec<(&str, bool)> {
     words.into_iter().filter(|(w, _)| !w.is_empty()).collect()
 }
 
-/// Whether interpreter `named` with arguments `args` and env `env` loads modules from the working
-/// folder (the chat's): see [`reads_folder`].
-fn runs_folder_modules(named: &str, args: &[String], env: &BTreeMap<String, String>) -> bool {
-    if named.starts_with("python") {
-        return python_reads_folder(args, env);
-    }
-    if named == "node" || named == "nodejs" {
-        let mut words = args.iter().map(String::as_str);
-        while let Some(arg) = words.next() {
-            if NODE_EVAL.iter().any(|f| arg == *f || arg.starts_with(&format!("{f}="))) {
-                return true;
-            }
-            if preload_value(arg, &mut words).is_some_and(|v| !Path::new(v).is_absolute()) {
-                return true;
-            }
-            if !arg.starts_with('-') {
-                return false;
-            }
-        }
-        // No script: code from stdin.
-        return true;
-    }
-    false
-}
-
 /// The module preload option `word` names, taking its value from `word` (`--import=hook`) or
 /// from the next of `words` (`-r hook`), or None when `word` is no preload option.
 fn preload_value<'a>(word: &'a str, words: &mut impl Iterator<Item = &'a str>) -> Option<&'a str> {
@@ -395,56 +637,6 @@ fn bare_preload<'a>(mut words: impl Iterator<Item = &'a str>) -> bool {
         }
     }
     false
-}
-
-/// Whether Python run with `args` and env `env` imports from the working folder: it runs a module
-/// or code of the command line (`-m`, `-c`, also inside a cluster such as `-um`) or reads code
-/// from stdin, and does not keep the safe import path (`-P`, `-I`, or `PYTHONSAFEPATH` that no
-/// `-E` drops). A script runs from its own folder, which the argument rules judge.
-fn python_reads_folder(args: &[String], env: &BTreeMap<String, String>) -> bool {
-    let (mut p, mut isolated, mut no_env) = (false, false, false);
-    let safe = |p: bool, isolated: bool, no_env: bool| {
-        p || isolated || (!no_env && env.get("PYTHONSAFEPATH").is_some_and(|v| !v.is_empty()))
-    };
-    let mut words = args.iter();
-    while let Some(arg) = words.next() {
-        if arg == "-" {
-            break;
-        }
-        if arg == "--" {
-            // The next word is the script; none is stdin.
-            return words.next().is_none() && !safe(p, isolated, no_env);
-        }
-        if let Some(long) = arg.strip_prefix("--") {
-            if long == "check-hash-based-pycs" {
-                words.next();
-            }
-            continue;
-        }
-        let Some(cluster) = arg.strip_prefix('-') else {
-            // A script.
-            return false;
-        };
-        let mut letters = cluster.chars();
-        while let Some(letter) = letters.next() {
-            match letter {
-                'c' | 'm' => return !safe(p, isolated, no_env),
-                'P' => p = true,
-                'I' => isolated = true,
-                'E' => no_env = true,
-                // Options whose value is the rest of the cluster or the next word.
-                'W' | 'X' => {
-                    if letters.as_str().is_empty() {
-                        words.next();
-                    }
-                    break;
-                }
-                _ => {}
-            }
-        }
-    }
-    // No script: code from stdin.
-    !safe(p, isolated, no_env)
 }
 
 /// Whether env key `key` holds a list of folders a program searches (`PATH`, `PYTHONPATH`,
@@ -509,7 +701,7 @@ mod tests {
         // Python that guards its import path, Node that preloads an absolute module.
         let guarded = launch(&["python3", "-P", "-m", "agent"], &[]);
         assert_eq!(judge(&guarded, cwd, &system_path()), None);
-        let safe = launch(&["python3", "-m", "agent"], &[("PYTHONSAFEPATH", "1")]);
+        let safe = launch(&["python3.12", "-m", "agent"], &[("PYTHONSAFEPATH", "1")]);
         assert_eq!(judge(&safe, cwd, &system_path()), None);
         let node = launch(&["node", "--require", "/opt/hook.js", "/opt/agent.js"], &[]);
         assert_eq!(judge(&node, cwd, &system_path()), None);
@@ -691,7 +883,7 @@ mod tests {
         let guarded: &[(&[&str], &[(&str, &str)])] = &[
             (&["python3", "-Im", "agent"], &[]),
             (&["python3", "-P", "-um", "agent"], &[]),
-            (&["python3", "-um", "agent"], &safe),
+            (&["python3.12", "-um", "agent"], &safe),
         ];
         for (argv, env) in guarded {
             assert_eq!(judge(&launch(argv, env), cwd, &system_path()), None, "{argv:?} {env:?}");

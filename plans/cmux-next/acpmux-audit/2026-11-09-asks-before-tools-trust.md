@@ -74,14 +74,32 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
   bare word of another program that follows no option (`opencode acp`, `agent .`) is still taken
   as a subcommand or the program's own argument.
 
+- Review of #40158 (w5l-158-rev-2): the wrapper rule failed open (unknown wrappers such as
+  `pyenv exec`, `mise exec --`, `sandbox-exec`, `op run --`; `env`'s `KEY=VALUE`, `-u` and `-i`
+  words; `node agent` with `agent.js`; `node --run`; PyPy). Lead decision: stop adding cases and
+  decide fail closed. Fixed: a launch reads nothing of the folder only when acpmux understands
+  every word of it (`claim_basis.rs` `Launch::understood`): a program by an absolute path outside
+  the folder or a bare name that `PATH` does not resolve into it, and no package runner; a wrapper
+  of a closed list whose own options it parses fully (`env` with its `KEY=VALUE` words judged as
+  env and `-u`/`-i` applied, `nice`, `nohup`, `timeout`, `stdbuf`, `time`, `caffeinate`,
+  `setsid`); Python with options of a safe list and a script by an absolute path outside the
+  folder, or a module, code or stdin with the safe path (`-P`, `-I`, or `PYTHONSAFEPATH` on a
+  Python known to be 3.11 or later, `python3.12`, not `python3`); Node with options of a safe list
+  and a script by an absolute path outside the folder; a script interpreter with no option and
+  such a script. Any other word that names an interpreter, a wrapper or a runner, any unknown
+  option of those, a relative script, a shell's command string (`sh -c`, `bash -lc`) and PyPy
+  count as reading the folder.
 ## Still open
-- F1 (codex review of #40158, deferred to its own PR by the lead): a pooled agent is judged at
+- F1 (codex review of #40158, deferred by the lead, cmux#40605): a pooled agent is judged at
   take time. The pool prewarm spawns with no claim (`spawn.rs` `spawn_profile_for`,
   `claim_from = None`), and the take judges the folder as it is then, after the agent ran: an
   agent that runs `agent.py` from the folder and then deletes it is believed when it is taken.
 - A bare word of a program that is no interpreter or wrapper, and that follows no option, is
-  taken as no path (`opencode acp`). A program that reads such a word as a file of the folder is
-  not judged by it.
+  taken as no path (`opencode acp`), the one assumption the lead accepted. A program that reads
+  such a word as a file of the folder is not judged by it.
+- A config entry that runs its agent through `sh -c`, `bash -lc`, an unknown wrapper or
+  `python3` with only `PYTHONSAFEPATH` keeps no `asksBeforeTools` claim (fail closed), also when
+  the person wrote it on purpose.
 - A `PATH` folder inside the chat folder that does not hold the agent's program is not judged:
   the agent's own subprocesses (not its tool calls, which ask) can find programs there.
 - Other interpreters that load code from the working folder (Ruby `-I.`, Perl, a shell script
