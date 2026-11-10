@@ -48,9 +48,38 @@ export const stripeKeyMode = (key: string | undefined): KeyMode => {
   return "invalid"
 }
 
+/**
+ * The live switch (plans/cmux-next/usage-billing.md section 12): code, not configuration. A live key runs only when
+ * this constant is true in the bundle (a reviewed change sets it; a var cannot prove which build runs), on the
+ * production Worker, as a restricted key (`rk_live_`; a full `sk_live_` key stays refused). Every object a live run
+ * reads must say `livemode: true` (a test run's, never), or the run refuses before any write. BILLING_USAGE_LIVE_ALLOW
+ * (subscription ids, comma separated) holds a live run to those subscriptions (staff first). Off: the founders' go
+ * flips it (plans/cmux-next/billing-go-live.md).
+ */
+export const USAGE_LIVE_ENABLED = false
+
+/** Why the usage sync refuses its key, or null when it may run (`liveEnabled`: USAGE_LIVE_ENABLED; tests pass it). */
+export const usageKeyRefusal = (env: Pick<Env, "ENVIRONMENT" | "STRIPE_USAGE_KEY">, liveEnabled: boolean = USAGE_LIVE_ENABLED): string | null => {
+  const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
+  if (mode === "none") return "no_key"
+  if (mode === "invalid") return "invalid_key"
+  if (mode === "test") return null
+  if (!liveEnabled) return "live_key"
+  if (env.ENVIRONMENT !== "production") return "live_key_off_production"
+  return /^rk_live_/.test(env.STRIPE_USAGE_KEY!) ? null : "live_full_key"
+}
+
+/** BILLING_USAGE_LIVE_ALLOW as a set of subscription ids, or null (unset or empty: every subscription). */
+export const liveAllowList = (raw: string | undefined): ReadonlySet<string> | null => {
+  const ids = (raw ?? "").split(",").map((s) => s.trim()).filter((s) => /^sub_[A-Za-z0-9]{1,64}$/.test(s))
+  return ids.length ? new Set(ids) : null
+}
+
 export interface SyncReport {
   readonly mode: KeyMode
   readonly refused?: string
+  /** A dry run: what the run would add, move and send; it wrote nothing (here or to the payment service). */
+  readonly dry_run?: boolean
   checked: number
   items_added: number
   items_moved: number
@@ -62,7 +91,7 @@ export interface SyncReport {
 
 type StripeItem = { id: string; quantity?: number; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
 type StripeInvoice = { id: string; status?: string | null; amount_paid?: number; billing_reason?: string | null; status_transitions?: { paid_at?: number | null } | null }
-type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] }; latest_invoice?: string | StripeInvoice | null }
+type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] }; latest_invoice?: string | StripeInvoice | null; livemode?: boolean }
 
 /**
  * The invoice that lifts the raise lock (billing-catalog.ts teamCapUnpaidMaxPools): a renewal (billing_reason
@@ -135,14 +164,20 @@ export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRIC
   return "v1"
 }
 
-export const syncUsage = async (env: Env, only?: { readonly subscription?: string }): Promise<SyncReport> => {
+export const syncUsage = async (env: Env, only?: { readonly subscription?: string; readonly dryRun?: boolean }, liveEnabled: boolean = USAGE_LIVE_ENABLED): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
-  const report: SyncReport = { mode, checked: 0, items_added: 0, items_moved: 0, pushed: 0, unchanged: 0, skipped: 0, failed: 0 }
-  if (mode !== "test") {
-    if (mode !== "none") console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode }))
-    return { ...report, refused: mode === "none" ? "no_key" : mode === "live" ? "live_key" : "invalid_key" }
+  const dry = only?.dryRun === true
+  const report: SyncReport = { mode, ...(dry ? { dry_run: true } : {}), checked: 0, items_added: 0, items_moved: 0, pushed: 0, unchanged: 0, skipped: 0, failed: 0 }
+  const refused = usageKeyRefusal(env, liveEnabled)
+  if (refused) {
+    if (refused !== "no_key") console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode, refused }))
+    return { ...report, refused }
   }
   const key = env.STRIPE_USAGE_KEY!
+  const live = mode === "live"
+  /** Every object read must be in the key's mode: a live run reads only live objects, a test run never one. */
+  const wrongMode = (o: { livemode?: unknown }) => (live ? o.livemode !== true : o.livemode === true)
+  const allow = live ? liveAllowList(env.BILLING_USAGE_LIVE_ALLOW) : null
   const set = usagePriceSet(env)
   // Every usage price of every set and mode is a usage item (never a plan item); the set in force picks the target.
   const asked = [...new Set(USAGE_PRICE_SET_NAMES.flatMap((s) => USAGE_PLANS.flatMap((p) => INCLUDED_MODES.map((m) => usagePriceLookupKey(p, s, m)))))]
@@ -153,8 +188,9 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   // At most 10 lookup keys per request (Stripe).
   for (let i = 0; i < asked.length; i += 10) {
     const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${asked.slice(i, i + 10).map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
-    for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
+    for (const p of priceList.data as Array<{ id: string; lookup_key: string; livemode?: unknown }>) {
       if (!askedSet.has(p.lookup_key)) continue
+      if (wrongMode(p)) return { ...report, refused: "livemode_mismatch" }
       usagePrices.add(p.id)
       for (const plan of USAGE_PLANS) for (const m of usageModesOf(plan)) if (p.lookup_key === usagePriceLookupKey(plan, set, m)) priceOf.set(`${plan}:${m}`, p.id)
     }
@@ -163,6 +199,11 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
 
   const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}?expand[]=latest_invoice`)) as StripeSubscription], truncated: false } : await listActive(key)
   if (listed.truncated) console.error(JSON.stringify({ msg: "billing.usage_sync.truncated", pages: MAX_PAGES }))
+  // Checked before any write: one object in the other mode refuses the whole run.
+  if (listed.subs.some(wrongMode)) {
+    console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode, refused: "livemode_mismatch" }))
+    return { ...report, refused: "livemode_mismatch" }
+  }
   const isCmux = (sub: StripeSubscription) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status)
   const cmux = listed.subs.filter(isCmux)
   // One usage subscription per customer: meter events are per customer, so two would bill one total twice (review P2).
@@ -193,6 +234,10 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
     // level must be the same request. The event is dated at the level's last fact, after the period's previous
     // event (a seat-only change is then still the latest, for the meter's `last`), and inside the period.
     const timestamp = Math.min(end - 1, Math.max(start, Math.floor((level.last_at ?? start * 1000) / 1000), sent?.event_ts != null ? sent.event_ts + 1 : start))
+    if (dry) {
+      console.log(JSON.stringify({ msg: "billing.usage_sync.would_send", subscription: sub.id, period_start: start, value_usd: value / 1_000_000 }))
+      return true
+    }
     try {
       await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: usageMeterEvent(mode), "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (value / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
     } catch (e) {
@@ -218,7 +263,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       report.skipped++
       console.warn(JSON.stringify({ msg: "billing.usage_sync.skipped", subscription: sub.id, why }))
     }
-    const why = !team ? "no_team" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null
+    const why = allow && !allow.has(sub.id) ? "not_allowed" : !team ? "no_team" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null
     if (why) {
       skip(why)
       continue
@@ -246,6 +291,18 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
+      if (dry) {
+        // What the run would write, then the level it would send for the period as it stands; nothing is written.
+        if (!item) report.items_added++
+        else if (item.price.id !== want) report.items_moved++
+        const start = item?.current_period_start ?? periodStart
+        const end = item?.current_period_end ?? planItem!.current_period_end
+        const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
+        const markupBp = start ? await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000)) : 10_000
+        if (start && end && (await pushLevel(team!, sub, start, end, mode, includedUsd, quantity, markupBp))) report.pushed++
+        else report.unchanged++
+        continue
+      }
       if (!item) {
         item = (await stripeFetch(key, "POST", "/v1/subscription_items", { subscription: sub.id, price: want!, proration_behavior: "none" }, `usage-item:${sub.id}:${want}`)) as StripeItem
         report.items_added++
