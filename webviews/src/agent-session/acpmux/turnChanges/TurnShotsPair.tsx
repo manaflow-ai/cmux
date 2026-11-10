@@ -3,11 +3,31 @@
 // which shows the after picture in the chat's image viewer. Nothing draws until the pair is read,
 // and a turn with no pair draws nothing. A pair that arrives while the card shows grows in through
 // the motion gate; one read before (the card scrolled back into view) draws at once.
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { MediaCompare } from "../../../ui/MediaCompare";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { useT } from "../i18n";
-import { TurnShotsContext, type TurnShotPair } from "./turnShots";
+import type { AcpmuxRow } from "../model";
+import { SessionEditsContext } from "./sessionRows";
+import { TurnShotsContext, type TurnShotPair, type TurnShotsReader } from "./turnShots";
+
+// The session's edits and its turn pictures for the transcript, as one provider: App's provider
+// tree keeps its depth, so a change to it does not move every line under it.
+export function SessionEditsAndShots({
+  edits,
+  shots,
+  children,
+}: {
+  edits: readonly AcpmuxRow[] | undefined;
+  shots: TurnShotsReader | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <TurnShotsContext.Provider value={shots}>
+      <SessionEditsContext.Provider value={edits}>{children}</SessionEditsContext.Provider>
+    </TurnShotsContext.Provider>
+  );
+}
 
 export function TurnShots({ rowId }: { rowId: string }) {
   const reader = useContext(TurnShotsContext);
