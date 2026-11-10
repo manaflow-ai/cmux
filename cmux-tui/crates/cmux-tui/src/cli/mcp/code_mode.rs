@@ -23,6 +23,7 @@ use cmux_json::JsonSet as _;
 use rquickjs::{CatchResultExt, Context, Function, Object, Persistent, Runtime};
 use serde_json::{Map, Value, json};
 
+pub(super) mod computer_use;
 mod workflow;
 
 pub(super) const DOCS: &str = "cmux_docs";
@@ -93,21 +94,14 @@ pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_
 
 /// The tool family of the computer use server (`cmux-computer-use` folds as `cu_*`).
 pub(super) const COMPUTER_USE_FAMILY: &str = acpmux::computer_use::tools::TOOL_PREFIX;
-/// What `cmux_exec` says when the chat has computer use.
-pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use, built into cmux \
-    (nothing to install; prefer it over any other computer-use driver): the cu_* tools see \
-    and use the apps on this computer and on the person's other machines (`machine`, \
-    list_machines), in the background, without taking their focus. Use them for any task in \
-    a desktop app, never osascript, AppleScript or xdotool keystrokes; `cmux.docs(\"cu\")` \
-    lists them with their rules. Never type into a terminal or script tool, never copy app \
-    data out of the app unless the person asked, and stop before a payment, a password, \
-    sending a message or deleting that they did not ask for, and say what is left.";
-
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
 /// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
 /// is the full list, for the family summary in its description.
-pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
+pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value> {
+    if computer_use_only {
+        return vec![computer_use::only_descriptor(tools)];
+    }
     // A chat with acpmux's background tasks (acpmux `acpmux_mcp_bg.rs`) is told to use them in
     // the one description every turn shows: in code mode a server's own instructions reach the
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
@@ -126,8 +120,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
-    let computer_use =
-        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
+    let cu_note = computer_use::exec_note(tools, grouped.contains_key(COMPUTER_USE_FAMILY));
     let families = grouped
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))
@@ -140,7 +133,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "Run JavaScript that calls cmux tools and return its result. This chat runs in \
              cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
              not in your own shell, and \"this workspace\" is the cmux workspace this chat is \
-             in (workspace: \"current\"), never the folder.{computer_use} An async \
+             in (workspace: \"current\"), never the folder.{cu_note} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
@@ -329,6 +322,9 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    if let Some(answer) = computer_use::family_docs(tools, &query, limit, arguments) {
+        return Ok(answer);
+    }
     // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
     // those tools only; the rest of the search goes in `more` by name. A full search put
     // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
@@ -770,8 +766,42 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // `cu.click({...})` is `cmux.cu_click({...})`: cmux Computer Use as a namespace, so a
+  // script reads like the steps it takes. camelCase works too (`cu.listWindows`).
+  // `cu.elements(tree)` flattens a get_ui_tree result (or element) depth first, and
+  // `cu.find(tree, {role, name, value})` answers the first match (a string is equal, a
+  // RegExp tests; a function is a predicate), `cu.findAll` every one; no calls.
+  const elements = (tree) => {
+    const out = [];
+    const stack = [tree && tree.root ? tree.root : tree];
+    while (stack.length) {
+      const element = stack.pop();
+      if (!element || typeof element !== "object") continue;
+      out.push(element);
+      const children = Array.isArray(element.children) ? element.children : [];
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+    return out;
+  };
+  const matches = (match) => typeof match === "function" ? match : (element) =>
+    Object.entries(match ?? {}).every(([key, want]) => want instanceof RegExp
+      ? want.test(String(element[key] ?? "")) : element[key] === want);
+  const helpers = {
+    elements,
+    find: (tree, match) => elements(tree).find(matches(match)),
+    findAll: (tree, match) => elements(tree).filter(matches(match)),
+  };
+  globalThis.cu = new Proxy(helpers, {
+    get(target, key) {
+      if (key in target) return target[key];
+      if (typeof key !== "string" || key === "then") return undefined;
+      const tool = "cu_" + key.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+      return (args) => globalThis.cmux[tool](args);
+    },
+  });
   // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
   base.cmux = globalThis.cmux;
+  base.cu = globalThis.cu;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
@@ -1156,6 +1186,10 @@ fn closed() -> Value {
 /// total base64 bytes.
 const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
+/// Images a running script's calls may hold until it returns, so a loop of
+/// screenshots can still return its last one.
+const MAX_KEPT_IMAGES: usize = 200;
+const MAX_KEPT_IMAGE_BYTES: usize = 48 << 20;
 
 /// A tool result as a script sees it. A result without structured content
 /// (another server's tool) becomes its JSON text, or `{content}`; its
@@ -1205,6 +1239,29 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     {
         return value;
     }
+    // A JSON text body next to images (a Computer Use screenshot or state): the
+    // body as the value, its images as placeholders in `images`. An error's JSON
+    // body (`{error, code}`) gives the message and code.
+    let json_body = blocks.first().and_then(|block| {
+        (block["type"] == "text")
+            .then(|| block["text"].as_str())
+            .flatten()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .filter(Value::is_object)
+    });
+    if failed && let Some(body) = &json_body {
+        let message = body["error"]
+            .as_str()
+            .or_else(|| body["error"]["message"].as_str())
+            .or_else(|| body["message"].as_str());
+        if let Some(message) = message {
+            let mut error = json!({"message": message});
+            if let Some(code) = body["code"].as_str().or_else(|| body["error"]["code"].as_str()) {
+                error.set("code", json!(code));
+            }
+            return json!({"error": error, "body": body});
+        }
+    }
     let message =
         blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
     let used = |images: &Vec<Value>| -> usize {
@@ -1217,7 +1274,7 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
                 return block;
             }
             let size = block["data"].as_str().map_or(0, str::len);
-            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
+            if images.len() >= MAX_KEPT_IMAGES || used(images) + size > MAX_KEPT_IMAGE_BYTES {
                 return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
             }
             images.push(block.clone());
@@ -1226,6 +1283,14 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
         .collect::<Vec<_>>();
     if failed {
         return json!({"content": blocks, "error": {"message": message}});
+    }
+    if let Some(mut body) = json_body
+        && blocks.len() > 1
+        && blocks.iter().skip(1).all(|block| block["type"] == "image")
+        && body.get("images").is_none()
+    {
+        body.set("images", Value::Array(blocks.into_iter().skip(1).collect()));
+        return body;
     }
     json!({"content": blocks})
 }

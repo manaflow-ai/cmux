@@ -60,6 +60,7 @@ use super::cloud_workspaces;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
+use code_mode::computer_use::TERMINAL_AGENT_ENV;
 use transport::Prefix;
 pub(super) use transport::{CallFailure, FailureKind};
 
@@ -515,18 +516,29 @@ fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
 
 fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
+    let terminal_agent = std::env::var_os(TERMINAL_AGENT_ENV).is_some_and(|v| v == "1");
+    let mut config = Some(path.clone());
+    let mut computer_use_only = false;
     if let Some(message) = refusal(&path) {
-        eprintln!("cmux: {message}");
-        return 1;
+        if !terminal_agent {
+            eprintln!("cmux: {message}");
+            return 1;
+        }
+        // A terminal agent with the cmux tools off: Computer Use only.
+        computer_use_only = true;
+        config = None;
     }
     // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
     acpmux::parent_watch::exit_with_parent();
     let output = watch::Output::new(io::stdout());
-    watch::spawn(global.clone(), output.clone());
-    let mut server = Server::new(LiveBackend { global }, Some(path));
-    server.list_changed = true;
+    if !computer_use_only {
+        watch::spawn(global.clone(), output.clone());
+    }
+    let mut server = Server::new(LiveBackend { global }, config);
+    server.list_changed = !computer_use_only;
     server.code_mode = code_mode;
+    server.computer_use_only = computer_use_only;
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
         .into_iter()
@@ -638,6 +650,10 @@ pub(super) struct Server<B> {
     workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
+    /// Only cmux Computer Use (`cu_*`, plus `cmux_exec` and `cmux_docs` to
+    /// script it): a terminal agent while the cmux tools are off
+    /// ([`TERMINAL_AGENT_ENV`]).
+    computer_use_only: bool,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
     /// proxied call it makes (the script holds this thread).
     call_cap: Option<Duration>,
@@ -665,6 +681,7 @@ impl<B: Backend> Server<B> {
             allowed: None,
             workflow_activity: None,
             upstreams: Vec::new(),
+            computer_use_only: false,
             call_cap: None,
             typed: std::cell::RefCell::default(),
             notes: None,
@@ -731,6 +748,15 @@ impl<B: Backend> Server<B> {
         let result = match method {
             "initialize" => {
                 chat_tools::remember_client(&params);
+                // Codex keeps its own Computer Use first: the folded cu_* tools say so.
+                let defer = acpmux::computer_use::mcp::defers_to_own_computer_use(&params);
+                for proxied in &mut self.upstreams {
+                    proxied.set_defer(defer);
+                }
+                if self.computer_use_only {
+                    return Some(json!({"jsonrpc": "2.0", "id": id,
+                        "result": code_mode::computer_use::initialize(&params, defer, self.code_mode)}));
+                }
                 let code_mode = self.code_mode && self.allowed.is_none();
                 let wrap_up = code_mode
                     && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
@@ -741,7 +767,7 @@ impl<B: Backend> Server<B> {
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                let mut exposed = code_mode::descriptors(&tools);
+                let mut exposed = code_mode::descriptors(&tools, self.computer_use_only);
                 if let Some(workflow) =
                     tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
                 {
@@ -776,7 +802,9 @@ impl<B: Backend> Server<B> {
     /// `window_list`, `agents_snapshot`, `agents_doctor`, `render`, and the app's CLI actions
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
-        self.refresh_actions();
+        if !self.computer_use_only {
+            self.refresh_actions();
+        }
         for proxied in &mut self.upstreams {
             proxied.refresh();
         }
@@ -829,6 +857,10 @@ impl<B: Backend> Server<B> {
         if let Some(allowed) = &self.allowed {
             tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
         }
+        if self.computer_use_only {
+            tools
+                .retain(|tool| tool["name"].as_str().is_some_and(code_mode::computer_use::is_tool));
+        }
         tools
     }
 
@@ -866,6 +898,11 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
+        if self.computer_use_only
+            && let Some(error) = code_mode::computer_use::out_of_scope(name)
+        {
             return Some(tool_error(envelope(error, "not_run", None)));
         }
         None
@@ -913,9 +950,7 @@ impl<B: Backend> Server<B> {
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
-            if let Some(content) = result["content"].as_array_mut() {
-                content.extend(images);
-            }
+            code_mode::computer_use::attach_images(&mut result, images);
             return Ok(result);
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
@@ -1254,7 +1289,8 @@ impl<B: Backend> Server<B> {
                     images,
                 )
             }
-            code_mode::Request::Call { name, arguments } => {
+            code_mode::Request::Call { name, mut arguments } => {
+                code_mode::computer_use::script_arguments(&name, &mut arguments);
                 let mut result = self.call(&json!({"name": name, "arguments": arguments}));
                 // A guessed name (`context`, `terminal_send`) gets the tools
                 // a docs search for it finds, so the next call can be right
@@ -1269,7 +1305,7 @@ impl<B: Backend> Server<B> {
                         message.push_str(&format!("; did you mean {}?", near.join(", ")));
                     }
                 }
-                code_mode::script_answer(result, images)
+                code_mode::computer_use::script_answer(&name, result, images)
             }
             code_mode::Request::Docs { query } => {
                 let tools = match tools {

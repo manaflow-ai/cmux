@@ -30,6 +30,10 @@
 //!   so no file and no running worker decides whether a session gets it.
 //!   Per-workspace displays (`agent_displays.rs`) leave it out: the worker
 //!   drives the machine's one desktop, never a session's own display.
+//!   With the `cmux` server on, `folded` puts it behind that server as the
+//!   `cu_*` tools, so the agent has one server and scripts Computer Use in
+//!   `cmux_exec` (`cu.click({...})`); a Claude Code or Codex typed into a cmux
+//!   terminal gets the same through its shim (cmux-tui `agent_computer_use.rs`).
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`.
 //!   A missing binary leaves its server out. Every agent chat gets `cmux mcp serve`

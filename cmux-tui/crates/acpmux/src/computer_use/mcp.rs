@@ -64,8 +64,9 @@ pub fn defers_to_own_computer_use(params: &Value) -> bool {
 /// What an agent that has its own Computer Use is told.
 pub const DEFER_INSTRUCTIONS: &str = "You have your own Computer Use (Codex Computer Use); use it for anything on this computer's screen. These cmux-computer-use tools are a second option: use them only when the person asks for cmux Computer Use (or names these tools), never by default. When the person does ask, work in the background as cmux Computer Use does: list_windows, then screenshot or get_ui_tree a window, then act on element ids or screenshot pixels.";
 
-/// The prefix of each tool's description for such an agent.
-const DEFER_PREFIX: &str =
+/// The prefix of each tool's description for such an agent (also the folded
+/// `cu_*` tools of `cmux mcp serve` when its client is Codex).
+pub const DEFER_PREFIX: &str =
     "cmux Computer Use: only when the person asks for it; otherwise use your own Computer Use. ";
 
 /// The `initialize` result.

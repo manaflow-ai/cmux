@@ -1530,6 +1530,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod cloud_workspace_list;
+mod computer_use;
 mod machine_catalog;
 mod retained;
 mod settings;
