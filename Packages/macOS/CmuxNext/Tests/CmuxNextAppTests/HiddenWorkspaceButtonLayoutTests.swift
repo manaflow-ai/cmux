@@ -83,6 +83,36 @@ struct HiddenWorkspaceButtonLayoutTests {
         #expect(button.layouts == hidden + 1, "the button laid out \(button.layouts - hidden) times when its workspace showed, not 1 time")
     }
 
+    /// A view with a button moves from a hidden workspace into one that shows (a tab moved between workspaces): the
+    /// layout the button was asked for while hidden runs one time there.
+    @Test
+    func aButtonMovedOutOfAHiddenWorkspaceLaysOutWhereItShows() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let hiddenWorkspace = NSView(frame: content.bounds)
+        let shownWorkspace = NSView(frame: content.bounds)
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        let button = CountingButton(frame: NSRect(x: 10, y: 10, width: 28, height: 28))
+        button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        pane.addSubview(button)
+        hiddenWorkspace.addSubview(pane)
+        content.addSubview(hiddenWorkspace)
+        content.addSubview(shownWorkspace)
+        content.layoutSubtreeIfNeeded()
+        hiddenWorkspace.isHidden = true
+        content.layoutSubtreeIfNeeded()
+
+        let hidden = button.layouts
+        button.needsLayout = true
+        content.layoutSubtreeIfNeeded()
+        shownWorkspace.addSubview(pane)
+        content.layoutSubtreeIfNeeded()
+        #expect(button.layouts >= hidden + 1, "the button did not lay out after its pane moved into the workspace that shows")
+        #expect(button.layouts <= hidden + 2, "the button laid out \(button.layouts - hidden) times for one move")
+    }
+
     /// A whole window of a session of `size` with ``kept`` more workspaces shown one after the other (each stays mounted,
     /// hidden): one key window change lays out only the buttons that show. The count does not grow with the kept
     /// workspaces or with the session.
