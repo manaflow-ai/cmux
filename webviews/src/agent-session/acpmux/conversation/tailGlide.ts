@@ -32,7 +32,7 @@
 // followed again, `resume` plays it on. Reduce Motion, motion off or
 // no Web Animations: the rows move at once, as before. O(mounted rows) per followed pass, the view's
 // window (never the whole chat): one offsetTop each, after the pass's own layout.
-import { MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import { LIVE_THINKING } from "./turns";
@@ -45,10 +45,11 @@ export const TAIL_GLIDE_LOOKS: readonly TailGlideLook[] = ["arrive", "quick", "g
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TAIL_GLIDE_LOOK_ATTR = "data-tail-glide";
 
-/// The house settle and the entry step when the page has no token (a test DOM).
+/// The house settle and the entry step when the page has no token (a test DOM): the scale's own
+/// values, so a test DOM moves as the app does (these were 265 and 180 ms after the scale moved on).
 const SETTLE_FALLBACK_MS = MOTION_SETTLE_MS;
-const SETTLE_FALLBACK_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
-const QUICK_FALLBACK_MS = 180; // motion-allow: the entry step's own length (schemas/motion-scale `in`)
+const SETTLE_FALLBACK_EASE = MOTION_SETTLE;
+const QUICK_FALLBACK_MS = MOTION_MS.micro;
 const QUICK_FALLBACK_EASE = "ease-out";
 /// A move under this is a re-rounding, not a move.
 const MIN_MOVE_PX = 0.5;
@@ -60,7 +61,7 @@ export function tailGlideLook(node: Element): TailGlideLook {
 }
 
 /// The arrival step when the page has no token (a test DOM): the motion scale's quick step.
-const ARRIVE_FALLBACK_MS = 80; // motion-allow: the quick step's own length (schemas/motion-scale `quick`)
+const ARRIVE_FALLBACK_MS = MOTION_MS.quick;
 
 function timing(thread: HTMLElement, look: TailGlideLook, moved: number): { ms: number; easing: string } {
   const style = thread.ownerDocument.defaultView?.getComputedStyle(thread);

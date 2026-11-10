@@ -198,6 +198,7 @@ pub(super) fn send_existing(
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
 /// deadline from its start; a step that answered after it is that phase's timeout, as in [`run`].
 fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
+    super::last_chat::remember(session, Some(machine_id));
     let answer = json!({
         "machine_id": machine_id,
         "target": format!("machine:{machine_id}"),
@@ -253,6 +254,20 @@ pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
 pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
     step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+}
+
+/// One app Cloud verb run as this binary's own `--json` step: its `result`, or its error object
+/// (`cmux vm exec dev -- CMD` reads `exit_code`, `stdout` and `stderr` from it).
+pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Value> {
+    let mut globals = forwarded_globals(global);
+    // One step, so the caller's key is this step's: a retry with it does not run it twice.
+    if let Some(key) = &global.idempotency_key {
+        globals.extend(["--idempotency-key".to_owned(), key.clone()]);
+    }
+    let mut runner = SelfRunner { globals, global: global.clone() };
+    let mut args = args.to_vec();
+    args.push("--json".to_owned());
+    step_result(&runner.cmux(&args))
 }
 
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
@@ -337,12 +352,7 @@ pub(super) fn parse(
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let seconds =
-                    text.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
-                        UsageError::new(format!("--timeout {text}: give seconds"))
-                    })?;
-                timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
+                timeout = super::chat_send::timeout_value(&value()?)?.min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
             "--make-room" => make_room = true,
@@ -1318,6 +1328,7 @@ fn steps(
     if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
         progress.made = Some(machine_id.to_owned());
     }
+    super::last_chat::remember(session, Some(machine_id));
     let mut answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),

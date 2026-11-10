@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "e8993578f734d935735bff1ab40b6cacfce975f2",
-      "url": "https://files.cmux.com/cmux-tui/e8993578f734d935735bff1ab40b6cacfce975f2/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "925b92ad46212a54efd9343f9a89237338c4ef7f4531d2e3a23010a560feadbc",
-      "size": 183214256,
+      "version": "bde25ee5e76cbe2cce4c380c6f64fbee502831f3",
+      "url": "https://files.cmux.com/cmux-tui/bde25ee5e76cbe2cce4c380c6f64fbee502831f3/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "db20c7c1d7e25f9ac35d825ea7580b297615c2edb5a7342e93b5cab35b041140",
+      "size": 183235920,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/e8993578f734d935735bff1ab40b6cacfce975f2/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42790980409; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/bde25ee5e76cbe2cce4c380c6f64fbee502831f3/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42811965262; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "e8993578f734d935735bff1ab40b6cacfce975f2",
-      "url": "https://files.cmux.com/cmux-tui/e8993578f734d935735bff1ab40b6cacfce975f2/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "2f13b014bdf210ad0b031f7e1995e3a75d74eff2ed94cc71d53a937f9d6ca376",
-      "size": 4958536,
+      "version": "bde25ee5e76cbe2cce4c380c6f64fbee502831f3",
+      "url": "https://files.cmux.com/cmux-tui/bde25ee5e76cbe2cce4c380c6f64fbee502831f3/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "3d583a3ec89034e6993ca622553e844d340d9740a81f05a43813c1800cdd1dda",
+      "size": 4959880,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/e8993578f734d935735bff1ab40b6cacfce975f2/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42790980409; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/bde25ee5e76cbe2cce4c380c6f64fbee502831f3/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42811965262; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -463,6 +463,16 @@
       "bin": { "pi": "bin/pi" },
       "versionArgs": ["--version"],
       "expect": "0.85.1"
+    },
+    {
+      "name": "cursor-agent",
+      "version": "2026.11.05-86047df",
+      "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/x64/agent-cli-package.tar.gz",
+      "sha256": "170b77786cbf4c93064d64fff12b71a178b968730561c64afc2e8e752535442e",
+      "size": 176081904,
+      "format": "tar.gz",
+      "bin": { "cursor-agent": "dist-package/cursor-agent" },
+      "versionArgs": ["--version"]
     },
     {
       "name": "workerd",
