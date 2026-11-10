@@ -107,6 +107,25 @@ private final class FakeClock: Sendable {
         #expect(gate.personPointer() == PointerSample(x: 11, y: 21, atNanos: 1_000_000_000))
     }
 
+    /// The focus guard's reading (`person_events`): the person's deliberate inputs only, and
+    /// nothing while the detector cannot tell theirs from ours.
+    @Test func thePersonEventCountIsTheirsAloneAndOnlyWhileWatched() {
+        let clock = FakeClock()
+        let gate = clock.gate()
+        gate.observe(.person, at: clock.now)
+        #expect(gate.personEventCount() == nil, "unwatched: no count, so the guard never trusts it")
+        gate.setHealthy(true)
+        let start = gate.personEventCount()
+        #expect(start != nil)
+        gate.observe(.agent, at: clock.now)
+        gate.observe(.personPointer, x: 1, y: 2, at: clock.now)
+        #expect(gate.personEventCount() == start, "our input and a resting hand are not the person moving focus")
+        gate.observe(.person, at: clock.now)
+        #expect(gate.personEventCount() == start.map { $0 + 1 })
+        gate.setHealthy(false)
+        #expect(gate.personEventCount() == nil)
+    }
+
     @Test func ourOwnInputNeverTakesOver() {
         let clock = FakeClock()
         let gate = clock.gate()
