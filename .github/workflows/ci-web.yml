@@ -1280,9 +1280,11 @@ jobs:
                   if subareas.get(name) not in {"true", "false"}:
                       results[f"subarea {name}"] = f"invalid web subarea {name}={subareas.get(name)!r}"
           elif scope_required:
-              # A scope that wrote no outputs (its result, in the call below, says why) names no job as required:
-              # each may skip, and its failure is still a red.
+              # A scope that wrote no outputs names no job as required: each may skip, and its failure is still a red.
+              # Succeeding without them is a red of its own; any other result says why in the call below.
               subareas = {name: "unknown" for name in subarea_names}
+              results["subareas"] = {"success": "invalid: web-subarea-scope succeeded with no outputs"}.get(
+                  scope["result"], "success")
           else:
               subareas = {
                   "db": "false",
