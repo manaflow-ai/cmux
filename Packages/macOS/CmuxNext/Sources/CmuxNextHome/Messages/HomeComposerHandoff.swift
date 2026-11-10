@@ -42,18 +42,7 @@ public struct HomeComposerHandoff {
     /// The Messages page `window` shows: the one holding the keyboard, else the first visible one
     /// (a Home tab whose box is not focused). Nil: no Messages page there.
     public static func shown(in window: NSWindow?) -> HomeComposerHandoff? {
-        guard let window else { return nil }
-        var responder = window.firstResponder as? NSView
-        while let view = responder {
-            if let page = view as? any HomeComposerHosting { return page.composerHandoff }
-            responder = view.superview
-        }
-        var stack = [window.contentView].compactMap { $0 }
-        while let view = stack.popLast() {
-            if let page = view as? any HomeComposerHosting, !page.isHiddenOrHasHiddenAncestor { return page.composerHandoff }
-            stack.append(contentsOf: view.subviews.reversed())
-        }
-        return nil
+        HomeShownView.find(in: window) { ($0 as? any HomeComposerHosting)?.composerHandoff }
     }
 
     /// What a hand-off of files did.
@@ -97,6 +86,15 @@ public struct HomeComposerHandoff {
     public func replyToSelection() async -> Bool {
         await call("home.messages.replyToSelection", [:], within: Self.answerDeadline)?.objectValue?["replied"]?.boolValue == true
     }
+
+    /// The page's document is about to end (its tab or the Chief panel closed): it hands everything it
+    /// holds alone to its owner first (`home.messages.settle`, settle.ts), up to ``settleDeadline``.
+    public func settle() async {
+        _ = await call("home.messages.settle", ["within": .number(5_000)], within: Self.settleDeadline)
+    }
+
+    /// How long a closing page may take to settle.
+    public static let settleDeadline: Duration = .seconds(6)
 
     /// The file picker as a sheet on the page's window (the app's panel made ahead of the click,
     /// shared with an agent composer's attach); the chosen files go to the composer, and the person
