@@ -664,6 +664,7 @@ fn exported_stack_layout_is_accepted_as_an_apply_request() {
 #[test]
 fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
     let mut root = Node::Split {
+        divider_hidden: false,
         id: 10,
         dir: SplitDir::Right,
         ratio: 0.5,

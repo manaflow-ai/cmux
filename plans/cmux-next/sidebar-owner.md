@@ -45,6 +45,15 @@
   the press switched goes back to the space it showed before the press (`ProfileBarView.pressOrigin`).
   Regression: `SpaceBarMouseDownSwitchTests`, `SidebarSpaceSwitchAtRestTests`, `SidebarSpaceSwitchBlocksTests`,
   `SpaceSwitchSameTurnTests`.
+- 2026-11-10 (lane/sidebar-sticky-headers): sticky project headers. Leo, verbatim: "you also don't want to make a,
+  like a scrollable area within a scrollable area because that's like awkward and stuff." and "We're just going to
+  decide on this. We're going ahead." While the one list scrolls through an open top-level group, its header stays
+  pinned at the visible top until the group's last row passes, then the next row pushes it up (iOS/Finder). Only
+  top-level groups stick. The look is the gallery pick `veil` (#40299): the sidebar tone at 90% over a within-window
+  blur, a 12 pt fade into the rows, no line, no shadow; opaque tone and no blur under Reduce Transparency; the list's
+  top edge fade holds while a header is stuck. It is the header's own view, so hover, hover card, click, menus,
+  keyboard and VoiceOver reach the same element. Clicking it collapses the group and leaves the header at its own
+  place at the top. At rest the header draws as before. Regression: `SidebarStickyHeaderTests`.
 - 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
   their min width ... the show and hide details, um, that can probably also be a little bit more ... animated ... I
   don't want it to disappear as quickly as other ones would ... if the inner tab is the exact same name as the
