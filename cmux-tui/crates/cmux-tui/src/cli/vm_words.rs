@@ -3,9 +3,11 @@
 //! machine?"). The app and its Cloud handlers still speak `machine:` (their action names and
 //! target kind); this module is the one boundary that turns their words into the CLI's.
 //!
-//! - Output: for a `vm`, `cloud` or `chat` command, `wire` passes every success and error value
-//!   through [`respell_value`] before it prints (a `target`, a `next` hint, a message), and a
-//!   list's `machines` rows print as `vms`.
+//! - Output: for a `vm`, `cloud` or `chat` command (and `machine`'s old VM verbs), `wire` passes
+//!   every success and error value through [`respell_value`] before it prints. Only the fields
+//!   the CLI and the app write as directions are respelled ([`HINT_KEYS`]: a `target`, a `next`
+//!   hint, an error `message`); a chat's reply, a command's output and a file's content print
+//!   as they are. JSON keys stay (`machines`, `machine_id`): scripts and skills read them.
 //! - Input: `--target vm:ID` (and `--machine vm:ID`) reaches the app as `machine:ID`
 //!   ([`app_target`]); every selector reader takes either prefix ([`bare_id`]). The old spellings
 //!   keep working and nothing prints them.
@@ -22,13 +24,28 @@ pub(super) const STEP_ENV: &str = "CMUX_CLI_STEP";
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Turns the VM words on for `command` (the words after the global options) when its scope
-/// prints VM targets: `vm`, its old name `cloud`, and `chat` (`--on vm:…`).
+/// prints VM targets: `vm`, its old names `cloud` and `machine VERB` (a VM verb), and `chat`
+/// (`--on vm:…`).
 pub(super) fn activate_for(command: &[String]) {
     if std::env::var_os(STEP_ENV).is_some() {
         return;
     }
-    let speaks_vm = matches!(command.first().map(String::as_str), Some("vm" | "cloud" | "chat"));
+    let speaks_vm = match command.first().map(String::as_str) {
+        Some("vm" | "cloud" | "chat") => true,
+        Some("machine") => command.get(1).is_some_and(|verb| machine_vm_verb(verb)),
+        _ => false,
+    };
     ACTIVE.store(speaks_vm, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn machine_vm_verb(verb: &str) -> bool {
+    super::vm::MACHINE_VERBS.contains(&verb)
+}
+
+#[cfg(not(unix))]
+fn machine_vm_verb(_verb: &str) -> bool {
+    false
 }
 
 /// Whether this run prints the VM words.
@@ -36,24 +53,47 @@ pub(super) fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// `value` with every string respelled ([`respell`]) and a `machines` list keyed `vms`.
+/// The fields that carry the CLI's and the app's directions to a person: every string under
+/// one is respelled. Anything else (a `reply`, `stdout`, a file's `content`, a `reason` from the
+/// VM, a name) is the person's or the VM's data and prints unchanged.
+const HINT_KEYS: &[&str] = &[
+    "target",
+    "targets",
+    "next",
+    "list",
+    "check",
+    "pause",
+    "resume",
+    "delete",
+    "send",
+    "wait",
+    "last",
+    "new_chat",
+    "follow_up",
+    "follow_ups",
+    "pending",
+    "message",
+    "hint",
+    "hints",
+    "usage",
+    "handoff",
+];
+
+/// `value` with every string under a [`HINT_KEYS`] field respelled ([`respell`]).
 pub(super) fn respell_value(value: &Value) -> Value {
     let mut value = value.clone();
-    respell_in_place(&mut value);
+    respell_in_place(&mut value, false);
     value
 }
 
-fn respell_in_place(value: &mut Value) {
+fn respell_in_place(value: &mut Value, hint: bool) {
     match value {
-        Value::String(text) => *text = respell(text),
-        Value::Array(items) => items.iter_mut().for_each(respell_in_place),
+        Value::String(text) if hint => *text = respell(text),
+        Value::Array(items) => items.iter_mut().for_each(|item| respell_in_place(item, hint)),
         Value::Object(map) => {
-            if !map.contains_key("vms")
-                && let Some(rows) = map.remove("machines")
-            {
-                map.insert("vms".to_owned(), rows);
+            for (key, item) in map.iter_mut() {
+                respell_in_place(item, hint || HINT_KEYS.contains(&key.as_str()));
             }
-            map.values_mut().for_each(respell_in_place);
         }
         _ => {}
     }
@@ -179,13 +219,31 @@ mod tests {
     }
 
     #[test]
-    fn a_listing_prints_vms_with_vm_targets() {
+    fn a_listing_keeps_its_keys_and_prints_vm_targets() {
         let listed = json!({"result": {"machines": [{"machine_id": "vm-1", "target": "machine:vm-1"}],
             "next": "cmux cloud exec --target machine:vm-1 --command 'uname -a'"}});
         let printed = respell_value(&listed);
-        assert_eq!(printed["result"]["vms"][0]["target"], "vm:vm-1");
-        assert!(printed["result"].get("machines").is_none());
+        assert_eq!(printed["result"]["machines"][0]["target"], "vm:vm-1");
+        assert_eq!(printed["result"]["machines"][0]["machine_id"], "vm-1");
         assert_eq!(printed["result"]["next"], "cmux vm exec --target vm:vm-1 --command 'uname -a'");
+        let error = json!({"code": "chat_target.unknown_vm", "message": "run `cmux vm list-machines`",
+            "details": {"list": "cmux cloud list-machines --json"}});
+        let printed = respell_value(&error);
+        assert_eq!(printed["message"], "run `cmux vm ls`");
+        assert_eq!(printed["details"]["list"], "cmux vm ls --json");
+    }
+
+    /// A VM's output and a chat's reply are data: a file that says `--target machine:x` reads
+    /// back byte for byte.
+    #[test]
+    fn data_the_vm_or_the_agent_wrote_prints_unchanged() {
+        let data = "cmux cloud list-machines --json; --target machine:MACHINE_ID";
+        for key in ["stdout", "stderr", "content", "reply", "reason", "command", "title"] {
+            let answer = json!({"result": {key: data}, "follow_up": {"send": "cmux cloud exec --target machine:a"}});
+            let printed = respell_value(&answer);
+            assert_eq!(printed["result"][key], data, "{key}");
+            assert_eq!(printed["follow_up"]["send"], "cmux vm exec --target vm:a");
+        }
     }
 
     #[test]

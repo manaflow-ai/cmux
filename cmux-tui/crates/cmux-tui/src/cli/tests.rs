@@ -1413,9 +1413,19 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         hoisted(&["--json", "harness", "run", "aider", "--tab"]),
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
+    assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(
-        hoisted(&["--json", "chats", "list", "--", "x"]),
-        strings(&["chats", "list", "--json", "--", "x"])
+        hoisted(&["--json", "acp", "gh", "pr", "list"]),
+        strings(&["acp", "--json", "gh", "pr", "list"])
+    );
+    assert_eq!(
+        hoisted(&["--json", "harness", "run", "aider", "--tab", "--", "x"]),
+        strings(&["harness", "run", "aider", "--tab", "--json", "--", "x"])
+    );
+    assert_eq!(
+        hoisted(&["--json", "harness", "run", "aider"]),
+        strings(&["harness", "--json", "run", "aider"])
     );
     assert_eq!(hoisted(&["--json", "host", "status"]), strings(&["host", "status", "--json"]));
     assert_eq!(hoisted(&["--json", "link", "status"]), strings(&["link", "--json", "status"]));
