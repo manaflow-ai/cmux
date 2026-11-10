@@ -743,3 +743,18 @@ fn pi_unlink_never_deletes_a_skill_that_is_not_cmuxs() {
     std::fs::remove_file(&path).unwrap();
     assert!(remove_entry(&env, App::Pi).is_ok());
 }
+
+#[test]
+fn a_pi_skill_that_only_mentions_the_guest_variable_is_not_cmuxs() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::Pi);
+    let path = env.config_path(App::Pi);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let theirs = "---\nname: cmux\n---\nRun with ACPMUX_MCP_GUEST=pi set.\n";
+    std::fs::write(&path, theirs).unwrap();
+    assert_eq!(status(&env, App::Pi).state, State::Foreign);
+    assert_eq!(link(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(unlink(&env, App::Pi, false).state, State::Foreign);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
+}

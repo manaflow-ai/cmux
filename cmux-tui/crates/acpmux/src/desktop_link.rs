@@ -27,7 +27,7 @@
 //! - pi, which has no MCP by design: a `cmux` skill (`<PI_CODING_AGENT_DIR or
 //!   ~/.pi/agent>/skills/cmux/SKILL.md`) that runs the same requests through this acpmux CLI
 //!   (`ls`, `send --no-wait --from pi`, `last`, `wait`), with [`GUEST_ENV`] set so the daemon
-//!   takes them for a guest's. The file is ours while it carries that line.
+//!   takes them for a guest's. The file is ours while it carries the line [`PI_MARK`].
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
@@ -250,17 +250,18 @@ impl Env {
     /// The entry as `app`'s own config spells it.
     fn native_entry(&self, app: App) -> Value {
         let entry = self.entry_json(app);
+        let field = |key: &str| entry.get(key).cloned().unwrap_or(Value::Null);
         match app {
             App::GeminiCli | App::QwenCode => {
-                json!({"command": entry["command"], "args": entry["args"], "env": entry["env"]})
+                json!({"command": field("command"), "args": field("args"), "env": field("env")})
             }
             App::OpenCode => {
-                let mut command = vec![entry["command"].clone()];
-                command.extend(entry["args"].as_array().cloned().unwrap_or_default());
+                let mut command = vec![field("command")];
+                command.extend(field("args").as_array().cloned().unwrap_or_default());
                 json!({
                     "type": "local",
                     "command": command,
-                    "environment": entry["env"],
+                    "environment": field("env"),
                     "enabled": true,
                 })
             }
@@ -284,6 +285,7 @@ impl Env {
             "name: cmux",
             "description: Reach other coding agents through cmux (Claude Code, Codex, OpenCode, Gemini CLI, pi and the rest, on this machine and its paired and Cloud machines) - list them, message one by name, read its reply, wait until it is done. Use when the task names another agent or session, or needs one to answer or do something.",
             "---",
+            PI_MARK,
             "",
             "# Reaching other agents through cmux",
             "",
@@ -309,7 +311,8 @@ impl Env {
 fn canonical(app: App, entry: &Value) -> Value {
     match app {
         App::OpenCode => {
-            let command = entry["command"].as_array().cloned().unwrap_or_default();
+            let command =
+                entry.get("command").and_then(Value::as_array).cloned().unwrap_or_default();
             let mut v = json!({
                 "command": command.first().cloned().unwrap_or(Value::Null),
                 "args": command.get(1..).unwrap_or_default(),
@@ -331,9 +334,13 @@ fn servers_key(app: App) -> &'static str {
     }
 }
 
-/// The line that marks pi's skill as one cmux wrote.
-fn pi_mark() -> String {
-    format!("{GUEST_ENV}=")
+/// The line that marks pi's skill as one cmux wrote: a whole line of its own, so a person's skill
+/// that only mentions [`GUEST_ENV`] is never taken for cmux's.
+const PI_MARK: &str = "<!-- cmux: written by acpmux desktop link (ACPMUX_MCP_GUEST=pi) -->";
+
+/// Whether a skill's text is one cmux wrote: it has [`PI_MARK`] as a line.
+fn pi_ours(text: &str) -> bool {
+    text.lines().any(|line| line == PI_MARK)
 }
 
 /// An app's entry as found.
@@ -398,7 +405,7 @@ pub fn status(env: &Env, app: App) -> Row {
     } else if app == App::Pi {
         match std::fs::read_to_string(&config) {
             Ok(text) if text == env.pi_skill() => State::Linked,
-            Ok(text) if text.contains(&pi_mark()) => State::Stale,
+            Ok(text) if pi_ours(&text) => State::Stale,
             Ok(_) => State::Foreign,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::NotLinked,
             Err(e) => {
@@ -553,7 +560,7 @@ fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
             edit_json(&env.config_path(app), servers_key(app), link_json(env, app))
         }
         App::Pi => edit_file(&env.config_path(app), None, |text| {
-            if !text.is_empty() && !text.contains(&pi_mark()) {
+            if !text.is_empty() && !pi_ours(text) {
                 return Err(ForeignEntry.into());
             }
             Ok(env.pi_skill())
@@ -587,7 +594,7 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
                 Err(e) => return Err(e).with_context(|| format!("moving {}", path.display())),
             }
-            let ours = std::fs::read_to_string(&aside).is_ok_and(|text| text.contains(&pi_mark()));
+            let ours = std::fs::read_to_string(&aside).is_ok_and(|text| pi_ours(&text));
             if !ours {
                 // Put it back without replacing a file written there since: a hard link fails
                 // when the name is taken, and then the moved file stays beside it, named.
