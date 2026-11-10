@@ -172,7 +172,7 @@ The CHROME PARITY BENCH (m91): one table of cmux NEXT against the host's own Goo
 interaction a person feels, each light and under load, at 120 Hz. It is a bench, never a CI gate or perf-gate row.
 
 ```
-cmux-ci run --class exclusive --measurement --pool perf-lead --label measure --target-worker cmux22 \
+cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
   --script scripts/measure/perf-bench.sh --ref SHA --arg=suite=parity \
   --artifact artifacts/perf-bench/parity.json [--arg=vdisplay=120x1] [--arg=parity_rows=key-field,scroll-page]
 ```

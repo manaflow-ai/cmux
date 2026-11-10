@@ -25,11 +25,12 @@
 # Google Chrome stable (/Applications/Google Chrome.app; the bench installs nothing), real HID input and
 # ScreenCaptureKit frames, every interaction light and under load, at 120 Hz. Method: scripts/perf-bench/README.md
 # "Chrome parity". Only rounds=, cmux=build, maxload= and the parity_* args apply:
-#   cmux-ci run --class exclusive --measurement --pool perf-lead --label measure --target-worker cmux22 \
+#   cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
 #     --script scripts/measure/perf-bench.sh --ref SHA --arg=suite=parity --artifact artifacts/perf-bench/parity.json \
 #     [--arg=rounds=2] [--arg=parity_rows=key-field,...] [--arg=parity_loads=light,load] [--arg=vdisplay=120x1]
 #     [--arg=geometry=FILE.json]
-# Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
+# --display: the step needs a console session (real HID input and screen capture); no --pool, since the
+# perf-lead pool's workers stay paused. Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
 # never fails the step (a bench, not a gate).
 set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
