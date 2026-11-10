@@ -195,15 +195,15 @@ private=$(mktemp -d); chmod 700 "$private"
 trap 'rm -rf "$private"' EXIT
 
 # --- The configuration's identity in project.yml ------------------------------
+project_yml=$(git -C "$repo" show "$sha:cmux-next-ios/project.yml") || die "$sha has no cmux-next-ios/project.yml"
 # A value of the `settings: configs: <config>:` block of project.yml at $sha.
 config_setting() {  # <key>
-  git -C "$repo" show "$sha:cmux-next-ios/project.yml" | awk -v c="    $config:" -v k="      $1:" '
+  awk -v c="    $config:" -v k="      $1:" '
     $0 == c { inside = 1; next }
     inside { match($0, /^ */); if (RLENGTH <= 4 && length($0) > RLENGTH) exit }
-    inside && index($0, k) == 1 { sub(/^[^:]*:[ ]*/, ""); print; exit }'
+    inside && index($0, k) == 1 { sub(/^[^:]*:[ ]*/, ""); print; exit }' <<<"$project_yml"
 }
-git -C "$repo" show "$sha:cmux-next-ios/project.yml" | grep -q "^  $config: release" \
-  || die "$sha has no $config configuration in cmux-next-ios/project.yml"
+grep -qx "  $config: release" <<<"$project_yml" || die "$sha has no $config configuration in cmux-next-ios/project.yml"
 config_bundle_id=$(config_setting CMUX_MOBILE_APP_BUNDLE_ID)
 [[ "$config_bundle_id" == "$bundle_id" ]] \
   || die "$config builds bundle '${config_bundle_id:-none}' (project.yml at $sha), not $bundle_id (--bundle-id)"
@@ -241,7 +241,7 @@ d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
 v=[int(x["attributes"]["version"]) for x in d if x["attributes"]["version"].isdigit()]
 print(max(v) if v else 0)')
 [[ -n "$marketing" ]] || marketing=$(config_setting MARKETING_VERSION)
-[[ -n "$marketing" ]] || marketing=$(git -C "$repo" show "$sha:cmux-next-ios/project.yml" | awk '/^    MARKETING_VERSION:/{print $2; exit}')
+[[ -n "$marketing" ]] || marketing=$(awk '/^    MARKETING_VERSION:/{print $2; exit}' <<<"$project_yml")
 [[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
 python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
   || die "marketing version $marketing is below $max_marketing, the highest in $app_name; TestFlight would never offer it"
