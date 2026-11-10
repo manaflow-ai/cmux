@@ -1,14 +1,14 @@
 # cmux NEXT: Ghostty integration from first principles (parity with upstream Ghostty.app)
 
-Status: approved by Lawrence 2026-11-10 (m91); path groups P23, P1-P8+P10-P12, P17+P18 in progress, one PR each.
-
-Status: DESIGN, 2026-11-10. Doc only: no app change, no ghostty-next change, no pin change until Lawrence
-says OK. Owner: GHOSTTY INTEGRATION (perf lead task, cmux-ad m86).
+Status: DESIGN, approved by Lawrence 2026-11-10 (cmux-ad m91). This doc changes no code. Steps 1-4 have open PRs
+(sec. 5.1 gives each PR, its state and where it differs from this design); nothing of the plan is merged and no
+parity number is measured yet. Owner: GHOSTTY INTEGRATION (perf lead task, cmux-ad m86).
 
 Order (Lawrence, cmux-ad m86): "from first principles we need to integrate with ghostty better" and
 "scrolling is slow in ghostty as well".
 
-Code read at cmux `origin/feat-cmux-next` 678886bd10d, ghostty-next pin `b3a5ebfdfe70`. Paths: `app:` is
+Code read at cmux `origin/feat-cmux-next` 678886bd10d, ghostty-next pin `b3a5ebfdfe70` (still the pin at
+`b7dfd714d4e`, 2026-11-10). Paths: `app:` is
 `Packages/macOS/CmuxNext/Sources/`, `gn:` is the ghostty-next tree at the pin, `up:` is upstream
 ghostty-org/ghostty at the pin's upstream base. The audit of 2026-10-23
 ([ghostty-integration-DESIGN.md](ghostty-integration-DESIGN.md), faults G1-G8) stays the record of the
@@ -143,8 +143,9 @@ These three parts go into `scripts/measure/ghostty-parity.sh` and its driver, be
 visibility and occlusion, and composites the layer in its view tree. cmux never draws a terminal frame,
 never asks for one, never swaps the layer's contents and never holds a present. That is what upstream
 Ghostty.app does: its `SurfaceView` calls `ghostty_surface_set_size`, `set_focus`, `set_occlusion`,
-`set_content_scale` and the input calls, and nothing else on the frame path (sec. 2.2). CLAUDE.md
-pitfall: "Do not add an app-level display link or manual ghostty_surface_draw loop".
+`set_content_scale` and the input calls, and nothing else on the frame path (sec. 2.1). The repo rule
+(skills/cmux-debugging/SKILL.md): "Do not add a manual `ghostty_surface_draw` loop; rely on Ghostty wakeups and its
+renderer to avoid typing lag."
 
 ### 2.1 Upstream Ghostty.app at the base (the reference)
 
@@ -164,7 +165,7 @@ pitfall: "Do not add an app-level display link or manual ghostty_surface_draw lo
 ### 2.2 Every place where cmux presents, holds, draws or wakes a terminal frame
 
 "Main" = the step runs on the app's main thread, so a busy main thread (for example the O(N^2) `@Observable` walk in
-`AgentPaneLinkPlaces.follow`, #38166, found by NIGHTLY LOOP at 01:29Z) delays it. "Holds non-resize" = it can delay or
+`AgentPaneLinkPlaces.follow`, #38166, found by NIGHTLY LOOP at 01:29Z and fixed by #40038) delays it. "Holds non-resize" = it can delay or
 hide a present that does not follow a grid or size change (a scroll, output). Paths relative to `app:`; T/ is
 `CmuxNextTerminal/`. Survey of 678886bd10d, line numbers checked.
 
@@ -306,6 +307,15 @@ Target after the plan: the fork is F2/F5/F10/F12/F17-F18/F21-F22/F25-F26/F34/F38
 callback, synced present mode), each a candidate upstream PR; every U patch is sent upstream; every D patch is dropped;
 C moves to build scripts.
 
+**Sync strategy (perf lead decision f3 item 6, 2026-11-10).** A full merge of upstream main is the standing way the
+fork follows upstream. A pin made of cherry-picks (#40153: the five fixes above, picked onto the current pin) is a
+stopgap. It stays only until the `ghostty-vt` rename compiles: upstream's libghostty-vt ABI freeze after the base
+(657e82d1a, 796f09a6f, 12206bfb8, 0b7f9c156, fdedebade) moves the formatter options to `ghostty_formatter_set/get`
+and renames 28 symbols that `cmux-tui/crates/ghostty-vt` calls. The draft of the full merge is fork commit
+`17b8ed38b` (branch `release/cmux-gi-pin-sync-1`, its 11 conflicts resolved, not compiled). When the rename
+compiles, the pin moves to the full merge, F13, F31, F48 and F50 fold away there, and later syncs are merges, not
+picks. Sending a patch to upstream Ghostty is Lawrence's call, patch by patch.
+
 ## 4. Resize sync inside Ghostty's renderer
 
 Today the resize hold lives in cmux (P1-P8, P10-P12) and works against Ghostty: Ghostty draws a frame, cmux decides
@@ -363,7 +373,8 @@ The cmux hold needs a main-thread pass per frame, a committed handshake, a watch
 scanner (P11) that duplicates the terminal's own state. Ghostty.app has none of it and does not show the faults it
 fixes only because it presents on main and drops wrong-size frames; the synced mode keeps that rule and moves it off
 main. Risks: `ProgramRedraw` false positives (a TUI that draws in 2 frames), and a long GPU frame at a new size. Both
-are bounded by `bound`, and the existing TerminalResizeProgramHoldTests cover them.
+are bounded by `bound`, and the existing TerminalResizeProgramHoldTests are the tests that must cover them after the
+move (step 4).
 
 ## 5. Migration, step by step
 
@@ -378,7 +389,7 @@ CI gate, job, step or perf-gate row. A step that makes any row worse than before
 | 1 | P3 risk: main routing stays on after a watch is dropped (read only, not run) | S1-S5, O1 | a presenter unit test: drop a watched surface mid-pass, then a same-size frame must present off main |
 | 2 | Pin sync to upstream main (takes 15a443234, 96d379822, 321a32a42, 5ce2325ec, 1b8b3f55b; drops F13, F31, F48, F50) | all rows | a scroll fixture: style-run `endUpdate` cost per row stays under the upstream value (Zig test in the fork) |
 | 3 | `present_cb` in the fork; P23 swizzle deleted; P26/P27 read the callback | T1 | a test that a present at size S reports S and the reason `content` |
-| 4 | `RENDERER_SYNCED` mode ON for every surface; delete P1-P8, P10-P12 and the fork's EMBEDDER/host-frame code (F8, F47 rest) in the same PR | R1 must pass; S1-S5, O1, T1 not worse | keep TerminalResizeProgramHoldTests and TerminalResizeFrameTests (moved to drive the fork); new test: a scroll and an output frame during a resize hold are never routed through main |
+| 4 | `RENDERER_SYNCED` mode ON for every surface; delete P1-P8, P10-P12 and the fork's EMBEDDER/host-frame code (F8, F47 rest) in the same PR | R1 must pass; S1-S5, O1, T1 not worse | keep TerminalResizeProgramHoldTests and TerminalKeyResizeFrameTests (moved to drive the fork); new test: a scroll and an output frame during a resize hold are never routed through main |
 | 5 | In-place restore API (reset and restore on one surface, with `hold_frames`); delete P18; delete P17 after its OSC 11 repro test | O1, T1; first-frame time after restore | the OSC 11 before-window repro test; a restore test that the last frame shows until the restored frame, with no 500 ms overlay |
 | 6 | Fork diet: send every U patch upstream (sec. 3), drop each at the sync that brings it; keep only the embedding API | all rows at each sync | each upstreamed patch keeps its red test upstream |
 | 7 | Transport (old doc G3/G4/G5, PL-daemon): app -> daemon -> host input and output hops | S3, S4, T1 must pass | the key -> frame probe at n = 20 against Ghostty.app |
@@ -386,9 +397,30 @@ CI gate, job, step or perf-gate row. A step that makes any row worse than before
 Order: 0 first (no number, no step). 1 and 2 are independent. 4 needs 3 (the probe that proves R1). 5 and 6 after 4.
 7 runs beside 4-6, owned by the PL-daemon owner.
 
+### 5.1 State of the steps (2026-11-10, feat `b7dfd714d4e`, pin `b3a5ebfdfe70`)
+
+No step is merged. No PR below has a parity table with numbers: each says `not measured` (no quiet 120 Hz host, and
+the step-0 tools do not exist). The order rule above ("0 first") is thus not met by the open PRs; each one must get its
+rows measured before it lands, or the lead must write why not in the PR.
+
+| step | PR | state | where the PR differs from this design |
+|---|---|---|---|
+| 0 | none | not started | - |
+| 1 | #40055 (S-P3) | open | App side only: a watch that runs out keeps the commit owed. Step 4 deletes the presenter it changes. |
+| 2 | #40153 (GI PIN SYNC) | open | NOT the full sync: fork branch `release/cmux-gi-pin-sync-2`, pin `a0975fd8c` = the current pin + `cherry-pick -x` of 5ce2325ec, 1b8b3f55b, 321a32a42, 96d379822, 15a443234. F13, F31, F48 and F50 stay until the full merge (sec. 3, sync strategy). The `endUpdate` cost test of the table is not written. |
+| 3 | #40169 (GI PRESENT CB) | open | Fork branch `release/cmux-gi-present-cb-1`, pin `a0e665d4f`. The API is `ghostty_surface_set_present_callback(surface, cb, userdata)` with `ghostty_surface_present_s { width_px, height_px, reason, seq, host_time }`: no `cols` / `rows`, and two reasons (`GHOSTTY_PRESENT_CONTENT`: same pixel size as the frame before; `GHOSTTY_PRESENT_RESIZE`: another size, or the first frame), not the four of 4.2. |
+| 4 | #40174 (GI RENDERER SYNC) | draft, stacked on #40169; held by the perf lead until its ported tests run green | Fork branch `release/cmux-gi-renderer-sync-1`, pin `c31377f1a` (on `a0e665d4f`). `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2`; the bound is fixed in the fork (3 refreshes of 120 Hz): no `ghostty_surface_set_resize_hold` and no `resize-sync` config key. A frame of a NEW size still shows through the main thread, in main's Core Animation transaction with the view's bounds (4.1 rule 5 says "the thread that presents"); a frame at the shown size goes off main, except for one run loop pass after main changed the shown size. The presenter's draw-ahead (P9's presenter part) is deleted: the final size goes to Ghostty at the motion's start (4.3). It ports or maps the old presenter tests (`TerminalResizeProgramHoldTests`, `TerminalKeyResizeFrameTests`, `TerminalWindowFrameSyncTests`, `TerminalFrameOwnerMainThreadTests`) and deletes `TerminalScreenSwitchWatch` (P11). |
+| 5 | none | not started | - |
+| 6 | none | not started | The sync strategy of sec. 3 comes first. |
+| 7 | none | not started | - |
+
+Pins: the fork branches of #40153 (`a0975fd8c`) and of #40169 (`a0e665d4f`) both start at `b3a5ebfdf` and neither
+has the other's commits; `c31377f1a` (#40174) has #40169's commits and not #40153's. The second of them to land needs
+a fork branch that has both, and a new pin: a pin PR must not drop what an earlier pin PR landed.
+
 ## 6. Baseline
 
-**Not measured: fleet offline.** The controller (`http://100.89.225.106:18765/status`) did not answer at 01:38Z and
+**Not measured** (still true on 2026-11-10 when this doc merged). The fleet was offline: the controller (`http://100.89.225.106:18765/status`) did not answer at 01:38Z and
 01:43Z (curl status 000). No job was submitted. The step-0 tools (sec. 1.3) do not exist yet, so even an online fleet gives
 only the cmux side of S1-S2 and O1 today (the kit's `render_counters` fps), not a parity table.
 
@@ -414,5 +446,8 @@ cmux-ci run --class exclusive --measurement --key ghostty-parity \
 ```
 
 `--script` must be on the controller allowlist: step 0 adds `scripts/measure/ghostty-parity.sh` there (an hq change).
-Risk for step 0: the fleet's Zig toolchain may not have 0.17.0, which upstream needs; the script must pin it.
+Risk for step 0: the fleet Macs' PATH Zig is not 0.17.0 (the perf lead's probe of 2026-11-10 07:22Z found 0.16.0 on
+the five AWS minis it read), and upstream needs 0.17.0: the script must install a job-local 0.17.0, as
+`GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh`
+does for the nightly (#40139).
 The pin author puts the printed table into the pin PR.
