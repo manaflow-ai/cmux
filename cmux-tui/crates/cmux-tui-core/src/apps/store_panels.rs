@@ -218,7 +218,8 @@ impl Supervisor {
         std::fs::read(dir.join(NEW_TAB_LAYOUT_FILE))
             .ok()
             .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-            .and_then(|doc| serde_json::from_value::<Vec<String>>(doc["layout"].clone()).ok())
+            .and_then(|doc| doc.get("layout").cloned())
+            .and_then(|layout| serde_json::from_value::<Vec<String>>(layout).ok())
             .unwrap_or_default()
     }
 
