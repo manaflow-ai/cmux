@@ -308,7 +308,7 @@ impl ProjectionReader<'_> {
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
-        let ids = StoredIds::load(&db)?;
+        let ids = StoredIds::load(db)?;
         let rows = statement
             .query_map([i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -698,7 +698,7 @@ impl ProjectionReader<'_> {
 impl WorkspaceRegistry {
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }.public_projections()
+        ProjectionReader { db: &db, session_id: &self.session_id }.public_projections()
     }
 
     pub(crate) fn public_agent_projections(
@@ -707,13 +707,13 @@ impl WorkspaceRegistry {
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }
+        ProjectionReader { db: &db, session_id: &self.session_id }
             .public_agent_projections(terminal, state)
     }
 
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }.live_terminal_public_ids()
+        ProjectionReader { db: &db, session_id: &self.session_id }.live_terminal_public_ids()
     }
 
     pub(super) fn durable_notifications(
@@ -721,27 +721,29 @@ impl WorkspaceRegistry {
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }
+        ProjectionReader { db: &db, session_id: &self.session_id }
             .durable_notifications(live_terminals)
     }
 
+    /// Read marks stored for one notification, for tests that verify pruning.
+    #[cfg(test)]
     pub(crate) fn durable_notification_read_clients(
         &self,
         notification_id: &str,
     ) -> anyhow::Result<Vec<String>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }
+        ProjectionReader { db: &db, session_id: &self.session_id }
             .durable_notification_read_clients(notification_id)
     }
 
     pub(crate) fn native_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }.native_frontend_projections()
+        ProjectionReader { db: &db, session_id: &self.session_id }.native_frontend_projections()
     }
 
     pub fn public_frontend_projections(&self) -> anyhow::Result<Vec<FrontendProjection>> {
         let db = self.connection.get();
-        ProjectionReader { db: &*db, session_id: &self.session_id }.public_frontend_projections()
+        ProjectionReader { db: &db, session_id: &self.session_id }.public_frontend_projections()
     }
 
     #[cfg(test)]

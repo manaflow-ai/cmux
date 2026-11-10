@@ -70,10 +70,13 @@ fn call(mux: &Arc<Mux>, operation: &str, fields: Value, key: Option<&str>) -> Va
     response["result"].clone()
 }
 
+/// What a test runs for each statement that a registry connection compiles.
+type StatementHook = Arc<dyn Fn(&AuthContext<'_>) + Send + Sync>;
+
 /// Run `hook` for every statement that a registry connection (the writer's,
 /// the read-only one and the snapshot readers' own) compiles; `None` removes
 /// it.
-fn watch_statements(mux: &Mux, hook: Option<Arc<dyn Fn(&AuthContext<'_>) + Send + Sync>>) {
+fn watch_statements(mux: &Mux, hook: Option<StatementHook>) {
     let install = |connection: &rusqlite::Connection| match hook.clone() {
         Some(hook) => connection.authorizer(Some(move |context: AuthContext<'_>| {
             hook(&context);
@@ -81,7 +84,7 @@ fn watch_statements(mux: &Mux, hook: Option<Arc<dyn Fn(&AuthContext<'_>) + Send 
         })),
         None => connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>),
     };
-    install(&*mux.registry_connection.get()).unwrap();
+    install(&mux.registry_connection.get()).unwrap();
     mux.registry_connection
         .read_committed(|connection| Ok(install(connection)?))
         .expect("a file registry has a reader")
@@ -374,19 +377,15 @@ fn a_warm_snapshot_shows_the_next_commit_of_each_kind() {
     let id = |prefix: &str, value: u128| format!("{prefix}_{value:032x}");
     mux.journal_local_frontend_event(crate::FrontendJournalEvent::Focus {
         event_id: "event_snapshot_read_fresh".into(),
-        frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(id(
-            "projection",
-            6,
-        ))
-        .unwrap(),
+        frontend_projection_id: FrontendProjectionPublicId::parse(id("projection", 6)).unwrap(),
         generation: "frontend_generation_1".into(),
         target: crate::FrontendFocusTarget::Pane,
-        workspace_id: Some(crate::resource::WorkspacePublicId::parse(id("ws", 1)).unwrap()),
-        screen_id: Some(crate::resource::ScreenPublicId::parse(id("screen", 2)).unwrap()),
-        pane_id: Some(crate::resource::PanePublicId::parse(id("pane", 3)).unwrap()),
-        tab_id: Some(crate::resource::TabPublicId::parse(id("tab", 4)).unwrap()),
-        content_id: Some(crate::resource::ContentPublicId::Terminal(
-            crate::resource::TerminalPublicId::parse(id("term", 5)).unwrap(),
+        workspace_id: Some(WorkspacePublicId::parse(id("ws", 1)).unwrap()),
+        screen_id: Some(ScreenPublicId::parse(id("screen", 2)).unwrap()),
+        pane_id: Some(PanePublicId::parse(id("pane", 3)).unwrap()),
+        tab_id: Some(TabPublicId::parse(id("tab", 4)).unwrap()),
+        content_id: Some(ContentPublicId::Terminal(
+            TerminalPublicId::parse(id("term", 5)).unwrap(),
         )),
     })
     .unwrap();
