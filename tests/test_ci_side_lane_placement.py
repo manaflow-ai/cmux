@@ -600,27 +600,32 @@ class Decide(unittest.TestCase):
 
 class AutofixActionExportsRoute(unittest.TestCase):
     """Review of #27201 at 8a5fe9af: action exports need a logged-in session. Attempt 1 and a person's re-run take
-    the owned gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
-    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session. They have no placement, so they
-    never name the session label, whatever vars.CI_SESSION_LABEL says (cmux#24295's 90-minute waits)."""
+    the owned gui label only when their own idle read found a gui runner free (mac_runner), else Blacksmith macOS;
+    a rescue bot's re-run takes Blacksmith macOS, never vars.MACOS_RUNNER_26, which may name a generic owned pool
+    with no session. They never name the session label, whatever vars.CI_SESSION_LABEL says (cmux#24295's 90-minute
+    waits)."""
 
-    def context(self, attempt: str, actor: str) -> dict:
+    READS = {"cmux-next-pr-autofix.yml": "action-areas", "cmux-next-base-autofix.yml": "pushed-exports"}
+
+    def context(self, name: str, attempt: str, actor: str, mac_runner: str = GUI) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
                                  MACOS_RUNNER_26="glaeda-std-xcode-26.6")
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+        context["needs"] = {self.READS[name]: {"outputs": {"mac_runner": mac_runner}}}
         return context
 
-    def test_the_owned_gui_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
-        for name in ("cmux-next-pr-autofix.yml", "cmux-next-base-autofix.yml"):
+    def test_an_idle_gui_runner_on_attempt_1_and_a_persons_rerun_blacksmith_otherwise(self):
+        for name in self.READS:
             runs_on = yaml.safe_load((WORKFLOWS / name).read_text())["jobs"]["action-exports"]["runs-on"]
             with self.subTest(workflow=name):
-                self.assertEqual(evaluate(runs_on, self.context("1", "teamleaderleo")), GUI)
-                self.assertEqual(evaluate(runs_on, self.context("2", "teamleaderleo")), GUI)
+                self.assertEqual(evaluate(runs_on, self.context(name, "1", "teamleaderleo")), GUI)
+                self.assertEqual(evaluate(runs_on, self.context(name, "2", "teamleaderleo")), GUI)
+                self.assertEqual(evaluate(runs_on, self.context(name, "1", "teamleaderleo", mac_runner="")), FALLBACK)
                 for bot in RESCUE_BOTS:
                     for attempt in ("2", "3"):
-                        self.assertEqual(evaluate(runs_on, self.context(attempt, bot)), FALLBACK, (bot, attempt))
-                session = self.context("2", "teamleaderleo")
+                        self.assertEqual(evaluate(runs_on, self.context(name, attempt, bot)), FALLBACK, (bot, attempt))
+                session = self.context(name, "2", "teamleaderleo")
                 session["vars"]["CI_SESSION_LABEL"] = "1"
                 self.assertEqual(evaluate(runs_on, session), GUI)
                 self.assertNotIn(SESSION, runs_on)

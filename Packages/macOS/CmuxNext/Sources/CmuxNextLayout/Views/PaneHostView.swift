@@ -341,10 +341,30 @@ final class PaneHostView: NSView, RestingPlacement {
     /// does not change size in a spring, so the area changes by the same amount. In the key's turn (T-KEYS 3) the hold
     /// has not begun: the press's first refresh begins it (``isOnLayoutSpring``), and the area that hold will hold tells
     /// the followers it will hand that refresh's size now, so the frame that shows the press has their frames drawn.
-    func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
+    /// `keyPress`: false for a snapped structural change (``ScreenContentView`` `holdsSnapForContent`): its size goes to
+    /// the renderer only, and its grid at the landing.
+    func drawAhead(sizeChange: CGSize, keyPress: Bool) { // perf-hot: 1ms motion-frame
         if holdsUntilAfterLanding, let heldArea { return heldArea.drawAhead(sizeChange: sizeChange) }
         guard !holdsUntilAfterLanding, !isOnLayoutSpring, let area = (content as? PaneMotionHolding)?.paneMotionHoldArea else { return }
-        area.drawAheadOfHold(sizeChange: sizeChange)
+        area.drawAheadOfHold(sizeChange: sizeChange, keyPress: keyPress)
+    }
+
+    /// The held snap showed (``ScreenContentView`` `presentHeldSnap`): a size drawn ahead for it that its placement did
+    /// not take goes (RESIZE P0 14).
+    func snapDidShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldShown()
+    }
+
+    /// The held snap shows in this turn (``ScreenContentView`` `presentHeldSnap`, RESIZE P0 21): the pane's content shows
+    /// at its new size in the snap's commit (``PaneContentAreaView/aheadOfHoldWillShow()``).
+    func snapWillShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldWillShow()
+    }
+
+    /// Whether a key press's held snap must keep waiting for this pane's content drawn ahead for it (RESIZE P0 20,
+    /// ``PaneContentAreaView/aheadOfHoldAwaitsContent(refreshesWaited:)``).
+    func snapAwaitsContent(refreshesWaited: Int) -> Bool {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldAwaitsContent(refreshesWaited: refreshesWaited) ?? false
     }
 
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
@@ -364,7 +384,7 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The content's rounded corners and the ring's shape from the current
-    /// clip frame and the content's header and footer. Changes no frame.
+    /// clip frame and the content's header and footer, and the ground under held content. Changes no frame of the content.
     func applyChromeShape() {
         let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
@@ -388,6 +408,13 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
+        // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).
+        // A key hold and a closing pane have their own rules.
+        guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
+        // From where the content is, with its tabs (a strip at its top or bottom edge, a list at its leading edge): no
+        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card.
+        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: headerHeight, footer: footerHeight, leading: content.paneGroundLeadingInset)
     }
 
     /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
@@ -517,32 +544,5 @@ final class PaneHostView: NSView, RestingPlacement {
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                       focused: focused, flashesFocus: flashesFocus, animated: animated)
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }

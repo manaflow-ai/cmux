@@ -51,6 +51,7 @@ pub(super) fn send_request_error_with_delivery(
 }
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
     serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
 }
 
@@ -65,6 +66,7 @@ pub(super) fn send_response_with_details(
     retryable: Option<bool>,
     details: Option<Value>,
 ) -> bool {
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
         value.insert("reason", Value::String(reason));
