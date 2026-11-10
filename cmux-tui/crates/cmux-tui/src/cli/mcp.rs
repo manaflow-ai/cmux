@@ -920,7 +920,9 @@ impl<B: Backend> Server<B> {
             return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == workflow_tools::NAME {
-            return Ok(workflow_tools::call(&self.backend, &arguments));
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            let meta = upstream::passed_meta(params).or_else(|| self.call_meta.clone());
+            return Ok(workflow_tools::call(&self.backend, &arguments, meta));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -1380,7 +1382,15 @@ impl<B: Backend> Server<B> {
             })
             .flatten();
         let call_session = call.session.clone();
-        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+        // A terminal wait that ran out of time says `timed_out`, as the CLI's does.
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let answer = self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes);
+        match answer.map(|mut value| {
+            if let Some(wait) = &wait {
+                wait.mark(&mut value);
+            }
+            value
+        }) {
             Ok(value) if typed.is_some() => success(
                 {
                     let mut value = value;

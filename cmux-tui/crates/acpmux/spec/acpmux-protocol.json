@@ -463,6 +463,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/project_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mcp/reconnect",
       "params": {
         "$ref": "#/types/McpReconnectParams"
@@ -516,6 +522,12 @@
     {
       "kind": "request",
       "name": "_acpmux/ledger",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team_audit",
       "params": true,
       "result": true
     },
@@ -959,6 +971,12 @@
     {
       "kind": "request",
       "name": "_acpmux/complete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/hunk_summary",
       "params": true,
       "result": true
     },
@@ -1991,6 +2009,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine.tunnel.attach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.detach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.rekey",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -2655,7 +2691,8 @@
         "inline": true,
         "model": true,
         "question": true,
-        "sessionId": true
+        "sessionId": true,
+        "targetHarness": true
       },
       "type": "object"
     },
@@ -3987,6 +4024,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "localOnly": true,
         "probe": true,
         "refresh": true
       },
@@ -4595,6 +4633,22 @@
       "type": "object"
     },
     "PermissionRespondResult": {
+      "type": "object"
+    },
+    "PersonHold": {
+      "description": "What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and\nwhy an agent does not start there unasked.",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "folder",
+        "reason"
+      ],
       "type": "object"
     },
     "PresenceNote": {
@@ -5685,6 +5739,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "personHold": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PersonHold"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
+        },
         "policy": {
           "type": [
             "string",
@@ -6373,6 +6438,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "personHold": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PersonHold"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
         "policy": {
           "type": [

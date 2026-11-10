@@ -52,6 +52,15 @@ const REBUILD_READ_ATTEMPTS: u32 = 15;
 #[cfg(test)]
 const REBUILD_READ_ATTEMPTS: u32 = 4;
 
+/// How long the roster's owner waits before it tries a failed background
+/// read again (the rebuild's, the start's replay's): `failed` reads in a
+/// row, from [`REBUILD_RETRY_FIRST`] doubling to [`REBUILD_RETRY_LONGEST`].
+pub(in crate::mux) fn roster_read_retry_delay(failed: u32) -> Duration {
+    REBUILD_RETRY_FIRST
+        .saturating_mul(1 << failed.saturating_sub(1).min(16))
+        .min(REBUILD_RETRY_LONGEST)
+}
+
 /// A roster folded from the first journal record, the ranges the fold
 /// skipped because they did not decode, the reads that failed in a row, and
 /// the terminals the live roster retired since the rebuild started.
@@ -69,6 +78,7 @@ impl Mux {
         let worker = &self.agent_roster_worker;
         *worker.rebuild.lock().unwrap_or_else(PoisonError::into_inner) =
             Some(AgentRosterRebuild::default());
+        worker.stale.store(true, Ordering::Release);
         worker.rebuilding.store(true, Ordering::Release);
         self.continue_agent_roster_rebuild_later();
     }
@@ -94,6 +104,23 @@ impl Mux {
         self.agent_roster_worker.rebuilding.load(Ordering::Acquire)
     }
 
+    /// Whether the live roster may hold state the current reducer would not
+    /// have folded: projections are not reconciled from it. Set until a
+    /// rebuild replaces the roster, also after a rebuild that gave up.
+    pub(in crate::mux) fn agent_roster_stale(&self) -> bool {
+        self.agent_roster_worker.stale.load(Ordering::Acquire)
+    }
+
+    /// The version a live pass saves the roster at: the version a stale
+    /// roster was migrated from while its stale mark is not written, the
+    /// current one otherwise.
+    pub(in crate::mux) fn agent_roster_save_version(&self) -> u32 {
+        match self.agent_roster_worker.unmarked_from.load(Ordering::Acquire) {
+            0 => AGENT_ROSTER_REDUCER_VERSION,
+            from_version => from_version,
+        }
+    }
+
     /// One slice of the rebuild, on the owner after a pass: fold toward the
     /// live roster's cursor for at most [`REBUILD_SLICE`], and replace the
     /// live roster once there. Only the owner moves the live cursor and this
@@ -102,7 +129,10 @@ impl Mux {
     /// owner, at most [`REBUILD_READ_ATTEMPTS`] times in a row; then the
     /// rebuild ends for this run with the roster still marked stale.
     pub(in crate::mux) fn run_agent_roster_rebuild_slice(&self) {
-        if !self.agent_roster_rebuilding() {
+        // The start's replay of the tail goes first: the rebuild's target is
+        // the live cursor, which the replay moves. The pass that finishes
+        // the replay runs a slice right after it.
+        if !self.agent_roster_rebuilding() || self.agent_roster_replaying() {
             return;
         }
         #[cfg(test)]
@@ -185,17 +215,15 @@ impl Mux {
                         drop(fold);
                         eprintln!(
                             "cmux-tui: the agent roster rebuild gave up after {failed} failed \
-                             reads: {error:#}; the roster stays marked stale and the next start \
-                             rebuilds it"
+                             reads: {error:#}; the roster stays stale, its projections are not \
+                             reconciled from it, and the next start rebuilds it"
                         );
                         self.report_internal_diagnostic(format!(
                             "agent roster rebuild gave up after {failed} failed reads: {error:#}"
                         ));
                         return;
                     }
-                    let delay = REBUILD_RETRY_FIRST
-                        .saturating_mul(1 << (failed - 1).min(16))
-                        .min(REBUILD_RETRY_LONGEST);
+                    let delay = roster_read_retry_delay(failed);
                     eprintln!(
                         "cmux-tui: the agent roster rebuild read failed ({failed} in a row), \
                          retried in {} ms: {error:#}",
@@ -217,7 +245,7 @@ impl Mux {
         if !rebuilt.skipped.is_empty() {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             agent_roster_restore::neutralize_live_claims(
-                &registry,
+                &*registry,
                 &mut rebuilt.host,
                 &rebuilt.skipped,
             );
@@ -232,6 +260,10 @@ impl Mux {
             host.roster = rebuilt.host.roster;
             (host.cursor, host.roster.snapshot().to_string())
         };
+        // The current reducer's own fold: saved at the current version from
+        // now on, mark or not.
+        worker.unmarked_from.store(0, Ordering::Release);
+        worker.stale.store(false, Ordering::Release);
         worker.rebuilding.store(false, Ordering::Release);
         // A failed save keeps the stale mark: the next start rebuilds again.
         if let Err(error) = self.registry_connection.finish_journal_reducer_rebuild(
@@ -265,6 +297,7 @@ pub(in crate::mux) mod rebuild_faults {
     struct Faults {
         held: bool,
         failing_reads: u32,
+        failing_replay_reads: u32,
     }
 
     static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
@@ -284,6 +317,19 @@ pub(in crate::mux) mod rebuild_faults {
 
     pub(super) fn held(session: &str) -> bool {
         with(session, |faults| faults.held)
+    }
+
+    /// The start's background replay fails its next `reads` slices.
+    pub(in crate::mux) fn fail_replay_reads(session: &str, reads: u32) {
+        with(session, |faults| faults.failing_replay_reads = reads);
+    }
+
+    pub(in crate::mux) fn take_failing_replay_read(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_replay_reads > 0;
+            faults.failing_replay_reads = faults.failing_replay_reads.saturating_sub(1);
+            failing
+        })
     }
 
     pub(super) fn take_failing_read(session: &str) -> bool {

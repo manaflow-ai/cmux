@@ -19,7 +19,7 @@
 //
 // Drawn as the turn's last row (`row.below`), it has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
@@ -42,8 +42,14 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const time = useTicking(!held && waiting === undefined, now);
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
-  // The Verbose transcript view opens every group, as ToolGroupRow reads it.
-  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true, true);
+  // The Verbose transcript view opens every group, as ToolGroupRow reads it, and the group follows
+  // its run's line as its own line does (TurnRows.tsx `groupNode`): a run line the reader closed
+  // closes the group, so the line names the call the closed group no longer shows.
+  const runLine = useMemo(() => (row.doingRun ? [row.doingRun] : undefined), [row.doingRun]);
+  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true, true, {
+    inherits: runLine,
+    closedBy: runLine,
+  });
   const shown = row.doingGroup && groupOpen ? undefined : row.doing;
   // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;

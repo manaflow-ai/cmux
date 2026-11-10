@@ -109,4 +109,13 @@ describe("carryRange", () => {
   test("a window whose start row is gone takes the newest window", () => {
     expect(carryRange(before, transcriptBlocks([reply("n0")], 2), { start: 3, end: 4 })).toEqual({ start: 0 });
   });
+
+  test("a fold above the window with a reply appended below moves the window up by the block it lost", () => {
+    const appended = transcriptBlocks(
+      [reply("r0"), work("x", call()), work("y", thought, call()), reply("r1"), reply("r2"), reply("r3")],
+      2,
+    );
+    expect(appended).toHaveLength(before.length);
+    expect(carryRange(before, appended, { start: 3, end: 4 })).toEqual({ start: 2, end: 3 });
+  });
 });

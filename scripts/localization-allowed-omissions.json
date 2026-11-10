@@ -7404,6 +7404,14 @@
     "class": "brand",
     "source": "Superwhisper"
   },
+  "settings.updates.liveWebReload": {
+    "class": "brand",
+    "source": "cmux Live"
+  },
+  "liveWeb.failed": {
+    "class": "brand",
+    "source": "cmux Live: %@"
+  },
   "argument.cloud.computerControl.action": {
     "source": "Control",
     "identityLocales": {

@@ -24,7 +24,8 @@ and gets back:
                    that paints after its pane stopped moving (a pane grown into an unpainted area)
   retargets        a mover whose motion reversed along an axis, or sped up again after it had started to slow
                    (a new target mid-flight; the house curve decelerates once, with no overshoot), read on its edges
-                   (left, top, right, bottom), each on the pixel grid as the window shows it, not on its width and height
+                   (left, top, right, bottom), each on the pixel grid as the window shows it, not on its width and height;
+                   a terminal surface on its left and top edges only (its far edges are its grid's size)
 """
 from __future__ import annotations
 
@@ -99,10 +100,17 @@ def edges(key, points):
     rounded edges: when both edges of a pane move, at different speeds (the bottom pane of a column that a Split Down
     or its close resizes: its top follows the divider above it, its bottom the one below), the height's steps differ
     by up to a point a frame even though each edge decelerates once, and that read as a retarget. Edges are what moves
-    on the spring, so a target change shows on one of them."""
+    on the spring, so a target change shows on one of them.
+
+    A terminal surface is judged by its left and top edges only: those ride its pane. Its right and bottom edges are
+    its grid's size, which steps in whole cells and goes to its final size in the motion's first frame (no grid is
+    held: a neighbour's terminal resizes at the start), so the far edge jumps once and then rides the pane, a step of
+    the grid and not a new target (split-scale s4 empty split_down and close_down: 1 each, all on a terminal)."""
     if key.startswith("page "):
         return [(t, (v[0], v[0] + v[1]) + tuple(v[2:]) if len(v) >= 2 else v) for t, v in points]
-    if key.endswith(" frame") or key.endswith(" content") or key.startswith(("terminal ", "divider ")):
+    if key.startswith("terminal "):
+        return [(t, (v[0], v[1]) if len(v) == 4 else v) for t, v in points]
+    if key.endswith(" frame") or key.endswith(" content") or key.startswith("divider "):
         return [(t, (v[0], v[1], v[0] + v[2], v[1] + v[3]) if len(v) == 4 else v) for t, v in points]
     return points
 

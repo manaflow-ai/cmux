@@ -305,8 +305,9 @@ final class ShellModel {
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
             FeedRouting.shared.markAllNotificationsRead = { [weak live, weak backend] in
-                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read.
-                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read; a
+                // Mac reconnecting takes them too, and reads them once it is back.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canMarkAllNotificationsRead(on: $0) == true }
                 guard let backend, !macs.isEmpty else { return 0 }
                 var read = 0
                 for macID in macs { read += try await backend.markAllNotificationsRead(on: macID) }

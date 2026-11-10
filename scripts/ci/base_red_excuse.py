@@ -397,7 +397,11 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # no YAML parser, so every host that runs this script reads the same contract; tests/test_base_red_excuse.py
 # fails when it differs from the workflows. Anything in a workflow or in the file that does not have the
 # expected shape is refused, never guessed at: a rollup red is then never excused.
-RUN_ROLLUPS = (("ci.yml", "ci-status"),)  # red when a job under it is red: the whole run's red jobs are judged
+# A run rollup is red when a job under it is red: the whole run's red jobs are judged. One in a called workflow names
+# its caller (workflow file, job id), whose name is its check's prefix: ci-web.yml's Web status is 'web / Web status',
+# red only when a web job under it is red, and was refused as "no failing test or error line to match" on every PR
+# whose web shard red the base shares (2026-11-09, cmux#39559, hq#8503).
+RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
 # Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
 # own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
@@ -520,15 +524,24 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
-# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
-# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
-# lookup limits that reach the run that has one.
+# A cancelled base tier run is one the base tier kick found superseded with no Mac job in progress
+# (cmux_next_base_tier.py cancel_superseded): read here it mostly spends the lookup limits that reach the run
+# with a verdict. But since 2026-11-09 (cmux#39631) the kick also cancels a run whose daemon tests or generated
+# files finished while its scheme compile still queued, so for those jobs (CANCELLED_TIER_VERDICT_JOBS) such a run
+# can hold the newest verdict: a green there must stand over an older red. For them a cancelled base tier run is
+# read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
+# over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
+CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+
+
+def cancelled_base_tier(run: dict) -> bool:
+    return run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
 
 
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
-    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+    if cancelled_base_tier(run) and name not in CANCELLED_TIER_VERDICT_JOBS:
         return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
@@ -611,6 +624,10 @@ COMPILE_PASS_STATUS = "cmux-next/compile"
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
 
+# A matrix job named '<name> (${{ matrix.<key> }})' (ci-web.yml's Web tests): its jobs are '<name> (<value>)'.
+MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
+
+
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
@@ -619,6 +636,20 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
         raise Refused(f"{where}: job {job_id} has no usable name")
+    if "${{" in name and (one := MATRIX_NAME.fullmatch(name)):
+        # 'Web tests (${{ matrix.shard }})': one name per value of that one matrix key, as Actions renders it.
+        matrix = (job.get("strategy") or {}).get("matrix")
+        key = one.group(2)
+        values = None
+        if isinstance(matrix, dict) and set(matrix) == {key} and isinstance(matrix[key], list):
+            values = matrix[key]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
+              and all(isinstance(row, dict) and key in row for row in matrix["include"])):
+            values = [row[key] for row in matrix["include"]]
+        if (not values or "uses" in job
+                or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
+            raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
+        return {"exact": [f"{one.group(1)} ({v})" for v in values], "prefixes": []}
     if "${{" in name:
         static, sep, expr = name.partition(" / ${{")
         if not sep or "${{" in static or not expr.endswith("}}") or "${{" in expr or "uses" in job:
@@ -676,19 +707,24 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
             return (workflows / file).read_text()
     out: dict = {"run": {}, "routed": {}}
     for kind, declared in (("run", run), ("routed", routed)):
-        for file, job_id in declared:
+        for file, job_id, *caller in declared:
             where = f".github/workflows/{file}"
-            try:
-                doc = yaml.safe_load(read(file))
-            except (OSError, Refused, yaml.YAMLError) as error:
-                raise Refused(f"{where}: unreadable ({error})") from None
-            jobs = doc.get("jobs") if isinstance(doc, dict) else None
-            if not isinstance(jobs, dict) or not isinstance(jobs.get(job_id), dict):
+            doc, jobs = _workflow(yaml, read, file)
+            if not isinstance(jobs.get(job_id), dict):
                 raise Refused(f"{where}: no job {job_id}")
             check = _check_matcher(job_id, jobs[job_id], where)
             if check["prefixes"] or len(check["exact"]) != 1:
                 raise Refused(f"{where}: rollup {job_id} has no fixed name")
-            name = check["exact"][0]
+            prefix = ""
+            if caller:
+                # A called workflow's jobs are '<its caller's name> / <job>' (_check_matcher of the caller job).
+                (caller_file, caller_id), = caller
+                caller_where = f".github/workflows/{caller_file}"
+                caller_job = _workflow(yaml, read, caller_file)[1].get(caller_id)
+                if not isinstance(caller_job, dict) or caller_job.get("uses") != f"./{where}":
+                    raise Refused(f"{caller_where}: no job {caller_id} calling {where}")
+                prefix = _check_matcher(caller_id, caller_job, caller_where)["prefixes"][0]
+            name = prefix + check["exact"][0]
             if name in out["run"] or name in out["routed"]:
                 raise Refused(f"{where}: two rollups are named {name!r}")
             needs = _needs(jobs, job_id, where)
@@ -699,7 +735,8 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 while todo:
                     need = todo.pop()
                     if need not in under:
-                        under[need] = _check_matcher(need, jobs[need], where)
+                        matcher = _check_matcher(need, jobs[need], where)
+                        under[need] = {kind_: [prefix + v for v in matcher[kind_]] for kind_ in ("exact", "prefixes")}
                         todo.extend(_needs(jobs, need, where))
                 out["run"][name] = {"workflow": file, "job": job_id, "under": dict(sorted(under.items()))}
                 continue
@@ -721,6 +758,19 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 routes[need] = {"route": route, **_check_matcher(need, jobs[need], where)}
             out["routed"][name] = {"workflow": file, "job": job_id, "routes": routes}
     return out
+
+
+def _workflow(yaml, read, file: str) -> tuple[dict, dict]:
+    """Workflow FILE (READ gives its text) and its `jobs:`; refused when unreadable or of another shape."""
+    where = f".github/workflows/{file}"
+    try:
+        doc = yaml.safe_load(read(file))
+    except (OSError, Refused, yaml.YAMLError) as error:
+        raise Refused(f"{where}: unreadable ({error})") from None
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        raise Refused(f"{where}: no jobs")
+    return doc, jobs
 
 
 def _matcher_ok(matcher: object) -> bool:
@@ -938,6 +988,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
 # its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
 COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
 COMPILE_RECEIPT_SECONDS = 20
+# The receipts host sits behind a proxy that answers Python's default User-Agent ("Python-urllib/3.x") with HTTP 403
+# (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
+# (cmux#39582, 2026-11-09). Name the client.
+COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
@@ -950,7 +1004,8 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     import urllib.request
     url = f"{COMPILE_RECEIPTS}/{sha}?repo={urllib.parse.quote(repo, safe='')}&wait=0"
     try:
-        with urllib.request.urlopen(url, timeout=COMPILE_RECEIPT_SECONDS) as answer:
+        request = urllib.request.Request(url, headers={"User-Agent": COMPILE_RECEIPT_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=COMPILE_RECEIPT_SECONDS) as answer:
             receipt = json.loads(answer.read(1 << 16))
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -1132,6 +1187,10 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 # Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): merge_hold covers each red
 # at the head only by a line naming it, and named only the job, it refused 'cmux-next daemon tests (same-tree)'.
 SAME_TREE_SUFFIX = " (same-tree)"
+# cmux-next-fast-gates.yml's status: the PR head merged with the base named in its description (`base <sha>`). A
+# dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
+# the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
+FAST_GATES_STATUS = "cmux-next/fast-gates"
 
 
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
@@ -1146,6 +1205,13 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == FAST_GATES_STATUS and state in ("failure", "error"):
+        description = status.get("description") or ""
+        tested = re.search(r"\bbase ([0-9a-f]{40})\b", description)
+        run = re.search(r"/actions/runs/(\d+)", status.get("target_url") or "")
+        raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
+                      f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
+                      "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github)
@@ -1559,6 +1625,12 @@ def may_hold(suites: SuiteChecks, runs: list[dict], index: int, name: str, verdi
     return found is None or bool(found & VERDICTS if verdict else found)
 
 
+def cancelled_tier_without_verdict(suites: SuiteChecks, runs: list[dict], index: int, name: str) -> bool:
+    """Whether RUNS[INDEX] is a cancelled base tier run whose check suite shows no verdict for job NAME: passed over
+    before it counts toward a job-list limit (never_carries' note)."""
+    return cancelled_base_tier(runs[index]) and not may_hold(suites, runs, index, name, verdict=True)
+
+
 # A completed base run's job list, kept on disk so the next merge check on the same base reads none of them again.
 # Keyed by run, attempt and updated_at: a re-run changes both, so a kept list is the one GitHub would serve.
 JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
@@ -1815,10 +1887,11 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
                          f"&per_page={BASE_RUNS_PAGE}")
     runs = listed.get("workflow_runs") or []
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
-    candidates = [run for run in runs
-                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
-                  and not never_carries(run, name) and run["id"] not in deferred]
     suites = suites or SuiteChecks(github)
+    candidates = [run for index, run in enumerate(runs)
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred
+                  and not cancelled_tier_without_verdict(suites, runs, index, name)]
     candidates = candidates[:TIP_SUITE_JOB_READS]
     for index, run in enumerate(candidates):
         if base_jobs.get(run["id"]) is None:
@@ -1841,7 +1914,7 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
     suites = suites or SuiteChecks(github)
     runs = base_runs[workflow]
     for index, candidate_run in enumerate(runs):
-        if never_carries(candidate_run, name):
+        if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
             continue
         if candidate_run["id"] not in base_jobs:
             if job_reads.get(workflow, 0) >= BASE_JOB_READS:
@@ -3180,6 +3253,69 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
     return f"excused '{name}': each failing webview test is red the same way on {base}: " + "; ".join(verdict.shared)[:600]
 
 
+# A head shard GitHub cancelled or timed out mid-run is judged per file (test_reds.classify_web_cut_short): cmux#39676's
+# `web / react-apps-check (1)` was cancelled after 31 min (jobs 129249378930 and 129359593602) while every file it
+# failed fails on feat-cmux-next too, and every merge was refused as "no verdict" (claude-sr2-coord, 2026-11-09: "a
+# timed-out/cancelled shard whose failing files also fail the same way on base is classified as base red, not 'no
+# verdict'"). Only a head shard (a replay's cancel leaves no charged-test verdict), only when the one step cut short is
+# its test step, and only when its log names a red file: a shard cancelled while green, in setup or in another step
+# still has no verdict and gets re-run.
+CUT_SHORT = frozenset({"cancelled", "timed_out"})
+
+
+def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, run_reads: dict,
+                          base_runs: dict) -> str | None:
+    """The audit line excusing cancelled or timed-out head shard NAME, every red file of which is red on BASE's
+    webview runs; None when it is not such a shard or its log names no red file (the caller refuses it as no verdict).
+    Raises Refused when a red file is not red on the base, or the run crashed or timed a file out."""
+    if repo != HOME_REPO or job.get("conclusion") not in CUT_SHORT or not WEB_SHARD_JOB.fullmatch(name):
+        return None
+    cut = [step.get("name") or "" for step in job.get("steps") or []
+           if step.get("conclusion") not in (None, "success", "skipped")]
+    if not cut or any(step not in WEB_TEST_STEPS["shard"] for step in cut):
+        return None
+    try:
+        head_log = github.log(repo, job)
+    except Refused:
+        return None
+    if test_reds.classify_web_cut_short(head_log, (), name, base) is None:
+        return None  # no red file: nothing to compare, and no base run is read
+    workflow_info = rest_run(repo, job["run_id"], github, run_reads)
+    workflow = base_caller(repo, base, workflow_info, name) or workflow_info.get("workflow_id")
+    if workflow is None:
+        return None
+    green: list[dict] = []
+    unread: list[str] = []
+
+    def windows():
+        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+            if not red:
+                green.append(run)
+                return
+            logs = []
+            for found_job in red:
+                try:
+                    logs.append(github.log(repo, found_job))
+                except Refused as why:
+                    unread.append(f"job {found_job.get('id')}: {str(why)[:200]}")
+                    logs.append(None)
+            yield f"{base} run {run['id']}", logs
+
+    verdict = test_reds.classify_web_cut_short(head_log, windows(), name, base)
+    if verdict is None:
+        return None
+    if verdict.own:
+        said = "; ".join(verdict.reasons)
+        if green:
+            said += f" (every webview test passed on {base} run {green[0]['id']}, which ends the window)"
+        if unread:
+            said += f" (unread: {unread[0]})"
+        raise Refused(f"'{name}' is {job['conclusion']}; judged per file against {base}'s webview runs: {said}"[:1000])
+    return (f"excused '{name}': {job['conclusion']} mid-run (job {job.get('id')}), and each file it failed or left "
+            f"running is red on {base}: " + "; ".join(verdict.shared)[:600]
+            + "; the files the cancel kept from running are not judged")
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -3213,6 +3349,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     for job in jobs:
         name = job.get("name", "")
         if job.get("conclusion") != "failure":
+            if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, base_runs)) is not None:
+                audit.append(cut)
+                continue
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")

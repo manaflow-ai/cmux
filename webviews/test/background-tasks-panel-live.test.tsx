@@ -599,3 +599,46 @@ test("a row removed from a folded run under an anchored window takes the newest 
   expect(container.querySelector('[data-row-id="r20"]')).toBeNull();
   expect(container.querySelector('[data-row-id="w0"]')).not.toBeNull();
 });
+
+// A fold above the window and a reply appended below in one update: the block count holds, but every
+// block after the fold moved up by one. The window keeps the rows it mounted (review of #39499).
+test("a fold above an anchored window with a reply appended below keeps the window's rows", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const w0: AcpmuxRow = { id: "w0", version: 1, at: 0, kind: "activity", items: [call("c0")] };
+  const w1 = (folded: boolean): AcpmuxRow => ({
+    id: "w1",
+    version: folded ? 2 : 1,
+    at: 0,
+    kind: "activity",
+    items: folded ? [{ kind: "thought", text: "…" }, call("c1")] : [{ kind: "thought", text: "…" }],
+  });
+  const later: AcpmuxRow = { id: "later", version: 1, at: 9_999, kind: "assistant", text: "later" };
+  root = createRoot(container);
+  // r20 is block 22; its window starts 15 blocks up, at r5.
+  await act(async () => root!.render(<SubagentTranscript rows={[w0, w1(false), ...rows(500)]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r5"]')).not.toBeNull();
+  await act(async () =>
+    root!.render(<SubagentTranscript rows={[w0, w1(true), ...rows(500), later]} running anchor="r20" />),
+  );
+  expect(container.querySelector('[data-row-id="r5"]')).not.toBeNull();
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+});
+
+// Rows replaced by as many new ones (a fresh page of the same length): a transcript replaced, so the
+// window is taken from the newest rows.
+test("a transcript replaced by as many new rows takes the newest window", async () => {
+  const container = installDom();
+  const fresh = (n: number): AcpmuxRow[] =>
+    Array.from({ length: n }, (_, index) => ({ id: `n${index}`, version: 2, at: index, kind: "assistant", text: "y" }));
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={fresh(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="n499"]')).not.toBeNull();
+  expect(container.querySelector('[data-row-id="n20"]')).toBeNull();
+});

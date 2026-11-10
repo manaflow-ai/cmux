@@ -37,6 +37,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         offers: false,
         subsessions: false,
         displays: None,
+        hosted: false,
     }
 }
 
@@ -468,4 +469,47 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
     let fit = fit.plugin_dir.unwrap();
     assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-cua").exists());
+}
+
+/// cmux's hosted MCP server (`hosted_mcp.rs`) reaches a session only while the daemon turns it
+/// on, as an acpmux subcommand whose env holds the `cmux` CLI's path and nothing that signs in;
+/// folded behind `cmux`, its upstream spec carries the same.
+#[test]
+fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hosted-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let inputs = |hosted: bool| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        hosted,
+        ..memory_inputs(&root, None)
+    };
+    let name = crate::hosted_mcp::SERVER_NAME;
+    let off = super::resolve(&inputs(false));
+    assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
+    let on = super::resolve(&inputs(true)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the hosted server");
+    assert_eq!(server.args, ["hosted-mcp"]);
+    assert_eq!(
+        server.env,
+        [(crate::hosted_mcp::CMUX_BIN_ENV.to_owned(), cmux.to_string_lossy().into_owned())]
+    );
+    let folded = super::resolve(&inputs(true)).for_session("s1").folded();
+    let upstreams: serde_json::Value = serde_json::from_str(
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1,
+    )
+    .unwrap();
+    let spec = upstreams.as_array().unwrap().iter().find(|s| s["name"] == name).unwrap();
+    assert_eq!(spec["args"], serde_json::json!(["hosted-mcp"]));
+    assert_eq!(spec["env"], serde_json::json!({"CMUX_BIN": cmux.to_string_lossy()}));
+    // No `cmux` CLI to ask the app for a token: no server.
+    std::fs::remove_file(&cmux).unwrap();
+    assert!(super::resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
+    let _ = std::fs::remove_dir_all(&root);
 }

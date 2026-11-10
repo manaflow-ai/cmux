@@ -228,3 +228,19 @@ test("a sender_claim after a harness-named message's row still draws on it", asy
     io.close();
   }
 });
+
+test("a sender_claim on an older page draws on its prompt's row already held from a newer one", async () => {
+  // The attach holds the newest 2000 records (mock.ts `page`), so the claim lands on the page
+  // loaded next while its prompt's row is already drawn.
+  const filler = Array.from({ length: 2100 }, (_, i) => prompt(`p-filler-${i}`));
+  const io = await connect([claim("p-held"), ...filler, prompt("p-held")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-held") !== undefined);
+    expect(row(io.snapshot(), "p-held")?.sentFrom).toBeUndefined();
+    for (let pages = 0; io.snapshot()?.canLoadOlder && pages < 10; pages += 1) await io.client.loadOlder();
+    expect(io.snapshot()?.canLoadOlder).toBe(false);
+    expect(row(io.snapshot(), "p-held")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
