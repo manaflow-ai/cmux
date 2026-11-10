@@ -15,7 +15,8 @@ import Testing
         value: String = "abc",
         expiresDate: Date? = nil,
         isSecure: Bool = false,
-        isHTTPOnly: Bool = false
+        isHTTPOnly: Bool = false,
+        sameSite: SafariBinaryCookie.SameSite? = nil
     ) -> SafariBinaryCookie {
         SafariBinaryCookie(
             domain: domain,
@@ -24,7 +25,8 @@ import Testing
             value: value,
             expiresDate: expiresDate,
             isSecure: isSecure,
-            isHTTPOnly: isHTTPOnly
+            isHTTPOnly: isHTTPOnly,
+            sameSite: sameSite
         )
     }
 
@@ -58,6 +60,28 @@ import Testing
         #expect(!cookie.isSecure)
         #expect(!cookie.isHTTPOnly)
         #expect(cookie.isSessionOnly)
+    }
+
+    /// Carries Safari's SameSite policy onto the imported cookie.
+    @Test(arguments: [
+        (sameSite: SafariBinaryCookie.SameSite.lax, policy: HTTPCookieStringPolicy.sameSiteLax),
+        (sameSite: SafariBinaryCookie.SameSite.strict, policy: HTTPCookieStringPolicy.sameSiteStrict),
+    ])
+    func carriesTheSameSitePolicy(_ expectation: (sameSite: SafariBinaryCookie.SameSite, policy: HTTPCookieStringPolicy)) throws {
+        let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
+
+        let cookie = try #require(preparation.prepare([record(sameSite: expectation.sameSite)]).cookies.first)
+
+        #expect(cookie.sameSitePolicy == expectation.policy)
+    }
+
+    /// Leaves the SameSite policy unset when Safari recorded none.
+    @Test func leavesTheSameSitePolicyUnsetWhenSafariRecordedNone() throws {
+        let preparation = SafariCookieImportPreparation(domainFilters: [], date: now)
+
+        let cookie = try #require(preparation.prepare([record()]).cookies.first)
+
+        #expect(cookie.sameSitePolicy == nil)
     }
 
     /// Gives an empty path the root path.

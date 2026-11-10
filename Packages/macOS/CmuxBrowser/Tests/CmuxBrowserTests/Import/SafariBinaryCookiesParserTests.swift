@@ -232,6 +232,41 @@ private struct BinaryCookiesFixture {
         #expect(decoded.isHTTPOnly == expectation.httpOnly)
     }
 
+    /// The SameSite bits decode as CFNetwork writes them: `0x08` alone is Lax,
+    /// `0x08` with `0x10` is Strict, and `0x10` alone or neither bit is no
+    /// policy. The flag words are the ones `HTTPCookieStorage` wrote for cookies
+    /// with those attributes, so the high bits every real record carries are
+    /// covered too.
+    @Test(arguments: [
+        (flags: UInt32(0x4208), sameSite: SafariBinaryCookie.SameSite?.some(.lax)),
+        (flags: UInt32(0x4218), sameSite: SafariBinaryCookie.SameSite?.some(.strict)),
+        (flags: UInt32(0x421D), sameSite: SafariBinaryCookie.SameSite?.some(.strict)),
+        (flags: UInt32(0x4210), sameSite: SafariBinaryCookie.SameSite?.none),
+        (flags: UInt32(0x4230), sameSite: SafariBinaryCookie.SameSite?.none),
+        (flags: UInt32(0x5), sameSite: SafariBinaryCookie.SameSite?.none),
+    ])
+    func decodesTheSameSitePolicy(_ expectation: (flags: UInt32, sameSite: SafariBinaryCookie.SameSite?)) throws {
+        var cookie = sessionCookie
+        cookie.flags = expectation.flags
+        let data = BinaryCookiesFixture.file(pages: [[cookie]])
+
+        let decoded = try #require(try parser.parse(data).first)
+
+        #expect(decoded.sameSite == expectation.sameSite)
+    }
+
+    /// Secure and HttpOnly still decode from a flag word that carries SameSite and the high bits.
+    @Test func decodesSecureAndHTTPOnlyBesideSameSite() throws {
+        var cookie = sessionCookie
+        cookie.flags = 0x421D
+        let data = BinaryCookiesFixture.file(pages: [[cookie]])
+
+        let decoded = try #require(try parser.parse(data).first)
+
+        #expect(decoded.isSecure)
+        #expect(decoded.isHTTPOnly)
+    }
+
     /// An empty store decodes to no cookies.
     @Test func emptyStoreDecodesToNoCookies() throws {
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [])).isEmpty)
