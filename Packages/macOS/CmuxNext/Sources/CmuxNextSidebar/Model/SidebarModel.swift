@@ -487,6 +487,22 @@ public final class SidebarModel {
         }
     }
 
+    /// Whether `sections` list workspace `id` once (a scan that stops at a second listing; no index is built).
+    private static func listsOnce(_ id: WorkspaceID, in sections: [SidebarSection]) -> Bool {
+        var seen = 0
+        for section in sections {
+            for node in section.nodes {
+                switch node {
+                case let .workspace(ws): if ws.id == id { seen += 1 }
+                case let .group(group): seen += group.workspaces.lazy.filter { $0.id == id }.count
+                case .item: break
+                }
+                if seen > 1 { return false }
+            }
+        }
+        return seen == 1
+    }
+
     /// The one loose workspace row `next` takes out of the stored sections, or moves, with nothing else changed: the
     /// section the removal leaves, the row's old node index, its workspace, and for a move its section and node in
     /// `next`. Nil for any other change, or for a workspace listed more than once (another listing would take its row).
@@ -494,12 +510,12 @@ public final class SidebarModel {
         -> (section: SidebarSection, node: Int, workspace: SidebarWorkspace, insertion: (section: SidebarSection, node: Int)?)? {
         let old = storedSections
         if let gone = SidebarSection.looseRemoval(from: old, to: next), case let .workspace(ws) = old[gone.section].nodes[gone.node],
-           listedPaths(of: ws.id).count == 1 {
+           Self.listsOnce(ws.id, in: old) {
             return (next[gone.section], gone.node, ws, nil)
         }
         guard let move = SidebarSection.looseMove(from: old, to: next),
               case let .workspace(ws) = old[move.removal.section].nodes[move.removal.node],
-              listedPaths(of: ws.id).count == 1 else { return nil }
+              Self.listsOnce(ws.id, in: old) else { return nil }
         return (move.middle[move.removal.section], move.removal.node, ws, (next[move.insertion.section], move.insertion.node))
     }
 

@@ -73,8 +73,10 @@ import Testing
             defer { h.window.close() }
             var nodes = h.rows
             nodes.remove(at: index)
-            Self.set(h, nodes)
+            let counts = Self.set(h, nodes)
             #expect(h.sidebar.list.displayed == Insert.fullLayout(h), "close at \(index), by computer \(byComputer)")
+            // A plain close of an unselected loose row splices (one row), not a full layout.
+            if !byComputer, index == 0 || index == 5 { #expect(counts["layout_rows"] == 1, "close at \(index): \(counts)") }
             // A second close right after the first takes its row out of the spliced layout.
             nodes.remove(at: 0)
             Self.set(h, nodes)
@@ -82,8 +84,8 @@ import Testing
         }
     }
 
-    /// A move draws what a full layout draws: up, down, past the group, to the end before "Done (1)", and back.
-    @Test(arguments: [(9, 0), (0, 9), (2, 10), (11, 3), (4, 11)])
+    /// A move draws what a full layout draws: up, down, past the group, to just before the done row, and back.
+    @Test(arguments: [(9, 0), (0, 9), (2, 10), (11, 3), (4, 10)])
     func aMoveShowsTheFullLayout(from: Int, to: Int) {
         for byComputer in [false, true] {
             let h = Insert.make(10, extra: Self.extra(), groupsByComputer: byComputer)
@@ -112,6 +114,21 @@ import Testing
         h.model.setSections(Insert.sections(local) + [SidebarSection(kind: .machine(other), nodes: [remote[0], moved, remote[1]])])
         h.sidebar.renderNow()
         #expect(h.sidebar.list.displayed == Insert.fullLayout(h), "the row moved to the remote section")
+    }
+
+    /// A close that leaves its section only an archived workspace draws the section's empty placeholder, as `make` does.
+    @Test func closingTheLastDrawnRowShowsTheFullLayout() {
+        var archived = SidebarWorkspace(id: WorkspaceID("ci-arch"), title: "archived")
+        archived.isArchived = true
+        let h = Insert.make(2, extra: [.workspace(archived)])
+        defer { h.window.close() }
+        var nodes = h.rows
+        nodes.remove(at: 0)
+        Self.set(h, nodes)
+        #expect(h.sidebar.list.displayed == Insert.fullLayout(h), "first close")
+        nodes.remove(at: 0)
+        Self.set(h, nodes)
+        #expect(h.sidebar.list.displayed == Insert.fullLayout(h), "the last drawn row closed")
     }
 
     /// The detectors find a close and a move, and nothing else.
