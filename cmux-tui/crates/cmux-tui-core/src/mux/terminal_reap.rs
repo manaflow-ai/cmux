@@ -59,6 +59,8 @@ pub(crate) enum ReapOutcome {
     Reaped,
     /// A client holds an attach stream on the unplaced terminal.
     Attached,
+    /// The daemon is in a shutdown handoff: the next owner gets the terminal.
+    HandingOff,
     /// The terminal gained a placement or is gone.
     Retained,
 }
@@ -170,8 +172,11 @@ impl ReapSchedule {
                 self.retry_floors.insert(terminal_id.to_string(), retry);
             }
             // An attached client keeps the terminal for another full grace
-            // period; its detach does not emit a topology event.
-            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+            // period; its detach does not emit a topology event. A cancelled
+            // handoff emits none either.
+            Some(ReapOutcome::Attached | ReapOutcome::HandingOff) | None => {
+                self.postpone(terminal_id, retry);
+            }
         }
     }
 
@@ -279,10 +284,17 @@ impl Mux {
             .collect())
     }
 
-    /// End one unplaced terminal. The close repeats the placement and attach
-    /// checks once it holds its locks, so a terminal that gained a view, or
-    /// an attach stream that landed before then, is retained.
+    /// End one unplaced terminal. The close repeats the placement, attach and
+    /// handoff checks once it holds its locks, so a terminal that gained a
+    /// view, or an attach stream or a handoff that landed before then, is
+    /// retained.
     pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
+        // Checked before any mux lock: the handoff flushes its acknowledgement
+        // under the client registry's lock, and a close that waited for it
+        // under the mux locks would stall the whole mux.
+        if self.daemon_handoff_in_progress() {
+            return Ok(ReapOutcome::HandingOff);
+        }
         let runtime_view = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.terminal_catalog.values().find_map(|runtime| {
@@ -292,7 +304,7 @@ impl Mux {
             })
         };
         let Some(runtime_view) = runtime_view else { return Ok(ReapOutcome::Retained) };
-        if self.control_clients.attach_observation(&[runtime_view]).0 {
+        if self.terminal_view_attached(runtime_view) {
             return Ok(ReapOutcome::Attached);
         }
         match self.close_terminal_guarded(
@@ -306,6 +318,7 @@ impl Mux {
             Ok(_) => Ok(ReapOutcome::Reaped),
             Err(error) => match error.downcast_ref::<TerminalCloseGuardFailed>().copied() {
                 Some(TerminalCloseGuardFailed::Attached) => Ok(ReapOutcome::Attached),
+                Some(TerminalCloseGuardFailed::HandingOff) => Ok(ReapOutcome::HandingOff),
                 Some(TerminalCloseGuardFailed::Placed) => Ok(ReapOutcome::Retained),
                 None => Err(error),
             },
