@@ -27,18 +27,18 @@ impl PendingBells {
         })
     }
 
-    /// Emit one `Bell` event per counted bell, and mark the terminal's tab for
-    /// attention like a notification (at most once per cooldown). Call without
-    /// the terminal or geometry lock held.
+    /// Emit one `Bell` event for the bells counted since the last publish (one
+    /// read), and mark the terminal's tab for attention like a notification (at
+    /// most once per cooldown). A read full of BEL bytes is one event: each
+    /// event takes `Mux::state` and a slot in every subscriber's mailbox. Call
+    /// without the terminal or geometry lock held.
     pub(super) fn publish(&self, mux: &Weak<Mux>, surface: SurfaceId) {
         let rung = self.rung.swap(0, Ordering::AcqRel);
         if rung == 0 {
             return;
         }
         if let Some(mux) = mux.upgrade() {
-            for _ in 0..rung {
-                mux.emit_terminal_bell(surface);
-            }
+            mux.emit_terminal_bell(surface);
             // The mark is a durable notification: the terminal publisher
             // commits it, not the reader (#35413).
             if self.notification_due(Instant::now()) {
