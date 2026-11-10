@@ -51,6 +51,7 @@ impl Session {
             bundled: Vec::new(),
             extra: Vec::new(),
             local: Some(self.0.join("local")),
+            registry: None,
             customize: Some(self.0.join("customize")),
             defaults: Some(Vec::new()),
         }

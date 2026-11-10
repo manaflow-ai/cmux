@@ -62,6 +62,13 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | One concentric corner radius for panes and tabs: `layout.paneCornerRadius` (pane cards, the curved main pane, tab pills less the padding) and `layout.cornerPadding` (2026-11-04) | none: cmux-next.json keys the Mac's pane chrome reads | — | not from a phone | Mac-only chrome: they shape the Mac's pane cards and tab strips. The phone draws no pane cards or tab strips; the keys stay settable over `cmux settings` like any setting. |
 | Option- or Shift-drag selects text while a terminal program has the mouse, with a first-use hint (2026-11-08) | none: the Mac terminal view sends Ghostty the press with its Shift override | — | not from a phone | Mac-only chrome: a pointer drag with a held key. The phone has no pointer drag into a TUI and selects terminal text with its own touch selection. |
 
+## Custom panes and App Store
+
+| Mac capability | Phone | State | Reason |
+| --- | --- | --- | --- |
+| Chief-built custom web panes, local package discovery and hot reload | — | not from a phone | Executes package content from the Mac’s filesystem in a Mac-owned sandbox. The remote relay refuses local package/content execution; a paired phone cannot supply or open executable pane content. |
+| App Store install/update, submission and reviewer decisions | — | not from a phone | These changes require the verified local native app connection and native consent. Forwarding them from a paired phone would bypass that trust boundary. No registry or package mutation commands are added to the remote allowlist. |
+
 ## Screens
 
 | Mac action | Mac sends | Phone | State | Notes |

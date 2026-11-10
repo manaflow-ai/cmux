@@ -1,0 +1,16 @@
+:root { color-scheme: light dark; font: 13px -apple-system, system-ui, sans-serif; }
+body { margin: 0; padding: 16px; background: Canvas; color: CanvasText; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+h1 { font-size: 15px; margin: 0; flex: 1; }
+#status { min-height: 1.2em; margin: 0 0 12px; color: GrayText; }
+#status.error { color: #d33; }
+#board { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.card { border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: 8px; padding: 10px 12px; }
+.card.focused { border-color: AccentColor; }
+.card h2 { font-size: 13px; margin: 0 0 8px; }
+.terminal { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-top: 1px solid color-mix(in srgb, CanvasText 8%, transparent); }
+.terminal .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal .cwd { color: GrayText; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal form { display: flex; gap: 6px; }
+.terminal input { flex: 1; min-width: 0; font: 12px ui-monospace, monospace; }
+.empty { color: GrayText; }

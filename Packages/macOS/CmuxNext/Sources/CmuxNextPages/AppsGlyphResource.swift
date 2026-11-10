@@ -1,5 +1,4 @@
 import CmuxNextIcons
-import CmuxNextPages
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -10,14 +9,18 @@ import UniformTypeIdentifiers
 /// cmux icon name; a name the pack does not draw is a 404, never Apple's SF
 /// Symbol (coordinator Q5), and the page shows its fallback.
 @MainActor
-final class AppsGlyphResource: PageDynamicResourceSource {
-    static let prefix = AppsPageNativeOps.glyphPrefix
+public final class AppsGlyphResource: PageDynamicResourceSource {
+    /// The App Store page's icon resource namespace.
+    public static let prefix = AppsPageNativeOps.glyphPrefix
     /// Points of the mask; the page scales it down, so one size serves every tile.
     nonisolated static let side: CGFloat = 32
     nonisolated static let scale: CGFloat = 2
     private var cache: [String: Data] = [:]
 
-    func resource(for request: PageResourceRequest) async -> PageResource? {
+    /// Creates a per-page glyph cache.
+    public init() {}
+
+    public func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.path.count == 1, let name = request.path[0].removingPercentEncoding else { return nil }
         guard request.prefix == Self.prefix else { return nil }
         if let data = cache[name] { return PageResource(data: data, mimeType: "image/png") }

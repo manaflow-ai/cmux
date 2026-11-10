@@ -36,6 +36,9 @@ import Testing
             .null
         }
         func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { [] }
+        func webCall(app: String, op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { .null }
+        func webLog(app: String, level: String, message: String) async throws(AppsTransportError) {}
+        func registryPut(app: String, version: String, sha256: String, files: [String: String]) async throws(AppsTransportError) {}
     }
 
     /// A started client with the app listed, and a mounted sidebar section of it that the supervisor

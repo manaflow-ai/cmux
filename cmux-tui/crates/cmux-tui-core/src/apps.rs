@@ -47,6 +47,8 @@ mod open_tokens;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
+mod registry;
+#[cfg(unix)]
 mod relay;
 #[cfg(unix)]
 pub(crate) mod routing;
@@ -82,6 +84,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod web_calls;
 
 use std::sync::{Arc, Mutex, OnceLock};
 

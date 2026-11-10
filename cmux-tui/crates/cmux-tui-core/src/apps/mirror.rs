@@ -43,6 +43,8 @@ pub enum Source {
     Bundled,
     /// A local development app (`local/…`).
     Local,
+    /// An approved App Store app the person got (`registry.rs`).
+    Registry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

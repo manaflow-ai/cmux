@@ -43,4 +43,19 @@ nonisolated enum PageStrings {
         default: t("pages.risk.standard", "Standard")
         }
     }
+
+    // The App Store community's sheets (custom-panes-DESIGN.md 6.4).
+    static var registryGetTitle: String { t("pages.confirm.registry.getTitle", "Get “%1$@” version %2$@?") }
+    static var registryGetDetail: String {
+        t("pages.confirm.registry.getDetail", "This replaces the app’s downloaded files. If it is installed, this version can run immediately with its existing permissions.")
+    }
+    static var registrySubmitTitle: String { t("pages.confirm.registry.submitTitle", "Submit %@ for review?") }
+    static var registrySubmitDetail: String {
+        t("pages.confirm.registry.submitDetail", "Its files go to the cmux App Store. Once a reviewer approves it, anyone can install it.")
+    }
+    static var registryApproveTitle: String { t("pages.confirm.registry.approveTitle", "Approve %@?") }
+    static var registryApproveDetail: String {
+        t("pages.confirm.registry.approveDetail", "Anyone can then install this version from the cmux App Store.")
+    }
+    static var registryRejectTitle: String { t("pages.confirm.registry.rejectTitle", "Reject %@?") }
 }
