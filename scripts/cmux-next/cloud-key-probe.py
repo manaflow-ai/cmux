@@ -429,11 +429,15 @@ MAX_VALUE = 1 << 20
 
 
 def open_value(text):
-    """Whether `text` ends inside a value (or before it starts) after a key's name or a refresh token's field."""
-    last = None
-    for last in OPENER.finditer(text):
-        pass
-    return last is not None and VALUE_TO_END.fullmatch(text, last.end()) is not None
+    """Whether `text`, in any of its readings (escapes taken off), ends inside a value (or before it starts) after a
+    key's name or a refresh token's field."""
+    for reading in readings(text):
+        last = None
+        for last in OPENER.finditer(reading):
+            pass
+        if last is not None and VALUE_TO_END.fullmatch(reading, last.end()) is not None:
+            return True
+    return False
 
 
 def context_kinds(text, line_end):
@@ -523,19 +527,23 @@ def scan_file(path):
                     stop = at + HIT_SPAN
                     # A value left open at the span's end (a long refresh token) is followed to its end, up to
                     # MAX_VALUE; one still open at the window's end is checked again with the next chunk.
-                    while open_value(window[max(0, at - 2):stop].decode("latin-1")) and stop < len(window) and stop - at < MAX_VALUE:
+                    # Each stretch starts a name's length before the hit: a key's name, or an escaped opening quote
+                    # (`\u0022refresh_token`), precedes it.
+                    begin = max(0, at - NAME_SPAN)
+                    while open_value(window[begin:stop].decode("latin-1")) and stop < len(window) and stop - at < MAX_VALUE:
                         stop += stop - at
-                    if stop >= len(window) and open_value(window[max(0, at - 2):].decode("latin-1")) and len(window) - at < MAX_VALUE:
+                    if stop >= len(window) and open_value(window[begin:].decode("latin-1")) and len(window) - at < MAX_VALUE:
                         # Held back with its key's name: the name starts up to NAME_SPAN before the hit.
                         tail = window[max(0, at - NAME_SPAN):]
                         break
-                    seen.update(shape_kinds(window[max(0, at - 2):stop].decode("latin-1")))
-                    # A key's name starts before its `_KEY` ending: the stretch reaches back a name's length for it.
-                    seen.update(named_kinds(window[max(0, at - NAME_SPAN):stop].decode("latin-1")))
+                    stretch = window[begin:stop].decode("latin-1")
+                    seen.update(shape_kinds(stretch))
+                    seen.update(named_kinds(stretch))
             # Hits held back for the next chunk (a value still open) are checked to the file's end.
             for hit in PREFILTER.finditer(tail):
-                seen.update(shape_kinds(tail[max(0, hit.start() - 2):hit.start() + MAX_VALUE].decode("latin-1")))
-                seen.update(named_kinds(tail[max(0, hit.start() - NAME_SPAN):hit.start() + MAX_VALUE].decode("latin-1")))
+                stretch = tail[max(0, hit.start() - NAME_SPAN):hit.start() + MAX_VALUE].decode("latin-1")
+                seen.update(shape_kinds(stretch))
+                seen.update(named_kinds(stretch))
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.

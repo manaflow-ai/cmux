@@ -1429,6 +1429,37 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("in a binary file, a \\u0022-escaped refresh token's field and an escaped one longer than a hit's span are found", () => {
+    const short = "Mx4Tq9Ld2Wv7Rk5Ns8Pb3Hz6Jc1Fg0Ya";
+    const long = "Aa8k_".repeat(150);
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+    });
+    const db = (row: string) => {
+      const page = Buffer.alloc(8192);
+      Buffer.from("SQLite format 3\0").copy(page, 0);
+      Buffer.from(row).copy(page, 4000);
+      return page;
+    };
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/a.db"), db(`{"inner":"{\\u0022refresh_token\\u0022:\\u0022${short}\\u0022}"}`));
+    writeFileSync(join(root, "workspace/project/b.db"), db(JSON.stringify({ inner: JSON.stringify({ refresh_token: long }) })));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(short);
+      expect(out).not.toContain(long.slice(0, 40));
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: an OAuth refresh token",
+        "file /workspace/project/[a name].db: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key's name across a binary file's 4 MiB reads counts, and a refresh token's field counts in installed software", () => {
     const opaque = "Wv4Nq8Rt2Lp6Zx9Kb3Hj7Dm5Fc1Gs0";
     const root = plant({
