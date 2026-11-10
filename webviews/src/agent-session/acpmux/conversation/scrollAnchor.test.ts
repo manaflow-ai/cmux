@@ -121,7 +121,7 @@ test("rows a fold ride already showed lower move the offset by no more than is l
       newRows,
       liveTop: top,
       anchorTop: top,
-      shown: (index) => (index >= 1 ? shown : 0),
+      folds: [{ index: 0, delta: shown }],
     });
   expect(grown).toBeGreaterThan(0);
   expect(next(grown)).toBe(top);
@@ -148,9 +148,47 @@ test("the anchor is the row a fold ride shows at the view's top", () => {
       newRows: ids,
       liveTop: top,
       anchorTop: top,
-      shown: (index) => (index >= 1 ? shown : 0),
+      folds: [{ index: 0, delta: shown }],
     });
   expect(anchor([100, 100, 100], [320, 100, 100], 200, 120)).toBe(120);
   // A close 300 -> 120 shown 160px higher, the reader 150px down: in view is the next row, 10px in.
   expect(anchor([300, 100, 100], [120, 100, 100], -160, 150)).toBe(130);
 });
+
+// A prompt opened 500 -> 4500 with only the rows near it mounted; the reader scrolled 3900px, still
+// inside its body. Rows the old layout puts at 3900 were never mounted and showed no translate, but
+// they show 4000px lower too: the anchor is the prompt and the offset stays (review of #39917 at
+// 4d8ff5ab: "corrects scrollTop 3900 to 7900, although 3900 remains inside the prompt").
+test("the anchor is the folding row however far the view is into its body", () => {
+  const count = 200;
+  const ids = Array.from({ length: count }, (_, at) => ({ id: `row-${at}` }));
+  const layout = (heights: number[]) => {
+    const tops: number[] = [];
+    let top = 0;
+    for (const height of heights) {
+      tops.push(top);
+      top += height;
+    }
+    return { tops, heights, totalHeight: top };
+  };
+  const heights = (prompt: number) => Array.from({ length: count }, (_, at) => (at === 3 ? prompt : 100));
+  const anchor = (top: number, folds: { index: number; delta: number }[]) =>
+    preserveScrollAnchorTop({
+      oldLayout: layout(heights(500)),
+      newLayout: layout(heights(4500)),
+      oldRows: ids,
+      newRows: ids,
+      liveTop: top,
+      anchorTop: top,
+      folds,
+    });
+  expect(anchor(3900, [{ index: 3, delta: 4000 }])).toBe(3900);
+  // Past the open body, the rows under it as shown.
+  expect(anchor(4850, [{ index: 3, delta: 4000 }])).toBe(4850);
+  // Two folds: a row between them, and the lower fold's body.
+  const two = [
+    { index: 3, delta: 4000 },
+    { index: 10, delta: -50 },
+  ];
+  expect(anchor(5150, two)).toBe(5150);
+})

@@ -3042,7 +3042,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: unplacedScroll.top - origin,
           anchorTop: unplacedScroll.top - origin,
-          shown: (index) => foldRide.current?.handedShift(previousRows.current[index]?.id, drawn) ?? 0,
+          folds: foldRide.current?.handedFolds(previousRows.current, drawn),
         })
       : undefined;
   const placementDelta = projectedTop === undefined ? 0 : projectedTop - (unplacedScroll.top - origin);
@@ -3698,7 +3698,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: logicalTop,
           anchorTop: logicalTop,
-          shown: (index) => foldRide.current?.handedShift(oldRows[index]?.id, drawnRef.current) ?? 0,
+          folds: foldRide.current?.handedFolds(oldRows, drawnRef.current),
         });
         if (nextTop !== undefined && (clamped || nextTop !== logicalTop)) {
           writeAnchorScrollTop(node, nextTop);

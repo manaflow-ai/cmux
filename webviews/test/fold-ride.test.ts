@@ -193,7 +193,7 @@ test("the ride gives way when the mounted rows are not one run", () => {
 // 16b52a67: "offset 2090 instead of 2290"); one with no placement after it hands over nothing.
 test("a ride hands over its rows' shifts to the placement of its heights", () => {
   const rows = transcript(4);
-  const [row, below, , last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const [row, below] = rows as [HTMLElement, HTMLElement];
   const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
   const height = new Map(placed);
   let drawn: object = {};
@@ -206,22 +206,23 @@ test("a ride hands over its rows' shifts to the placement of its heights", () =>
   markHeightFold(row, 10_000);
   height.set(row, 140);
   expect(ride.ride([row])).toBe(true);
+  const ids = rows.map((each) => ({ id: each.dataset.rowId! }));
   const before = drawn;
   ride.release();
+  expect(below.style.translate).toBe("");
   // A placement still on the heights the ride let go on.
-  expect(ride.handedShift(below.dataset.rowId, before)).toBe(0);
+  expect(ride.handedFolds(ids, before)).toBeUndefined();
   ride.takeHanded(before);
-  // The placement of its heights.
+  // The placement of its heights: the fold, at its row's index, wherever the rows moved to.
   drawn = {};
-  expect(ride.handedShift(below.dataset.rowId, drawn)).toBe(40);
-  expect(ride.handedShift(last.dataset.rowId, drawn)).toBe(40);
-  expect(ride.handedShift(row.dataset.rowId, drawn)).toBe(0);
+  expect(ride.handedFolds(ids, drawn)).toEqual([{ index: 0, delta: 40 }]);
+  expect(ride.handedFolds([{ id: "older" }, ...ids], drawn)).toEqual([{ index: 1, delta: 40 }]);
   ride.takeHanded(drawn);
-  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
+  expect(ride.handedFolds(ids, {})).toBeUndefined();
   expect(ride.ride([row])).toBe(true);
   height.set(row, 100);
   ride.settled([row], false);
-  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
+  expect(ride.handedFolds(ids, {})).toBeUndefined();
 });
 
 // A chat switch lets go of the ride and of its hand-over: the new chat's first placement of new
@@ -245,7 +246,7 @@ test("a reset forgets the hand-over as well as the ride", () => {
   ride.reset();
   expect(ride.riding).toBe(false);
   expect(below.style.translate).toBe("");
-  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
+  expect(ride.handedFolds([{ id: row.dataset.rowId! }], {})).toBeUndefined();
 });
 
 // A row still playing its own animation (a live notice's entry) may hold its translate over the
