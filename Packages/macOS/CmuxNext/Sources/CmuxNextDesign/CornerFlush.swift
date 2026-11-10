@@ -206,10 +206,9 @@ public final class CornerFlushChrome: NSView {
         wedges.frame = bounds
         var card = drawn.card
         card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
-        // The shown strips do not span the card's top (a pane's vertical tabs or hidden tab bar): no one
-        // tab row, so the card is the whole content, rounded on every corner, with no wedges and no shade
-        // band over a pane's own content.
-        guard hasTopStrip(card: card, in: root) else {
+        // A pane hid its strip (vertical tabs, a hidden tab bar): no whole tab row, so the card is the whole
+        // content, rounded on every corner, with no wedges and no shade band over that pane's content.
+        guard hasTopStrip(in: root) else {
             wedges.path = nil
             if let content { Self.roundBottomOnly(content, false) }
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
@@ -223,23 +222,18 @@ public final class CornerFlushChrome: NSView {
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
     }
 
-    /// Whether the panes of this window's shown strips on the card's top edge span it, side to side (a
-    /// pane gap apart at most): a pane that hides its strip (vertical tabs, a hidden tab bar) leaves its content
-    /// at the top, where a wedge or the tab row's shade would cover it. O(strips log strips): a window's
-    /// strips, not its tabs.
-    private func hasTopStrip(card: CGRect, in root: NSView) -> Bool {
-        let spans = strips.allObjects.compactMap { object -> (CGFloat, CGFloat)? in
-            guard let strip = object as? any TabStripCorner & NSView, strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor else { return nil }
-            let frame = root.convert(strip.cornerFrameInWindow, from: nil)
-            guard abs(frame.minY - card.maxY) < 2 else { return nil }
-            // The strip's pane, not the strip: the pane's trailing toolbar takes the strip's end.
-            let pane = strip.superview.map { root.convert($0.bounds, from: $0) } ?? frame
-            return (pane.minX, pane.maxX)
-        }.sorted { $0.0 < $1.0 }
-        let gap = Metrics.scale(2 * LayoutGrid.base) + 1
-        var reached = card.minX
-        for (minX, maxX) in spans where minX <= reached + gap { reached = max(reached, maxX) }
-        return !spans.isEmpty && reached >= card.maxX - gap
+    /// Whether the window's tab row is whole: some strip of it shows, and no shown pane hid its own strip
+    /// (vertical tabs, a hidden tab bar), whose content would then reach the card's top under a wedge or
+    /// the tab row's shade. Reads visibility only, never frames, so a pass that lays the panes out after
+    /// this one cannot leave it stale. O(strips): a window's strips, not its tabs.
+    private func hasTopStrip(in root: NSView) -> Bool {
+        var shows = false
+        for case let strip as NSView in strips.allObjects where strip.window === root.window {
+            guard let pane = strip.superview, !pane.isHiddenOrHasHiddenAncestor else { continue }
+            if strip.isHidden { return false }
+            shows = true
+        }
+        return shows
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
