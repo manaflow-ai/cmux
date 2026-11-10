@@ -37,6 +37,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             wait: false,
             timeout: Duration::from_secs(900),
             make_room: false,
+            allow_large: false,
         }
     );
     let parsed = request(&[
@@ -2360,6 +2361,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         wait: true,
         timeout: Duration::from_secs(60),
         make_room: false,
+        allow_large: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2395,6 +2397,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         wait: true,
         timeout: Duration::from_secs(secs),
         make_room: false,
+        allow_large: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));

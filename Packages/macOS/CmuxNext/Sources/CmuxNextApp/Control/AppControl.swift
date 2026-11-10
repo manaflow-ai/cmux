@@ -106,7 +106,6 @@ final class AppControl {
         service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
-        errors.start()
         errorJournal = errors
         services.errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)

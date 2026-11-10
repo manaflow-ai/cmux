@@ -24,6 +24,29 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// What a workspace registry commit that leaves `live` as the live
+    /// workspaces reads before it: the frame (every workspace's active
+    /// screen) and the subtrees of the workspaces it closes, whose screens,
+    /// panes and tabs its public deltas delete. The rest of the topology is
+    /// not read: the whole of it made every create read the session.
+    pub(crate) fn resource_topology_for_workspace_commit(
+        &self,
+        live: &[RegistryWorkspace],
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let mut topology =
+            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
+        let live = live.iter().map(|workspace| &workspace.public_id).collect::<HashSet<_>>();
+        let closing = topology
+            .active_screens
+            .iter()
+            .filter(|(workspace, _)| !live.contains(workspace))
+            .map(|(workspace, _)| workspace.clone())
+            .collect::<Vec<_>>();
+        load_subtrees(&connection, &mut topology, &closing)?;
+        Ok(topology)
+    }
+
     /// The stored subtrees of the active workspace and of `workspaces`: what
     /// a focus change reads, since it changes only the workspace it leaves and
     /// the one it focuses. One frame read names the active workspace.

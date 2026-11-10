@@ -130,6 +130,7 @@ on:
       - tests/test_cmux_next_base_tier.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
+      - scripts/ci/deadline_http.py
       - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
@@ -422,6 +423,7 @@ on:
       - tests/test_cmux_next_base_tier.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
+      - scripts/ci/deadline_http.py
       - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
@@ -5432,33 +5434,39 @@ jobs:
             [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
             reply="$RUNNER_TEMP/compile-check.json"
             deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
-            state=""
+            state="" reads=0 last="" ok_at=$SECONDS  # ok_at: the last usable answer (200 or 404), from before the first read
             # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
             # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
             # retrying the 530 for the whole deadline (20 min with the controller down, 2026-11-10).
             for probe in 1 2; do
               code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
                 "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)" || true
-              [[ "$code" =~ ^(000|52[0-9]|530)$ ]] || break
+              [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
               (( probe == 2 )) && { state="results service down (HTTP $code)"; deadline=$SECONDS; } || sleep "${PROBE_GAP:-30}"
             done
-            for attempt in 1 2 3; do
-              left=$((deadline - SECONDS))
-              (( left > 60 )) || break
-              wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
-              # One blocking read bounded by what is left; curl retries a 404 (no result yet) inside it.
-              if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
-                  --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
-                  -o "$reply" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait"; then
-                echo "no fleet result for $REF yet (read $attempt)"
-                continue
-              fi
-              state="$(jq -r --arg sha "$REF" --arg repo "$REPO" '
-                if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
-                then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
-              echo "read $attempt: $state"
-              case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
+            while [[ "$state" != "results service down"* ]]; do
+              # The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+              end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
+              left=$((end - SECONDS))
+              (( left > 1 )) || break
+              wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
+              code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
+                --max-time "$left" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait")" || true
+              case "${code:=000}" in
+                200) reads=$((reads + 1)) ok_at=$SECONDS last=""
+                  state="$(jq -r --arg sha "$REF" --arg repo "$REPO" '
+                    if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
+                    then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
+                  echo "read $reads: $state"
+                  case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+                404) ok_at=$SECONDS last=""; echo "no fleet result for $REF yet" ;;
+                *) last="HTTP $code" ;;
+              esac
+              gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
+              (( gap <= 0 )) || sleep "$gap"
             done
+            [[ "$state" == "results service down"* || -z "$last" ]] || state="results service down ($last for $((SECONDS - ok_at)) s)"
             case "$state" in
               pass) verdict=pass; echo "The build fleet compiled and linked the app at $REF in Release (-Onone) on Linux." ;;
               fail) verdict=fail; echo "::error title=Fast fleet compile check::the build fleet's Release compile failed at $REF; see cmux-next/compile's log: $(jq -r '.log_url // empty' "$reply" 2>/dev/null)" ;;
@@ -7160,13 +7168,15 @@ jobs:
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (compile-status)
   compile-status:
-    needs: [path_route]
+    needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 55
     permissions: {}
+    outputs:
+      handoff: ${{ steps.wait.outputs.handoff }}
     steps:
       - name: Mint the cmux-bot status token
         id: token
@@ -7180,6 +7190,7 @@ jobs:
           permission-statuses: write
 
       - name: Wait for the fleet Release compile and publish cmux-next/compile
+        id: wait
         timeout-minutes: 50
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -7190,6 +7201,8 @@ jobs:
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
           # Why: docs/ci/cmux-next-workflow-notes.md#note-81 (compile-status: PR)
           PR: ${{ github.event.pull_request.number }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: FALLBACK)
+          FALLBACK: ${{ needs.push-head-preflight.outputs.current == 'true' && (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.path_route.outputs.mac_release == 'true') }}
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
@@ -7209,33 +7222,112 @@ jobs:
           post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" \
             || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
           reply="$RUNNER_TEMP/compile-check.json"
-          state=""
-          for attempt in 1 2 3; do
-            left=$((deadline - SECONDS))
-            (( left > 60 )) || break
-            wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
-            # One blocking read, hard-bounded by what is left: a terminal state returns at once,
-            # and a 404 (no result yet) is retried by curl inside the same bound.
-            if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
-                --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
-                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}&wait=$wait"; then
-              echo "::warning title=Compile check::no result for $SHA from the controller (attempt $attempt)"
-              continue
-            fi
-            state="$(jq -r --arg sha "$SHA" --arg repo "$REPO" '
-              if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
-              then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
-            echo "attempt $attempt: $state"
-            case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+          url="$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}"
+          state="" down="" last="" reads=0
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
+          ok_at=$SECONDS  # the last usable answer (200 or 404): one start time, before the first read
+          for probe in 1 2; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
+            [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
+            (( probe == 2 )) && down="HTTP $code" || sleep "${PROBE_GAP:-30}"
           done
+          while [[ -z "$down" ]]; do
+            # The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+            end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
+            left=$((end - SECONDS))
+            (( left > 1 )) || break
+            wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
+            code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
+              --max-time "$left" "$url&wait=$wait")" || true
+            case "${code:=000}" in
+              200) reads=$((reads + 1)) ok_at=$SECONDS last=""
+                state="$(jq -r --arg sha "$SHA" --arg repo "$REPO" '
+                  if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
+                  then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
+                echo "read $reads: $state"
+                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+              404) ok_at=$SECONDS last="" ;;  # no result yet
+              *) last="HTTP $code"; echo "::warning title=Compile check::the results service answered HTTP $code for $SHA" ;;
+            esac
+            gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
+            (( gap <= 0 )) || sleep "$gap"
+          done
+          # No usable answer when the wait or the bound ran out (a stalled read, a 530, no connection): the service down.
+          [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
+          if [[ -n "$down" ]]; then
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
+            if [[ "$FALLBACK" == true ]]; then
+              echo "handoff=$down" >> "$GITHUB_OUTPUT"
+              post pending "The results service is down ($down); the Mac Release compile decides this head" "$RUN_URL" \
+                || { echo "::error title=Compile check::could not post the handoff status"; exit 1; }
+              echo "::warning title=Compile check::results service down ($down); compile-status-handoff posts the Mac Release compile's verdict"
+              exit 0
+            fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])
+            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL"
+            echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
+            exit 1
+          fi
           log_url="$(jq -r '.log_url // empty' "$reply" 2>/dev/null || true)"
           [[ "$log_url" =~ ^https://github\.com/ ]] || log_url="$RUN_URL"
           case "$state" in
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
             fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" ;;
-            unavailable) post failure "The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
-            mismatch|unreadable) post failure "The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
+            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" ;;
+            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
           esac
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
+
+  # Posts cmux-next/compile from the Mac Release compile when compile-status handed off to it.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
+  compile-status-handoff:
+    needs: [compile-status, release-compile-fast, release-compile]
+    if: ${{ always() && !cancelled() && needs.compile-status.outputs.handoff != '' }}
+    name: cmux-next fleet Release compile (handoff)
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    timeout-minutes: 6
+    permissions: {}
+    steps:
+      - name: Mint the cmux-bot status token
+        id: token
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+
+      - name: Publish the fallback's verdict as cmux-next/compile
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DOWN: ${{ needs.compile-status.outputs.handoff }}
+          FAST: ${{ needs.release-compile-fast.result }}/${{ needs.release-compile-fast.outputs.verdict }}
+          MAC: ${{ needs.release-compile.result }}
+        run: |
+          set -uo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
+          # The fast check's own verdict (a gateway's fleet compile) first, else the Mac Release compile.
+          case "$FAST/$MAC" in
+            success/pass/*|*/success) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
+            */fail/*|*/failure) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
+            *) state=error d="[no-verdict] No compile verdict: results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
+          esac
+          body="$(jq -nc --arg s "$state" --arg d "${d:0:140}" --arg u "$RUN_URL" \
+            '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
+          timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
+            -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$API/statuses/$SHA" -d "$body" > /dev/null \
+            || { echo "::error title=Compile check::could not post the fallback's verdict"; exit 1; }
+          echo "cmux-next/compile: $state ($d)"
+          # The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
+          [[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $SHA: the results service was down and no fallback compile ran ($FAST/$MAC); re-run all jobs"; exit 3; }
+          [[ "$state" == success ]] || { echo "::error title=Compile check::the Release compile (fallback) of $SHA failed ($FAST/$MAC); see its log"; exit 1; }
