@@ -26,7 +26,7 @@ It prints the owner and the stack of each failure. Expected red on 9e0c2ce826c (
 
   python3 tests/test_cmux_next_main_thread_large_session.py --app APP --tag TAG --out DIR [--input real] [--samples 120]
   python3 tests/test_cmux_next_main_thread_large_session.py --report DIR/large-report.json   # judge a report again
-  python3 tests/test_cmux_next_main_thread_large_session.py --self-test                     # the judge, no app
+  python3 tests/test_cmux_next_main_thread_large_session.py --self-test                     # the judge and the session builder, no app
 """
 import argparse, json, os, subprocess, sys
 
@@ -118,7 +118,77 @@ def self_test():
     old = judge(phase(owners=None, missed_while_typing=None, main_budget={"classes": {"visible": {"max_task_ms": 30}}}))
     assert len(old) == 2 and any("class visible" in f for f in old) and any("3 missed refreshes in the phase" in f for f in old), old
     assert judge({"phases": [{"phase": "idle-0", "churn_hz": 0}]}) != []
+    self_test_builder()
     print("self-test: ok")
+
+
+class FakeApp:
+    """The part of the debug socket that `Stress.build_large` uses, as an app with a clean HOME answers it: at launch
+    the one workspace is Home, which has no pane (the window draws it as the Home page), and the pane of a new
+    workspace comes with a later delta than its id (`pane_after` snapshot reads later)."""
+
+    def __init__(self, pane_after=3):
+        self.pane_after, self.count, self.reads = pane_after, 0, 0
+        self.workspaces = [{"id": "ws_home", "screens": [], "at": 0}]
+        self.window = {"key": "w1", "workspace": "ws_home", "focused_pane": None}
+
+    def new_id(self, prefix):
+        self.count += 1
+        return f"{prefix}_{self.count}"
+
+    def pane(self, pane_id=None, tab_id=None):
+        return next((p for w in self.workspaces for s in w["screens"] for p in s["panes"]
+                     if p["id"] == pane_id or any(t["id"] == tab_id for t in p["tabs"])), None)
+
+    def rpc(self, method, params=None, timeout=None):
+        if method == "snapshot.get":
+            self.reads += 1
+            shown = [{"id": w["id"], "screens": w["screens"] if self.reads >= w["at"] else []} for w in self.workspaces]
+            return {"topology": {"workspaces": shown, "windows": [dict(self.window)],
+                                 "focus": {"workspace": self.window["workspace"], "pane": self.window["focused_pane"]}}}
+        if method == "debug.cef":
+            return {"state": "ready"}
+        if method != "action.run":
+            return {}
+        action, args, target = params["action"], params.get("args") or {}, params.get("target") or ""
+        kind = {"newSurface": "terminal", "openBrowser.chromium": "browser", "openBrowser.webkit": "browser",
+                "palette.newAgentChat": "conversation"}.get(action)
+        if action == "workspace.newAtBottom":
+            pane = {"id": self.new_id("pane"), "tabs": [{"id": self.new_id("tab"), "kind": "terminal", "selected": True}]}
+            self.workspaces.append({"id": self.new_id("ws"), "screens": [{"panes": [pane]}], "at": self.reads + self.pane_after})
+            self.window["workspace"] = self.workspaces[-1]["id"]
+        elif action == "goToWorkspace":
+            self.window["workspace"] = args["workspace"]
+        elif action == "pane.focus":
+            self.window["focused_pane"] = target.split(":", 1)[1]
+        elif kind:
+            name, value = target.split(":", 1)
+            pane = self.pane(pane_id=value) if name == "pane" else self.pane(tab_id=value)
+            if pane is None:
+                return {"error": {"code": "invalid_params", "message": f"no pane for {target}"}}
+            pane["tabs"].append({"id": self.new_id("tab"), "kind": kind, "selected": False})
+        return {}
+
+
+def self_test_builder():
+    """`Stress.build_large` against FakeApp: the session is built in an app that starts on Home (a clean HOME, as each
+    bench run has), Home is not one of its workspaces, and a new workspace's pane may come after its id. Red on
+    ec6271e914c3: `StressShapeError: workspace ws_home has no pane` (hold h1, aws-m4pro-8, 2026-11-10: all 3 arms)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(ROOT, "scripts", "cmux-next", "perf-stress-session.py"))
+    stress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stress)
+    stress.LARGE_WORKSPACES, stress.TITLE_STREAM_WORKSPACES = 7, (0, 1, 2, 3, 4)  # the same builder, a short run
+    app = FakeApp()
+    builder = stress.Stress(app.rpc, log=lambda line: None, settle=0)
+    try:
+        summary = builder.build_large()
+    finally:
+        builder.close()
+    assert "ws_home" not in builder.large and len(builder.large) == 7, builder.large
+    assert summary["workspaces"] == 7 and summary["tabs"] == 7 * len(stress.LARGE_MIX), summary
+    assert summary["workspaces_without_pane"] == 1, summary
+    assert summary["measured"] == builder.large[-1] and summary["measured_shown"], summary
 
 
 def main():
