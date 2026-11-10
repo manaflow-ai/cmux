@@ -6,8 +6,10 @@ import Testing
 /// `cmux.cloud.copyLoginOnClaim` is on, and it names that exact machine to Rust's `warm-spare`, which keys
 /// the copy in flight on it.
 @Suite struct CloudSpareWarmClaimTests {
-    @Test func theCopyOnClaimIsOffByDefault() throws {
+    @Test func theCopyOnClaimIsOnByDefault() throws {
         let defaults = try #require(UserDefaults(suiteName: "CloudSpareWarmClaimTests-\(UUID().uuidString)"))
+        #expect(CloudMoveCLI.copiesLoginOnClaim(defaults))
+        defaults.set(false, forKey: CloudMoveCLI.copyLoginOnClaimKey)
         #expect(!CloudMoveCLI.copiesLoginOnClaim(defaults))
         defaults.set(true, forKey: CloudMoveCLI.copyLoginOnClaimKey)
         #expect(CloudMoveCLI.copiesLoginOnClaim(defaults))
