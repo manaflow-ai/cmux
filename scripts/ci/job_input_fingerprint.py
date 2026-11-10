@@ -166,7 +166,8 @@ class Job:
 
 
 JOBS = {
-    "fast-tier": Job(MAC_TOOLCHAIN),
+    # generated_base: as swift-test's, when the fast tier checks the generated files on its build.
+    "fast-tier": Job(MAC_TOOLCHAIN, ("generated_base",)),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
     # generated_base: the base commit when swift-test checks the generated files on its own build
     # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.

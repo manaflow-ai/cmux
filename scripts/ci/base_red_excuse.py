@@ -631,13 +631,13 @@ NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for 
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
-# The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
+# The shared generated-files check only reads the verdict produced by the Swift, daemon or fast tier job that built
 # the package.  A failed prerequisite (especially a cancelled-before-start runner job) leaves that value
 # empty, so this check has no result of its own.  It must be rerun together with its host job; comparing its
 # fail-closed diagnostic with the base would turn missing evidence into an apparent PR red.
 GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
-    r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
+    r"^##\[error\]\s*(?:swift-test|daemon-test|fast-tier) \(cancelled\) gave no generated files verdict:"
 )
 # A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
 # says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red

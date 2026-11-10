@@ -77,6 +77,8 @@ TOOLCHAIN = {
         "macos_build": "25A362",
         "arch": "arm64",
         "pool": "owned",
+        # '' unless it checks the generated files on its build (then the base commit), as swift-test.
+        "generated_base": "",
     },
     "fast-tier-cargo": {
         "runner": "Linux-X64",
@@ -200,6 +202,7 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+        self.assertNotEqual(base, self.key("fast-tier", generated_base="a" * 40))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
@@ -261,7 +264,7 @@ class JobInputFingerprint(unittest.TestCase):
     def test_a_missing_or_empty_toolchain_value_gives_no_key(self):
         for job in JOBS:
             for name in TOOLCHAIN[job]:
-                for value in (None, "", "  "):
+                for value in (None, "", "  ") if name != "generated_base" else ():  # an env flag: '' is a value
                     with self.subTest(job=job, name=name, value=value):
                         key, stderr = self.repo.key(job, **{name: value})
                         self.assertEqual(key, "")

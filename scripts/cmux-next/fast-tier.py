@@ -317,6 +317,11 @@ def main():
         write_receipt(args.receipt, status="fail", started_wall=started_wall, builds=builds, results=[],
                       total_seconds=time.monotonic() - started, kinds=args.kind)
         return 1
+    # cmux-next.yml's fast-tier job checks the generated files on this build (its step output `built`),
+    # even when an entry fails below.
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write("built=true\n")
 
     gating_failed = False
     results = []
