@@ -343,6 +343,10 @@ pub enum Call {
         cwd: String,
         #[serde(default)]
         sync: Option<FrozenSync>,
+        /// A second copy once the chat is frozen, after `sync` (Move to Another Machine: `sync` pulls
+        /// from the machine the chat leaves, this seeds the one it goes to).
+        #[serde(default)]
+        then_sync: Option<FrozenSync>,
         #[serde(default)]
         ask_first: bool,
         #[serde(default)]
@@ -440,15 +444,15 @@ fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-/// `link agent move`'s flags after `--cwd`.
+/// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order.
 pub fn agent_move_flags(
-    sync: Option<&FrozenSync>,
+    syncs: &[&FrozenSync],
     ask_first: bool,
     vm_kind: Option<&str>,
     to_pid: Option<i32>,
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
-    if let Some(sync) = sync {
+    for sync in syncs {
         let kind = if sync.pull { "pull" } else { "seed" };
         flags.extend(words(&[
             "--sync",
@@ -484,7 +488,7 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
         }
-        Call::AgentMove { from, surface, to, cwd, sync, ask_first, vm_kind, to_pid } => {
+        Call::AgentMove { from, surface, to, cwd, sync, then_sync, ask_first, vm_kind, to_pid } => {
             let surface = surface.to_string();
             let mut args = words(&[
                 "link",
@@ -499,7 +503,8 @@ pub fn invocation(call: &Call) -> Invocation {
                 "--cwd",
                 cwd,
             ]);
-            args.extend(agent_move_flags(sync.as_ref(), *ask_first, vm_kind.as_deref(), *to_pid));
+            let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
+            args.extend(agent_move_flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {

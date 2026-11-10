@@ -94,6 +94,7 @@ import {
   type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
+import { localCommand, type LocalCommand } from "./localCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
   cachePersistedDraft,
@@ -369,6 +370,10 @@ type Props = {
     attachments?: ComposerAttachment[],
     gesture?: SendGesture,
   ): CmuxCommandResult;
+  /// Runs a harness's local command typed alone (localCommands.ts: `/mcp`, `/cost`), at once, in the
+  /// GUI, even mid-turn: it is never queued or steered. False (nothing here can show it): it goes on
+  /// the normal send path as typed.
+  onLocalCommand?(command: LocalCommand): boolean;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
@@ -524,6 +529,7 @@ function ComposerFrame({
   prompt,
   onEdit,
   onCmuxCommand,
+  onLocalCommand,
   onUnsentDraft,
   onDraftSettled,
   onTyping,
@@ -1734,6 +1740,22 @@ function ComposerFrame({
         sentAt.current = Date.now();
         return true;
       }
+    }
+    // A harness's local command typed alone (`/mcp`, `/cost`: localCommands.ts) sends nothing to the
+    // model: it runs now, in the GUI, never queued or steered behind a running turn. Not with staged
+    // files, which are a prompt's.
+    const local =
+      !command && !side && attachments.length === 0 && pending.length === 0
+        ? localCommand(prompt, snapshot.summary?.harness)
+        : undefined;
+    if (local && (local.action.kind === "commands" || onLocalCommand?.(local))) {
+      setAttachError(undefined);
+      plusDraft.current = undefined;
+      // `/help`: the `/` menu, every command with what it does.
+      if (local.action.kind === "commands") edit("/", 1);
+      else edit("", 0);
+      sentAt.current = Date.now();
+      return true;
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
     if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
