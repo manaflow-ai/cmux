@@ -6,7 +6,7 @@
 //! terminal (`pane.run` and `tab.create_terminal` report indeterminate).
 //! Port of main #33195.
 
-use super::*;
+use super::super::*;
 
 #[test]
 fn detached_template_terminal_survives_a_daemon_restart_without_wedging_mutations() {
