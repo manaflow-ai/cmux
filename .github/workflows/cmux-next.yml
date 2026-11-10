@@ -5434,39 +5434,39 @@ jobs:
             [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
             reply="$RUNNER_TEMP/compile-check.json"
             deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
-            state=""
+            state="" reads=0 last="" ok_at=$SECONDS  # ok_at: the last usable answer (200 or 404), from before the first read
             # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
             # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
             # retrying the 530 for the whole deadline (20 min with the controller down, 2026-11-10).
             for probe in 1 2; do
               code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
                 "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)" || true
-              [[ "$code" =~ ^(000|52[0-9]|530)$ ]] || break
+              [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
               (( probe == 2 )) && { state="results service down (HTTP $code)"; deadline=$SECONDS; } || sleep "${PROBE_GAP:-30}"
             done
             # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
-            reads=0 bad_since=""
-            while [[ "$state" != "results service down"* ]] && (( reads < 3 )); do
-              left=$((deadline - SECONDS))
-              (( left > 60 )) || break
-              wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
-              # One blocking read bounded by what is left; a 404 (no result yet) is read again in 30 s.
+            while [[ "$state" != "results service down"* ]]; do
+              # The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+              end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
+              left=$((end - SECONDS))
+              (( left > 1 )) || break
+              wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
               code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
-                --max-time "$((wait + 30))" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait")" || true
+                --max-time "$left" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait")" || true
               case "${code:=000}" in
-                200) reads=$((reads + 1)) bad_since=""
+                200) reads=$((reads + 1)) ok_at=$SECONDS last=""
                   state="$(jq -r --arg sha "$REF" --arg repo "$REPO" '
                     if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
                     then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                   echo "read $reads: $state"
-                  case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
-                  continue ;;
-                404) bad_since=""; echo "no fleet result for $REF yet" ;;
-                *) bad_since="${bad_since:-$SECONDS}"
-                  (( SECONDS - bad_since >= ${BAD_BOUND:-300} )) && { state="results service down (HTTP $code)"; break; } ;;
+                  case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+                404) ok_at=$SECONDS last=""; echo "no fleet result for $REF yet" ;;
+                *) last="HTTP $code" ;;
               esac
-              sleep "${READ_GAP:-30}"
+              gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
+              (( gap <= 0 )) || sleep "$gap"
             done
+            [[ "$state" == "results service down"* || -z "$last" ]] || state="results service down ($last for $((SECONDS - ok_at)) s)"
             case "$state" in
               pass) verdict=pass; echo "The build fleet compiled and linked the app at $REF in Release (-Onone) on Linux." ;;
               fail) verdict=fail; echo "::error title=Fast fleet compile check::the build fleet's Release compile failed at $REF; see cmux-next/compile's log: $(jq -r '.log_url // empty' "$reply" 2>/dev/null)" ;;
@@ -7223,35 +7223,37 @@ jobs:
             || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
           reply="$RUNNER_TEMP/compile-check.json"
           url="$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}"
-          state="" down="" bad_since="" reads=0
+          state="" down="" last="" reads=0
           # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
+          ok_at=$SECONDS  # the last usable answer (200 or 404): one start time, before the first read
           for probe in 1 2; do
             code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
-            [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || break
+            [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
             (( probe == 2 )) && down="HTTP $code" || sleep "${PROBE_GAP:-30}"
           done
-          while [[ -z "$down" ]] && (( reads < 3 )); do
-            left=$((deadline - SECONDS))
-            (( left > 60 )) || break
-            wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
-            # One blocking read, hard-bounded by what is left: a terminal state returns at once.
+          while [[ -z "$down" ]]; do
+            # The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+            end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
+            left=$((end - SECONDS))
+            (( left > 1 )) || break
+            wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
             code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
-              --max-time "$((wait + 30))" "$url&wait=$wait")" || true
+              --max-time "$left" "$url&wait=$wait")" || true
             case "${code:=000}" in
-              200) reads=$((reads + 1)) bad_since=""
+              200) reads=$((reads + 1)) ok_at=$SECONDS last=""
                 state="$(jq -r --arg sha "$SHA" --arg repo "$REPO" '
                   if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
                   then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                 echo "read $reads: $state"
-                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
-                continue ;;
-              404) bad_since="" ;;  # no result yet: read again in 30 s
-              *) bad_since="${bad_since:-$SECONDS}"
-                echo "::warning title=Compile check::the results service answered HTTP $code for $SHA"
-                (( SECONDS - bad_since >= ${BAD_BOUND:-300} )) && { down="HTTP $code for $((SECONDS - bad_since)) s"; break; } ;;
+                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+              404) ok_at=$SECONDS last="" ;;  # no result yet
+              *) last="HTTP $code"; echo "::warning title=Compile check::the results service answered HTTP $code for $SHA" ;;
             esac
-            sleep "${READ_GAP:-30}"
+            gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
+            (( gap <= 0 )) || sleep "$gap"
           done
+          # No usable answer when the wait or the bound ran out (a stalled read, a 530, no connection): the service down.
+          [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
           if [[ -n "$down" ]]; then
             # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
             if [[ "$FALLBACK" == true ]]; then
@@ -7261,7 +7263,8 @@ jobs:
               echo "::warning title=Compile check::results service down ($down); compile-status-handoff posts the Mac Release compile's verdict"
               exit 0
             fi
-            post error "No compile verdict: the results service is down ($down) and no fallback compile runs here; re-run this job" "$RUN_URL"
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])
+            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL"
             echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
             exit 1
           fi
@@ -7270,9 +7273,9 @@ jobs:
           case "$state" in
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
             fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" ;;
-            unavailable) post failure "The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
-            mismatch|unreadable) post failure "The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
+            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" ;;
+            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
           esac
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
@@ -7316,7 +7319,7 @@ jobs:
           case "$FAST/$MAC" in
             success/pass/*|*/success) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
             */fail/*|*/failure) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
-            *) state=error d="No compile verdict: the results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
+            *) state=error d="[no-verdict] No compile verdict: results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
           esac
           body="$(jq -nc --arg s "$state" --arg d "${d:0:140}" --arg u "$RUN_URL" \
             '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
