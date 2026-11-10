@@ -183,6 +183,15 @@ struct WorkspaceCloseSelectionTests {
         #expect(WindowRegistry.repairedSelection(current: "n", previous: rows + ["n"], members: rows, rule: rule) == "b")
     }
 
+    /// A person's close of several rows keeps its own rule (second review of #40649, S4): by position, with no
+    /// opener rank. a b c d n*, "n" made from "b", Close Below on "c": the pick is "c". One row: the opener.
+    @Test func aCloseOfSeveralRowsHasNoOpenerRank() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c", "d", "n"]
+        make("n", from: "b", quick: false, in: rule)
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c"], orders: [rows], rule: rule, batch: true) == "c")
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c", "d"], orders: [rows], rule: rule) == "b")
+    }
+
     // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's

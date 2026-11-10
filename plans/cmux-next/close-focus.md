@@ -311,8 +311,21 @@ tabs after.
   back still returns to the opener); with `top` or `bottom` it is the quick opener.
 - `selected`: every change of `WindowState.workspaceID` (`WindowCloseSelection.watch`). A selection a
   repair makes is not a gesture; a selection in a script's, the CLI's or MCP's run is not one.
-- `left`: after the pick, in the same repair (`WindowCloseSelection.settle`), for each workspace of
-  the state that left its window's rows, moved to another window, or whose create failed.
+- `left`: when the close is committed (`WindowCloseSelection.settle`, after the pick of each repair):
+  for each workspace of the state that no window lists any more (the daemon's delta took it), that
+  moved to another window, or whose create failed. The press of a close keeps the relation, so a
+  cancelled or refused close shows the row again with its opener.
+- A selection that a daemon delta causes is never a gesture: the reconcile caller says so itself
+  (`repairSelection(gesture:)`), because no action run surrounds a delta.
+- An opener that no sidebar order lists (a pinned layout tile) and a closed workspace that no order
+  lists yet: `WindowCloseSelection.pick` prepares the orders (the tile first in the order that lists
+  the closed row; the window's members as the last order), only while a relation is held. Rust
+  still decides. The root place is `successor_in_orders`; a change there needs a new FFI release
+  and pin (follow-up, with the tab PR), then the preparation goes.
+- A person's close of several rows in one gesture through `InstantClose.begin` (a multi-selection,
+  Close Others, Close Below, Close Above with more than one row) picks by position with no opener
+  rank (`pick(batch:)`). A bulk close that goes to the daemon direct (one row, a script's run, rows
+  of several windows, the group closes) is repaired at the delta, with the opener rank.
 - The pick: `WindowManager.repairSelections` calls `WindowRegistryStore.repairSelection` (CmuxNextLayout)
   for every close entry point: the pick, the selection, then the settle. No group map is passed
   (decision 2026-11-10, Chrome 156 as observed: the next row, whatever its group). The app's

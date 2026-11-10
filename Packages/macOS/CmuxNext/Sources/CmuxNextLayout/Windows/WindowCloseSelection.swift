@@ -25,6 +25,8 @@ public final class WindowCloseSelection {
     private var home: [String: String] = [:]
     /// A selection repair runs: the selection it sets is the close's, never a person's gesture.
     private var isRepairing = false
+    /// The rule with no relation: the pick by position of a close of several rows (`pick(batch:)`).
+    private lazy var byPosition = CloseSelection<String>()
 
     public init() {}
 
@@ -120,8 +122,31 @@ public final class WindowCloseSelection {
     /// the last. `previous` is the window's members before, `members` its members now, `orders`
     /// the sidebar's row orders before the close (the rows as drawn, then the model's). A row's
     /// group or section is not read (decision 2026-11-10, Chrome 156 as observed).
-    public func pick(shown: String?, previous: [String], members: [String], orders: [[String]] = []) -> String? {
-        openers.workspace(shown: shown, old: previous, surviving: members, orders: orders)
+    ///
+    /// `batch`: the person closed several rows in one gesture (a multi-selection, Close Others,
+    /// Close Below, Close Above). Such a close keeps its own rule: the next row, else the previous
+    /// one, with no opener rank.
+    ///
+    /// The rule (`cmux-focus-core` `successor_in_orders`) lets only the rows of the first order
+    /// that lists `shown` be picked, and with no such order it picks the neighbor in `previous`
+    /// with no opener rank. Two inputs are prepared here, only while a relation is held; Rust
+    /// still decides whether the relation is live and what the pick is:
+    /// - an opener of `shown` that is a member and that no order lists (a pinned layout tile,
+    ///   drawn above the list) is put first in each order that lists `shown`. An opener that an
+    ///   order lists but the drawn rows do not (a collapsed group, a filter) is not touched;
+    /// - `previous` is the last order, so a workspace no row lists yet is picked over the members
+    ///   with the opener rank. With no relation this is the same pick as the rule's own last step.
+    /// The root place for both is the Rust function; a change there needs a new FFI release and
+    /// pin (follow-up, with the tab PR), then this preparation goes.
+    public func pick(shown: String?, previous: [String], members: [String], orders: [[String]] = [], batch: Bool = false) -> String? {
+        if batch { return byPosition.workspace(shown: shown, old: previous, surviving: members, orders: orders) }
+        guard !home.isEmpty, let shown else { return openers.workspace(shown: shown, old: previous, surviving: members, orders: orders) }
+        var orders = orders
+        if let opener = openers.opener(of: shown), members.contains(opener), !orders.contains(where: { $0.contains(opener) }) {
+            for index in orders.indices where orders[index].contains(shown) { orders[index].insert(opener, at: 0) }
+        }
+        orders.append(previous)
+        return openers.workspace(shown: shown, old: previous, surviving: members, orders: orders)
     }
 
     /// With no relation left, nothing of the state is kept: the numbers of the workspaces go too.
