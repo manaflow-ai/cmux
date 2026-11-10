@@ -210,9 +210,13 @@ pub fn while_lent<T>(
 pub fn not_connected() -> RpcError {
     RpcError::new(
         -32044,
-        "GitHub is not connected on this Mac: connect GitHub in cmux Settings (or sign in with `gh auth login`)",
+        format!(
+            "GitHub is not connected on this Mac: {} (or sign in with `gh auth login`), then try again",
+            cmux_host::github_cli::CONNECT_GITHUB
+        ),
     )
-    .with_data(json!({"reason": "github.not_connected"}))
+    .with_data(json!({"reason": "github.not_connected", "retryable": true,
+        "connect": {"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"}}))
 }
 
 /// The login this action runs with (module docs), and the name of the one it tried (`app`
@@ -269,13 +273,13 @@ fn app_error(code: &str) -> RpcError {
             "integration.not_found",
             -32044,
             "github.not_connected",
-            "GitHub is not connected for this team: connect GitHub in cmux Settings",
+            "GitHub is not connected for this team: connect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
         "needs_reauth" => (
             "needs_reauth",
             -32044,
             "github.not_connected",
-            "GitHub needs to be connected again: reconnect GitHub in cmux Settings",
+            "GitHub needs to be connected again: reconnect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
         ),
         "policy.denied" => (
             "policy.denied",
@@ -303,7 +307,13 @@ fn app_error(code: &str) -> RpcError {
         ),
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
-    RpcError::new(number, message).with_data(json!({"reason": reason, "code": code}))
+    let mut data = json!({"reason": reason, "code": code});
+    if reason == "github.not_connected" {
+        data["retryable"] = json!(true);
+        data["connect"] =
+            json!({"action": "accounts.githubConnect", "cli": "cmux accounts github-connect"});
+    }
+    RpcError::new(number, message).with_data(data)
 }
 
 /// Whether the permissions a token says it has (`got`, GitHub's own list) are no more than

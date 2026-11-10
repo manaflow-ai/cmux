@@ -93,7 +93,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 8] = [
+const STDIO_MCP_SERVERS: [&str; 9] = [
     "acpmux-mcp",
     "subsession-mcp",
     "forum-mcp",
@@ -102,6 +102,7 @@ const STDIO_MCP_SERVERS: [&str; 8] = [
     "cua-mcp",
     "repo-mcp",
     "hosted-mcp",
+    "github-mcp",
 ];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
@@ -439,6 +440,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
         Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
+        Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -496,6 +498,7 @@ mod tests {
             "cua-mcp",
             "repo-mcp",
             "hosted-mcp",
+            "github-mcp",
         ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");

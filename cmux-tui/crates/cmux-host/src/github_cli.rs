@@ -77,14 +77,59 @@ pub struct Refused {
 impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.message.is_empty() {
-            write!(f, "{}", self.code)
+            write!(f, "{}", self.code)?;
         } else {
-            write!(f, "{}: {}", self.code, self.message)
+            write!(f, "{}: {}", self.code, self.message)?;
+        }
+        match next_step(&self.code) {
+            Some(next) => write!(f, ". Next: {next}"),
+            None => Ok(()),
         }
     }
 }
 
-pub(crate) fn refused(code: &str, message: impl Into<String>) -> Refused {
+/// How to connect GitHub, in the words every surface uses: the app's action (Settings,
+/// Accounts, GitHub, or the command palette) and the CLI command that runs the same action.
+pub const CONNECT_GITHUB: &str = "in cmux choose Connect GitHub (Settings > Accounts > GitHub, or \
+the command palette), or run `cmux accounts github-connect` on your Mac";
+
+/// The one next step for a refusal the person can fix, or `None` (an outage, a bad answer:
+/// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says
+/// exactly how to connect, and it is retryable once connected.
+pub fn next_step(code: &str) -> Option<String> {
+    match code {
+        "integration.not_found" | "github.not_connected" => Some(format!(
+            "GitHub is not connected for this cmux team: {CONNECT_GITHUB}. Then run the same \
+             command again; nothing needs setting up on this machine"
+        )),
+        "needs_reauth" => Some(format!(
+            "the team's GitHub connection needs linking again: {CONNECT_GITHUB}. Then run the \
+             same command again"
+        )),
+        "policy.denied" => Some(format!(
+            "the team's GitHub connection does not cover this repository: {CONNECT_GITHUB} and \
+             pick it on GitHub's page, or ask a team admin to allow it"
+        )),
+        _ => None,
+    }
+}
+
+/// Whether the same ask can succeed later with nothing changed on this machine: after the
+/// person connects (or reconnects) GitHub, or after a wait.
+pub fn retryable(code: &str) -> bool {
+    matches!(
+        code,
+        "integration.not_found"
+            | "github.not_connected"
+            | "needs_reauth"
+            | "integration.unavailable"
+            | "busy"
+            | "rate_limited"
+            | "vm.agent_unreachable"
+    )
+}
+
+pub fn refused(code: &str, message: impl Into<String>) -> Refused {
     Refused { code: code.to_owned(), message: message.into(), retry_after: None }
 }
 
@@ -101,7 +146,7 @@ pub fn retry_delay(e: &Refused) -> Option<Duration> {
 }
 
 /// [`ask_agent`], retried once after a retryable refusal.
-fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
+pub fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     match ask_agent(socket, ask) {
         Err(e) => match retry_delay(&e) {
             Some(delay) => {
@@ -737,7 +782,7 @@ pub fn gh_hosts_path(
     home.map(|h| h.join(".config/gh/hosts.yml"))
 }
 
-fn origin_url() -> Option<String> {
+pub fn origin_url() -> Option<String> {
     let out =
         std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
@@ -1107,8 +1152,13 @@ mod tests {
         );
         assert_eq!(out, "");
         assert_eq!(calls, 1);
-        assert_eq!(note.as_deref(), Some("o/r: integration.not_found: no GitHub connection"));
-        assert!(!note.unwrap().contains(SECRET));
+        let note = note.unwrap();
+        assert!(
+            note.starts_with("o/r: integration.not_found: no GitHub connection. Next: "),
+            "{note}"
+        );
+        assert!(note.contains("`cmux accounts github-connect`"), "{note}");
+        assert!(!note.contains(SECRET));
     }
 
     #[test]
