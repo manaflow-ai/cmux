@@ -837,7 +837,8 @@ impl Hub {
         // runs with the harness initialized and its session created.
         // The name its Claude Code was started under (`--name`), before the claim is taken.
         let pooled_name = self.pool_claimed_name(&session.id);
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &session.meta(), off) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &session.meta(), off)
+        {
             #[cfg(debug_assertions)]
             self.take_off_seam();
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
