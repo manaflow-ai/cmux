@@ -9,6 +9,7 @@ import {
   resetStashForTests,
   retryMoves,
   setStashTransport,
+  stashMoves,
   stashDraft,
   stashedNow,
   stashPreview,
@@ -305,6 +306,25 @@ describe("draft stash", () => {
     await stashDraft("new-tab:t", "for c", []);
     await moveStash("new-tab:t", "session-c");
     expect(daemon.get("session-c")?.map((row) => row.text)).toEqual(["for c"]);
+  });
+
+  test("a reload asks no move: a page opened on another session never takes the tab's leftovers", () => {
+    // Opened (or reloaded) on B, whose stack may be full: the tab's drafts stay where they are.
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, true)).toEqual([]);
+    // A new chat that gets its session here brings its drafts.
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual([
+      ["new-tab:t", "session-a"],
+    ]);
+    // A switch from A to B moves nothing.
+    expect(
+      stashMoves({ sessionId: "session-a", newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, false),
+    ).toEqual([]);
+    // The tab's key comes after the page's own: the page's drafts follow it.
+    expect(stashMoves({ newChatKey: "new-1" }, { newChatKey: "new-tab:t" }, false)).toEqual([["new-1", "new-tab:t"]]);
+    expect(stashMoves({ newChatKey: "new-1" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual([
+      ["new-tab:t", "session-a"],
+      ["new-1", "session-a"],
+    ]);
   });
 
   test("a page opened on a session brings the tab's leftover drafts, and asks no move when there are none", async () => {

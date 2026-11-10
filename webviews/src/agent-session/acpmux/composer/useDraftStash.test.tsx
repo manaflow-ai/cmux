@@ -179,3 +179,43 @@ test("⌃S while a restore's drop is out waits, so a full stack lets no other dr
   await act(async () => api.toggle());
   expect(pushed).toEqual(["kept"]);
 });
+
+test("a session's composer lists the tab's leftover drafts after its own, and a pick takes one from the tab", async () => {
+  const rows = new Map([
+    ["session-b", [{ id: "b-1", text: "b's own", attachments: [], at: 2 }]],
+    ["new-tab:t", [{ id: "left-1", text: "left behind", attachments: [], at: 1 }]],
+  ]);
+  const dropped: string[] = [];
+  const restored: string[] = [];
+  const transport: StashTransport = {
+    list: async (chat) => ({ drafts: rows.get(chat) ?? [] }),
+    push: async () => ({}),
+    get: async (chat, id) => ({ draft: rows.get(chat)?.find((row) => row.id === id) }),
+    drop: async (chat, id) => (dropped.push(`${chat}/${id}`), { removed: true }),
+    move: async () => ({ moved: 0, ids: [] }),
+  };
+  resetStashForTests(transport);
+  let stash: ReturnType<typeof useDraftStash> | undefined;
+  function Probe() {
+    stash = useDraftStash(
+      "session-b",
+      {
+        held: () => ({ text: "", attachments: [] }),
+        loading: () => false,
+        clear: () => {},
+        restore: (text) => void restored.push(text),
+        focus: () => {},
+      },
+      "new-tab:t",
+    );
+    return null;
+  }
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => {});
+  expect(stash!.stashed.map((draft) => draft.text)).toEqual(["b's own", "left behind"]);
+  await act(async () => stash!.unstash("left-1"));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  expect(restored).toEqual(["left behind"]);
+  expect(dropped).toEqual(["new-tab:t/left-1"]);
+});
