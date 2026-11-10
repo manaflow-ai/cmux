@@ -663,8 +663,9 @@ Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
 confirm when an agent asks, and it prints the VM's target and how to open
 a terminal, start an agent or run a command there. With no flags it takes the
-app's default size and keeps running when idle; `cmux vm set-idle-pause`
-sets a pause, and --persistent makes sure none is set.
+app's default size and pauses once idle (nothing attached, no agent turn
+running; a few minutes on cmux Cloud) and resumes when you open it again.
+--persistent keeps it running; `cmux vm set-idle-pause` sets the timeout.
 
   cmux vm new
   cmux vm new --name api-dev --size medium --repo OWNER/NAME

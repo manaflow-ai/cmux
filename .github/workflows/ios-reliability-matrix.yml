@@ -1,0 +1,196 @@
+name: iOS reliability matrix
+
+# The iOS connectivity and reliability matrix
+# (cmux-next-ios/reliability-matrix/cells.json): network, app state, host side,
+# scale and pairing cells, each with a small and a degenerate ("god") variant
+# held to 1.2x of the small one. Pattern page: cmuxterm-hq
+# docs/handbook/patterns/ios-connectivity-matrix.md.
+#
+# - protocol (Linux): every test of the cmux-next-ios/rust workspace, which no
+#   other job ran: the link suites (roaming, loopback, hybrid, media), the
+#   host suites and the matrix cells in
+#   cmux-mobile-host/tests/reliability_matrix.rs (real Link, real host
+#   services, fake daemon, a toxic pipe for latency, loss and outages).
+# - ios (GitHub-hosted macOS, iOS simulator): the phone's cells in
+#   CmuxMobileLiveTests/ConnectivityMatrixTests.swift and the existing tests
+#   the catalog names (link recovery, cached lists).
+# - report: one table in the run summary (scripts/ci/ios_reliability_matrix.py);
+#   it fails when a cell marked `gate: true` fails. Nightly runs the same full
+#   matrix on feat-cmux-next.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/rust/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
+      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
+      - "cmux-next-ios/reliability-matrix/**"
+      - "cmux-tui/crates/cmux-wg/**"
+      - "cmux-tui/crates/cmux-transport/**"
+      - "cmux-tui/vendor/smoltcp/**"
+      - "scripts/ci/ios_reliability_matrix.py"
+      - ".github/workflows/ios-reliability-matrix.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/rust/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
+      - "cmux-next-ios/reliability-matrix/**"
+      - ".github/workflows/ios-reliability-matrix.yml"
+  schedule:
+    # Nightly, full matrix (08:17Z).
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-reliability-matrix-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  protocol:
+    name: protocol cells (Linux)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: ios-reliability-matrix
+
+      - name: cargo test (cmux-next-ios/rust workspace, matrix cells included)
+        working-directory: cmux-next-ios/rust
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/matrix"
+          # Every suite, no early stop: the report decides what gates. The
+          # matrix cells time themselves, so they run one at a time, in
+          # release (the app's host and the phone's FFI ship optimized).
+          { cargo test --locked --workspace --no-fail-fast ;
+            cargo test --release --locked -p cmux-mobile-host --test reliability_matrix --no-fail-fast -- --ignored --nocapture --test-threads=1 ; } \
+            2>&1 | tee "$RUNNER_TEMP/matrix/rust.log" || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: matrix-rust-log
+          path: ${{ runner.temp }}/matrix/rust.log
+          retention-days: 14
+
+  ios:
+    name: phone cells (iOS simulator)
+    # GitHub-hosted macOS with the iOS simulator.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: ios-reliability-matrix-apple
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "4"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: xcodebuild test (matrix cells)
+        working-directory: cmux-next-ios/CmuxMobileKit
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/matrix"
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-26" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          if [[ -z "$udid" ]]; then
+            echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
+            exit 1
+          fi
+          echo "simulator $udid"
+          # Not -quiet: the report reads each test's result and its MATRIX lines.
+          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
+            -only-testing:CmuxMobileLiveTests/ConnectivityMatrixTests \
+            -only-testing:CmuxMobileLiveTests/LinkRecoveryTests \
+            -only-testing:CmuxMobileLiveTests/PairingRetryTests \
+            -only-testing:CmuxMobileWorkspacesTests/WorkspacesLaunchStateTests \
+            2>&1 | tee "$RUNNER_TEMP/matrix/ios.log" || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: matrix-ios-log
+          path: ${{ runner.temp }}/matrix/ios.log
+          retention-days: 14
+
+  report:
+    name: matrix report
+    needs: [protocol, ios]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/ios_reliability_matrix.py
+            cmux-next-ios/reliability-matrix
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: matrix-*-log
+          path: logs
+          merge-multiple: true
+      - name: Matrix table
+        run: |
+          set -o pipefail
+          args=()
+          [[ "${{ needs.protocol.result }}" != "skipped" ]] && args+=(--rust logs/rust.log)
+          [[ "${{ needs.ios.result }}" != "skipped" ]] && args+=(--ios logs/ios.log)
+          python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: matrix-results
+          path: matrix.json
+          retention-days: 30

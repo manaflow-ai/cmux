@@ -198,6 +198,7 @@ pub(super) fn send_existing(
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
 /// deadline from its start; a step that answered after it is that phase's timeout, as in [`run`].
 fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
+    super::last_chat::remember(session, Some(machine_id));
     let answer = json!({
         "machine_id": machine_id,
         "target": format!("machine:{machine_id}"),
@@ -337,12 +338,7 @@ pub(super) fn parse(
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let seconds =
-                    text.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
-                        UsageError::new(format!("--timeout {text}: give seconds"))
-                    })?;
-                timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
+                timeout = super::chat_send::timeout_value(&value()?)?.min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
             "--make-room" => make_room = true,
@@ -448,11 +444,22 @@ pub(super) trait Runner {
     fn fresh_name(&mut self) -> String;
     /// One app control call (`cloud.machine_stream`): its result, or the app's refusal. None: no app answered on a
     /// socket (a runner that reaches none).
-    fn app(&mut self, _method: &str, _params: Value, _timeout: Duration) -> Option<Result<Value, Value>> {
+    fn app(
+        &mut self,
+        _method: &str,
+        _params: Value,
+        _timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
         None
     }
     /// One wait on a chat tab's records over the machine's link stream `socket` ([`link_wait::observe`]).
-    fn observe(&mut self, socket: &str, surface: u64, after: u64, wait: Duration) -> Result<Value, link_wait::Failure> {
+    fn observe(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        after: u64,
+        wait: Duration,
+    ) -> Result<Value, link_wait::Failure> {
         link_wait::observe(std::path::Path::new(socket), surface, after, wait)
     }
 }
@@ -501,7 +508,12 @@ impl Runner for SelfRunner {
         format!("chat-{}", id.chars().take(16).collect::<String>())
     }
 
-    fn app(&mut self, method: &str, params: Value, timeout: Duration) -> Option<Result<Value, Value>> {
+    fn app(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
         let mut stream = super::app::connect_command(&self.global).ok()?;
         super::app::request(&mut stream, method, params, timeout).ok()
     }
@@ -1050,17 +1062,36 @@ impl Runner for Timed<'_> {
         self.inner.fresh_name()
     }
 
-    fn observe(&mut self, socket: &str, surface: u64, after: u64, wait: Duration) -> Result<Value, link_wait::Failure> {
+    fn observe(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        after: u64,
+        wait: Duration,
+    ) -> Result<Value, link_wait::Failure> {
         let from = self.inner.now();
         let answer = self.inner.observe(socket, surface, after, wait);
         self.mark("link observe", from, i32::from(answer.is_err()));
         answer
     }
 
-    fn app(&mut self, method: &str, params: Value, timeout: Duration) -> Option<Result<Value, Value>> {
+    fn app(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
         let from = self.inner.now();
         let answer = self.inner.app(method, params, timeout);
-        self.mark(method, from, match &answer { Some(Ok(_)) => 0, Some(Err(_)) => 1, None => 127 });
+        self.mark(
+            method,
+            from,
+            match &answer {
+                Some(Ok(_)) => 0,
+                Some(Err(_)) => 1,
+                None => 127,
+            },
+        );
         answer
     }
 }
@@ -1283,6 +1314,7 @@ fn steps(
     if fresh.is_some() && at(&started, "machine_name").as_str() == fresh.as_deref() {
         progress.made = Some(machine_id.to_owned());
     }
+    super::last_chat::remember(session, Some(machine_id));
     let mut answer = json!({
         "machine_id": machine_id,
         "machine_name": at(&started, "machine_name"),
@@ -1580,11 +1612,19 @@ impl PushedTurn {
             if prompt_at.is_none() && dir == Some("mux") && kind == Some("user_message") {
                 prompt_at = at;
             }
-            if first_at.is_none() && prompt_at.is_some() && dir == Some("in") && is_agent_output(record) {
+            if first_at.is_none()
+                && prompt_at.is_some()
+                && dir == Some("in")
+                && is_agent_output(record)
+            {
                 first_at = at;
             }
             if let Some(failure) = link_wait::turn_ended(record) {
-                end = Some((record.get("seq").and_then(Value::as_u64).unwrap_or(0), at, failure.cloned()));
+                end = Some((
+                    record.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                    at,
+                    failure.cloned(),
+                ));
                 break;
             }
         }
@@ -1594,23 +1634,41 @@ impl PushedTurn {
             _ => None,
         });
         let reply = transcript.items.iter().rev().find_map(|item| match item {
-            acpmux::transcript::Item::Assistant { text } if !text.trim().is_empty() => Some(text.trim().to_owned()),
+            acpmux::transcript::Item::Assistant { text } if !text.trim().is_empty() => {
+                Some(text.trim().to_owned())
+            }
             _ => None,
         });
         let since = |to: Option<u64>| prompt_at.zip(to).map(|(from, to)| to.saturating_sub(from));
-        let stop = if failure.is_some() { "failed".to_owned() } else { stop.unwrap_or_else(|| "end_turn".to_owned()) };
-        Some(Self { stop, reply, seq, first_output_ms: since(first_at), turn_ms: since(end_at), failure })
+        let stop = if failure.is_some() {
+            "failed".to_owned()
+        } else {
+            stop.unwrap_or_else(|| "end_turn".to_owned())
+        };
+        Some(Self {
+            stop,
+            reply,
+            seq,
+            first_output_ms: since(first_at),
+            turn_ms: since(end_at),
+            failure,
+        })
     }
 
     fn outcome(self, mut answer: Value) -> Outcome {
-        let status = if FAILED_STOPS.contains(&self.stop.as_str()) { "failed" } else { "completed" };
+        let status =
+            if FAILED_STOPS.contains(&self.stop.as_str()) { "failed" } else { "completed" };
         answer.set("turn", json!({"seq": self.seq, "status": status, "stop_reason": self.stop}));
         answer.set("wait_route", json!("link"));
         // Felt time on the machine's clock: the prompt to the agent's first output, and to the turn's end.
         answer.set("turn_ms", json!({"first_output": self.first_output_ms, "end": self.turn_ms}));
         if let Some(failure) = self.failure {
             // The agent's own error, typed as acpmux types it (`errorKind`, `recovery`) when it is.
-            let message = failure.get("error").and_then(Value::as_str).unwrap_or("the turn failed").to_owned();
+            let message = failure
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("the turn failed")
+                .to_owned();
             for key in ["errorKind", "recovery", "code"] {
                 if let Some(value) = failure.get(key) {
                     answer.set(key, value.clone());
@@ -1649,7 +1707,8 @@ const FAILED_STOPS: &[&str] = &["cancelled", "error", "failed", "refusal"];
 
 /// An agent's own output in an `in` record: a message chunk, a thought or a tool call (never a status the app draws).
 fn is_agent_output(record: &Value) -> bool {
-    let replay = record.get("kind").and_then(Value::as_str).is_some_and(|kind| kind.ends_with(".replay"));
+    let replay =
+        record.get("kind").and_then(Value::as_str).is_some_and(|kind| kind.ends_with(".replay"));
     let kind = record.pointer("/msg/params/update/sessionUpdate").and_then(Value::as_str);
     !replay && matches!(kind, Some("agent_message_chunk" | "agent_thought_chunk" | "tool_call"))
 }
@@ -1657,9 +1716,18 @@ fn is_agent_output(record: &Value) -> bool {
 /// A fresh chat's turn over the machine's link: the app answers the link's stream socket
 /// (`cloud.machine_stream`), and [`Runner::observe`] reads the tab's records there, in slices of at most
 /// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read.
-fn pushed_turn(runner: &mut dyn Runner, machine_id: &str, surface: u64, deadline: Deadline) -> Pushed {
-    let asked = runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
-    let Some(socket) = asked.and_then(Result::ok).and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned)) else {
+fn pushed_turn(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    surface: u64,
+    deadline: Deadline,
+) -> Pushed {
+    let asked =
+        runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
+    let Some(socket) = asked
+        .and_then(Result::ok)
+        .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
+    else {
         return Pushed::Unavailable;
     };
     let mut records: Vec<Value> = Vec::new();
@@ -1679,7 +1747,9 @@ fn pushed_turn(runner: &mut dyn Runner, machine_id: &str, surface: u64, deadline
         }
         after = answer.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
         match answer.get("ended").and_then(Value::as_str) {
-            Some("turn_end") => return PushedTurn::read(&records).map_or(Pushed::Unavailable, Pushed::Ended),
+            Some("turn_end") => {
+                return PushedTurn::read(&records).map_or(Pushed::Unavailable, Pushed::Ended);
+            }
             Some("permission") => return Pushed::Permission,
             Some("closed") => return Pushed::Unavailable,
             _ if deadline.passed(runner) => return Pushed::TimedOut,
@@ -2273,8 +2343,8 @@ mod clone_wait;
 mod fault;
 mod folder;
 mod internal;
-use internal::link_wait;
 use folder::local_folder;
+use internal::link_wait;
 mod support;
 use support::{at, folder_kind, last_turn, reply, session_cwd, words};
 // `cmux chat cd` reads the same guest script sections.
