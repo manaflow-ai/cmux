@@ -10,6 +10,13 @@
 /// `cmux cloud <verb> --help` still describes each and names the new one.
 const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux vm new")];
 
+/// Verbs the app answers with a refusal on NEXT Cloud: cmux-platform has no
+/// firewall rules or machine network policy yet (CloudHandlers+Network.swift,
+/// CloudNetworkAccessActions.swift). Help still lists them, marked, so a
+/// person or agent learns that before running one.
+const NOT_ON_CLOUD_YET: &[&str] =
+    &["firewall-list", "firewall-get", "firewall-create", "firewall-delete", "set-network-access"];
+
 /// The CLI's own Cloud verb, not an app action: start a chat and send it a prompt
 /// (cloud_start_chat.rs).
 pub(super) const START_CHAT: &str = "start-chat";
@@ -53,16 +60,11 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "new-machine",
-                "[--size small|medium|large|xlarge] [--name NAME] [--persistent] [--repo OWNER/NAME[@REF]] [--machine-config FILE] [--bootstrap lane] [--bootstrap-script FILE]",
+                "[--size small|medium|large|xlarge] [--name NAME] [--persistent] [--repo OWNER/NAME[@REF]] [--environment ENV] [--machine-config FILE] [--bootstrap lane] [--bootstrap-script FILE]",
                 "Create a machine; answers its machine_id",
                 "マシンを作成し、machine_id を返す",
             ),
-            verb(
-                "machine-status",
-                "{target}",
-                "State, CPU, memory, disk and hourly cost",
-                "状態、CPU、メモリ、ディスク、時間あたりの料金",
-            ),
+            verb("machine-status", "{target}", "A machine's state", "マシンの状態"),
             verb(
                 "pause-machine",
                 "{target}",
@@ -77,9 +79,9 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "resize-machine",
-                "{target} --size small|medium|large|xlarge",
-                "Change its size (2 to 16 vCPU)",
-                "サイズを変更（2〜16 vCPU）",
+                "{target} [--size small|medium|large|xlarge] [--disk GIB]",
+                "Change its size (2 to 16 vCPU) or grow its disk",
+                "サイズを変更（2〜16 vCPU）、またはディスクを拡張",
             ),
             verb(
                 "rename-machine",
@@ -143,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH]",
+                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -168,8 +170,8 @@ const GROUPS: &[Group] = &[
             verb(
                 "deliver-secrets",
                 "{target} [--repo OWNER/NAME] [--names A,B]",
-                "Send the secrets its machine config names",
-                "マシン設定で宣言されたシークレットを送信",
+                "Send the secrets its machine config names (--names: your own machines only)",
+                "マシン設定で宣言されたシークレットを送信（--names は自分のマシンのみ）",
             ),
         ],
     },
@@ -314,7 +316,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "tunnel-rotate-key",
-                "--public-key KEY",
+                "",
                 "Replace this Mac's tunnel key",
                 "この Mac のトンネル鍵を置き換え",
             ),
@@ -592,9 +594,14 @@ pub(super) fn overview(japanese: bool) -> String {
         text.push_str(if japanese { group.ja } else { group.en });
         text.push('\n');
         for verb in group.verbs.iter().filter(|verb| renamed(verb.name).is_none()) {
+            let not_yet = match (NOT_ON_CLOUD_YET.contains(&verb.name), japanese) {
+                (false, _) => "",
+                (true, false) => " (not on Cloud yet)",
+                (true, true) => "（Cloud では未対応）",
+            };
             let marker = if verb.usage.contains("--confirm") { " (--confirm)" } else { "" };
             let description = if japanese { verb.ja } else { verb.en };
-            text.push_str(&format!("  {:width$}  {description}{marker}\n", verb.name));
+            text.push_str(&format!("  {:width$}  {description}{not_yet}{marker}\n", verb.name));
         }
     }
     text.push_str(if japanese {
@@ -627,6 +634,13 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
             format!("`cmux vm {name}` is the old name of `{new}` (`{new} --help`).\n\n")
         }
     });
+    let note = if !NOT_ON_CLOUD_YET.contains(&name) {
+        note
+    } else if japanese {
+        note + "Cloud はまだこのアクションに対応していません。アプリは実行を断ります。\n\n"
+    } else {
+        note + "Cloud does not offer this yet: the app refuses it.\n\n"
+    };
     Some(
         note + &if japanese {
             format!(

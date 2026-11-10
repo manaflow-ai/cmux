@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c8727dd1de92d37a22ac081fbceba280f320ae13a3db09486beb14496f4e0af3.
+// cmux-tui mux protocol 12, IR 239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;

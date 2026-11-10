@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c8727dd1de92d37a22ac081fbceba280f320ae13a3db09486beb14496f4e0af3. */
+/* cmux-tui mux protocol 12, IR 239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c8727dd1de92d37a22ac081fbceba280f320ae13a3db09486beb14496f4e0af3" as const;
+export const SDK_IR_SHA256 = "239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3177,6 +3177,42 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Waits at most 10 s (the default) for output after `after` or the command's end.",
+      "Answers {output, next, truncated?, exit?} or {refused}: unknown_run, busy.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-run": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {run} or {refused}: too_many, folder_missing, spawn_failed, invalid.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-stop": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {} or {refused: unknown_run}."
     ]
   },
   "shutdown-daemon": {
@@ -28140,6 +28176,111 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after": {
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "wait_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "command": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "run": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "scope": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-stop": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
