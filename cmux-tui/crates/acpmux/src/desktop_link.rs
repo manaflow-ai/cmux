@@ -21,7 +21,8 @@
 //! - OpenCode: `mcp.cmux` in `$XDG_CONFIG_HOME/opencode/opencode.json` (`~/.config`, on macOS
 //!   too), a `local` server whose `command` is one array and whose env is `environment`.
 //!   OpenCode merges that file with an `opencode.jsonc` beside it, so a person's JSONC stays theirs.
-//! - Gemini CLI and Qwen Code (a Gemini CLI fork): `mcpServers` in `~/.gemini/settings.json` and
+//! - Gemini CLI and Qwen Code (a Gemini CLI fork): `mcpServers` in `<GEMINI_CLI_HOME or
+//!   ~>/.gemini/settings.json` and
 //!   `~/.qwen/settings.json`, without Claude's `type`.
 //! - pi, which has no MCP by design: a `cmux` skill (`<PI_CODING_AGENT_DIR or
 //!   ~/.pi/agent>/skills/cmux/SKILL.md`) that runs the same requests through this acpmux CLI
@@ -133,6 +134,8 @@ pub struct Env {
     pub xdg_config_home: Option<PathBuf>,
     /// `PI_CODING_AGENT_DIR`, when set.
     pub pi_dir: Option<PathBuf>,
+    /// `GEMINI_CLI_HOME`, when set: Gemini CLI's home in place of the person's.
+    pub gemini_home: Option<PathBuf>,
     /// The acpmux binary the entry runs.
     pub exe: PathBuf,
     /// Its arguments: the binary's prefix (`acp` in the cmux binary) and `acpmux-mcp`.
@@ -163,6 +166,7 @@ impl Env {
             codex_home: var("CODEX_HOME"),
             xdg_config_home: var("XDG_CONFIG_HOME"),
             pi_dir: var("PI_CODING_AGENT_DIR"),
+            gemini_home: var("GEMINI_CLI_HOME"),
             args: me.args_lossy(&[SERVER_ARG]),
             exe: me.exe,
             acpmux_home,
@@ -184,7 +188,9 @@ impl Env {
                 .unwrap_or_else(|| self.home.join(".codex"))
                 .join("config.toml"),
             App::OpenCode => self.xdg_config().join("opencode/opencode.json"),
-            App::GeminiCli => self.home.join(".gemini/settings.json"),
+            App::GeminiCli => {
+                self.gemini_home.as_ref().unwrap_or(&self.home).join(".gemini/settings.json")
+            }
             App::QwenCode => self.home.join(".qwen/settings.json"),
             App::Pi => self.pi_agent_dir().join("skills/cmux/SKILL.md"),
         }
@@ -572,16 +578,33 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
         }
         App::Pi => {
             let path = env.config_path(app);
-            let text = match std::fs::read_to_string(&path) {
-                Ok(text) => text,
+            // Move the skill aside first and judge the file that moved, so a skill another writer
+            // puts there while this runs is the one judged, never one deleted unread.
+            let aside = path.with_file_name(format!("SKILL.md.cmux-unlink-{}", std::process::id()));
+            match std::fs::rename(&path, &aside) {
+                Ok(()) => {}
                 // Already gone: nothing to remove.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-            };
-            if !text.contains(&pi_mark()) {
-                return Err(ForeignEntry.into());
+                Err(e) => return Err(e).with_context(|| format!("moving {}", path.display())),
             }
-            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+            let ours = std::fs::read_to_string(&aside).is_ok_and(|text| text.contains(&pi_mark()));
+            if !ours {
+                // Put it back without replacing a file written there since: a hard link fails
+                // when the name is taken, and then the moved file stays beside it, named.
+                return match std::fs::hard_link(&aside, &path) {
+                    Ok(()) => {
+                        let _ = std::fs::remove_file(&aside);
+                        Err(ForeignEntry.into())
+                    }
+                    Err(e) => Err(anyhow!(
+                        "{} is not cmux's and a new one took its place; it is kept as {}: {e}",
+                        path.display(),
+                        aside.display()
+                    )),
+                };
+            }
+            std::fs::remove_file(&aside)
+                .with_context(|| format!("removing {}", aside.display()))?;
             // The skill's own folder, when nothing else is in it.
             if let Some(dir) = path.parent() {
                 let _ = std::fs::remove_dir(dir);

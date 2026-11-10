@@ -11,6 +11,7 @@ fn env(dir: &Path, claude_cli: Option<PathBuf>) -> Env {
         codex_home: None,
         xdg_config_home: None,
         pi_dir: None,
+        gemini_home: None,
         exe: PathBuf::from("/opt/cmux/bin/acpmux"),
         args: vec!["acpmux-mcp".to_owned()],
         acpmux_home: None,
@@ -456,6 +457,7 @@ fn an_app_that_is_not_here_is_not_linked() {
         codex_home: None,
         xdg_config_home: None,
         pi_dir: None,
+        gemini_home: None,
         exe: PathBuf::from("/opt/acpmux"),
         args: vec!["acpmux-mcp".to_owned()],
         acpmux_home: None,
@@ -707,4 +709,37 @@ fn every_harness_family_acpmux_runs_can_be_linked() {
     for family in ["claude", "codex", "opencode", "pi", "gemini"] {
         assert!(App::ALL.iter().any(|a| a.id().starts_with(family)), "{family} has no link");
     }
+}
+
+#[test]
+fn gemini_cli_reads_its_own_home_when_one_is_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), None);
+    env.gemini_home = Some(dir.path().join("gemini-home"));
+    assert_eq!(
+        env.config_path(App::GeminiCli),
+        dir.path().join("gemini-home/.gemini/settings.json")
+    );
+    install(&env, App::GeminiCli);
+    assert_eq!(link(&env, App::GeminiCli, false).state, State::Linked);
+    assert!(!dir.path().join(".gemini/settings.json").exists());
+}
+
+#[test]
+fn pi_unlink_never_deletes_a_skill_that_is_not_cmuxs() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    install(&env, App::Pi);
+    assert_eq!(link(&env, App::Pi, false).state, State::Linked);
+    // Replaced by the person's own after status read cmux's: remove_entry judges what it moved.
+    let path = env.config_path(App::Pi);
+    std::fs::write(&path, "---\nname: cmux\n---\nmine\n").unwrap();
+    let e = remove_entry(&env, App::Pi).unwrap_err();
+    assert!(e.downcast_ref::<ForeignEntry>().is_some(), "{e:#}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "---\nname: cmux\n---\nmine\n");
+    let left: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().collect();
+    assert_eq!(left.len(), 1, "only SKILL.md stays");
+    // Gone already: nothing to do.
+    std::fs::remove_file(&path).unwrap();
+    assert!(remove_entry(&env, App::Pi).is_ok());
 }
