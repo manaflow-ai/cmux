@@ -57,6 +57,14 @@ fn pop_until(outbound: &BoundedOutbound, wanted: impl Fn(&Value) -> bool) -> Val
 }
 
 fn subscribe(stream: &str, follow: bool) -> String {
+    subscribe_with(
+        stream,
+        follow,
+        journal_subscription_filter(JournalSensitivity::Sensitive, json!({"kinds":["agent.*"]})),
+    )
+}
+
+fn subscribe_with(stream: &str, follow: bool, filter: Value) -> String {
     resource_request(
         stream,
         "session.journal.subscribe",
@@ -65,13 +73,36 @@ fn subscribe(stream: &str, follow: bool) -> String {
             "session":"current",
             "stream_id":stream,
             "follow":follow,
-            "filter":journal_subscription_filter(
-                JournalSensitivity::Sensitive,
-                json!({"kinds":["agent.*"]}),
-            ),
+            "filter":filter,
         }),
         None,
     )
+}
+
+/// A session with one agent in a turn: its tool reports change no durable
+/// state. Returns the agent's terminal.
+fn session_with_an_agent_at_rest() -> (Arc<Mux>, String) {
+    let mux = test_mux();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap().key;
+    mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace).unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    let terminal = terminal.as_str().to_string();
+    hook(&mux, &terminal, "SessionStart");
+    hook(&mux, &terminal, "UserPromptSubmit");
+    assert_eq!(rows_of_three_tool_reports(&mux, &terminal), 0, "setup: nobody follows, no row");
+    (mux, terminal)
+}
+
+/// Opens a live journal stream with `filter` on a new local client.
+fn follow_live(mux: &Arc<Mux>, stream: &str, filter: Value) {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let request = subscribe_with(stream, true, filter);
+    assert!(handle_connection_message(mux, client, &request, &writer, &scheduler));
+    assert_eq!(pop_until(&outbound, |message| message["id"] == stream)["ok"], true);
 }
 
 #[test]
@@ -134,4 +165,67 @@ fn a_live_journal_follower_of_agent_rows_gets_a_row_for_each_report() {
     assert_eq!(rows_of_three_tool_reports(&mux, terminal), 3, "inside the grace: still rows");
     mux.pass_journal_follower_grace_for_test();
     assert_eq!(rows_of_three_tool_reports(&mux, terminal), 0, "after the grace: no row");
+}
+
+/// The kind filter is asked: a follower of other kinds is never sent an
+/// agent row, so it keeps none.
+#[test]
+fn a_live_journal_follower_of_other_kinds_keeps_no_agent_row() {
+    let (mux, terminal) = session_with_an_agent_at_rest();
+    follow_live(
+        &mux,
+        "stream_00000000000000000000000000000b11",
+        journal_subscription_filter(JournalSensitivity::Sensitive, json!({"kinds":["terminal.*"]})),
+    );
+    assert_eq!(
+        rows_of_three_tool_reports(&mux, &terminal),
+        0,
+        "a follower of terminal.* is never sent agent.state.changed"
+    );
+}
+
+/// A hook row is `sensitive`. A stream is sent it only with
+/// `max_sensitivity: sensitive`; the default limit is `metadata`. A follower
+/// that can never be sent the rows must not turn the saving off.
+#[test]
+fn a_live_journal_follower_below_the_row_sensitivity_keeps_no_agent_row() {
+    let (mux, terminal) = session_with_an_agent_at_rest();
+    follow_live(&mux, "stream_00000000000000000000000000000b21", json!({"kinds":["agent.*"]}));
+    assert_eq!(
+        rows_of_three_tool_reports(&mux, &terminal),
+        0,
+        "agent.* at the default metadata limit is never sent a sensitive row"
+    );
+    follow_live(&mux, "stream_00000000000000000000000000000b22", json!({}));
+    assert_eq!(
+        rows_of_three_tool_reports(&mux, &terminal),
+        0,
+        "no kind filter at the default metadata limit is never sent a sensitive row"
+    );
+    follow_live(
+        &mux,
+        "stream_00000000000000000000000000000b23",
+        journal_subscription_filter(JournalSensitivity::Sensitive, json!({})),
+    );
+    assert_eq!(
+        rows_of_three_tool_reports(&mux, &terminal),
+        3,
+        "control: the sensitive limit is sent each row"
+    );
+}
+
+/// A follower of the last daemon run (chatmux-relay's forwarder) comes back
+/// with its saved cursor after a restart and must find the rows of the gap:
+/// the grace runs from the moment the daemon serves, with no follower yet.
+#[test]
+fn the_follower_grace_runs_from_the_daemon_start() {
+    let (mux, terminal) = session_with_an_agent_at_rest();
+    mux.mark_server_lifecycle_ready();
+    assert_eq!(
+        rows_of_three_tool_reports(&mux, &terminal),
+        3,
+        "a daemon that just started keeps each report for a follower that comes back"
+    );
+    mux.pass_journal_follower_grace_for_test();
+    assert_eq!(rows_of_three_tool_reports(&mux, &terminal), 0, "after the grace: no row");
 }
