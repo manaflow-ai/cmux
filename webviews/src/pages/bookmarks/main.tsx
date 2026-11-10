@@ -30,6 +30,11 @@ export function mountBookmarksPage(root: HTMLElement, client: PageClient | null 
   // A page opened to show one bookmark starts at `#/?reveal=<id>`: shown once the tree lands.
   const reveal = revealRoute(location.hash);
   if (reveal) store.reveal(reveal);
+  // A reveal sent before the page listened comes as the same route on a page already running.
+  window.addEventListener("hashchange", () => {
+    const later = revealRoute(location.hash);
+    if (later) store.reveal(later);
+  });
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {
