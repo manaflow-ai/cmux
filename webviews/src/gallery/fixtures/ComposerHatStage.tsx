@@ -76,7 +76,9 @@ export function ComposerHatStage({
               <div
                 className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
                 data-stage-composer=""
-                style={{ height: 72, background: "var(--acpmux-composer-tray)" }}
+                // No fill of its own: the card's glass tint (composerStates.css) is the real card's. An
+                // inline opaque fill under its backdrop-filter is opaque glass (accent-glass-invariants).
+                style={{ height: 72 }}
               />
             </div>
           </div>
