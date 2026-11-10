@@ -14,6 +14,9 @@ run-name: ${{ format('Remote GUI proof{0}', inputs.request_id != '' && format(' 
 # there and back, drop the network (pf on lo0) and restore it. Each step leaves a light-mode still,
 # and the evidence (evidence.json) holds the times: pick host -> first reply, drop -> working again.
 on:
+  # RUN BRANCH ONLY (never merged): a lane VM cannot dispatch, so a push to this one branch runs the proof.
+  push:
+    branches: [lane/remote-gui-proof-run]
   workflow_dispatch:
     inputs:
       drop_seconds:
