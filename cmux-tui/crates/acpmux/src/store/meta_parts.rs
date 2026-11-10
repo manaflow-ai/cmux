@@ -265,7 +265,17 @@ impl PartsMemo {
         };
         let path = dir.join(PARTS_FILE);
         let at = stamp(&path);
-        let Some(bytes) = at.and_then(|_| std::fs::read(&path).ok()) else {
+        // Read as `session.json` is: owner-only, never through a link.
+        let read = || -> Option<Vec<u8>> {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(
+                &mut crate::config::private_state_file(&path).ok()?,
+                &mut bytes,
+            )
+            .ok()?;
+            Some(bytes)
+        };
+        let Some(bytes) = at.and_then(|_| read()) else {
             self.forget(&meta.id);
             return;
         };
