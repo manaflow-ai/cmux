@@ -76,7 +76,7 @@ fn a_runs_steps_reach_the_app_that_started_the_daemon() {
     let daemon = HeadlessServer::adopt(child, socket.clone(), state, state_dir);
     daemon.wait_for_socket();
 
-    let request = serde_json::json!({
+    let request = json!({
         "call": "runs.create", "api": "https://cloud.invalid", "auth": "owner",
         "credential": "test-credential", "team": "team_1",
         "args": { "task": "say hi", "agent": "codex", "timeoutMs": 30_000, "idempotencyKey": "k-1" },
@@ -96,7 +96,7 @@ fn a_runs_steps_reach_the_app_that_started_the_daemon() {
         .unwrap();
     cli.stdin.take().unwrap().write_all(request.to_string().as_bytes()).unwrap();
     let output = cli.wait_with_output().unwrap();
-    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
         panic!(
             "no answer: {} {}",
             String::from_utf8_lossy(&output.stdout),
