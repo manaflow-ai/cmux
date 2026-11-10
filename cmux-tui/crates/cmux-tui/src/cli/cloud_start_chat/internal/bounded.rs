@@ -163,34 +163,6 @@ mod tests {
         assert_eq!(read, Ok("count".to_owned()));
     }
 
-    /// A step that exits at once but leaves a backgrounded grandchild holding its stdout answers right away with
-    /// its own output, and the grandchild is killed with the step's group: neither the pipe nor the leftover
-    /// outlives the step. Without it, reading the output waited on the grandchild, past any deadline.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_step_that_exits_leaving_a_grandchild_on_its_pipe_answers_and_leaves_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let pid_file = dir.path().join("grandchild.pid");
-        let mut command = cmux_process::Command::new("sh");
-        command.arg("-c").arg(format!("sleep 600 & echo $! > '{}'; echo hi", pid_file.display()));
-        let began = Instant::now();
-        let ran = output_by(command, began + Duration::from_secs(5));
-        let took = began.elapsed();
-        assert_eq!((ran.code, ran.stdout.as_str()), (0, "hi\n"), "{}", ran.stderr);
-        assert!(took < Duration::from_secs(3), "answered {took:?} after the step exited");
-        let pid = std::fs::read_to_string(&pid_file).unwrap();
-        let gone = (0..100).any(|_| {
-            let stat =
-                std::fs::read_to_string(format!("/proc/{}/stat", pid.trim())).unwrap_or_default();
-            let running = stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z'));
-            if running {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            !running
-        });
-        assert!(gone, "the step's grandchild outlived it");
-    }
-
     /// Under a second left, no remote script is sent; otherwise the machine's `timeout` holds the whole seconds
     /// left, the script quoted whole.
     #[test]

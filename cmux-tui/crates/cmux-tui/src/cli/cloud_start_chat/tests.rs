@@ -2834,6 +2834,24 @@ fn gone(file: &std::path::Path) -> bool {
     false
 }
 
+/// A bounded step that exits at once but leaves a backgrounded grandchild holding its stdout answers right away
+/// with its own output, and the grandchild is killed with the step's group: neither the pipe nor the leftover
+/// outlives the step. Without it, reading the output waited on the grandchild, past any deadline.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bounded_step_that_exits_leaving_a_grandchild_on_its_pipe_answers_and_leaves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("child.pid");
+    let mut command = cmux_process::Command::new("sh");
+    command.arg("-c").arg(format!("sleep 600 & echo $! > '{}'; echo hi", pid_file.display()));
+    let began = Instant::now();
+    let ran = internal::bounded::output_by(command, began + Duration::from_secs(5));
+    let took = began.elapsed();
+    assert_eq!((ran.code, ran.stdout.as_str()), (0, "hi\n"), "{}", ran.stderr);
+    assert!(took < Duration::from_secs(3), "answered {took:?} after the step exited");
+    assert!(gone(&pid_file), "the step's grandchild outlived it");
+}
+
 /// The drill's real runner ends a start-session that stalls at the drill's deadline: the step's child (and the
 /// child it started, its process group) is killed there, the drill answers then, and nothing after it runs, so no
 /// prompt is sent. Without the bound the step waited for its child to finish, past any `--timeout`.
