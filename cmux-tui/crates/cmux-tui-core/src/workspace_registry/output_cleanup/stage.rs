@@ -56,6 +56,14 @@ fn put_records_worth_a_cleanup() -> u64 {
     PUT_RECORDS_LIMIT.with(std::cell::Cell::get)
 }
 
+/// Sets [`PUT_RECORDS_LIMIT`] on this thread: the cleanup worker of a test
+/// daemon takes the limit of its test this way (its own thread would use
+/// the product's 100,000, and a test's registry never holds that many).
+#[cfg(test)]
+pub(crate) fn set_put_records_limit_for_test(limit: u64) {
+    PUT_RECORDS_LIMIT.with(|cell| cell.set(limit));
+}
+
 #[cfg(not(test))]
 fn put_records_worth_a_cleanup() -> u64 {
     PUT_RECORDS_WORTH_A_CLEANUP

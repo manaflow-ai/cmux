@@ -43,6 +43,10 @@ pub(super) struct OutputCleanupState {
     /// Retention ticks of this start that waited for the agent history fold
     /// before they named a rebuild floor.
     fold_waits: std::sync::atomic::AtomicU32,
+    /// A test's count of records that are worth a rebuild (0: the
+    /// product's), for the worker thread of that test's daemon.
+    #[cfg(test)]
+    records_limit_for_test: Arc<AtomicU64>,
     worker: Mutex<Option<OutputCleanupWorker>>,
 }
 
@@ -193,6 +197,15 @@ impl Mux {
         }
     }
 
+    /// The count of records that are worth a rebuild, for a test: on the
+    /// calling thread (the test's own maintenance ticks) and on the cleanup
+    /// worker of this daemon, so the two agree as they do in the product.
+    #[cfg(test)]
+    pub(crate) fn set_rebuild_records_limit_for_test(&self, limit: u64) {
+        output_cleanup::set_put_records_limit_for_test(limit);
+        self.output_cleanup.records_limit_for_test.store(limit, Ordering::Release);
+    }
+
     pub(super) fn start_output_cleanup(self: &Arc<Self>) -> anyhow::Result<()> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(db_path) = registry.session_journal_database_path() else { return Ok(()) };
@@ -218,6 +231,8 @@ impl Mux {
         let pending = self.output_cleanup.pending.clone();
         let rebuild_possible = self.output_cleanup.rebuild_possible.clone();
         let weak_mux = Arc::downgrade(self);
+        #[cfg(test)]
+        let records_limit_for_test = self.output_cleanup.records_limit_for_test.clone();
         let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
         // Before the thread runs: the retention pass must not delete in
         // place what this worker is about to rebuild.
@@ -256,6 +271,11 @@ impl Mux {
                         // pass named during the start delay (if any).
                         worker_control.floor.load(Ordering::Acquire)
                     };
+                    #[cfg(test)]
+                    match records_limit_for_test.load(Ordering::Acquire) {
+                        0 => {}
+                        limit => output_cleanup::set_put_records_limit_for_test(limit),
+                    }
                     let outcome = run_output_cleanup(&db_path, floor, &worker_control, &pending);
                     if worker_control.is_stopped() {
                         return;

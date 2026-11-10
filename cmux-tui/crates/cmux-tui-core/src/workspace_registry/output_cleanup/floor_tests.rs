@@ -512,7 +512,10 @@ fn a_refused_cleanup_without_a_floor_does_not_stop_a_rebuild_at_a_floor() {
 /// checkpoints always stay). Returns the end of the old run. 1,000 records
 /// at or below the floor are worth a rebuild in this test.
 fn old_run_below_the_retention_floor(mux: &Arc<crate::Mux>) -> u64 {
-    PUT_RECORDS_LIMIT.with(|limit| limit.set(1_000));
+    // Also for the daemon's cleanup worker, which starts after 60 s: with
+    // the product's 100,000 it would find nothing to rebuild at the floor
+    // and end, and the next tick would then delete in place.
+    mux.set_rebuild_records_limit_for_test(1_000);
     // The worker ticks each 30 s; these tests run the same tick themselves.
     mux.stop_journal_maintenance();
     let surface = mux.new_workspace(None, None).unwrap();

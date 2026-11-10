@@ -88,6 +88,8 @@ use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
+#[cfg(test)]
+pub(crate) use stage::set_put_records_limit_for_test;
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
 pub(super) use swap::{
     finish_pending_rollback, note_full_start, refuse_open_beside_backup,
