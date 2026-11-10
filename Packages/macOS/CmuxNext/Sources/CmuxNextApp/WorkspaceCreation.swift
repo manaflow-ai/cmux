@@ -40,18 +40,13 @@ enum WorkspaceCreation {
         // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
         // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
         // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
-        var completed = false
-        defer { if !completed { ledger?.forget(key.rawValue) } }
-        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
-        let result = try await repair.populating(key) {
+        try await WorkspacePlacementLedger.placing(ledger, rule, key: key, on: connection) { sent in try await repair.populating(key) {
             try await repair.withTerminal(
                 key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
-        }
-        completed = true
-        return result
+        } }
     }
 
     /// The first terminal of new workspace `key` (Cmd-N's way for every caller of ``create(_:name:on:repair:terminal:)``):
@@ -76,10 +71,7 @@ enum WorkspaceCreation {
         giveUp: ContinuousClock.Instant? = nil,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
-        var completed = false
-        defer { if !completed { ledger?.forget(key.rawValue) } }
-        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
-        let result = try await repair.populating(key) {
+        try await WorkspacePlacementLedger.placing(ledger, rule, key: key, on: connection) { sent in try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await repair.withTerminal(
                 key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue, until: giveUp) },
@@ -89,9 +81,7 @@ enum WorkspaceCreation {
                 },
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
-        }
-        completed = true
-        return result
+        } }
     }
 
     /// Whether `spawn` opens on the New Tab page (or a first chat), not a terminal.

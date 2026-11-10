@@ -378,6 +378,22 @@ public final class SidebarDocSections {
         return sections
     }
 
+    /// Lists each of `besides` beside its neighbour (``insert(_:beside:into:within:from:)``); one whose neighbour is
+    /// not listed goes where the other new rows go (`place`), or first for an anchor that falls back to first, and
+    /// under `.last` last of all, below a trailing group too (where the daemon's create appends it).
+    public static func insert(_ besides: [(WorkspaceModel, UnplacedAnchor)], else place: NewRowsPlace,
+                              into sections: inout [CmuxNextDaemon.SidebarSection]) {
+        for (workspace, beside) in besides where !insert(workspace, beside: beside, into: &sections, within: sections.count) {
+            if place != .last || beside.fallsBackToFirst {
+                insertNew([workspace], beside.fallsBackToFirst ? .first : place, into: &sections, machineSections: sections.count)
+            } else if let last = sections.indices.last, sections[last].group == nil {
+                sections[last] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+            } else {
+                sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [workspace]))
+            }
+        }
+    }
+
     /// Lists `workspace` beside the workspace `anchor` names, in that one's section (its group, or its
     /// loose run), among the machine's own sections `start..<within` (not Pinned or a custom section's
     /// group). False when they do not list that workspace, or a group anchor's workspace is not in a group.

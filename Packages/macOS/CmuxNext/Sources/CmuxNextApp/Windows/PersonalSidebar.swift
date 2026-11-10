@@ -98,9 +98,7 @@ enum PersonalSidebar {
         // A create in flight that named a neighbour lists beside it (`SidebarDocSections.unplacedAnchor`), where
         // the daemon's create puts it; the others where `newRows` puts them.
         let unrowed = ordered.filter { rows[rowKey($0)] == nil }
-        let besides: [(WorkspaceModel, SidebarDocSections.UnplacedAnchor)] = unrowed.compactMap { workspace in
-            anchor(workspace).map { (workspace, $0) } // `.first` too: first, below a leading Home row
-        }
+        let besides = unrowed.compactMap { workspace in anchor(workspace).map { (workspace, $0) } } // `.first`: below a leading Home row
         let named = Set(besides.map(\.0.id))
         let fresh = unrowed.filter { !named.contains($0.id) }, (place, newestFirst) = newRows(ordered, fresh)
         if place == .last { loose += fresh }
@@ -110,18 +108,7 @@ enum PersonalSidebar {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
             SidebarDocSections.insertNew(newestFirst ? Array(fresh.reversed()) : fresh, place, into: &sections, machineSections: sections.count)
         }
-        for (workspace, beside) in besides where !SidebarDocSections.insert(workspace, beside: beside, into: &sections,
-                                                                               within: sections.count) {
-            // Its neighbour is not listed here: where the others go.
-            if place != .last || beside.fallsBackToFirst {
-                SidebarDocSections.insertNew([workspace], beside.fallsBackToFirst ? .first : place, into: &sections, machineSections: sections.count)
-            } else if let last = sections.indices.last, sections[last].group == nil {
-                // Last of all, below a trailing group too.
-                sections[last] = SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
-            } else {
-                sections.append(SidebarSection(group: nil, workspaces: [workspace]))
-            }
-        }
+        SidebarDocSections.insert(besides, else: place, into: &sections)
         return sections
     }
 

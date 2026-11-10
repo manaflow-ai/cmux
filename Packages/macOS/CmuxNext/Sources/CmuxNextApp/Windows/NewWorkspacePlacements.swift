@@ -54,12 +54,7 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
-        switch anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) {
-        // Only a daemon that places the create by the rule puts it in the group (`sending` arms it).
-        case let anchor? where anchor.isGroupAnchor: windows.newPlacements.groupAnchors[id] = anchor
-        case let anchor?: windows.newPlacements.anchors[id] = anchor
-        case nil: break
-        }
+        windows.newPlacements.expect(id, anchor: NewWorkspaceDefaultSlot.anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)))
         if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
@@ -76,23 +71,11 @@ enum NewWorkspacePlacements {
         return (key, byDefault)
     }
 
-    /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
-    /// `key` in `ledger`'s ``Ledger/placedByDaemon``; nil for an older daemon, which
-    /// ignores the fields, or with no ledger to record it in, so the app still sends its own placement afterwards.
-    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection,
-                        ledger: Ledger?) async -> NewWorkspaceDefaultSlot? {
-        await ledger?.sending(rule, key: key, on: connection)
-    }
-
     /// Drops what a create that ended without its workspace left for it.
     static func forget(_ id: String, windows: WindowManager) {
         windows.pendingPlacements[id] = nil
         windows.pendingPlacementOrder.removeAll { $0 == id }
         windows.newPlacements.forget(id)
-    }
-
-    static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
-        NewWorkspaceDefaultSlot.anchor(slot: slot, byDefault: byDefault, home: home)
     }
 
     typealias Ledger = WorkspacePlacementLedger

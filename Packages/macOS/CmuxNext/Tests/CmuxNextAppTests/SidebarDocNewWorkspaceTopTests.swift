@@ -106,7 +106,7 @@ import Testing
     func aMissingCurrentWorkspaceFallsBackToTopFromItsFirstFrame(placement: NewWorkspacePlacement) {
         let doc = SidebarDocSections(document: { nil })
         doc.newRowsPlace = { .last }
-        let anchor = NewWorkspacePlacements.anchor(slot: nil, byDefault: .init(placement: placement, current: "not-in-this-machine"), home: nil)
+        let anchor = NewWorkspaceDefaultSlot.anchor(slot: nil, byDefault: .init(placement: placement, current: "not-in-this-machine"), home: nil)
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? anchor : nil }
         #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: Self.store(fresh: ["ws-new"]).workspaces))
             == ["ws-home", "ws-new", "ws-1", "ws-2", "ws-3"])

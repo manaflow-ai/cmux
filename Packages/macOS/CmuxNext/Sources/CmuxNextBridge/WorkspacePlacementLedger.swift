@@ -25,6 +25,22 @@ package final class WorkspacePlacementLedger {
         return rule
     }
 
+    /// Runs `create` with the rule `ledger`'s daemon places the create by (``sending(_:key:on:)``; nil with no ledger or
+    /// an older daemon), releasing what the create left in `ledger` when it throws.
+    package static func placing<T>(_ ledger: WorkspacePlacementLedger?, _ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey,
+                                   on connection: DaemonConnection,
+                                   _ create: (NewWorkspaceDefaultSlot?) async throws -> T) async throws -> T {
+        let sent = await ledger?.sending(rule, key: key, on: connection)
+        do { return try await create(sent) } catch { ledger?.forget(key.rawValue); throw error }
+    }
+
+    /// Records the first-frame neighbour of new workspace `id` (``NewWorkspaceDefaultSlot/anchor(slot:byDefault:home:)``):
+    /// a group anchor waits for `sending` (only a daemon that places the create by the rule puts it in the group).
+    package func expect(_ id: String, anchor: SidebarDocSections.UnplacedAnchor?) {
+        guard let anchor else { return }
+        if anchor.isGroupAnchor { groupAnchors[id] = anchor } else { anchors[id] = anchor }
+    }
+
     /// Releases all placement state when a create ends without a listed workspace.
     package func forget(_ id: String) {
         placedByDaemon.remove(id)
