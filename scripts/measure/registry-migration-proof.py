@@ -225,8 +225,40 @@ def swap_line(owner):
 
 # A first pass, or a pass that goes on with the staging file of a killed owner.
 STAGING_LINES = ["output cleanup: staging ", "output cleanup: resuming after sequence"]
-BAD_BUILD = ("output cleanup: not enough free space", "output cleanup: skipped, the registry",
-             "output cleanup: staging failed")
+BAD_BUILD = ("output cleanup: not enough free space", "output cleanup: staging failed")
+SKIPPED = "output cleanup: skipped, the registry"
+BUILT = "built the new registry in the background in"
+
+
+def staging_passes(text):
+    return sum(text.count(line) for line in STAGING_LINES)
+
+
+def wait_built(owner, timeout):
+    """The build line: ("built", seconds from spawn). A registry of the long-lived shape is
+    first refused by the one-time pass without a floor (it would keep most of the journal:
+    one "skipped" line); the owner then waits for the retention floor and stages again. A
+    second "skipped" line ends the worker: (reason, None). None at the timeout or an exit."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        text = owner.log_text()
+        if BUILT in text:
+            return "built", round(owner.elapsed(), 3)
+        for bad in BAD_BUILD:
+            if bad in text:
+                return bad, None
+        if text.count(SKIPPED) >= 2:
+            return "skipped two times", None
+        if owner.child.poll() is not None:
+            return None
+        time.sleep(0.1)
+    return None
+
+
+def cleanup_lines(owner):
+    """The cleanup's log lines of this owner, without the ones that hold a path."""
+    return [line.split("output cleanup: ")[1][:200] for line in owner.log_text().splitlines()
+            if "output cleanup: " in line and "/" not in line]
 
 
 def build(args, state, label):
@@ -242,14 +274,13 @@ def build(args, state, label):
     result["staging_started_s"] = None if staging is None else staging[1]
     built = None
     if staging is not None and staging[1] is not None:
-        built = owner.wait_log(["built the new registry in the background in"],
-                               args.build_timeout, BAD_BUILD)
+        built = wait_built(owner, args.build_timeout)
     result["built_s"] = None if built is None else built[1]
+    text = owner.log_text()
+    result["skipped_passes"] = text.count(SKIPPED)
+    result["cleanup_lines"] = cleanup_lines(owner)[-8:]
     if built is None or built[1] is None:
-        lines = [line.split("output cleanup: ")[1][:160] for line in owner.log_text().splitlines()
-                 if "output cleanup: " in line and "/" not in line]
-        result["error"] = "no build"
-        result["cleanup_lines"] = lines[-6:]
+        result["error"] = "no build" if built is None else "no build: " + built[0]
     result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
@@ -307,14 +338,26 @@ def main_arm(args, state, before, report):
 
 
 def kill_stage_arm(args, state, before, report):
+    """kill -9 in the pass that builds: the main arm says how many passes are skipped first."""
+    skipped = next((step.get("skipped_passes", 0) for step in report["steps"]
+                    if step["arm"] == "main-start1"), 0)
     owner = Owner(args, state, "kill-stage-a")
     owner.wait_ready()
-    seen = owner.wait_log(STAGING_LINES, args.build_timeout, BAD_BUILD)
+    deadline = time.monotonic() + args.build_timeout
+    seen = False
+    while time.monotonic() < deadline and owner.child.poll() is None:
+        text = owner.log_text()
+        if staging_passes(text) > skipped or any(bad in text for bad in BAD_BUILD):
+            seen = staging_passes(text) > skipped
+            break
+        time.sleep(0.02)
     staging = registry_of(state).parent / STAGING
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and drs.file_size(staging) < 1 << 20:
         time.sleep(0.002)
-    step = {"arm": "kill-stage", "point": "while the owner stages", "staging_seen": seen is not None,
+    step = {"arm": "kill-stage", "point": "while the owner stages at the floor",
+            "staging_seen": seen, "passes_skipped_before": skipped,
+            "built_before_the_kill": BUILT in owner.log_text(),
             "staging_bytes_at_kill": drs.file_size(staging)}
     owner.kill9()
     step["after_kill"] = build(args, state, "kill-stage-b")
@@ -411,9 +454,11 @@ def table(report):
             ("a plain start changed", json.dumps(steps.get("plain-start", {})
                                                  .get("changed_by_a_plain_start")))]
     one = steps.get("main-start1", {})
-    rows.append(("start 1: ready / staging starts / built", f"{one.get('ready_s')} s / "
+    rows.append(("start 1: ready / first staging starts / built", f"{one.get('ready_s')} s / "
                  f"{one.get('staging_started_s')} s / {one.get('built_s')} s "
-                 f"(load {one.get('load_1m', 0):.1f}; {one.get('error', 'ok')})"))
+                 f"(load {one.get('load_1m', 0):.1f}; {one.get('error', 'ok')}; passes skipped "
+                 f"first: {one.get('skipped_passes')})"))
+    rows.append(("start 1: the cleanup's lines", json.dumps(one.get("cleanup_lines"))))
     two = steps.get("main-start2", {})
     rows.append(("start 2: ready, the swap", f"{two.get('ready_s')} s; {two.get('swap')}"))
     if after:
@@ -436,7 +481,9 @@ def table(report):
             keep = {key: value for key, value in step.items()
                     if key in ("point", "point_hit", "at_kill", "lost", "lost_after_second",
                                "swapped", "refused", "staging_file", "opens", "lost_after_new",
-                               "served", "ready_s", "last_line")}
+                               "served", "ready_s", "last_line", "staging_seen",
+                               "built_before_the_kill", "staging_bytes_at_kill",
+                               "after_restart", "new_after_old_ready_s")}
             rows.append((name, json.dumps(keep)))
     print("RMP-TABLE | item | result |")
     print("RMP-TABLE | --- | --- |")
