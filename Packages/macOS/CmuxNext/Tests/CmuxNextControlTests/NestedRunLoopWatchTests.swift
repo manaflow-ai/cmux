@@ -15,17 +15,17 @@ import Testing
         watch.start(insideRun: true)
         #expect(watch.entered(now: 100, inDefaultMode: { true }), "a nested default-mode run wakes the watchdog")
         #expect(watch.parkLimit(now: 100, hangNanos: hang) == hang)
-        #expect(watch.take(now: 100 + hang - 1, hangNanos: hang, parked: true) == .idle)
-        guard case let .report(id, elapsed) = watch.take(now: 100 + hang, hangNanos: hang, parked: true) else {
+        #expect(watch.take(now: 100 + hang - 1, hangNanos: hang, busySince: nil) == .idle)
+        guard case let .report(id, elapsed) = watch.take(now: 100 + hang, hangNanos: hang, busySince: nil) else {
             Issue.record("a run parked for the hang threshold is reported")
             return
         }
         #expect(elapsed == hang)
-        #expect(watch.take(now: 100 + 2 * hang, hangNanos: hang, parked: true) == .idle, "reported once")
+        #expect(watch.take(now: 100 + 2 * hang, hangNanos: hang, busySince: nil) == .idle, "reported once")
         #expect(watch.parkLimit(now: 100 + 2 * hang, hangNanos: hang) == nil, "nothing more to time while it runs")
         #expect(watch.exited(now: 100 + 3 * hang), "the end of a reported run wakes the watchdog")
-        #expect(watch.take(now: 100 + 3 * hang, hangNanos: hang, parked: true) == .ended(id: id, durationNanos: 3 * hang))
-        #expect(watch.take(now: 100 + 4 * hang, hangNanos: hang, parked: true) == .idle)
+        #expect(watch.take(now: 100 + 3 * hang, hangNanos: hang, busySince: nil) == .ended(id: id, durationNanos: 3 * hang))
+        #expect(watch.take(now: 100 + 4 * hang, hangNanos: hang, busySince: nil) == .idle)
     }
 
     @Test func aRunThatEndsBeforeTheThresholdIsNeverReported() {
@@ -33,7 +33,7 @@ import Testing
         watch.start(insideRun: true)
         _ = watch.entered(now: 0, inDefaultMode: { true })
         #expect(!watch.exited(now: hang / 2))
-        #expect(watch.take(now: 2 * hang, hangNanos: hang, parked: true) == .idle)
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: nil) == .idle)
         #expect(watch.parkLimit(now: 2 * hang, hangNanos: hang) == nil)
     }
 
@@ -43,13 +43,32 @@ import Testing
         let watch = NestedRunLoopWatch()
         watch.start(insideRun: true)
         _ = watch.entered(now: 0, inDefaultMode: { true })
-        #expect(watch.take(now: 2 * hang, hangNanos: hang, parked: false) == .idle, "busy, not parked")
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: 0) == .idle, "one busy turn since the start: the heartbeat's hang")
         watch.hangTurnEnded(now: 2 * hang)
-        #expect(watch.take(now: 2 * hang, hangNanos: hang, parked: true) == .idle, "the hang was reported once already")
+        #expect(watch.take(now: 2 * hang, hangNanos: hang, busySince: nil) == .idle, "the hang was reported once already")
         #expect(watch.parkLimit(now: 2 * hang, hangNanos: hang) == hang)
-        #expect(watch.take(now: 3 * hang - 1, hangNanos: hang, parked: true) == .idle)
-        #expect(watch.take(now: 3 * hang, hangNanos: hang, parked: true) == .report(id: 1, elapsedNanos: hang),
+        #expect(watch.take(now: 3 * hang - 1, hangNanos: hang, busySince: nil) == .idle)
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: nil) == .report(id: 1, elapsedNanos: hang),
                 "parked a full threshold after the hang ended")
+    }
+
+    /// A run kept busy by short turns never sleeps. The turn under way when it fell due is waited out; the next turn
+    /// began after it was due and is short, so the run is reported then.
+    @Test func aRunBusyWithShortTurnsIsReportedFromTheFirstTurnAfterItWasDue() {
+        let watch = NestedRunLoopWatch()
+        watch.start(insideRun: true)
+        _ = watch.entered(now: 0, inDefaultMode: { true })
+        #expect(watch.take(now: hang + 5, hangNanos: hang, busySince: hang - 3) == .idle, "the turn under way began before it was due")
+        #expect(watch.take(now: hang + 20, hangNanos: hang, busySince: hang + 10) == .report(id: 1, elapsedNanos: hang + 20))
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: 3 * hang - 1) == .idle, "reported once")
+    }
+
+    /// A turn that began after the run was due but already lasted the hang threshold is the heartbeat's hang.
+    @Test func aTurnThatIsItselfAHangIsNotAlsoReportedAsTheRun() {
+        let watch = NestedRunLoopWatch()
+        watch.start(insideRun: true)
+        _ = watch.entered(now: 0, inDefaultMode: { true })
+        #expect(watch.take(now: 3 * hang, hangNanos: hang, busySince: hang + 1) == .idle)
     }
 
     @Test func menusModalPanelsAndTheOuterLoopAreNotTimed() {
@@ -59,7 +78,7 @@ import Testing
         #expect(!watch.entered(now: 0, inDefaultMode: { true }))
         // A menu or a modal panel: a nested run in another mode.
         #expect(!watch.entered(now: 0, inDefaultMode: { false }))
-        #expect(watch.take(now: 10 * hang, hangNanos: hang, parked: true) == .idle)
+        #expect(watch.take(now: 10 * hang, hangNanos: hang, busySince: nil) == .idle)
         _ = watch.exited(now: 10 * hang)
         _ = watch.exited(now: 10 * hang)
         // An unbalanced exit (watching began inside a nested run) never goes below zero.
