@@ -28,6 +28,15 @@ When we change the fork, update this document and the parent submodule SHA.
   writes `contentsScale` in `TerminalSurfaceView.updateContentScale`. Tests: four "host present:" tests in
   `metal/IOSurfaceLayer.zig`. Files: `include/ghostty.h`, `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
   `src/renderer/metal/IOSurfaceLayer.zig`.
+- Known limit of `0efdef967` (review 2026-11-10), for the next fork pin: the pending scale lands with the first frame
+  that has the host's pixel size. The pixel size is an atomic that each draw reads; the new font grid goes through
+  the renderer's mailbox, which only the wakeup drains. A draw between the two (draw-now, a timer) gives one frame at
+  the new size with the old font, and the scale lands with it: text at the wrong size for one frame, then the frame
+  with the new font. The comment in `IOSurfaceLayer.zig` (`setContentScale`) and in `ghostty.h` says "in that order",
+  which is not true. Fix: stamp each `Target` with the scale it was drawn at (as `program_fresh`), land the scale only
+  with a frame of that stamp, and correct both comments. Also for that pin: a test of the scale landing through
+  `setSurfaceSync`, the same fixed-point rounding on both sides of the equality in `setContentScale`, and a clamp
+  that refuses a non-finite scale.
 - What: `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2` replaces `GHOSTTY_HOST_PRESENT_EMBEDDER` (value 1 removed). The
   renderer times a new host size's frame itself: on the alternate screen a new-size frame that is not the program's
   redraw at the new grid is held (the layer keeps its last frame, top-left, clipped) until the redraw or a bound of
