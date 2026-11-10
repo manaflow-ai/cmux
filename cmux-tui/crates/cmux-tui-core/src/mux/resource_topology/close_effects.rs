@@ -359,7 +359,7 @@ impl Mux {
         effects.closed_pending_host = self.closed_pending_terminal_host(
             effects.terminal_runtime.as_ref(),
             terminal_id,
-            terminal.result["incarnation"].as_str(),
+            terminal.result.get("incarnation").and_then(Value::as_str),
         );
         drop(state);
         self.publish_revisioned_workspace_delta(&registry, &mut effects);
