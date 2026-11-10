@@ -208,7 +208,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
 #[cfg(unix)]
 mod carrier_role;
 #[cfg(unix)]
@@ -325,6 +325,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod shell_wire;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -418,6 +419,12 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+/// A client that declares this in `set-client-info` gets the public ids
+/// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
+/// `workspace_id`) in the replies that create or find a terminal or view
+/// (`run`, `create-terminal`, `new-tab`, `split`, ...). Other clients get the
+/// old reply: released SDKs reject unknown fields in those results.
+pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
@@ -1130,6 +1137,11 @@ enum Command {
         #[serde(alias = "timeout_ms")]
         timeout_ms: u64,
     },
+    /// Shell mode's command on this machine (`shell-runs-v1`, `shell_wire.rs`).
+    ShellRun(shell_wire::RunParams),
+    /// Its output, a long poll answered off the dispatcher (`shell_wire::read`).
+    ShellRead(shell_wire::ReadParams),
+    ShellStop(shell_wire::StopParams),
     Run {
         #[serde(default)]
         argv: Option<Vec<String>>,
@@ -3108,6 +3120,10 @@ mod browser_profile_tests;
 #[cfg(test)]
 #[path = "server/creation_burst_tests.rs"]
 mod creation_burst_tests;
+
+#[cfg(test)]
+#[path = "server/run_public_ids_tests.rs"]
+mod run_public_ids_tests;
 
 #[cfg(test)]
 mod tests;

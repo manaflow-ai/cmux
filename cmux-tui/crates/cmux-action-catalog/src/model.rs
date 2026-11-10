@@ -161,6 +161,9 @@ pub struct Argument {
     pub is_target_name: bool,
     pub is_target_description: bool,
     pub is_supplied_by_target: bool,
+    /// The palette asks for it although it may be omitted (a new worktree's name, Discard Unsaved
+    /// Work): an empty answer runs without it. The CLI and MCP keep it optional.
+    pub asked_in_palette: bool,
 }
 
 impl Argument {
@@ -168,6 +171,13 @@ impl Argument {
     pub const fn optional(self) -> Self {
         let mut copy = self;
         copy.required = false;
+        copy
+    }
+
+    /// A copy the palette asks for although it may be omitted (`asked_in_palette`).
+    pub const fn asked_in_palette(self) -> Self {
+        let mut copy = self.optional();
+        copy.asked_in_palette = true;
         copy
     }
 }

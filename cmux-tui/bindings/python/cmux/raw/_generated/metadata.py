@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5ef822cc878dab6ba9ce54b8407eeac042d68f91b1451a12c677cea777789573'
+IR_SHA256 = '1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e'
 
 
 @dataclass(frozen=True)
@@ -3469,6 +3469,44 @@ COMMANDS = {
             'pinned': CommandFieldMetadata(12, 'workspace-pin-v1'),
             'title': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-read': CommandMetadata(
+        'shell-read',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'after': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'wait_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-run': CommandMetadata(
+        'shell-run',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'command': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'run': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+        },
+    ),
+    'shell-stop': CommandMetadata(
+        'shell-stop',
+        'control',
+        12,
+        'shell-runs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'run': CommandFieldMetadata(None, None),
         },
     ),
     'shutdown-daemon': CommandMetadata(

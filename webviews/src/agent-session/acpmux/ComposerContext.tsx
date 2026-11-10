@@ -65,7 +65,7 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
-import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import { CONTEXT_LABELS, emptyFolderLabel, splitForMiddleTruncation } from "./composerContextModel";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -133,6 +133,9 @@ export function ComposerContext({
   machineFolders,
   onBrowseProject,
   onNewWorktree,
+  onNewProject,
+  newProject = false,
+  newProjectName,
   onNoProject,
   noProject = false,
   localName,
@@ -188,6 +191,12 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
+  /// the strip reads New Project until the send makes the folder.
+  onNewProject?(): void;
+  newProject?: boolean;
+  /// The new project's name field, after the folder control while `newProject` (newtab/NewProjectName.tsx).
+  newProjectName?: React.ReactNode;
   /// A new chat's No folder (FolderPopover); `noProject` while it is the choice.
   onNoProject?(): void;
   noProject?: boolean;
@@ -871,16 +880,14 @@ export function ComposerContext({
                       <FolderIcon />
                     )
                   }
+                  // No folder is a settled choice, drawn like a picked folder: the chat starts in its
+                  // own private folder (Leo, 2026-11-09: "this no folder selected should be, like,
+                  // good as well"). Never a dimmed "Choose folder" prompt (emptyFolderLabel).
                   value={
-                    (currentName
-                      ? currentName
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)) + extraCount
+                    (newProject ? t(CONTEXT_LABELS.newProject) : (currentName ?? t(emptyFolderLabel))) + extraCount
                   }
                   chevron
-                  middle={currentFolder !== undefined}
-                  dim={!currentName && !noProject}
+                  middle={currentFolder !== undefined && !newProject}
                 />
               }
               folders={folders}
@@ -895,8 +902,10 @@ export function ComposerContext({
                   onNoProject();
                 })
               }
-              noProject={noProject && !currentFolder}
+              // Checked whenever the chip reads No folder, so the menu agrees with it.
+              noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
+              {...(onNewProject ? { onNewProject } : {})}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
@@ -904,7 +913,7 @@ export function ComposerContext({
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={(currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)) + extraCount}
+              value={(currentFolder ? projectLabel(currentFolder) : t(emptyFolderLabel)) + extraCount}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
@@ -949,6 +958,7 @@ export function ComposerContext({
               }}
             />
           )}
+          {newProject && newProjectName}
           {environmentsShown ? (
             layout === "combined" ? (
               <EnvironmentPicker
@@ -1233,7 +1243,6 @@ function LocationFace({
   middle = false,
   live,
   sleep,
-  dim = false,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1244,8 +1253,6 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
-  /// An empty choice ("Choose project"): dimmed until something is picked.
-  dim?: boolean;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1257,9 +1264,7 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label" data-dim={dim ? "" : undefined}>
-          {value}
-        </span>
+        <span className="acpmux-location-label">{value}</span>
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">

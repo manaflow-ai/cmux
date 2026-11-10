@@ -107,7 +107,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -634,8 +634,8 @@ def why(record):
 
 
 # A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
-# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
-SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+# line (AgentLine.tsx). A finished line opens from its name chip alone; a line with nothing to open has no chip button.
+SUBAGENT_LINES = (".cv-subagent-done button.cv-agent-tag.is-open", "button.acpmux-agent-line__button:not([disabled])")
 NO_MATCH = "no visible element matches"
 
 
@@ -1105,6 +1105,12 @@ def markdown(results):
             cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    # The prewarmed page each open found (adopted, or a cold page and why), so a spare every open refuses shows.
+    for condition, cases in (results.get("raw") or {}).items():
+        for case, records in (cases or {}).items():
+            pool = spare_pool(records) if isinstance(records, list) else None
+            if pool:
+                lines.append(f"spare pool, {case} {condition}: {pool}")
     for condition, cases in results.get("memory", {}).items():
         lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
             f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))

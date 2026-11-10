@@ -1437,17 +1437,40 @@
 /* The edge with more table past it fades out (sideways.ts marks it): the right edge, and the left
    once scrolled (user 2026-11-07: "markdown missing fade now"). A mask, so the fade takes the
    bubble's or the transcript's own background in light and dark; eased stops, so it never bands. */
-.cv-table-wrap {
-  --cv-table-fade-left: 0px;
-  --cv-table-fade-right: 0px;
-}
 .cv-table-wrap[data-more-left] {
   --cv-table-fade-left: var(--cv-table-fade, 24px);
 }
 .cv-table-wrap[data-more-right] {
   --cv-table-fade-right: var(--cv-table-fade, 24px);
 }
-.cv-table-wrap:is([data-more-left], [data-more-right]) {
+/* The fades come and go, never in one frame (user 2026-11-08: "this table thing needs better
+   animation on appear/disappear"): each width is a registered length, so it transitions, on the
+   pane's arrive token with its ease-out. The mask stays on while the table is wider than its box
+   (`data-cmux-sideways`, sideways.ts), so a fade going out runs to 0 instead of being cut.
+   Reduce Motion and motion off (a 0 token) show and hide them at once. */
+@property --cv-table-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --cv-table-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-table-wrap {
+    transition:
+      --cv-table-fade-left calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out),
+      --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
+  }
+  /* A row that streams into a table already in the reply fades in where it lands (opacity only,
+     so nothing below moves more than the row's own height). */
+  .cv-table-block.cv-enter tbody tr {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+.cv-table-wrap[data-cmux-sideways] {
   --cv-table-mask: linear-gradient(
     to right,
     rgb(0 0 0 / 0) 0,
@@ -6321,6 +6344,26 @@ a.cv-sha:focus-visible {
    through the composer's tinted card or the gutters around it. The scrollbar is not: a second
    layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
    track runs to the pane's bottom corner (Leo 2026-10-19). */
+/* Each edge deepens as the view leaves that end of the chat (VirtualTranscript sets the reach, 0 to 1,
+   threadMinimap/model.ts transcriptFadeReach): no fade at the very top or bottom, a full one a few
+   lines from it, like rows rolling over a wheel (Leo, 2026-11-07: "if you scroll to the very top,
+   there should be no fade. But then as you scroll down, like gradually, there's more and more of a
+   fade"). The reach and the mask that reads it do not inherit, so a scroll's new reach restyles the
+   scroller and none of its rows. */
+@property --acpmux-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-view-mask {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
@@ -6359,8 +6402,8 @@ a.cv-sha:focus-visible {
   --acpmux-view-mask: linear-gradient(
     to bottom,
     transparent var(--acpmux-view-top, 0px),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px)),
-    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
+    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot)
   );
   -webkit-mask-image:

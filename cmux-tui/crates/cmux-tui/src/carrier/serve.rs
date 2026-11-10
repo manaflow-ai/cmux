@@ -298,6 +298,7 @@ async fn connection(
         log: shared.log.clone(),
         phases: shared.log.clone(),
         fresh_sessions: Default::default(),
+        progress: None,
         ssh: shared.ssh.clone(),
         ssh_refusal: super::ssh::SshRefusal::default(),
     };
