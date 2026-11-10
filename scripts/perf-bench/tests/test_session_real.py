@@ -306,7 +306,7 @@ class Counts(unittest.TestCase):
 
     def test_the_agent_programs_are_the_ones_of_this_daemons_terminals_only(self):
         zsh = "/bin/zsh -f /kit/session_real_agent.zsh waiting "
-        rows = table((10, 1, zsh + "real-0003"), (11, 9, zsh + "real-0008"), (12, 1, zsh + "real-0003"),   # 12: another tag's
+        rows = table((10, 1, zsh + "real-0003"), (9, 1, "-/bin/zsh"), (11, 9, zsh + "real-0008"), (12, 1, zsh + "real-0003"),   # 12: another tag's
                      (13, 1, "/bin/zsh -l"), (14, 1, zsh + "real-0012"), (15, 1, zsh + "real-0021"))
         tabs = [(3, {"surface": 30}), (8, {"surface": 80}), (12, {"surface": 120}), (20, {"surface": 200}), (21, {"surface": 210})]
 
@@ -404,7 +404,9 @@ class RestoredAgents(unittest.TestCase):
             (181, 1, "/bin/zsh"), (182, 181, self.CLI + "real-0008"), (183, 181, "sleep 100"),             # 8: the CLI and a program beside it
             (191, 1, "/bin/zsh"),                                                                          # 9: the daemon cut its list
             (201, 1, "/bin/sh /shim/claude --resume session-real-real-0010"),                              # 10: the product's shim, for a moment
-            (211, 1, self.STUB + "real-0003"))                                                             # 11: a program with another name
+            (211, 1, self.STUB + "real-0003"),                                                             # 11: a program with another name
+            (221, 1, "/bin/zsh"), (222, 1, self.CLI + "real-0012"),                                        # 12: a listed PID that is not below the terminal's process
+            (241, 1, "/bin/zsh"))                                                                          # 13, 14: no live process named
         terminals = [
             {"surface": 10, "pid": 101, "processes": [{"pid": 101}, {"pid": 102}, {"pid": 103}]},
             {"surface": 20, "pid": 110, "processes": [{"pid": 110}, {"pid": 111}]},
@@ -415,8 +417,11 @@ class RestoredAgents(unittest.TestCase):
             {"surface": 80, "pid": 181, "processes": [{"pid": 181}, {"pid": 182}, {"pid": 183}]},
             {"surface": 90, "pid": 191, "processes": [{"pid": 191}], "truncated": True},
             {"surface": 100, "pid": 201, "processes": [{"pid": 201}]},
-            {"surface": 110, "pid": 211, "processes": [{"pid": 211}]}]
-        tabs = [(n, {"surface": n * 10}) for n in range(1, 12)]
+            {"surface": 110, "pid": 211, "processes": [{"pid": 211}]},
+            {"surface": 120, "pid": 221, "processes": [{"pid": 221}, {"pid": 222}]},
+            {"surface": 130, "pid": None, "processes": []},
+            {"surface": 140, "pid": 4242, "processes": [{"pid": 241}]}]
+        tabs = [(n, {"surface": n * 10}) for n in range(1, 15)]
 
         class Daemon:
             def call(self, cmd, **params):
@@ -437,8 +442,11 @@ class RestoredAgents(unittest.TestCase):
         self.assertEqual(m.agent_terminal_states(daemon, tabs, young, now=at)["real-0002"], ("shell", 5.0))
         self.assertEqual(states["real-0003"], ("program", 121))
         self.assertEqual(states["real-0007"], ("none", None))
-        for name in ("real-0004", "real-0005", "real-0006", "real-0008", "real-0009", "real-0010", "real-0011"):
+        for name in ("real-0004", "real-0005", "real-0006", "real-0008", "real-0009", "real-0010", "real-0011",
+                     "real-0012", "real-0013", "real-0014"):
             self.assertEqual(states[name][0], "other", (name, states[name]))   # never typed into, never signalled
+        self.assertIn("pid 222", states["real-0012"][1])                   # the CLI's PID is not in that terminal's tree: no signal
+        self.assertIn("no live process", states["real-0013"][1])           # nothing proves a shell: no start line
         self.assertEqual(m.agent_programs(daemon, tabs, rows), {"real-0003": 121})
 
     def test_a_signal_goes_only_to_the_same_process(self):
@@ -493,15 +501,17 @@ class RestoredAgents(unittest.TestCase):
         self.assertRegex(typed[0][1], r"session_real_agent\.zsh'? working real-0001\n$")
         self.assertNotIn(102, typed[0][2])                              # typed after the CLI ended, not into it
 
-    def run_agents(self, states, settle=60, stays=(), deaf=(), force=False, new_shell=("shell", None)):
+    def run_agents(self, states, settle=60, stays=(), deaf=(), new_shell=("shell", None), on_read=None):
         """A terminal world for `start_agents`: `end` makes a resumed terminal a shell (not one in `stays`), `send`
-        makes a shell the program (not one in `deaf`), `restart` gives a dead tab a shell."""
-        log, now = {"end": [], "send": [], "restart": []}, [1000.0]
+        makes a shell the program (not one in `deaf`), `restart` gives a dead tab a shell. `on_read(round, states)`
+        changes the world before a read. `log["order"]` has each step in the order it came."""
+        log, now, reads = {"end": [], "send": [], "restart": [], "order": []}, [1000.0], [0]
         tabs = [(int(name[5:]), {"surface": int(name[5:]) * 10}) for name in sorted(states)]
 
         def end(pids, sig):
             name = next(name for name, state in states.items() if state == ("resumed", pids))
             log["end"].append((name, sorted(pids), sig))
+            log["order"].append("end")
             if name not in stays:
                 states[name] = ("shell", None)
             return sorted(pids)
@@ -509,8 +519,7 @@ class RestoredAgents(unittest.TestCase):
         def send(number, tab, state):
             name = f"real-{number:04d}"
             log["send"].append((name, states[name][0], state))
-            if states[name][0] == "none":
-                return False                                 # the new shell is not in the tab yet
+            log["order"].append("send")
             if name not in deaf and states[name][0] == "shell":
                 states[name] = ("program", 9000 + number)
             return True
@@ -518,14 +527,22 @@ class RestoredAgents(unittest.TestCase):
         def restart(tab):
             name = f"real-{tab['surface'] // 10:04d}"
             log["restart"].append(name)
+            log["order"].append("restart")
             states[name] = new_shell
             return None
 
         def sleep(seconds):
             now[0] += seconds
 
-        result = m.start_agents(tabs, lambda: dict(states), send, restart, end, lambda rank: "working" if rank < 1 else "idle",
-                                settle, force, clock=lambda: now[0], sleep=sleep)
+        def read():
+            reads[0] += 1
+            if on_read:
+                on_read(reads[0], states)
+            log["order"].append("read")
+            return dict(states)
+
+        result = m.start_agents(tabs, read, send, restart, end, lambda rank: "working" if rank < 1 else "idle",
+                                settle, clock=lambda: now[0], sleep=sleep)
         return result, log
 
     def test_a_resumed_cli_is_ended_by_its_pids_and_then_the_program_starts(self):
@@ -580,15 +597,70 @@ class RestoredAgents(unittest.TestCase):
         self.assertEqual(log["send"], [("real-0007", "shell", "working")])
         self.assertEqual(result["restarted_shells"], 1)
 
+    def test_the_start_lines_of_a_round_come_right_after_its_read(self):
+        """A signal or a restart takes time (a process table each), and a shell can become the product's CLI in that
+        time: no start line comes after one of them without a new read between."""
+        states = {f"real-{n:04d}": ("resumed", {100 + n: START}) for n in range(1, 4)}
+        states.update({"real-0004": ("shell", None), "real-0005": ("none", None), "real-0006": ("shell", None)})
+        result, log = self.run_agents(states)
+        self.assertEqual(len(log["send"]), 6)
+        last = "read"
+        for step in log["order"]:
+            if step == "send":
+                self.assertIn(last, ("read", "send"), log["order"])
+            last = step
+        self.assertTrue(all(kind == "shell" for _, kind, _ in log["send"]), log["send"])   # what the terminal was at the send
+
+    def test_a_shell_that_became_the_cli_gets_no_line_and_the_cli_is_ended(self):
+        def on_read(round, states):
+            if round == 2:
+                states["real-0002"] = ("resumed", {300: START})          # the product typed its resume command late
+        states = {"real-0002": ("shell", 3.0)}
+        result, log = self.run_agents(states, on_read=on_read)
+        self.assertEqual(log["end"], [("real-0002", [300], signal.SIGTERM)])
+        self.assertEqual(log["send"], [("real-0002", "shell", "working")])                # one line, after the CLI ended
+        self.assertEqual(log["order"].index("end") < log["order"].index("send"), True)
+
+    def test_a_dead_tab_with_no_terminal_after_the_restart_never_gets_a_line(self):
+        states = {"real-0007": ("none", None)}
+        result, log = self.run_agents(states, settle=5, new_shell=("none", None))
+        self.assertEqual((log["restart"], log["send"]), (["real-0007"], []))
+        self.assertEqual(result["not_typed"], ["real-0007"])
+        self.assertTrue(m.agents_faults(1, 0, 1, 1, []))
+
+    def test_a_second_line_also_waits_for_a_young_shell(self):
+        def on_read(round, states):
+            if round == 2:
+                states["real-0002"] = ("shell", 1.0)                      # the tab has a new shell (the first line started nothing)
+        states = {"real-0002": ("shell", 400.0)}
+        result, log = self.run_agents(states, settle=20, deaf=("real-0002",), on_read=on_read)
+        self.assertEqual(len(log["send"]), 1)                             # not again into the young shell after RETYPE_SECONDS
+
+    def test_a_running_bench_program_never_gets_a_line(self):
+        states = {"real-0003": ("program", 121)}
+        result, log = self.run_agents(states)
+        self.assertEqual(log["order"], ["read"])
+        self.assertEqual((result["already_running"], result["started"]), (1, 0))
+
+    def test_a_young_shell_at_the_end_of_the_time_is_a_fault_that_says_so(self):
+        states = {"real-0002": ("shell", 2.0), "real-0009": ("none", None)}
+        result, log = self.run_agents(states, settle=5, new_shell=("none", None))
+        self.assertEqual((result["not_typed"], result["held_back"]), (["real-0002", "real-0009"], ["real-0002"]))
+        faults = m.agents_faults(2, 0, 2, 2, [], {}, [], 1, 5)
+        self.assertTrue(any("younger than 25 s" in fault and "--settle 5" in fault for fault in faults), faults)
+        self.assertTrue(any(fault.startswith("1 agent terminals took no input") for fault in faults), faults)
+
     def test_with_no_time_nothing_is_typed_and_nothing_is_ended(self):
         states = {"real-0001": ("resumed", {102: START}), "real-0002": ("shell", None)}
         result, log = self.run_agents(states, settle=0)
+        log.pop("order")
         self.assertEqual(log, {"end": [], "send": [], "restart": []})
         self.assertEqual(result["not_typed"], ["real-0002"])
 
     def test_another_program_is_a_fault_and_is_not_waited_for_long(self):
         states = {"real-0004": ("other", "vim notes.txt"), "real-0003": ("program", 121)}
         result, log = self.run_agents(states, settle=600)
+        log.pop("order")
         self.assertEqual(log, {"end": [], "send": [], "restart": []})
         self.assertLess(result["rounds"], 40)                                             # OTHER_SECONDS, not the 600 s
         faults = m.agents_faults(2, 1, 2, 0, [], {"real-0004": "vim notes.txt"}, [])
