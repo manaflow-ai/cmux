@@ -993,7 +993,9 @@ const W6D_CLAUDE_OUTPUT: &str = concat!(
 /// of the terminal's notifications, sorted, once the sign-in wait (posted
 /// last, and posted under every rule) arrived.
 fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
-    let mux = Mux::new_for_test(
+    // A real PTY: the test surface runtime of `Mux::new_for_test` starts no
+    // process, so the stand-in script never printed anything.
+    let mux = Mux::new(
         name,
         SurfaceOptions {
             command: Some(vec!["/bin/sh".into(), "-c".into(), W6D_CLAUDE_OUTPUT.into()]),
