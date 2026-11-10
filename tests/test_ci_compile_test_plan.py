@@ -18,6 +18,7 @@ fleet-test-compile.yml check; fleet/compile-check stays the app compile.
 
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import os
 import re
@@ -77,6 +78,11 @@ class CompileTestPlanTests(unittest.TestCase):
         unrelated = [
             name for name, target in graph["targets"].items()
             if target["kind"] == "test" and "CmuxNextActions" not in self.module.closure(graph, {name})
+            # A test that reads the changed files (CmuxNextDesignTests scans every Swift source for SF Symbol
+            # names, #39966) is selected by them without depending on the module.
+            and not any(fnmatch.fnmatchcase(path, read) if "*" in read
+                        else path.startswith(read) if read.endswith("/") else path == read
+                        for read in target.get("reads", []) for path in PR_23360)
         ]
         self.assertTrue(unrelated, "every test target depends on CmuxNextActions; pick another fixture")
         self.assertFalse(set(unrelated) & set(targets), unrelated)
