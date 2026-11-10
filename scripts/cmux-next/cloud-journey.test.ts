@@ -1139,7 +1139,7 @@ describe("clean-room provider key probe", () => {
         "/home/cmux/.local/bin/other: a Google AI key",
       ]);
       expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
-        "/home/cmux/.codex/tmp/arg0/[a long name]/apply_patch",
+        "/home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch",
         "/home/cmux/.local/bin/acpmux",
         "/home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux",
       ]);
@@ -1259,6 +1259,35 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/token.json:1: an OAuth refresh token",
       ]);
       expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an unknown credential leaves in no path, whatever its punctuation, and a key without digits is found", () => {
+    const AT = "@zq81Hw4Kd9Lm2Px7";
+    const NODIGIT = "QxTmRzLpVwNcHsJkYbFdSaGeUiOoPaWs";
+    const PLUS = "ab+Zq8~Hw4=Kd9Lm2Px7";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/cache/${AT}/.codex/auth.json`]: "{}",
+      [`home/cmux/cache/${PLUS}/.codex/auth.json`]: "{}",
+      [`home/cmux/${NODIGIT}/.codex/auth.json`]: "{}",
+      "home/cmux/project/.env": `MISTRAL_API_KEY=${NODIGIT}\n`,
+      // Identifiers after a key's name are not keys.
+      "home/cmux/project/config.ts": "const OPENAI_API_KEY = requiredStringValueHere\nGEMINI_API_KEY: DefaultProviderCredentials\n",
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [AT.slice(1), NODIGIT, PLUS, PLUS.slice(3)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a long name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a long name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/project/.env:1: MISTRAL_API_KEY",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

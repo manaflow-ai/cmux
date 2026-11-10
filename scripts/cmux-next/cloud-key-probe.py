@@ -26,6 +26,7 @@ Usage: python3 -I cloud-key-probe.py [--root DIR] [--budget-s N]
 """
 
 import json
+import math
 import os
 import re
 import stat
@@ -75,6 +76,7 @@ ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b["\']?\s*[:=]\s*["\']?([^
 # like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
 SECRET_LITERAL = re.compile(r"^(?=[^/]*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-.+/=:]{16,}$")
+SECRET_TOKEN = re.compile(r"^[A-Za-z0-9_\-.+/=:]{16,}$")
 STAND_IN = re.compile(r"placeholder|example|dummy|fake|test|stub|changeme|your|xxxx|\.\.\.|environ|process\.env|getenv", re.I)
 
 # Files that are a provider login by where they are, whatever is in them.
@@ -156,13 +158,19 @@ def found(value):
 # A word of a report string (a path's part, a process name) that shares this many characters in a row with a found
 # key is replaced whole: Linux cuts a process name to 15 bytes, and any other cut copy of a key is a piece of it.
 PIECE = 8
-WORD = re.compile(r"[^/\s()\[\],;:=]+")
+# A part of a report string: a path's part or a word, cut only at `/` and spaces, so no punctuation inside a
+# credential (`=`, `+`, `@`, `:`) splits it into short, harmless-looking pieces.
+PART = re.compile(r"[^/\s]+")
 
 
 # Whatever detection found or missed, no word of a report string that could be a credential leaves the machine: a word
 # of 12 or more token characters with a letter and a digit (a folder named after a token, a process named after one,
 # cut to 15 bytes) is replaced. Detection only decides what counts as a finding; this decides what may be printed.
-TOKEN_LIKE = re.compile(r"^(?=[^0-9]*[0-9])(?=[^A-Za-z]*[A-Za-z])[A-Za-z0-9_\-+=~.]{12,}$")
+# Any run of 12 or more characters with no `/`, `.`, `_`, `-` or space in it, whatever else it holds (`@`, `+`, case,
+# digits or none): words people name folders and processes with break into shorter runs (`node_modules`,
+# `settings.ini`, `codex-arg0`), and a credential is one long run. A build hash prints as a long name too.
+LINE_NO = re.compile(r"^(.*?)(:\d+)?$", re.S)
+LONG_RUN = re.compile(r"[^/\s._\-]{12,}")
 
 _PIECES = (0, set())
 
@@ -198,9 +206,11 @@ def redact(text):
         word = m.group(0)
         if any(word[i:i + n] in keys for n in lengths for i in range(len(word) - n + 1)):
             return "[a piece of a secret]"
-        return "[a long name]" if TOKEN_LIKE.match(word) else word
+        # The `:N` line number the probe adds to a file's name is not part of it.
+        name, line = LINE_NO.match(word).groups()
+        return "[a long name]" + (line or "") if LONG_RUN.search(name) else word
 
-    return WORD.sub(piece_of_key, text)
+    return PART.sub(piece_of_key, text)
 
 
 def redacted(value):
@@ -291,9 +301,23 @@ def scan_args(args):
     return sorted(out)
 
 
+def entropy(value):
+    """Bits per character: a random key is near log2 of its alphabet, a word or identifier far below."""
+    counts = {}
+    for c in value:
+        counts[c] = counts.get(c, 0) + 1
+    return -sum(n / len(value) * math.log2(n / len(value)) for n in counts.values())
+
+
 def literal_secret(value):
-    """Whether a value written after a key's name in a file looks like the key itself."""
-    return bool(SECRET_LITERAL.match(value)) and not STAND_IN.search(value)
+    """Whether a value written after a key's name in a file looks like the key itself: a token with a letter and a
+    digit, or one without digits whose characters are as varied as a random key's (an identifier such as
+    `requiredStringValueHere` is not, at under 4 bits a character)."""
+    if STAND_IN.search(value):
+        return False
+    if SECRET_LITERAL.match(value):
+        return True
+    return bool(SECRET_TOKEN.match(value)) and len(value) >= 20 and entropy(value) >= 4.2
 
 
 def scan_text(text):
@@ -354,7 +378,7 @@ LOGIN_QUOTED = re.compile(r'"([^"\\]{1,128})"\s*:\s*"((?:[^"\\]|\\.)*)"')
 def login_values(path):
     """Records the secret fields of a login file for redaction, from the whole file: JSON fields, quoted
     `"name": "value"` pairs (JSON the parser refuses) and `name = value` lines (an AWS credentials file is INI). Never
-    reports them. Paths are redacted by shape too (TOKEN_LIKE), so this is the second guard, not the only one."""
+    reports them. Paths are redacted by shape too (LONG_RUN), so this is the second guard, not the only one."""
     try:
         with open(path, "rb") as f:
             raw = f.read()
