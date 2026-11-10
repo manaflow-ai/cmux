@@ -436,6 +436,7 @@ impl TurnInfo {
             doing: Default::default(),
             notice: false,
             persons: false,
+            accepted: true,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }

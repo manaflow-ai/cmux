@@ -141,6 +141,9 @@ jobs:
           PR: ${{ inputs.pr }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          # A dispatch on the branch carries its tip at dispatch time: the base, with no REST read.
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
           BRANCH: feat-cmux-next
         run: |
           set -euo pipefail
@@ -205,6 +208,10 @@ jobs:
             if [[ "$base_ref" != "$BRANCH" || "$state" != open ]]; then
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
+            fi
+            if [[ -z "$base" && "${DISPATCH_REF:-}" == "refs/heads/$BRANCH" && "${DISPATCH_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              # The tip the merger dispatched against; reading the branch again spent the shared REST quota.
+              base=$DISPATCH_SHA
             fi
             if [[ -z "$base" ]]; then
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
