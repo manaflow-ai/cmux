@@ -704,3 +704,33 @@ fn resize_audit_sized_creation_uses_the_sizing_engine_minimum() {
     mux.resize_surface_for_client(surface.id, 0, 1, 24).unwrap();
     assert_eq!(surface.size(), (2, 24));
 }
+
+/// The sidebar view's terminal runs inside the daemon, so it follows the one size rule
+/// (`clamp_terminal_size`) like every other terminal: a client's 10000 x 401 (just over the
+/// 4,000,000-cell limit; any u16 pair was accepted) is clamped on spawn and on a v2 resize.
+/// Before, both paths applied only `max(1)`, so a 65535 x 65535 request built a grid of
+/// 4.29e9 cells in the daemon while the state lock was held.
+#[test]
+fn sidebar_view_sizes_follow_the_cell_area_limit() {
+    let mux = test_mux();
+    mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+        command: vec!["/bin/cat".to_string()],
+        cwd: None,
+    }));
+    let status = mux.ensure_sidebar_plugin(10_000, 401, false);
+    let surface = mux.surface(status.surface.expect("the sidebar view runs")).unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "spawned over the cell-area limit");
+
+    let context = mux.local_resource_context().unwrap();
+    let sidebar_id = crate::sidebar_resource::sidebar_view_id(&context.session_id).unwrap();
+    let selectors = crate::ResourceSelectors {
+        sidebar_view: Some("current".into()),
+        ..Mux::ordinary_resource_selectors()
+    };
+    let resize = WorkspaceMutation::daemon_local("sidebar-resize-over-limit");
+    let commit = mux
+        .resource_resize_sidebar_selected(selectors, &sidebar_id, 10_000, 450, None, &resize)
+        .unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "resized over the cell-area limit");
+    assert_eq!(commit.result["rows"], 400, "the committed row says the clamped size");
+}
