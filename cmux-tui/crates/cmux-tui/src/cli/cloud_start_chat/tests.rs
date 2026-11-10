@@ -36,6 +36,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
+            make_room: false,
         }
     );
     let parsed = request(&[
@@ -1945,6 +1946,148 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     );
 }
 
+/// The held cap's refusal, with the machine the platform offers to free (`details.free_up`).
+fn held_refusal(free_up: Value) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "cmux.cloud.quota_exceeded",
+                       "message": "VM API: this team has its limit of 3 machines (paused ones count)",
+                       "details": {"resource": "machines", "free_up": free_up}})
+        .to_string(),
+        ..Ran::default()
+    }
+}
+
+fn three_machines() -> Ran {
+    listed_machines(json!([
+        {"machine_id": "vm-a", "title": "api", "status": "running"},
+        {"machine_id": "vm-b", "title": "web", "status": "paused", "last_active_at": 20},
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "last_active_at": 10},
+    ]))
+}
+
+/// The Cloud app's own records (`cloud.machine.list`): keep and last use on each; the kept one is
+/// used longest ago and is never the pick.
+fn records() -> Ran {
+    ok(json!({"machines": [
+        {"id": "vm-a", "name": "api", "status": "running", "keep": false, "last_active_at": 30},
+        {"id": "vm-b", "name": "web", "status": "paused", "keep": false, "last_active_at": 20},
+        {"id": "vm-c", "name": "old", "status": "paused", "keep": false, "last_active_at": 10},
+        {"id": "vm-k", "name": "pinned", "status": "paused", "keep": true, "last_active_at": 1},
+    ]}))
+}
+
+#[test]
+fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "never_used"});
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(free)]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains(
+            "Make room: `cmux cloud start-chat --prompt TEXT --json --make-room` deletes web first"
+        ),
+        "{message}"
+    );
+    assert_eq!(error["details"]["make_room"]["how"], "delete");
+    assert_eq!(
+        error["details"]["make_room"]["command"],
+        "cmux cloud kill-machine --target machine:vm-b --confirm"
+    );
+    // Nothing was deleted without --make-room.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_the_offered_machine_and_starts_again_once() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "failed_create"});
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        ok(json!({"deleted": true})),
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(
+        fake.ran[2],
+        strings(&["cloud", "kill-machine", "--target", "machine:vm-b", "--confirm", "--json"])
+    );
+}
+
+#[test]
+fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(Value::Null),
+        records(),
+        ok(json!({"machine": {}})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_archiving");
+    assert_eq!(fake.ran[2][..4], strings(&["apps", "run", "cmux/cloud", "cloud.machine.list"]));
+    assert_eq!(
+        fake.ran[3],
+        strings(&["cloud", "archive-machine", "--target", "machine:vm-c", "--confirm", "--json"])
+    );
+    assert!(error["message"].as_str().unwrap().starts_with("archiving old:"), "{error}");
+}
+
+#[test]
+fn make_room_that_is_refused_says_so_and_starts_nothing() {
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "cloud.gesture_required", "message": "archive and delete needs a person"})
+            .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), records(), refused]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_failed");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_only_a_machine_the_platform_names_by_id() {
+    use super::cap::{Cap, room, used_ms};
+    let listed = json!({"machines": [
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "created_at": "2026-01-02T00:00:00Z"},
+        {"machine_id": "vm-s", "title": "scratch", "status": "running"},
+    ]});
+    // The running cap: only a named free_up.
+    assert_eq!(room(Cap::Running, &json!({}), &listed), None);
+    let named = room(Cap::Running, &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
+    assert_eq!(
+        named.map(|room| (room.machine, room.name, room.archive)),
+        Some(("vm-c".into(), "old".into(), false))
+    );
+    // Never a delete from the refusal's words: with no id, only an archive is offered, and its
+    // machine is picked from the full records when it runs.
+    let offered = room(Cap::Held, &json!({}), &listed).unwrap();
+    assert!(offered.archive && offered.machine.is_empty(), "{offered:?}");
+    // A kept machine is never archived.
+    let kept = json!({"machines": [{"machine_id": "vm-c", "status": "paused", "keep": true}]});
+    assert_eq!(room(Cap::Held, &json!({}), &kept), None);
+    assert_eq!(used_ms(&json!({"created_at": "1970-01-01T00:00:01Z"})), Some(1000));
+    assert_eq!(used_ms(&json!({"last_active_at": 5, "created_at": 9})), Some(5));
+}
+
 #[test]
 fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
     let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
@@ -2040,6 +2183,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
+        make_room: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2074,6 +2218,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
+        make_room: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));

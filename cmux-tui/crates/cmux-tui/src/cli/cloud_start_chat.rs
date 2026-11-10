@@ -116,6 +116,9 @@ pub(super) struct Request {
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
+    /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
+    /// and start again once.
+    pub make_room: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -186,6 +189,7 @@ pub(super) fn send_existing(
         machine: Machine::Target(machine_id.to_owned()),
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
+        make_room: false,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global) };
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -301,6 +305,7 @@ pub(super) fn parse(
     let mut name = None;
     let mut target = None;
     let mut wait = false;
+    let mut make_room = false;
     let mut timeout = DEFAULT_TIMEOUT;
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
     let mut literal = false;
@@ -340,6 +345,7 @@ pub(super) fn parse(
                 timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
+            "--make-room" => make_room = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -420,6 +426,7 @@ pub(super) fn parse(
         machine,
         wait,
         timeout,
+        make_room,
     }))
 }
 
@@ -835,6 +842,73 @@ impl Progress {
 /// A step that answered after the `--timeout` deadline ends the run as that phase's timeout ([`Progress::late`]),
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
+    let outcome = run_once(runner, request);
+    if request.make_room { make_room(runner, request, outcome) } else { outcome }
+}
+
+/// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
+/// delete frees room at once. An archive keeps the machine until its disk is archived, so the run
+/// ends there and says to ask again once it is gone; from the CLI the archive may also need a person
+/// (cloud_retention.rs), which that step's own answer says.
+fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Outcome {
+    let Outcome::Failed { error, .. } = &outcome else { return outcome };
+    if at(error, "code").as_str() != Some("cloud.machine_cap") {
+        return outcome;
+    }
+    let Some(room) = at(at(error, "details"), "make_room").as_object().and_then(|room| {
+        Some(cap::Room {
+            machine: room.get("machine_id")?.as_str()?.to_owned(),
+            name: room.get("name")?.as_str()?.to_owned(),
+            archive: room.get("how")?.as_str()? == "archive",
+        })
+    }) else {
+        return outcome;
+    };
+    // An archive picks from the Cloud app's own records (keep and last use on every one), never
+    // from the list's rows alone, which have neither.
+    let room = if room.archive {
+        let read = ["apps", "run", "cmux/cloud", "cloud.machine.list", "--args", "{\"limit\":100}"];
+        let records = step_result(&runner.cmux(&read.map(str::to_owned)));
+        match records.ok().and_then(|records| cap::oldest_paused(&cap::machine_rows(&records))) {
+            Some(room) => room,
+            None => {
+                return failed(
+                    "cloud.make_room_failed",
+                    "no paused machine nobody kept could be read to archive; archive one from the \
+                     app's Cloud page, then run this command again",
+                    json!({"make_room": room.json()}),
+                    1,
+                );
+            }
+        }
+    } else {
+        room
+    };
+    if let Err(refused) = step_result(&runner.cmux(&room.command())) {
+        let message = at(&refused, "message").as_str().unwrap_or("it was refused").to_owned();
+        return failed(
+            "cloud.make_room_failed",
+            format!("could not free {} to make room: {message}", room.name),
+            json!({"make_room": room.json(), "app": refused}),
+            1,
+        );
+    }
+    if room.archive {
+        return failed(
+            "cloud.make_room_archiving",
+            format!(
+                "archiving {}: it is deleted once its archive is ready; then run `{}` again",
+                room.name,
+                again_command(request, &request.machine)
+            ),
+            json!({"make_room": room.json()}),
+            1,
+        );
+    }
+    run_once(runner, &Request { make_room: false, ..request.clone() })
+}
+
+fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let deadline = Deadline::of(request, runner.now());
     let mut progress = Progress::default();
     let mut timed = Timed::new(runner);
@@ -1877,9 +1951,19 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
 /// `cloud.machine_cap` or `cloud.spend_cap`: the stop `found` refused, the account's machines in `listed`
 /// and the commands that free one; `app` is what the app answered, its own words included.
 fn cap_refusal(found: cap::Cap, listed: &Value, request: &Request, app: Value) -> Outcome {
-    let (text, mut details) =
+    let (mut text, mut details) =
         cap::at_cap(found, listed, |id| again_command(request, &Machine::Target(id.to_owned())));
+    let room = cap::room(found, at(&app, "details"), listed);
+    if let Some(room) = &room {
+        let how = if room.archive { "archives and deletes" } else { "deletes" };
+        text.push_str(&format!(
+            "\nMake room: `{} --make-room` {how} {} first, then starts.",
+            again_command(request, &request.machine),
+            room.name
+        ));
+    }
     if let Some(fields) = details.as_object_mut() {
+        fields.insert("make_room".to_owned(), room.as_ref().map_or(Value::Null, cap::Room::json));
         fields.insert("app".to_owned(), app);
     }
     failed(cap::code_of(found), text, details, 1)
