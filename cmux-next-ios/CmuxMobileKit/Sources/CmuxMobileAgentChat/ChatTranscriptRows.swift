@@ -239,7 +239,8 @@ final class ChatTranscriptBuilder {
         let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
         var wrapUp = wrote
         if let ask = wrapUp, !ask.question.isEmpty, !context.isLast, context.nextPrompt == nil {
-            wrapUp = ask.recap.map { NextStepAsk(tag: ask.tag, recap: $0, question: "", detail: nil, options: [], rest: "") }
+            wrapUp = ask.recap != nil || ask.tryIt != nil
+                ? NextStepAsk(tag: ask.tag, recap: ask.recap, question: "", detail: nil, options: [], rest: "", tryIt: ask.tryIt) : nil
         }
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
