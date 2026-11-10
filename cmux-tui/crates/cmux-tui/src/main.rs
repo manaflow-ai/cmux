@@ -2661,6 +2661,11 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // `identify` answers from the attach below: announce the reaper first.
+    if let Some(grace) = args.terminal_reap_grace {
+        mux.set_terminal_reap_grace(grace)?;
+        mux.announce_terminal_reaper();
+    }
     let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
     // From here the restoring server's waiting clients get answers.
     startup_timings.lap("server.attach");
@@ -2793,33 +2798,27 @@ fn run_server(
     cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
     #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
-    // Ends terminals that have had no tab placement for the reap grace
-    // period and are not marked keep (`terminal-reap-v1`). Every owner that
-    // `ensure` starts (`cmux`, `cmux-tui`, `daemon ensure`, also over SSH:
-    // the iOS remote and `remote_host/serve.rs`) gets the option, 30 s unless
-    // the client names another (local_owner.rs, W5-O), and so does the mux
-    // owner `remote-link` starts for the Mac app's SSH remote
-    // (remote_cli/remote_link_mux.rs), and the owner the chatmux relay starts
-    // (chatmux-relay/src/pty_deps.rs). An owner reached through
-    // `--remote-mux-socket` (`remote-link --mux-socket`) is not started by
-    // `remote-link`, so it does not reap unless its own supervisor passed the
-    // option. A daemon started directly with `--headless` and no option does
-    // not reap.
-    let terminal_reaper = match args.terminal_reap_grace {
-        Some(grace) => {
-            mux.set_terminal_reap_grace(grace)?;
-            match cmux_tui_core::start_terminal_reaper(&mux) {
-                Ok(reaper) => Some(reaper),
-                Err(error) => {
-                    crate::client_log::stderr_log!(
-                        "startup",
-                        "{BIN}: unplaced terminal reaper unavailable: {error}"
-                    );
-                    None
-                }
+    // Ends unkept terminals with no tab for the reap grace (`terminal-reap-v1`;
+    // announced above). Every owner `ensure` starts (`cmux`, `cmux-tui`, `daemon
+    // ensure`, over SSH: iOS, `remote_host/serve.rs`), `remote-link`'s owner
+    // (remote_cli/remote_link_mux.rs) and the chatmux relay's owner
+    // (chatmux-relay/src/pty_deps.rs) get 30 s unless the client names another
+    // (local_owner.rs, W5-O). An owner reached through `--remote-mux-socket`
+    // (`remote-link --mux-socket`) reaps only if its own supervisor passed the
+    // option; a direct `--headless` with no option does not reap.
+    let terminal_reaper = if mux.terminal_reaper_advertised() {
+        match cmux_tui_core::start_terminal_reaper(&mux) {
+            Ok(reaper) => Some(reaper),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "{BIN}: unplaced terminal reaper unavailable: {error}"
+                );
+                None
             }
         }
-        None => None,
+    } else {
+        None
     };
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
