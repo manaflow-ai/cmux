@@ -65328,8 +65328,11 @@
         "agent",
         "ui",
         "pointer",
+        "point",
+        "point at element",
         "inspect",
         "inspect element",
+        "inspect ui element",
         "pick",
         "element",
         "debug"
@@ -65350,7 +65353,7 @@
             "context" : "agentChat",
             "folder" : "tools",
             "group" : "inspect",
-            "label" : "Inspect Element",
+            "label" : "Point at Element…",
             "parent" : null,
             "rank" : 1,
             "style" : "item"
@@ -65368,7 +65371,7 @@
       "targets" : [
 
       ],
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

@@ -380,6 +380,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  if (state.spendCap) provider.spendCap = { ...state.spendCap };
+  if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
@@ -415,6 +417,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
+  if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {
     clickLater(".cloud-machine");
     setTimeout(() => {

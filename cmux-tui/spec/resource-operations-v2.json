@@ -26800,6 +26800,14 @@
               "name": "decimal"
             },
             "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          },
+          "until_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The end of the clear in Unix milliseconds (at most now): entries after it stay. The app sends its click time, so a clear that waited for the daemon keeps what happened after the click. Omitted: now. Served with the history-clear-until-v1 capability."
           }
         },
         "extra": false

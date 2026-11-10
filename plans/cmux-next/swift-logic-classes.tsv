@@ -1338,7 +1338,6 @@ CmuxNextApp	class	BookmarkPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	class	BookmarkPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageTab.swift	from class BookmarkPageTab:12: Bookmark manager native tab view
 CmuxNextApp	enum	BookmarkPalettePages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPalettePages.swift	from enum BookmarkPalettePages:11: Palette page over bookmarks (uses palette matcher)
 CmuxNextApp	struct	BookmarkResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkResolver.swift	from struct BookmarkResolver:10: Invocation to profile/bookmark/folder resolution
-CmuxNextApp	class	BookmarkBarSourceAdapter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	from extension BookmarkService:14: Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Daemon.swift	Fetch/refetch/copy daemon bookmark trees and write ops
@@ -2131,11 +2130,10 @@ CmuxNextApp	class	PageCollection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextApp	class	PageElement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift	from enum WindowHintTargets:14: which targets get window hints
 CmuxNextApp	enum	WindowHintTargets	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift	from enum WindowHintTargets:14: which targets get window hints
 CmuxNextApp	class	AgentHistory	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/AgentHistory.swift	agent history folds per machine; hide set
-CmuxNextApp	class	BrowserVisitSink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/BrowserVisitSink.swift	BrowserVisitSink: queued visit/title/remove writes to the visit log
 CmuxNextApp	class	ClosedHistoryRetention	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/ClosedHistoryRetention.swift	closed history retention: age/group limits and prune timers
 CmuxNextApp	class	CommandHistory	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/CommandHistory.swift	command history mirrors, suggestions, retention sync
 CmuxNextApp	extension	DaemonHistoryClient	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/DaemonTrailLocation.swift	trail record call site
-CmuxNextApp	class	HiddenHistoryStore	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift	hidden history doc merge and revision
+CmuxNextApp	class	HiddenHistoryStore	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift	reads the daemon-written history.hidden projection on connect
 CmuxNextApp	enum	HistoryAppStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryAppStrings.swift	localized string table (bundle resources)
 CmuxNextApp	enum	HistoryControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryControl.swift	history control methods
 CmuxNextApp	class	HistoryPageService	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageService.swift	history page host; entries/remove/clear dispatch, cookie backups
@@ -2144,7 +2142,7 @@ CmuxNextApp	class	HistoryPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	enum	HistoryPageStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageTab.swift	from class HistoryPageTab:14: history page tab
 CmuxNextApp	enum	HistoryPalettePages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPalettePages.swift	from enum HistoryPalettePages:10: palette page builders for history
 CmuxNextApp	struct	HistoryRestorer	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryRestorer.swift	from struct HistoryRestorer:10: open/reopen/resume per entry kind
-CmuxNextApp	class	RoutingVisitSink	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService+Daemon.swift	from extension HistoryService:11: merges daemon entries with command rows; filter, enrich closed (Swift copy of merge)
+CmuxNextHistoryDaemon	class	DaemonVisitSink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon/DaemonVisitSink.swift	queues omnibox visit/title/remove writes for the daemon visit store while the local daemon reconnects
 CmuxNextApp	extension	HistoryService	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService+Daemon.swift	merges daemon entries with command rows; filter, enrich closed (Swift copy of merge)
 CmuxNextApp	class	HistoryService	0	MIXED	40	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService.swift	entries() merges locations, closed, agents, commands, page visits and sorts (:113-140)
 CmuxNextApp	extension	LocationTrailService	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService+Location.swift	location of focus state
@@ -3314,7 +3312,6 @@ CmuxNextBookmarks	struct	BookmarkTree	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sou
 CmuxNextBookmarks	enum	BookmarkLimits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift	from enum BookmarkURL:5: bookmark URL rules: same-page key, favicon cache key, list display
 CmuxNextBookmarks	enum	BookmarkURL	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift	bookmark URL rules: same-page key, favicon cache key, list display
 CmuxNextBookmarks	actor	BookmarkFileStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Store/BookmarkFileStore.swift	local bookmarks.json file store, a fallback while daemon lacks bookmarks-v1 (daemon has it now: likely dead)
-CmuxNextBookmarks	class	BookmarkBarItemView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkBarItemView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkEditBubble	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift	from struct BookmarkFolderChoice:7: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkFolderChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkEditModel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift	from class BookmarkEditModel:6: AppKit/SwiftUI view, panel, menu or style code
@@ -3322,7 +3319,6 @@ CmuxNextBookmarks	struct	BookmarkEditView	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextBookmarks	struct	BookmarkEditorSheet	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	enum	BookmarkPageAddress	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	from struct BookmarkEditorState:4: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkEditorState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBookmarks	class	BookmarkFolderMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift	from class BookmarkFolderMenu:7: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerHostView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkManagerList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerList.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerModel	0	MIXED	47	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerModel.swift	from protocol BookmarkManagerSource:9: BookmarkManagerSource protocol + view-local selection/editor PLATFORM; folder/query/rows filter and folderChoices LOGIC (:51-110)
@@ -3331,11 +3327,7 @@ CmuxNextBookmarks	struct	BookmarkManagerView	0	PLATFORM	0	0	Packages/macOS/CmuxN
 CmuxNextBookmarks	struct	BookmarkFolderIconMenuItems	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkNodeIcon.swift	from struct BookmarkNodeIcon:10: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkNodeIcon	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkNodeIcon.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkPageColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkPageColors.swift	AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBookmarks	enum	BookmarkOpenDisposition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarSource.swift	open disposition of a bookmark click (click/cmd/shift/middle)
-CmuxNextBookmarks	protocol	BookmarksBarSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarSource.swift	from enum BookmarkOpenDisposition:5: open disposition of a bookmark click (click/cmd/shift/middle)
-CmuxNextBookmarks	extension	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView+Drag.swift	AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBookmarks	extension	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView+ItemFrame.swift	AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBookmarks	class	BookmarksBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarView.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	enum	BookmarkOpenDisposition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkOpenDisposition.swift	open disposition of a bookmark click (click/cmd/shift/middle)
 CmuxNextBridge	extension	AgentTimeline	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTimeline+Chat.swift	Agent chat timeline/turn-state store extension rules
 CmuxNextBridge	extension	AgentTurnStateStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTurnStateStore+Family.swift	Agent chat timeline/turn-state store extension rules
 CmuxNextBridge	extension	AgentTurnStateStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/AgentTurnStateStore+Working.swift	Agent chat timeline/turn-state store extension rules
@@ -7728,9 +7720,6 @@ CmuxNextHistory	extension	AgentJournalRecord.Subject	0	MIRROR	0	100	Packages/mac
 CmuxNextHistory	struct	AgentJournalRecord	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift	from struct AgentSession:6: Swift copy of agent session record folded from journal
 CmuxNextHistory	struct	AgentSession	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift	Swift copy of agent session record folded from journal
 CmuxNextHistory	struct	AgentSessionFold	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSessionFold.swift	Swift copy of agent session journal fold with cursor
-CmuxNextHistory	actor	BrowserVisitLog	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	from struct BrowserVisit:4: Swift browser visit record and log (daemon owns visits)
-CmuxNextHistory	struct	BrowserVisit	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	Swift browser visit record and log (daemon owns visits)
-CmuxNextHistory	struct	BrowserVisitSummary	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	from struct BrowserVisit:4: Swift browser visit record and log (daemon owns visits)
 CmuxNextHistory	extension	DaemonHistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	decode of daemon history entry
 CmuxNextHistory	extension	KeyedDecodingContainer	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	from struct DaemonHistoryEntry:6: decode of daemon history entry
 CmuxNextHistory	struct	DaemonHistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	decode of daemon history entry
@@ -7746,7 +7735,6 @@ CmuxNextHistory	extension	URL	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextHistory	enum	HistoryRange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	extension	HistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	struct	HistoryQuery	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	Swift copy of history query filter apply
-CmuxNextHistory	class	HistorySQLite	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistorySQLite.swift	SQLite handle for history stores
 CmuxNextHistory	enum	HistoryScope	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	back/forward scope rules
 CmuxNextHistory	enum	LocationTrailDirection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	from enum HistoryScope:4: back/forward scope rules
 CmuxNextHistory	extension	LocationTrail	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	from enum HistoryScope:4: back/forward scope rules
