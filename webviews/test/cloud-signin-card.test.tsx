@@ -824,8 +824,8 @@ test("an automatic page whose port acpmux did not name is not used", async () =>
   expect(opened).toEqual([MANUAL]);
 });
 
-// Gemini CLI and xAI's Grok CLI on a Cloud machine (Leo 2026-11-10: "if somebody has ... a Grok
-// subscription or a Google subscription ... a lot of this is just integration code"): the same card,
+// Gemini CLI and the Grok CLI on a Cloud machine (Leo 2026-11-10: "a lot of this is just
+// integration code that you can just do"): the same card,
 // with each agent's own ways in. Gemini signs in there with an API key only; Grok with its device
 // flow only (a page on accounts.x.ai and a code), its key coming from the person's vault.
 const geminiRoute = { name: "Gemini CLI", harness: "gemini", hostKind: "cloud" as const };
@@ -839,7 +839,7 @@ test("Gemini and Grok are login agents, each with its own ways in", () => {
   expect([signsInByPage("gemini"), takesApiKey("gemini")]).toEqual([false, true]);
   expect([signsInByPage("grok"), takesApiKey("grok")]).toEqual([true, false]);
   expect([signsInByPage("codex"), takesApiKey("codex")]).toEqual([true, true]);
-  // xAI's sign-in hosts open; look-alikes never do.
+  // Grok's sign-in hosts open; look-alikes never do.
   expect(signInURL("https://accounts.x.ai/device")).toBe("https://accounts.x.ai/device");
   expect(signInURL("https://auth.x.ai/activate?user_code=WDJB-MJHT")).toBeDefined();
   expect(signInURL("https://x.ai.evil.example/device")).toBeUndefined();

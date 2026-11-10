@@ -83,7 +83,7 @@ case "$*" in
 esac
 "#;
 
-/// `grok login --device-auth` (alias `--device-code`) as xAI's grok CLI may print it: a link on
+/// `grok login --device-auth` (alias `--device-code`) as the grok CLI may print it: a link on
 /// accounts.x.ai and a code, then the sign-in in `$GROK_HOME/auth.json` once the person approved
 /// (a moment later here). Its exact words are not pinned (`parse::grok_code`).
 const FAKE_GROK: &str = r#"#!/bin/sh

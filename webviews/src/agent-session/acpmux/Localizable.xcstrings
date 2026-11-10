@@ -251152,7 +251152,7 @@
       }
     },
     "turn.signIn.grok": {
-      "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs xAI's Grok CLI's own login (a page and a device code) on the user's Cloud machine.",
+      "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs the Grok CLI's own login (a page and a device code) on the user's Cloud machine.",
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Sign in to Grok" } },

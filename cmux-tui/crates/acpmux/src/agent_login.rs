@@ -38,7 +38,7 @@
 //!   `GEMINI_API_KEY` and its `settings.json` `security.auth.selectedType =
 //!   "gemini-api-key"` ([`merge_gemini_api_key`]).
 //! - Gemini CLI signs in here with an API key only (`start` is
-//!   `unsupported`); xAI's Grok CLI with its device flow only (`grok login
+//!   `unsupported`); the Grok CLI with its device flow only (`grok login
 //!   --device-auth`, finished by itself like Codex's; `api_key` is
 //!   `unsupported`: grok reads `XAI_API_KEY` from its env, which the person's
 //!   vault delivers).
@@ -153,9 +153,9 @@ pub mod reason {
 pub enum Agent {
     Claude,
     Codex,
-    /// Google's Gemini CLI: an API key only.
+    /// Gemini CLI: an API key only.
     Gemini,
-    /// xAI's Grok CLI: its device flow only.
+    /// The Grok CLI: its device flow only.
     Grok,
 }
 

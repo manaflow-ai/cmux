@@ -7,7 +7,7 @@ import type { AcpmuxDirectClient } from "./direct";
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
 /// The harnesses whose login acpmux runs on the machine. Gemini CLI signs in there with an API key
-/// only (saved to its `.gemini/.env`); xAI's Grok CLI with its device flow only (`grok login
+/// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
 /// --device-auth`: a page and a code, like Codex), its key coming from the person's vault.
 export type LoginAgent = "claude" | "codex" | "gemini" | "grok";
 

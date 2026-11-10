@@ -14,7 +14,7 @@ enum AgentPaneSignInPage {
         "console.anthropic.com",
         "auth.anthropic.com",
         "auth.openai.com",
-        // xAI's Grok CLI device flow (`grok login --device-auth`).
+        // The Grok CLI device flow (`grok login --device-auth`).
         "accounts.x.ai",
         "auth.x.ai",
     ]
