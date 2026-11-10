@@ -34,6 +34,101 @@ fn review_creators_allow_ordinary_names_and_preserve_errno_umask() {
     }
 }
 
+/// Claude Code's remote-chain Bash tool makes `$TMPDIR/claude-<uid>/<cwd>`
+/// through `/proc/self/fd/<O_PATH dirfd>/<name>` (manaflow-ai/cmuxterm-hq#8734).
+#[test]
+fn review_proc_fd_directory_prefix_allowed_inside_writable_root() {
+    if let Some((fixture, status)) = exercise(219, &[]) {
+        assert_eq!(status, 0, "proc-fd child failed (140 = mkdir refused, 141 = create refused)");
+        assert!(fixture.0.join("tmp/made").is_dir());
+        assert!(fixture.0.join("tmp/made/file").is_file());
+    }
+}
+
+/// The same prefix never widens the policy: the held directory's real path,
+/// and wherever `..` lands, are checked like any other path.
+#[test]
+fn review_proc_fd_directory_prefix_denied_outside_writable_root() {
+    if let Some((fixture, status)) = exercise(220, &[]) {
+        assert_eq!(status, 0, "proc-fd child wrote a protected path");
+        assert!(fs::symlink_metadata(fixture.0.join(".git/hooks/x")).is_err());
+        assert!(fs::symlink_metadata(fixture.0.join(".git/hooks/y")).is_err());
+        assert!(fs::symlink_metadata(fixture.0.join("sub/.claude")).is_err());
+        assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), b"protected");
+    }
+}
+
+/// `/proc/self/fd/<fd>/<rest>` in a caller-owned buffer; no allocation after
+/// fork. `rest` ends with NUL; the 96-byte buffer holds every case below.
+fn proc_fd_path(buf: &mut [u8; 96], fd: c_int, rest: &[u8]) -> *const c_char {
+    let mut digits = [0u8; 10];
+    let mut count = 0;
+    let mut value = fd as u32;
+    for slot in digits.iter_mut() {
+        *slot = b'0' + (value % 10) as u8;
+        count += 1;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    let number = digits.iter().take(count).rev();
+    let bytes = b"/proc/self/fd/".iter().chain(number).chain(b"/").chain(rest);
+    buf.fill(0);
+    for (slot, byte) in buf.iter_mut().zip(bytes) {
+        *slot = *byte;
+    }
+    buf.as_ptr().cast()
+}
+
+/// Finite syscall sequences through `/proc/self/fd/<dirfd>/<name>` paths.
+unsafe fn proc_fd_case(case: u8) -> i32 {
+    unsafe {
+        let mut buf = [0u8; 96];
+        let flags = O_PATH | O_DIRECTORY | O_CLOEXEC;
+        if case == 219 {
+            let tmp = libc::open(c"tmp".as_ptr(), flags);
+            if tmp < 0 {
+                return 139;
+            }
+            if libc::mkdir(proc_fd_path(&mut buf, tmp, b"made\0"), 0o777) != 0 {
+                return 140;
+            }
+            let path = proc_fd_path(&mut buf, tmp, b"made/file\0");
+            let fd = libc::open(path, O_CREAT | O_WRONLY, 0o600);
+            if fd < 0 {
+                return 141;
+            }
+            libc::close(fd);
+            libc::close(tmp);
+            return 0;
+        }
+        let refused = |rc: c_int| rc == -1 && matches!(*libc::__errno_location(), EACCES | EPERM);
+        let hooks = libc::open(c".git/hooks".as_ptr(), flags);
+        let tmp = libc::open(c"tmp".as_ptr(), flags);
+        if hooks < 0 || tmp < 0 {
+            return 146;
+        }
+        if !refused(libc::mkdir(proc_fd_path(&mut buf, hooks, b"x\0"), 0o777)) {
+            return 142;
+        }
+        let path = proc_fd_path(&mut buf, hooks, b"y\0");
+        if !refused(libc::open(path, O_CREAT | O_WRONLY, 0o600)) {
+            return 143;
+        }
+        let path = proc_fd_path(&mut buf, tmp, b"../.git/config\0");
+        if !refused(libc::open(path, O_WRONLY | O_TRUNC)) {
+            return 144;
+        }
+        if !refused(libc::mkdir(proc_fd_path(&mut buf, tmp, b"../sub/.claude\0"), 0o777)) {
+            return 145;
+        }
+        libc::close(hooks);
+        libc::close(tmp);
+        0
+    }
+}
+
 #[test]
 fn review_truncate_symlink_race_preserves_config() {
     if let Some((fixture, status)) = exercise(218, &[]) {
@@ -48,6 +143,9 @@ unsafe fn review_case(case: u8) -> i32 {
         let at = AT_FDCWD;
         if case == 218 {
             return truncate_race();
+        }
+        if case == 219 || case == 220 {
+            return proc_fd_case(case);
         }
         if case == 216 {
             libc::umask(0o027);

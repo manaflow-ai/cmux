@@ -100,12 +100,17 @@
 /* The banner: a compact glass bar, the glass and fade of Jump to latest, one compact control tall.
    Expanded it reads "↑ 3 new turns since 3:42 | Mark read | ‹"; collapsed, "↑ 3 ›". Collapsing
    folds the middle to nothing on the move step while the chevron and the bar's end ride it, so
-   everything that moves moves together. */
+   everything that moves moves together.
+   A <fieldset> (a named group for its three controls): its own margin, padding and minimum width
+   are off, so its box is the bar. */
 .acpmux-since-jump {
   display: inline-flex;
   align-items: stretch;
+  min-inline-size: auto;
   max-width: 100%;
   height: var(--ds-control-compact);
+  margin: 0;
+  padding: 0;
   border: 0;
   border-radius: var(--ds-radius-control);
   overflow: hidden;
@@ -140,7 +145,6 @@
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
-  cursor: pointer;
 }
 .acpmux-since-jump button:hover {
   background-image: linear-gradient(var(--unread-wash), var(--unread-wash));

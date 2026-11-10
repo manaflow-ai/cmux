@@ -38,13 +38,13 @@ API key and no app; see [headless.md](headless.md).
 
 ## Listing machines
 
-`cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
+`cmux vm ls` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
 already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash
-cmux cloud list-machines --json
+cmux vm ls --json
 ```
 
 ```json
@@ -71,13 +71,13 @@ cmux cloud list-machines --json
 - Signed out, it answers `signed_in: false` and `loaded: false`. Right after launch it
   waits for the saved sign-in to restore first.
 - `cmux machine list` also shows the app's Cloud machines (rows with `kind: "cloud"`),
-  but it cannot tell an unloaded list from an empty one; check `cloud list-machines`
+  but it cannot tell an unloaded list from an empty one; check `vm ls`
   before you create a machine.
 
 ## Machine actions
 
 ```bash
-cmux cloud list-machines                                    # the app's Cloud machines
+cmux vm ls                                    # the app's Cloud machines
 cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
 cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
@@ -129,9 +129,9 @@ and domains (set in the dashboard) are kept. An agent may only choose `none` (tu
 ```bash
 cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal; surface_id
 cmux cloud exec --target machine:vm-… --command '<cmd>'        # exit_code, stdout, stderr (25 s cap)
-cmux cloud setup-github --target machine:vm-…                  # this Mac's git identity + gh device-flow sign-in
+cmux vm setup-github --target machine:vm-…                  # this Mac's git identity + gh device-flow sign-in
 cmux cloud files-list --target machine:vm-… --path <dir>
-cmux cloud file-read --target machine:vm-… --path <file>
+cmux vm file-read --target machine:vm-… --path <file>
 cmux cloud file-write --target machine:vm-… --path <file> --contents '<text>'
 cmux cloud file-mkdir --target machine:vm-… --path <dir>
 cmux cloud file-remove --target machine:vm-… --path <file>     # destructive; confirms
@@ -228,8 +228,8 @@ authorization for the target and effect.
 ```bash
 cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
 cmux cloud start-chat --name dev --prompt '…' --json                       # on machine "dev" (created when missing); answers once sent
-cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
-cmux cloud start-session --name dev --agent codex                          # take machine "dev", or create it
+cmux vm start-session --target vm:<id> --agent claude              # start a session in that machine's acpmux
+cmux vm start-session --name dev --agent codex                          # take machine "dev", or create it
 ```
 
 `start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
@@ -280,7 +280,7 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm exec`, `vm run`, `vm dev`, `vm agent` | `cmux cloud exec --command …`, or open a terminal on the machine and use `cmux workspace current run -- <argv>` or `cmux agent <harness>` there |
 | `vm terminal send\|read\|wait\|wait-exit\|output\|close` from the Mac | the same work with `cmux terminal <term_…> write\|screen read\|screen wait\|process wait\|output read\|close` inside the machine |
 | `vm push\|upload` | `cmux cloud file-write --path <file> --contents …`, or `cmux cloud prepare-scp` then scp |
-| `vm pull\|download` | `cmux cloud file-read --target machine:vm-… --path <file>` |
+| `vm pull\|download` | `cmux vm file-read --target machine:vm-… --path <file>` |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud new-terminal-on-machine`, `cmux cloud ssh` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud open-browser --target machine:vm-… --port <port>`, `cmux cloud machine-link --target machine:vm-… --port <port>`, `cmux cloud machine-ports` |

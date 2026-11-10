@@ -21,12 +21,14 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         sources = scripts.map(Self.chromiumSource) + [Self.navigationScript, Self.hostDropScript]
     }
 
-    /// The user scripts of `controller`.
+    /// The user scripts of `controller`, but WebKit's VoiceOver press script (``PageAccessibilityPress``): it
+    /// needs its own content world, which a Chromium new-document script has not, and Chromium's presses
+    /// count through `ChromiumAccessibilityPress`.
     ///
     /// - Parameter controller: A page's WebKit user content controller.
     @MainActor
     public init(controller: WKUserContentController) {
-        self.init(scripts: controller.userScripts.map {
+        self.init(scripts: controller.userScripts.filter { $0.source != PageAccessibilityPress.script }.map {
             ($0.source, $0.injectionTime == .atDocumentEnd, $0.isForMainFrameOnly)
         })
     }
