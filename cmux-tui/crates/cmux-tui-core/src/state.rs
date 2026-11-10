@@ -172,6 +172,9 @@ pub(crate) mod workspace_checklist;
 pub(crate) mod workspace_checklist_store;
 #[cfg(test)]
 mod workspace_checklist_tests;
+pub(crate) mod workspace_extras;
+#[cfg(test)]
+mod workspace_extras_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;
