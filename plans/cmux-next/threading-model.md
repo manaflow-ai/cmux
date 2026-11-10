@@ -143,7 +143,7 @@ A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here 
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
-- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
+- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
 - Cloud credentials: `cmux.cloud.link-credential`, `cmux.cloud.hands.stdin` (the hands engine's JSON lines into

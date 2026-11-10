@@ -71,6 +71,18 @@ struct CloudStartSessionTests {
         #expect(bare == CloudStartSession.Request(machineID: nil, name: nil, agent: "claude", cwd: nil, login: .init(byPerson: false, headless: true)))
     }
 
+    /// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model` is part of the run,
+    /// of the command asked again, and of the run's key, so a Haiku run never joins a Sonnet one.
+    @Test func theRequestTakesTheModel() throws {
+        let haiku = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "model": .string(" claude-haiku-5-5 ")]))
+        #expect(haiku.model == "claude-haiku-5-5")
+        #expect(haiku.command.contains(" --agent claude --model claude-haiku-5-5"))
+        let sonnet = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "model": .string("claude-sonnet-5-5")]))
+        #expect(CloudStartRunKey(haiku, caller: nil, account: []) != CloudStartRunKey(sonnet, caller: nil, account: []))
+        let none = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "model": .string("")]))
+        #expect(none.model == nil)
+    }
+
     @Test(arguments: ["", "Claude Code", "-rf", "claude;rm", String(repeating: "a", count: 65)])
     func aBadAgentIsRefused(agent: String) {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.agentInvalid)) {
