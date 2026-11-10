@@ -127,6 +127,10 @@ package nonisolated struct RipgrepSearch {
         } catch {
             return .failed(status: -1)
         }
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, so one that
+        // waits on a quiet pipe elsewhere would hold this search (``FileHandle/readyChunks()``).
+        let reader = output.fileHandleForReading
+        let (chunks, stopReading) = reader.readyChunks()
         // The reading task and its cancellation handler both stop rg. The Process (not Sendable on
         // the Xcode 26 SDK) moves into the lock, so each side reaches it only under the lock: a
         // short synchronous critical section called from the synchronous cancellation handler
@@ -135,10 +139,10 @@ package nonisolated struct RipgrepSearch {
         let (matches, limited) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
             var line: [UInt8] = []
-            // Split on "\n" only: `bytes.lines` also breaks at U+2028,
-            // U+2029 and U+0085, which rg's JSON leaves unescaped.
-            do {
-                for try await byte in output.fileHandleForReading.bytes {
+            // Split on "\n" only: rg's JSON leaves U+2028, U+2029 and U+0085
+            // unescaped, and a line reader would break there too.
+            for await chunk in chunks {
+                for byte in chunk {
                     guard byte == UInt8(ascii: "\n") else {
                         line.append(byte)
                         continue
@@ -148,12 +152,17 @@ package nonisolated struct RipgrepSearch {
                     matches.append(match)
                     if matches.count >= limit { return (matches, true) }
                 }
-            } catch {}
+            }
             return (matches, false)
         } onCancel: {
             stop(running)
         }
-        if limited { stop(running) }
+        // The reading is over (rg's exit, the limit, a cancel, or a reader that fell too far
+        // behind): stop it, close our read end and stop rg if it still runs, so rg never writes
+        // into a pipe nobody reads and the wait below always ends.
+        stopReading()
+        try? reader.close()
+        stop(running)
         var status: Int32 = -1
         for await code in exited.stream { status = code }
         // rg exits 0 with matches, 1 with none, 2 on an error (matches found

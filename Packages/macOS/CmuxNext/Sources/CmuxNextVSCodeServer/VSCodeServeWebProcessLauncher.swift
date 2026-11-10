@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -34,7 +35,7 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         // The first of the URL line, the output ending, the startup deadline and cancellation
         // resumes the wait once (no task group waits for a loser).
         let outcome = FirstOutcome<Result<URL, VSCodeServeWebError>>()
-        drain(fileDescriptor: pipe.fileHandleForReading.fileDescriptor, into: outcome)
+        drain(pipe.fileHandleForReading, into: outcome)
         let deadline = DemandTimer(owner: "vscode-serve-web.startup")
         deadline.schedule(after: startupTimeout) { outcome.resolve(.failure(.startupTimedOut)) }
         let result = await withTaskCancellationHandler {
@@ -56,19 +57,31 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
 
     /// Reads the server's output until it ends: the first Web UI URL it prints resolves
     /// `outcome`, and the end of the output before one does resolves it as exited.
-    private func drain(fileDescriptor: Int32, into outcome: FirstOutcome<Result<URL, VSCodeServeWebError>>) {
+    private func drain(_ reader: FileHandle, into outcome: FirstOutcome<Result<URL, VSCodeServeWebError>>) {
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, and this
+        // one waits on a quiet pipe for as long as the server lives (``FileHandle/readyChunks()``).
+        let (chunks, _) = reader.readyChunks()
         // task-owner: drains the server's output for the life of the process; it ends at EOF.
         Task.detached {
-            let reader = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: false)
+            var pending = Data()
             var found = false
-            do {
-                for try await line in reader.bytes.lines where !found {
-                    if let url = URL(vscodeServeWebOutput: line) {
-                        found = true
-                        outcome.resolve(.success(url))
-                    }
+            // After the URL the chunks are still read, and dropped.
+            for await chunk in chunks where !found {
+                pending.append(chunk)
+                while let newline = pending.firstIndex(of: 0x0A) {
+                    let line = String(decoding: pending[pending.startIndex..<newline], as: UTF8.self)
+                    pending.removeSubrange(pending.startIndex...newline)
+                    guard let url = URL(vscodeServeWebOutput: line) else { continue }
+                    found = true
+                    pending = Data()
+                    outcome.resolve(.success(url))
+                    break
                 }
-            } catch {}
+            }
+            // A last line with no newline (the output ended in it).
+            if !found, let url = URL(vscodeServeWebOutput: String(decoding: pending, as: UTF8.self)) {
+                outcome.resolve(.success(url))
+            }
             outcome.resolve(.failure(.exitedBeforeReady))
         }
     }
