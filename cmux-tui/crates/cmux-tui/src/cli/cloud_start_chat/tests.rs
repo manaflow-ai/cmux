@@ -245,6 +245,10 @@ struct Fake {
     costs: Vec<(&'static str, Duration)>,
     /// How long the step at this index of `ran` takes, before `costs`.
     slow: Vec<(usize, Duration)>,
+    /// The app's answers to control calls (`cloud.chat_wait`), in order; none left: no app answers.
+    pushes: VecDeque<Result<Value, Value>>,
+    /// The control calls asked: method and params.
+    called: Vec<(String, Value)>,
 }
 
 impl Fake {
@@ -256,6 +260,8 @@ impl Fake {
             paused: Duration::ZERO,
             costs: Vec::new(),
             slow: Vec::new(),
+            pushes: VecDeque::new(),
+            called: Vec::new(),
         }
     }
 }
@@ -282,6 +288,12 @@ impl Runner for Fake {
     }
     fn fresh_name(&mut self) -> String {
         "chat-fresh".into()
+    }
+    fn app(&mut self, method: &str, params: Value, _timeout: Duration) -> Option<Result<Value, Value>> {
+        self.called.push((method.to_owned(), params));
+        let answer = self.pushes.pop_front()?;
+        self.clock += Duration::from_millis(400);
+        Some(answer)
     }
 }
 
@@ -351,6 +363,60 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     assert_eq!(fake.paused, Duration::from_secs(2));
 }
 
+/// A fresh chat's turn: one `cloud.chat_wait` call over the machine's link, not `cloud exec ... acp wait` and
+/// `acp last` (Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?"; the trailing two execs
+/// took 1091 + 2590 ms). The reply and the felt times come from the pushed records.
+#[test]
+fn a_fresh_chats_turn_is_pushed_over_the_link_in_one_call() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let update = |seq: u64, at: u64, text: &str| json!({"seq": seq, "at": at, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update(2, 2_100, "po"), update(3, 2_200, "ng"),
+    ], "last_seq": 3, "ended": "timeout"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 4, "at": 3_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 4, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["wait_route"], "link");
+    assert_eq!(answer["turn"]["status"], "completed");
+    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // No exec after the send; the second call starts after the first one's newest seq.
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+    assert_eq!(fake.called[0].0, "cloud.chat_wait");
+    assert_eq!(fake.called[0].1["tab"], "tab-1");
+    assert_eq!(fake.called[1].1["after_seq"], 3);
+}
+
+/// No app answers `cloud.chat_wait` (an older app, a tab it does not show): the turn is read through the Cloud
+/// API's exec as before, and the answer says which route it took.
+#[test]
+fn without_the_push_the_turn_is_read_through_exec() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    fake.pushes.push_back(Err(json!({"code": "chat_wait.unavailable", "message": "no tab"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["wait_route"], "exec");
+}
+
 #[test]
 fn the_answer_times_each_step_it_ran() {
     let mut fake = Fake::new(vec![
@@ -382,6 +448,32 @@ fn the_answer_times_each_step_it_ran() {
             ("cloud exec", 10_000, 5_000)
         ]
     );
+}
+
+/// Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?". The app's own split of
+/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `app`; an
+/// app that reports none leaves the step as it was.
+#[test]
+fn the_start_sessions_own_split_rides_under_its_step() {
+    let split = json!({"steps": [{"step": "machine", "ms": 7100}, {"step": "connect.link", "ms": 2800}],
+                       "machine": {"session_new": 1800}, "total": 22_826});
+    let mut with_split = started();
+    let mut answer: Value = serde_json::from_str(&with_split.stdout).unwrap();
+    answer["result"]["stages_ms"] = split.clone();
+    with_split.stdout = answer.to_string();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        with_split,
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["app"], split);
+    assert!(steps[0].get("app").is_none() && steps[2].get("app").is_none(), "{steps:?}");
 }
 
 #[test]

@@ -103,6 +103,7 @@ final class AppControl {
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
+        service.router.register([CloudChatWaitControl.method { [weak services] machine, tab in await MainActor.run { services?.chatObserver(machine: machine, tab: tab) } }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
         errors.start()

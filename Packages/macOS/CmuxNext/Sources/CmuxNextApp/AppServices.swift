@@ -839,6 +839,13 @@ final class AppServices {
     }
 
     /// Resolves only in the named machine; a missing machine never falls back locally.
+    /// An observing client of Cloud chat tab `tab` on `machine` (`cloud.chat_wait`), or nil.
+    func chatObserver(machine: String, tab: String) -> AgentSessionAttachClient? {
+        guard let (model, _) = locateTab(tab, onMachine: machine), let daemon = try? machines.agentDaemon(forTab: model), !daemon.isLocal,
+              daemon.supports(DaemonCapability.agentSessionObserve.rawValue) else { return nil }
+        return AgentSessionAttachClient(surface: model.surface.rawValue, mode: .observe, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
+    }
+
     func locateTab(_ id: String, onMachine machineID: String) -> (TabModel, PaneModel)? {
         guard let daemon = machines.daemon(machine: machineID),
               let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { return nil }
