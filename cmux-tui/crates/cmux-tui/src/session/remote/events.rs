@@ -325,10 +325,7 @@ impl RemoteSession {
                     surface.dirty.store(true, Ordering::Release);
                 }
                 if let Some(title) = value.get("title").and_then(Value::as_str) {
-                    self.emit(MuxEvent::TitleChanged {
-                        surface: id,
-                        title: Arc::<str>::from(title),
-                    });
+                    self.emit(MuxEvent::page_title(id, Arc::<str>::from(title)));
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
@@ -459,10 +456,7 @@ impl RemoteSession {
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
-                        self.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: Arc::<str>::from(title),
-                        });
+                        self.emit(remote_title_event(id, title, &value));
                     } else if self.invalidate_tree_once() {
                         self.emit(MuxEvent::TreeChanged);
                     }
@@ -719,4 +713,20 @@ impl RemoteSession {
         }
         self.frame_logs.lock().unwrap().push(surface, line.to_string());
     }
+}
+
+/// A remote daemon's `title-changed` as a local event: its `text` and
+/// `activity` when it sends them (D2), else the terminal rule over `title`
+/// (a daemon from before them).
+fn remote_title_event(surface: SurfaceId, title: &str, value: &Value) -> MuxEvent {
+    let title = Arc::<str>::from(title);
+    let Some(text) = value.get("text").and_then(Value::as_str) else {
+        return MuxEvent::terminal_title(surface, title);
+    };
+    let activity = value
+        .get("activity")
+        .and_then(Value::as_str)
+        .and_then(cmux_tui_core::TitleActivity::from_wire);
+    let shown = cmux_tui_core::TabTitle { text: Arc::from(text), activity };
+    MuxEvent::TitleChanged { surface, title, shown }
 }

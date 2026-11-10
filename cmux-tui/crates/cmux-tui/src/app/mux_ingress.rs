@@ -140,7 +140,7 @@ pub(super) fn forward_mux_event(
     if !tx.accepts_mux_event(&event) {
         return ForwardMuxOutcome::Continue;
     }
-    if let MuxEvent::TitleChanged { surface, title } = &event {
+    if let MuxEvent::TitleChanged { surface, title, .. } = &event {
         if !mux_titles.push(*surface, title.clone()) {
             return ForwardMuxOutcome::Continue;
         }

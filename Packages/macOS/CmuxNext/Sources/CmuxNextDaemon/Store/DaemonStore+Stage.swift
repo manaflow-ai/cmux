@@ -55,7 +55,7 @@ extension DaemonStore {
     /// The surface `event` names (a title, an exit, an agent's state, a tab delta).
     func stageSurface(of event: DaemonEvent) -> SurfaceID? {
         switch event {
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
              .scrollChanged(let surface, _, _), .bell(let surface):
             return surface
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d):
@@ -131,7 +131,7 @@ extension DaemonStore {
             return Set([d.workspace]).union(ofSurface(d.surface))
         case .layoutChanged(let screen, _, _):
             return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] } ?? []
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface),
              .scrollChanged(let surface, _, _), .bell(let surface):
             return ofSurface(surface)
         default:
