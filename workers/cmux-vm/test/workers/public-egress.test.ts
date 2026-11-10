@@ -23,6 +23,13 @@ const create = async (t: Harness, key: string, body: unknown) => {
   return (await response.json<{ id: string }>()).id;
 };
 
+const ruleOf = (vmId: string, id: string, destination: Record<string, unknown>) =>
+  ({ vmId, rule: { id, action: "allow", source: { vmId }, destination } });
+/** `count` narrower rules of `vmId`, so a later rule sits on the list's second page (64 a page). */
+const narrowRules = (t: Harness, vmId: string, count: number) => {
+  for (let index = 0; index < count; index += 1) t.upstream.firewallRules.set(`narrow-${index}`, ruleOf(vmId, `narrow-${index}`, { cidr: "203.0.113.0/24" }));
+};
+
 describe("existing VM public egress", () => {
   it("lets a private VM out once, and reads it back", async () => {
     const t = await harness();
@@ -101,6 +108,31 @@ describe("existing VM public egress", () => {
     expect((await egress(t, vm.vmId, key, "PUT")).status).toBe(503);
     expect(t.upstream.callsTo("POST", /^\/v5\/firewall\/rules$/)).toHaveLength(0);
   });
+
+  it("reads a rule on the second page as on even when an earlier rule goes between pages", async () => {
+    const t = await harness();
+    const vm = t.addVm(TENANT);
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    narrowRules(t, vm.upstreamId, 64);
+    t.upstream.firewallRules.set("open", ruleOf(vm.upstreamId, "open", { public: true }));
+    // After the first page, a rule before "open" is deleted: a plain next-offset read lands past it.
+    t.upstream.afterRuleList.push(() => t.upstream.firewallRules.delete("narrow-0"));
+    expect(await (await egress(t, vm.vmId, key)).json()).toEqual({ id: vm.vmId, publicEgress: true });
+    // And the allow adds no second rule.
+    expect((await egress(t, vm.vmId, key, "PUT")).status).toBe(200);
+    expect(t.upstream.callsTo("POST", /^\/v5\/firewall\/rules$/)).toHaveLength(0);
+  });
+
+  it("reads past 256 rules up to the first egress rule, as before", async () => {
+    const t = await harness();
+    const vm = t.addVm(TENANT);
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    t.upstream.firewallRules.set("open", ruleOf(vm.upstreamId, "open", { public: true }));
+    narrowRules(t, vm.upstreamId, 300);
+    expect(await (await egress(t, vm.vmId, key)).json()).toEqual({ id: vm.vmId, publicEgress: true });
+    expect((await egress(t, vm.vmId, key, "PUT")).status).toBe(200);
+    expect(t.upstream.callsTo("POST", /^\/v5\/firewall\/rules$/)).toHaveLength(0);
+  });
 });
 
 describe("revoking a VM's public egress", () => {
@@ -138,6 +170,20 @@ describe("revoking a VM's public egress", () => {
     t.upstream.fail("deleteFirewallRule", 500);
     expect((await egress(t, vm.vmId, key, "DELETE")).status).toBe(503);
     expect(t.upstream.firewallRules.has("open")).toBe(true);
+  });
+
+  it("answers 503, not off, when the list moves under the read-back and hides a rule", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    const vm = t.addVm(TENANT);
+    narrowRules(t, vm.upstreamId, 64);
+    t.upstream.firewallRules.set("open", ruleOf(vm.upstreamId, "open", { public: true }));
+    // The revoke's list (two pages) finds "open"; a concurrent allow then adds "late", which takes "open"'s place
+    // once it is deleted. During the read-back, after the first page, a narrower rule goes and "late" moves back
+    // onto the first page's range: a plain next-offset read finds nothing on the second page and calls it off.
+    t.upstream.afterRuleList.push(undefined, () => t.upstream.firewallRules.set("late", ruleOf(vm.upstreamId, "late", { public: true })), () => t.upstream.firewallRules.delete("narrow-0"));
+    expect((await egress(t, vm.vmId, key, "DELETE")).status).toBe(503);
+    expect(t.upstream.firewallRules.has("late")).toBe(true);
   });
 
   it("does not touch another VM's rule, and needs the network scope", async () => {

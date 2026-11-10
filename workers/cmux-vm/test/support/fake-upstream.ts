@@ -109,6 +109,8 @@ export function makeFakeUpstream(apiKey: string) {
   const tlsRules = new Map<string, Record<string, unknown>>();
   /** Public egress rules by id, with the VM each names (a create's inline rule has an empty source, as the provider's). */
   const firewallRules = new Map<string, { readonly vmId: string; readonly rule: Record<string, unknown> }>();
+  /** Run one per rule list answered, in order, after the page is cut: a change between two pages. */
+  const afterRuleList: Array<(() => void) | undefined> = [];
   const files = new Map<string, Uint8Array>();
   const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
@@ -220,7 +222,9 @@ export function makeFakeUpstream(apiKey: string) {
         const offset = Number(url.searchParams.get("offset") ?? 0);
         const limit = Number(url.searchParams.get("limit") ?? 100);
         const listed = [...firewallRules.values()].filter((entry) => forVm === null || entry.vmId === forVm).map((entry) => entry.rule);
-        return Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+        const page = Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+        afterRuleList.shift()?.();
+        return page;
       }
       case "createFirewallRule": {
         const body: unknown = await request.json();
@@ -456,6 +460,7 @@ export function makeFakeUpstream(apiKey: string) {
     calls,
     tlsRules,
     firewallRules,
+    afterRuleList,
     resizeReplies,
     updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */

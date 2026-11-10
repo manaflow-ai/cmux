@@ -11,6 +11,7 @@ import type { UpstreamHttp } from "./live-http.ts";
 
 const PAGE = 64;
 const MAX_RULES = 256;
+const LIST_TRIES = 3;
 const List = Schema.Struct({ rules: Schema.Array(Schema.Unknown), totalCount: Schema.NonNegativeInt });
 const RuleId = Schema.Struct({ id: Schema.String.pipe(Schema.minLength(1)) });
 const decodeRuleId = Schema.decodeUnknownOption(RuleId);
@@ -38,30 +39,58 @@ const egressRule = (value: unknown, id: string) => {
 };
 
 export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService, "readVmPublicEgress" | "allowVmPublicEgress" | "revokeVmPublicEgress"> => {
-  /** The provider ids of this VM's public egress rules, every page read (at most MAX_RULES rules). */
-  const egressRules = (operation: string, id: string) => Effect.gen(function* () {
+  /**
+   * The provider ids of this VM's public egress rules, read page by page (`first`: stop at the first one).
+   *
+   * The list is offset-paged, so a rule added or deleted between two pages shifts the rest, and a plain next-offset
+   * read would skip a rule or read one twice; a revoke's read-back could then call a VM off that still has a rule.
+   * So each page after the first starts one rule early: its first rule must be the previous page's last, and the
+   * total must not change. Any net shift at a page boundary breaks one of the two, and the whole list is read again
+   * (LIST_TRIES times, then 503). A rule seen is real whatever moved after, so `first` returns at once.
+   */
+  const egressRules = (operation: string, id: string, first: boolean) => Effect.gen(function* () {
     const invalid = () => new UpstreamError({ operation, status: null });
-    const found: string[] = [];
-    let offset = 0;
-    while (offset < MAX_RULES) {
-      const query = new URLSearchParams({ vmId: id, limit: String(PAGE), offset: String(offset) });
-      const page = yield* http.json(operation, "GET", `/v5/firewall/rules?${query}`).pipe(
-        Effect.flatMap(Schema.decodeUnknown(List)), Effect.mapError((error) => error instanceof UpstreamError ? error : invalid()),
-      );
-      if (page.rules.length > PAGE || offset + page.rules.length > page.totalCount) return yield* Effect.fail(invalid());
-      for (const rule of page.rules) {
-        if (!egressRule(rule, id)) continue;
-        const ruleId = decodeRuleId(rule);
-        if (Option.isNone(ruleId)) return yield* Effect.fail(invalid());
-        found.push(ruleId.value.id);
+    for (let attempt = 0; attempt < LIST_TRIES; attempt += 1) {
+      const found: string[] = [];
+      let offset = 0;
+      let total: number | null = null;
+      let last: string | null = null;
+      let moved = false;
+      while (!moved) {
+        if (offset >= MAX_RULES) return yield* Effect.fail(invalid());
+        const query = new URLSearchParams({ vmId: id, limit: String(PAGE), offset: String(offset) });
+        const page = yield* http.json(operation, "GET", `/v5/firewall/rules?${query}`).pipe(
+          Effect.flatMap(Schema.decodeUnknown(List)), Effect.mapError((error) => error instanceof UpstreamError ? error : invalid()),
+        );
+        if (page.rules.length > PAGE || offset + page.rules.length > page.totalCount) return yield* Effect.fail(invalid());
+        const rules: Array<{ readonly ruleId: string; readonly rule: unknown }> = [];
+        for (const rule of page.rules) {
+          const ruleId = decodeRuleId(rule);
+          if (Option.isNone(ruleId)) return yield* Effect.fail(invalid());
+          rules.push({ ruleId: ruleId.value.id, rule });
+        }
+        if (last !== null && (page.totalCount !== total || rules[0]?.ruleId !== last)) {
+          moved = true;
+          break;
+        }
+        total = page.totalCount;
+        // The overlap rule was counted on the page before.
+        for (const { ruleId, rule } of last === null ? rules : rules.slice(1)) {
+          if (!egressRule(rule, id)) continue;
+          found.push(ruleId);
+          if (first) return found;
+        }
+        if (offset + rules.length >= page.totalCount) return found;
+        const end = rules.at(-1);
+        // A page past the first must move past its overlap rule.
+        if (end === undefined || (last !== null && rules.length < 2)) return yield* Effect.fail(invalid());
+        last = end.ruleId;
+        offset += rules.length - 1;
       }
-      offset += page.rules.length;
-      if (offset >= page.totalCount) return found;
-      if (page.rules.length === 0) return yield* Effect.fail(invalid());
     }
-    return yield* Effect.fail(invalid());
+    return yield* Effect.fail(new UpstreamError({ operation, status: 409 }));
   });
-  const read = (operation: string, id: string) => egressRules(operation, id).pipe(Effect.map((rules) => rules.length > 0));
+  const read = (operation: string, id: string) => egressRules(operation, id, true).pipe(Effect.map((rules) => rules.length > 0));
   return {
     readVmPublicEgress: (_vm, { owns }) =>
       Effect.sync(() => upstreamIdOf(owns)).pipe(Effect.flatMap((id) => read("readVmPublicEgress", id))),
@@ -76,7 +105,7 @@ export const makePublicEgress = (http: UpstreamHttp): Pick<UpstreamClientService
     revokeVmPublicEgress: (_vm, { owns }) => Effect.gen(function* () {
       const operation = "revokeVmPublicEgress";
       const id = yield* Effect.sync(() => upstreamIdOf(owns));
-      const rules = yield* egressRules(operation, id);
+      const rules = yield* egressRules(operation, id, false);
       for (const ruleId of rules) {
         // A rule already gone (a concurrent revoke, or the VM's delete) is what this call wants.
         yield* http.json(operation, "DELETE", `/v5/firewall/rules/${encodeURIComponent(ruleId)}`).pipe(
