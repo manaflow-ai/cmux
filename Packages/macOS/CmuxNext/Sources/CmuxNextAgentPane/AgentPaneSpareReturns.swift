@@ -35,7 +35,7 @@ public final class AgentPaneSpareReturns {
     }
 
     /// The pool takes `view` as a spare now: true when it is in `parking`, or in a pane of `window` (its tab's release
-    /// came before its pane dropped it), which moves it there now, inside the window. It is sized with the parking
+    /// came before its pane dropped it), which hides it and moves it there now, inside the window. It is sized with the parking
     /// view as every spare, and waits no more. False for a page of another window or of none: the pool holds no
     /// spare that a Cmd-T would attach to the window in the key's turn.
     public func arrived(_ view: AgentPaneView, in parking: NSView, of window: NSWindow?) -> Bool {
@@ -43,6 +43,12 @@ public final class AgentPaneSpareReturns {
         if view.superview !== parking {
             guard let window, view.window === window, parking.window === window else { return false }
             yieldKeyboard(of: view, in: window)
+            // The page still shows (its pane did not retire it yet): hidden before the move, as a page that its
+            // pane retired before the keep. The move stays inside the window, so nothing else tells the page that
+            // it left sight: `viewDidHide` ends what it has on the screen outside its own view (a menu or tooltip
+            // past the pane's edge, dictation, the toasts' lift over its composer; a Chromium page's window goes
+            // with it). Every returned spare is then in one state; the pool shows it again (its cover's capture, `take`).
+            view.isHidden = true
             parking.addSubview(view)
         }
         if view.frame != parking.bounds { view.frame = parking.bounds }
