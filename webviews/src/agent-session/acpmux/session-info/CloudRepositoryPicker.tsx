@@ -120,6 +120,8 @@ export function CloudRepositoryPicker({
       setRepos(known.repos);
       setConnectUrl(known.connectUrl);
       setError(undefined);
+      // An earlier query's read may still be out: the known list shows, not its "Searching" line.
+      setLoading(false);
     }
     const timer = window.setTimeout(
       () => {
