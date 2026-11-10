@@ -115,6 +115,7 @@ mod sandbox_run;
 mod vm;
 #[cfg(unix)]
 mod vm_short;
+mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
@@ -557,14 +558,14 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 }
 
 /// Scopes `main` routes by their first word, before the cmux global options
-/// are read, whose own parser takes `--json` right after the scope word:
+/// are read, whose own parser takes `--json` anywhere after the scope word:
 /// acpmux's (`--json` is a global clap option there).
 const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
-/// leading `--json` moves to just after the scope word, where that scope's
-/// own parser reads it, so `cmux --json chats list` is `cmux chats --json
-/// list` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+/// leading `--json` moves to the end (before any `--`), where that scope's
+/// own parser reads it, so `cmux --json chats list` is `cmux chats list
+/// --json` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
 /// `link` prints JSON only: a leading `--json` or `--jsonl` there becomes
 /// one `--json` after the word, which only shapes a refusal. Any other leading option stays where it is, and the parser's
 /// refusal names the right form. `device` keeps its own handling
@@ -582,17 +583,16 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         // the error object on a refusal.
         args.drain(..lead);
         args.insert(1, "--json".to_owned());
-    } else if scope == "host" && args[..lead].iter().all(|w| w == "--json") {
-        // The supervisor's verbs read `--json` after their own words
-        // (`host status --json`): it goes last, before any `--`.
+    } else if (scope == "host" || JSON_AFTER_SCOPE.contains(&scope.as_str()))
+        && args[..lead].iter().all(|w| w == "--json")
+    {
+        // These read `--json` after their own words (`host status --json`,
+        // `chats list --json`), and `acp`'s positional wrappers (`harness run
+        // NAME --tab`, `chats open`) match the words right after the scope: it
+        // goes last, before any `--`, where a person types it.
         args.drain(..lead);
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
-    } else if JSON_AFTER_SCOPE.contains(&scope.as_str())
-        && args[..lead].iter().all(|w| w == "--json")
-    {
-        args.drain(..lead);
-        args.insert(1, "--json".to_owned());
     }
 }
 
@@ -627,6 +627,9 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    if let Ok((_, command)) = parse_globals(args) {
+        vm_words::activate_for(&command);
+    }
     #[cfg(unix)]
     if let Some(code) = dev::run_if_requested(args, surface) {
         return code;

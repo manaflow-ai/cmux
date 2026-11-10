@@ -362,3 +362,122 @@ fn the_detector_reads_the_shapes_it_judges() {
     assert!(names_fix("cmux: unknown tab action; run `cmux tab --help`"));
     assert!(!names_fix("cmux: something failed"));
 }
+
+/// Where a text names a VM by the app's old words: `machine:ID` (a target, not
+/// `machine: reason`) or `list-machines`. `None` when it says `vm:ID` and
+/// `cmux vm ls`.
+fn machine_word(text: &str) -> Option<String> {
+    for (at, _) in text.match_indices("machine:") {
+        let before = text[..at].chars().next_back();
+        let after = text[at + "machine:".len()..].chars().next();
+        if before.is_none_or(|c| !c.is_ascii_alphanumeric())
+            && after.is_some_and(|c| !c.is_whitespace())
+        {
+            let line = text[..at].rfind('\n').map_or(0, |start| start + 1);
+            let end = text[at..].find('\n').map_or(text.len(), |end| at + end);
+            return Some(text[line..end].trim().to_owned());
+        }
+    }
+    text.lines().find(|line| line.contains("list-machines")).map(|line| line.trim().to_owned())
+}
+
+/// The verb rows of a help (`  <verb>  <what>`), as `listed_scopes` reads the
+/// root help's.
+fn verb_rows(help: &str) -> Vec<String> {
+    listed_scopes(help)
+}
+
+/// Leo, 2026-11-10: "i thought we rewrote the cli commands to not use
+/// machine?" A Cloud VM is `vm:ID` and `cmux vm ls` in every help, error and
+/// `next` hint the CLI prints; `machine:ID` and `list-machines` keep working
+/// as input and are never printed.
+#[test]
+fn no_help_or_error_names_a_vm_by_its_old_machine_words() {
+    let cli = Cli::new();
+    let root = cli.run(&["--help"]);
+    let mut commands: Vec<Vec<String>> = vec![vec!["--help".to_owned()]];
+    for scope in listed_scopes(&text(&root.stdout)) {
+        commands.push(vec![scope, "--help".to_owned()]);
+    }
+    for scope in ["vm", "cloud"] {
+        let help = cli.run(&[scope, "--help"]);
+        for verb in verb_rows(&text(&help.stdout)) {
+            commands.push(vec![scope.to_owned(), verb, "--help".to_owned()]);
+        }
+    }
+    let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+    for extra in [
+        &["vm", "--help"][..],
+        &["cloud", "--help"],
+        &["machine", "--help"],
+        &["device", "--help"],
+        &["chat", "--help"],
+        &["vnc", "--help"],
+        &["vm", "new", "--help"],
+        &["cloud", "start-chat", "--help"],
+        &["vm", BOGUS],
+        &["vm", BOGUS, "--json"],
+        &["cloud", BOGUS],
+        &["vm", "ls"],
+        &["vm", "ls", "--json"],
+        &["vm", "access", "new"],
+        &["vm", "exec", "--target"],
+        &["vm", "kill-machine", "--target", "vm:vm-1", "--confirm", "--json"],
+        &["cloud", "start-chat", "--target", "", "--prompt", "hi"],
+        &["chat", "--on", "vm:nope", "--prompt", "hi"],
+        &["chat", "--on", "vm:nope", "--prompt", "hi", "--json"],
+        &["vnc", "vm:"],
+        &["vnc"],
+    ] {
+        commands.push(words(extra));
+    }
+    let mut leaks = Vec::new();
+    for command in &commands {
+        let args: Vec<&str> = command.iter().map(String::as_str).collect();
+        let output = cli.run(&args);
+        let printed = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        if let Some(line) = machine_word(&printed) {
+            leaks.push(format!("cmux {}: {line}", command.join(" ")));
+        }
+    }
+    assert!(
+        leaks.is_empty(),
+        "{} command(s) print a VM as `machine:` or `list-machines` (say `vm:ID`, `cmux vm ls`):\n{}",
+        leaks.len(),
+        leaks.join("\n")
+    );
+}
+
+#[test]
+fn the_machine_word_check_reads_targets_not_prose() {
+    assert!(machine_word("run `cmux vm ls` with --target vm:vm-1").is_none());
+    assert!(machine_word("new Cloud machine: no capacity\n--login pass|machine|none").is_none());
+    assert!(machine_word("--target machine:MACHINE_ID").is_some());
+    assert!(machine_word("run `cmux vm list-machines`").is_some());
+    assert!(machine_word("on machine:vm-1.").is_some());
+}
+
+/// A missing or malformed option is a usage error in the one shape too, not
+/// only an unknown word: `link init` without `--install`, a `--port` that is
+/// no port (both refused before any link state is read).
+#[test]
+fn a_missing_or_bad_option_is_the_usage_error_object() {
+    let cli = Cli::new();
+    for args in [
+        &["--json", "link", "init"][..],
+        &["link", "init", "--json"],
+        &["link", "init", "--install", "x", "--port", "nope", "--json"],
+    ] {
+        let output = cli.run(args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "cmux {}: {}",
+            args.join(" "),
+            text(&output.stderr)
+        );
+        if let Some(problem) = envelope_problem(&output, true) {
+            panic!("cmux {}: {problem}", args.join(" "));
+        }
+    }
+}
