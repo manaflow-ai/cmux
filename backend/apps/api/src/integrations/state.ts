@@ -1,4 +1,5 @@
 import { importJWK, jwtVerify, SignJWT, type JWK } from "jose"
+import { isConnectReturnTo } from "@cmux/protocol"
 import type { Env } from "../env.ts"
 
 /**
@@ -13,6 +14,10 @@ export interface ConnectState {
   readonly team: string
   readonly user: string
   readonly provider: string
+  /** The chat's cmux deep link the callback page opens after linking (checked at connect and again here). */
+  readonly return_to?: string
+  /** GitHub: the App installation the server found covering the asked repository (the OAuth authorize path). */
+  readonly installation?: number
 }
 
 const AUDIENCE = "cmux-integration-state"
@@ -26,7 +31,7 @@ const keys = (env: Env) => {
 
 export const signState = async (env: Env, s: ConnectState): Promise<string> => {
   const key = await importJWK(keys(env).priv, "ES256")
-  return new SignJWT({ conn: s.conn, team: s.team, provider: s.provider })
+  return new SignJWT({ conn: s.conn, team: s.team, provider: s.provider, ...(s.return_to ? { ret: s.return_to } : {}), ...(s.installation ? { inst: s.installation } : {}) })
     .setProtectedHeader({ alg: "ES256", typ: "JWT" })
     .setIssuer(`https://cmux-api/${env.ENVIRONMENT}`)
     .setAudience(AUDIENCE)
@@ -39,9 +44,11 @@ export const signState = async (env: Env, s: ConnectState): Promise<string> => {
 export const verifyState = async (env: Env, token: string): Promise<ConnectState | undefined> => {
   try {
     const { payload } = await jwtVerify(token, await importJWK(keys(env).pub, "ES256"), { algorithms: ["ES256"], audience: AUDIENCE, issuer: `https://cmux-api/${env.ENVIRONMENT}` })
-    const { conn, team, provider, sub } = payload as Record<string, unknown>
+    const { conn, team, provider, sub, ret, inst } = payload as Record<string, unknown>
     if (typeof conn !== "string" || typeof team !== "string" || typeof provider !== "string" || typeof sub !== "string") return undefined
-    return { conn, team, provider, user: sub }
+    if (ret !== undefined && !isConnectReturnTo(ret)) return undefined
+    if (inst !== undefined && !(typeof inst === "number" && Number.isSafeInteger(inst) && inst > 0)) return undefined
+    return { conn, team, provider, user: sub, ...(ret === undefined ? {} : { return_to: ret }), ...(inst === undefined ? {} : { installation: inst }) }
   } catch {
     return undefined
   }

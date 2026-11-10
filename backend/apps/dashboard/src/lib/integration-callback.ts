@@ -33,3 +33,21 @@ export const integrationCompletionRequest = (state: string, extra: { code?: stri
   team: integrationTeamHint(state),
   idempotency_key: `complete:${state.slice(-40)}`,
 })
+
+const RETURN_ID = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+const RETURN_VALUE = "[A-Za-z0-9._~%-]{1,128}"
+const RETURN_KEY = "(?:host|name|message)"
+/**
+ * The cmux chat links a connect may return to: the same grammar as `CONNECT_RETURN_TO` in
+ * @cmux/protocol (a test pins them equal). Checked again here, before the browser leaves the dashboard.
+ */
+export const RETURN_TO_PATTERN = new RegExp(
+  `^cmux(?:-dev)?://(?:session/${RETURN_ID}|agent/[a-z][a-z0-9-]{0,31}/${RETURN_ID}|tab/tab_[0-9a-f]{32}|workspace/ws_[A-Za-z0-9]{8,64}|conversation/${RETURN_ID}|chief/${RETURN_ID})` +
+    `(?:\\?${RETURN_KEY}=${RETURN_VALUE}(?:&${RETURN_KEY}=${RETURN_VALUE}){0,2})?$`,
+)
+
+/** The chat link a completed connect returns to, from the API's completion answer; anything else is dropped. */
+export const integrationReturnLink = (value: unknown): string | undefined => {
+  const link = (value as { return_to?: unknown } | null | undefined)?.return_to
+  return typeof link === "string" && link.length <= 512 && RETURN_TO_PATTERN.test(link) ? link : undefined
+}

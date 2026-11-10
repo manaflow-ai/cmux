@@ -394,6 +394,82 @@ describe("connections end to end (workerd)", () => {
     expect((await op(token, "integration.policy.apply_managed", { source: "sso", policy: {}, applied_by: "me" })).status).toBe(400)
   })
 
+  it("GitHub Connect with a repo: reuses a covering connection, opens configure or authorize instead of install, and returns to the chat", async () => {
+    const { token, team } = await signedIn("conn-gh-reuse")
+    const installation = 984355
+    const chat = "cmux://session/01a12408-f0a2-79a0-8c59-cb472f5bb9aa"
+    let covers = false
+    const fake = fakeHttp({
+      "https://api.github.com/repos/acme/web/installation": () => ok({ id: installation, repository_selection: "selected", account: { login: "acme", id: 9001, type: "Organization" } }),
+      "https://api.github.com/repos/acme/api/installation": () => ok({ id: installation, repository_selection: "selected", account: { login: "acme", id: 9001, type: "Organization" } }),
+      [`https://api.github.com/app/installations/${installation}/access_tokens`]: () => ok({ token: "ghs_lookup", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/acme/web": () => (covers ? ok({ full_name: "acme/web" }) : ok({ message: "Not Found" }, 404)),
+      "https://api.github.com/repos/acme/api": () => ok({ full_name: "acme/api" }),
+      "https://api.github.com/users/newowner/installation": () => ok({ message: "Not Found" }, 404),
+      "https://api.github.com/users/newowner": () => ok({ login: "newowner", id: 4242 }),
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
+      [`https://api.github.com/user/installations/${installation}/repositories`]: () => ok({ repositories: [{ full_name: "acme/web" }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: installation, account: { login: "acme", type: "Organization" }, permissions: { contents: "write" } }] })
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => { instance.http = fake.http })
+    const claims = (state: string) => JSON.parse(atob(state.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>
+
+    // Installed on the owner without the repository: that installation's configure page, never the install page.
+    const configure = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to: chat })
+    expect(configure.json.value.authorize_url).toBe(`https://github.com/organizations/acme/settings/installations/${installation}`)
+
+    // The installation covers the repository: GitHub's authorize page, and the signed state names the installation and the chat.
+    covers = true
+    const started = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to: chat })
+    const url = new URL(started.json.value.authorize_url)
+    expect(url.origin + url.pathname).toBe("https://github.com/login/oauth/authorize")
+    expect(url.searchParams.get("client_id")).toBe("Iv1.test")
+    expect(url.searchParams.get("redirect_uri")).toBe(`${testEnv.DASHBOARD_ORIGIN.replace(/\/$/, "")}/integrations/callback`)
+    const state = url.searchParams.get("state")!
+    expect(claims(state)).toMatchObject({ inst: installation, ret: chat })
+    // OAuth brings back a code and no installation_id; the completion answers the chat link from the verified state.
+    const done = await op(token, "integration.complete", { state, code: "c" })
+    expect(done.json).toMatchObject({ ok: true, value: { status: "active", account: { key: `github:installation:${installation}` }, resources: { repos: ["acme/web"] }, return_to: chat } })
+    const linked = started.json.value.connection.id as string
+
+    // Reuse before asking: nothing to open, no new pending connection.
+    const before = (await read(token, "integration.list")).json.value.connections.length
+    const reused = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to: chat })
+    expect(reused.json).toMatchObject({ ok: true, value: { connected: true, connection: { id: linked, status: "active" } } })
+    expect(reused.json.value.authorize_url).toBeUndefined()
+    expect((await read(token, "integration.list")).json.value.connections.length).toBe(before)
+
+    // A redirect naming another installation than the signed state is refused.
+    const other = await op(token, "integration.connect", { provider: "github", repo: "acme/api" })
+    const otherState = new URL(other.json.value.authorize_url).searchParams.get("state")!
+    expect(claims(otherState).ret).toBeUndefined()
+    expect((await op(token, "integration.complete", { state: otherState, code: "c", installation_id: "1" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+
+    // Not installed on the owner: the install page, preselecting the owner.
+    const fresh = new URL((await op(token, "integration.connect", { provider: "github", repo: "newowner/app" })).json.value.authorize_url)
+    expect(fresh.origin + fresh.pathname).toBe("https://github.com/apps/cmux-test/installations/new/permissions")
+    expect(fresh.searchParams.get("target_id")).toBe("4242")
+
+    // Without repo nothing changes: the install page, and a completion with no return link.
+    const plain = new URL((await op(token, "integration.connect", { provider: "github" })).json.value.authorize_url)
+    expect(plain.origin + plain.pathname).toBe("https://github.com/apps/cmux-test/installations/new")
+    expect(claims(plain.searchParams.get("state")!).ret).toBeUndefined()
+    // Every GitHub lookup used the App's key or an installation token, never a stored user token.
+    expect(fake.calls.filter((c) => c.url.includes("/installation") && !c.url.includes("/user/")).every((c) => /^Bearer ey/.test(c.auth ?? ""))).toBe(true)
+  })
+
+  it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {
+    const { token } = await signedIn("conn-gh-return-bad")
+    for (const return_to of ["https://evil.example/x", "javascript:alert(1)", "//evil.example/x", "cmux://evil.example/session/a", "cmux://session/a#frag", `cmux://session/${"a".repeat(600)}`]) {
+      const r = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to })
+      expect(r.json.ok).not.toBe(true)
+      expect(r.json.error?.code ?? r.json.code).toBe("validation.invalid")
+    }
+    const slack = await op(token, "integration.connect", { provider: "slack", repo: "acme/web" })
+    expect(slack.json.error?.code ?? slack.json.code).toBe("validation.invalid")
+  })
+
   it("a stricter policy narrows existing connections: installation-scope links and denied providers stop working", async () => {
     const { token, team } = await signedIn("conn-gh-2")
     await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
