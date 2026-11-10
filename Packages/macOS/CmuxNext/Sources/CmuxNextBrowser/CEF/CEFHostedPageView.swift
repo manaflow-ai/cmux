@@ -30,11 +30,16 @@ final class CEFHostedPageView: NSView {
     private let root = CALayer()
     private var remote: CALayer?
     private let makeLayerHost: (UInt32) -> CALayer?
+    private let remoteRoot: (UInt32) -> CALayer?
 
-    /// - Parameter makeLayerHost: the layer that shows a context id; a
-    ///   `CALayerHost` by default (tests pass one that fails).
-    init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.layerHost(contextID: $0) }) {
+    /// - Parameters:
+    ///   - makeLayerHost: the layer that shows a context id; a `CALayerHost` by default (tests pass one that fails).
+    ///   - remoteRoot: the root layer of the context a context id names, when that context is in this process; nil
+    ///     when it is not (a browser in another process).
+    init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer? = { CEFHostedPageView.layerHost(contextID: $0) },
+         remoteRoot: @escaping (UInt32) -> CALayer? = { _ in nil }) {
         self.makeLayerHost = makeLayerHost
+        self.remoteRoot = remoteRoot
         super.init(frame: frame)
         // Layer-hosting view (layer set before wantsLayer): AppKit sizes
         // the root with the view and never touches the remote layer under it.
