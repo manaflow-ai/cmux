@@ -641,7 +641,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: null,
+      maxActiveVms: 200,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -717,12 +717,12 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toMatchObject({
-      // A paid Team has no machine count and no pool (its compute is metered),
+      // A paid Team holds only the abuse guard and no pool (its compute is metered),
       // however many seats it pays for. The legacy row without a marker still
       // reports the provider maximum as its share until reconciliation; the
       // paused machine does not count. That is accounting, not a size marker.
       limits: {
-        planId: "team", maxActiveVms: null, activeVmCount: 3, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        planId: "team", maxActiveVms: 200, activeVmCount: 3, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
         poolVcpus: null, poolMemoryMb: null, usedVcpus: 48, usedMemoryMb: 98304,
         maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
@@ -1108,7 +1108,7 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: null,
+      maxActiveVms: 200,
     }));
   });
 
@@ -2312,7 +2312,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: null,
+      maxActiveVms: 200,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -2424,7 +2424,7 @@ describe("VM REST auth", () => {
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
-      maxActiveVms: null,
+      maxActiveVms: 200,
       modelPlane: expect.objectContaining({}),
       // The owner team's member list for the caller's vmKind.
       teamDirectory: expect.objectContaining({}),
@@ -2683,7 +2683,7 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       callerPlanId: "pro",
       command: "true",
-      maxActiveVms: null,
+      maxActiveVms: 200,
       timeoutMs: 30_000,
       answerWithinMs: execInput?.answerWithinMs,
       modelPlane: expect.objectContaining({}),

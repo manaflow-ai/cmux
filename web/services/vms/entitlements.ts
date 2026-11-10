@@ -11,9 +11,8 @@ import {
 import { hasCompanyPlanGrant } from "../billing/companyPlan";
 import { planIncludes } from "../billing/planTier";
 import {
-  MAX_PLAN_RESOURCE_POOL,
+  PAID_MACHINE_GUARD,
   PLAN_MACHINE_MEMORY_MB,
-  PLAN_RESOURCE_POOL,
   VM_PROVIDER_RESOURCE_BOUNDS,
   type VmComputeResources,
   type VmResourcePoolPolicy,
@@ -21,6 +20,7 @@ import {
 import { pickVmImageSizeForMemory } from "./images/sizes";
 
 export {
+  PAID_MACHINE_GUARD,
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
   VM_DISK_MB_MAX,
@@ -343,11 +343,12 @@ export function defaultMemoryMbForPlan(
 }
 
 /**
- * Saved-machine ceiling for a plan, or null when there is none. Paid plans
- * have no count cap (Leo, 2026-11-10: "you can have arbitrarily many VMs and
- * we just build based off of that kind of thing"): every machine is metered
- * and the team's spending cap is the only stop, so seats multiply nothing.
- * Plus (`go`) is sold as one saved machine and keeps it. Free plans stay
+ * Saved-machine ceiling for a plan, or null when there is none (company
+ * grants). Paid plans have no allowance (Leo, 2026-11-10: "you can have
+ * arbitrarily many VMs and we just build based off of that kind of thing"):
+ * every machine is metered and the team's spending cap is the stop, so seats
+ * multiply nothing. They hold only PAID_MACHINE_GUARD, an abuse guard set
+ * high. Plus (`go`) is sold as one saved machine and keeps it. Free plans stay
  * capped (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
@@ -359,18 +360,15 @@ export function maxActiveVmsForPlan(
 
 /**
  * The vCPUs and memory a billing scope's active machines share, or null when
- * the plan has no pool: Free, Go, and every paid plan without a count, which
- * is every paid plan today (running compute is metered instead). The plan's
- * pool is flat; seats do not multiply it. A Max caller keeps the Max pool.
+ * there is no pool. No plan has one now: Free and Plus never did, and paid
+ * plans' running compute is metered instead (the spending cap is the stop).
+ * Kept so the repository's pool check stays the one place a pool would apply.
  */
 export function resourcePoolForPlan(
-  planId: string | null | undefined,
-  maxActiveVms: number | null | undefined,
+  _planId: string | null | undefined,
+  _maxActiveVms: number | null | undefined,
 ): VmComputeResources | null {
-  const normalized = normalizedPlanId(planId ?? "");
-  if (!isPaidVmPlan(normalized) || normalized === GO_PLAN_ID) return null;
-  if (maxActiveVms === null || maxActiveVms === undefined) return null;
-  return normalized === MAX_PLAN_ID ? MAX_PLAN_RESOURCE_POOL : PLAN_RESOURCE_POOL;
+  return null;
 }
 
 /** vCPUs on the image ladder row that boots `memoryMb`. */
@@ -534,7 +532,7 @@ function isVmFalseFlag(value: string | undefined): boolean {
   }
 }
 
-/** The plan's count: free stays capped, Plus keeps its one saved machine, other paid plans have none. */
+/** The plan's count: free stays capped, Plus keeps its one saved machine, other paid plans hold only the guard. */
 function activeVmLimitForPlan(
   planId: string,
   env: Record<string, string | undefined>,
@@ -553,10 +551,11 @@ function activeVmLimitForPlan(
 
   if (planId === GO_PLAN_ID) return 1;
 
-  // Paid machines are metered and the team's spending cap is the stop. Legacy
-  // deployment overrides must not reintroduce a count; the create kill switch
-  // (`CMUX_VM_CREATE_ENABLED=0`) remains the control for a provisioning incident.
-  return null;
+  // Paid machines are metered and the team's spending cap is the stop; the
+  // guard only bounds abuse. Legacy deployment overrides must not lower it to an
+  // allowance; the create kill switch (`CMUX_VM_CREATE_ENABLED=0`) remains the
+  // control for a provisioning incident.
+  return PAID_MACHINE_GUARD;
 }
 
 function normalizedPlanId(planId: string): string {

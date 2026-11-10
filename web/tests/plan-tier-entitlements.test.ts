@@ -91,7 +91,7 @@ describe("Cloud entitlement matrix", () => {
       maxMemoryMb: 16 * GB,
       maxVcpus: 8,
       maxDiskMb: 128 * GB,
-      maxActiveVms: null,
+      maxActiveVms: 200,
       pool: null,
       lockedUpgrade: "max",
     },
@@ -101,7 +101,7 @@ describe("Cloud entitlement matrix", () => {
       maxMemoryMb: 64 * GB,
       maxVcpus: 32,
       maxDiskMb: 256 * GB,
-      maxActiveVms: null,
+      maxActiveVms: 200,
       pool: null,
       lockedUpgrade: null,
     },
@@ -133,8 +133,8 @@ describe("Cloud entitlement matrix", () => {
     for (const memoryMb of memoryOptionsMbForPlan("pro", env)) {
       expect(memoryOptionsMbForPlan("max", env)).toContain(memoryMb);
     }
-    // Neither has a machine count: both are metered, and the spending cap is the stop.
-    expect([maxActiveVmsForPlan("max", env), maxActiveVmsForPlan("pro", env)]).toEqual([null, null]);
+    // Neither has an allowance, only the same abuse guard: both are metered, and the spending cap is the stop.
+    expect(maxActiveVmsForPlan("max", env)).toBe(maxActiveVmsForPlan("pro", env));
   });
 
   test("Free is offered Pro for a Pro size, not Max", () => {

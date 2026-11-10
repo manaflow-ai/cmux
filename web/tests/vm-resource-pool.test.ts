@@ -136,20 +136,13 @@ describe("Cloud VM plan ceilings", () => {
 });
 
 describe("Cloud VM resource pool policy", () => {
-  test("a paid plan without a count has no pool, and a counted scope's pool is flat per plan", () => {
-    // Paid plans have no machine count, so none has a pool: running compute is metered.
-    for (const plan of ["pro", "founders", "team", "max"]) {
+  test("no plan has a pool: paid compute is metered, and seats multiply nothing", () => {
+    for (const plan of ["pro", "founders", "team", "max", "go", "free"]) {
       expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toBeNull();
+      expect(resourcePoolForPlan(plan, 5)).toBeNull();
     }
-    // Where a count still holds a paid scope, its pool is the plan's own; seats multiply nothing.
-    for (const plan of ["pro", "founders", "team"]) expect(resourcePoolForPlan(plan, 5)).toEqual(PRO_POOL);
-    expect(resourcePoolForPlan("team", 50)).toEqual(PRO_POOL);
-    expect(resourcePoolForPlan("max", 5)).toEqual({ vcpus: 80, memoryMb: 160 * GB });
-    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 80, memoryMb: 160 * GB });
-    expect(resourcePoolForPlan("go", 1)).toBeNull();
-    expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();
-    expect(resourcePoolPolicyForPlan("pro", 5)?.legacyReservation).toEqual({ vcpus: 32, memoryMb: 64 * GB });
+    expect(resourcePoolPolicyForPlan("pro", 5)).toBeNull();
   });
 
   const refusal = (planId: string, resource: "memoryMb" | "vcpus") => new VmResourcePoolExceededError({
@@ -369,7 +362,7 @@ describe("Cloud VM resource pool", () => {
     expect(fits.inserted).toBe(true);
   }));
 
-  dbTest("a resume after a failed attach uses the caller's current plan pool", () => withTeam(async team => {
+  dbTest("a resume after a failed attach is not refused by a plan pool", () => withTeam(async team => {
     await seedVm(team, { status: "running", vcpus: 16, memoryMb: 32 * GB });
     // Made on Max, which has a larger pool; the caller is now on Pro.
     const target = await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB, planId: "max" });
@@ -403,19 +396,11 @@ describe("Cloud VM resource pool", () => {
       userId: team, billingTeamId: team, teamIds: [team], providerVmId: target,
       maxActiveVms: 5, callerPlanId: "pro",
     }), provider);
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resume",
-        pool: PRO_POOL,
-        planId: "pro",
-      });
-    }
-    expect(resumes).toBe(0);
+    // Pro has no pool any more (its compute is metered), so no pool refuses the resume.
+    expect(result._tag === "Left" ? (result.left as { _tag?: string })._tag : "Right").not.toBe("VmResourcePoolExceededError");
   }));
 
-  dbTest("a fork needs room in the pool for a copy of its source", () => withTeam(async team => {
+  dbTest("a fork is not refused by a plan pool", () => withTeam(async team => {
     const source = await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     let forks = 0;
@@ -431,16 +416,7 @@ describe("Cloud VM resource pool", () => {
       userId: team, billingCustomerType: "team", billingTeamId: team, teamIds: [team],
       billingPlanId: "pro", maxActiveVms: 5, providerVmId: source,
     }), provider);
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "fork",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 8, memoryMb: 16 * GB },
-      });
-    }
-    expect(forks).toBe(0);
+    // Pro has no pool any more (its compute is metered), so no pool refuses the fork.
+    expect(result._tag === "Left" ? (result.left as { _tag?: string })._tag : "Right").not.toBe("VmResourcePoolExceededError");
   }));
 });

@@ -1,12 +1,17 @@
 /**
- * Paid plans have no machine-count cap: every machine is metered (running
- * compute per vCPU-hour and GB-hour, saved and paused disk per GB-month) and
- * the team's spending cap is the only stop. Seats do not multiply anything.
- * A plan's pool (Pro, Team, and legacy lifetime grants 20 vCPUs and 40 GB RAM;
- * Max 80 vCPUs and 160 GB RAM) applies only where a count brake still holds a
- * paid scope to a number. Disk stays a per-machine limit. This module is
- * dependency-free so provider sizing does not import the billing graph.
+ * Paid plans have no machine-count allowance: every machine is metered
+ * (running compute per vCPU-hour and GB-hour, saved and paused disk per
+ * GB-month) and the team's spending cap is the only stop on spend. Seats do
+ * not multiply anything. PAID_MACHINE_GUARD is an abuse guard set high, not an
+ * allowance: the same number as cmux-platform's held-machine guard
+ * (CLOUD_PAID_MAX_MACHINES default, paused machines included), so no single
+ * scope can hold an unbounded number of machines through this path. A plan's
+ * pool (Pro, Team, and legacy lifetime grants 20 vCPUs and 40 GB RAM; Max 80
+ * vCPUs and 160 GB RAM) no longer applies to paid plans, whose compute is
+ * metered. Disk stays a per-machine limit. This module is dependency-free so
+ * provider sizing does not import the billing graph.
  */
+export const PAID_MACHINE_GUARD = 200;
 export const PLAN_MACHINE_MEMORY_MB = 8192;
 /** The image ladder pairs one vCPU with every 2 GB of memory (md = 4 vCPU / 8 GB). */
 export const VM_MEMORY_MB_PER_VCPU = 2048;

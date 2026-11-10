@@ -5,6 +5,7 @@ import {
   defaultMemoryMbForPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  PAID_MACHINE_GUARD,
   maxDiskMbForPlan,
   lockedMemoryOptionsMbForPlan,
   maxMemoryMbForPlan,
@@ -28,18 +29,19 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
-  test("paid plans have no machine count: machines are metered and the spending cap is the stop", () => {
-    for (const plan of ["pro", "team", "founders", "max"]) expect(maxActiveVmsForPlan(plan, {})).toBeNull();
+  test("paid plans have no allowance, only the high abuse guard: machines are metered and the spending cap is the stop", () => {
+    for (const plan of ["pro", "team", "founders", "max"]) expect(maxActiveVmsForPlan(plan, {})).toBe(PAID_MACHINE_GUARD);
+    expect(PAID_MACHINE_GUARD).toBeGreaterThanOrEqual(200);
   });
 
-  test("retired paid overrides cannot bring a count back", () => {
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBeNull();
+  test("retired paid overrides cannot lower the guard to an allowance", () => {
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBe(PAID_MACHINE_GUARD);
     expect(maxActiveVmsForPlan("pro", {
       CMUX_VM_PAID_MAX_ACTIVE_VMS: "1",
       CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25",
-    })).toBeNull();
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" })).toBeNull();
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBeNull();
+    })).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" })).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBe(PAID_MACHINE_GUARD);
   });
 
   test("free allowance is env-overridable only with the explicit escape hatch", () => {
