@@ -34,6 +34,9 @@ pub(super) struct AgentRosterFold {
     /// the roster, by name (test seam: only the roster's owner may do them).
     #[cfg(test)]
     io_threads: Vec<Option<String>>,
+    /// Snapshot saves of the owner's passes (test seam).
+    #[cfg(test)]
+    snapshot_saves: usize,
 }
 
 impl AgentRosterFold {
@@ -79,6 +82,12 @@ impl AgentRosterFold {
 }
 
 impl Mux {
+    /// Snapshot saves the roster owner's passes made so far.
+    #[cfg(test)]
+    pub(crate) fn agent_roster_snapshot_saves_for_test(&self) -> usize {
+        self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner).snapshot_saves
+    }
+
     /// The next roster fold signals `entered` after it reads one page of
     /// the journal tail and waits for `release` before it goes on.
     #[cfg(test)]
@@ -603,6 +612,10 @@ impl Mux {
         if let Some((cursor, snapshot)) = saved {
             #[cfg(test)]
             fold.note_io_for_test();
+            #[cfg(test)]
+            {
+                fold.snapshot_saves += 1;
+            }
             // The connection alone, never the workspace registry lock, so
             // state commits do not wait behind the snapshot write (issue 23038).
             if let Err(error) = self.registry_connection.put_journal_reducer_state(
