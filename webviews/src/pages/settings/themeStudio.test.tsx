@@ -392,3 +392,22 @@ test("Preview on the Whole App previews a terminal theme on the chrome too, and 
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "Dracula" });
   expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.appTheme" }]);
 });
+
+// A whole-app pick whose terminal write is refused keeps the App Theme: the reset waits for the write.
+test("Preview on the Whole App: a refused terminal pick leaves the App Theme as it was", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      values: { "appearance.theme": "Nord", "appearance.appTheme": "Rose Pine" },
+      failing: { "cmux.settings.set": "cmux.settings.invalid" },
+    },
+  });
+  const row = () => theme(page!).querySelector<HTMLElement>('[data-theme-row="whole-app"]');
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  await click(row()!.querySelector<HTMLElement>("[role=switch]")!);
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "mousedown");
+  await until(() => ops(page!.provider, "cmux.settings.set").length > 0, "the terminal theme write");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+});
