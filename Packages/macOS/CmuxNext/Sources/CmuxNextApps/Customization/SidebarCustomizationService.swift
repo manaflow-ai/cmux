@@ -11,9 +11,10 @@ public import Observation
 @MainActor
 @Observable
 public final class SidebarCustomizationService: SidebarCustomization {
-    static let hoverCardInterface = "cmux.hovercard/1"
+    // Nonisolated: ``AppMountSurface`` resolves the hover card by the same app and interface.
+    nonisolated static let hoverCardInterface = "cmux.hovercard/1"
     static let rowsInterface = "cmux.sidebar.rows/1"
-    static let userApp = "local/customize"
+    nonisolated static let userApp = "local/customize"
 
     @ObservationIgnored private let client: AppsClient
     @ObservationIgnored private let isPresented: (String) -> Bool
@@ -45,7 +46,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// status): another installed app cannot.
     func implementation(_ interface: String) -> (app: String, implementation: AppImplementation)? {
         guard let app = client.app(Self.userApp), isPresented(app.id),
-              let found = app.manifest.implementations.first(where: { $0.interface == interface && $0.hasScene }) else { return nil }
+              let found = app.manifest.sceneImplementation(interface: interface) else { return nil }
         return (app.id, found)
     }
 
