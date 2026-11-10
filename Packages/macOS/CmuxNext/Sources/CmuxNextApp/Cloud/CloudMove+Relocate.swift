@@ -6,9 +6,8 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
-/// Move to another Cloud machine (a Cloud chat's Move to…): one `cmux link agent move --sync relay`
-/// copies the folder machine to machine through this Mac's two links (nothing lands here), freezes
-/// the chat only for what changed since, and moves it; its toasts, card and Retry are the move's.
+/// Move to another Cloud machine (a Cloud chat's Move to…): one `cmux link agent move --sync relay` copies the folder machine
+/// to machine through this Mac's two links (nothing lands here), then moves the chat; its toasts, card and Retry are the move's.
 @MainActor
 extension CloudMove {
     /// The Cloud machine a chat runs on, by its record's `registry:` host.
@@ -25,7 +24,9 @@ extension CloudMove {
         guard let session = Self.session(tab, services) else { throw ActionFailure(message: CloudMoveStrings.noSession) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        perform(tab: tab, invocation: invocation) { try await relocate(tab: tab, record: record, session: session, from: source, cli: cli, invocation: invocation) }
+        perform(tab: tab, invocation: invocation) {
+            try await Self.updatingFirst(invocation) { try await relocate(tab: tab, record: record, session: session, from: source, cli: cli, invocation: $0) }
+        }
         return true
     }
 
@@ -37,10 +38,9 @@ extension CloudMove {
         guard let fromSocket = await from.daemon.connection?.endpoint?.socketPath, let toSocket = await target.daemon.connection?.endpoint?.socketPath,
               let toHost = AgentTabStore.registryHost(of: target.daemon) else { throw Failure(message: CloudMoveStrings.notConnected(name), retry: again) }
         let entry = services.cloud.movedChats.entry(host: record.host, session: session)
-        guard let folder = CloudMoveTargetRules().folder(remoteFolder: entry?.remoteFolder, remoteChat: entry?.remoteChat, cwd: tab.cwd) else {
-            throw Failure(message: CloudMoveStrings.noFolder)
-        }
+        guard let folder = CloudMoveTargetRules().folder(remoteFolder: entry?.remoteFolder, remoteChat: entry?.remoteChat, cwd: tab.cwd) else { throw Failure(message: CloudMoveStrings.noFolder) }
         services.cloud.moveRetries[tab.id] = again
+        if CloudMachineUpdate.requested(invocation) { try await CloudMachineUpdate.run(services, name: name, socket: toSocket, cli: cli, toast: "cloud-move-" + tab.id, retry: .update(machineID: target.machineID)) } // Update Machine first
         let owner = await Self.ownerAnswer(target), moved: CloudMoveCLI.Answer
         do {
             let sync = CloudMoveCLI.FrozenSync(pull: false, socket: toSocket, local: folder.root, remote: folder.root, fromSocket: fromSocket, seedLocal: entry?.localRoot)

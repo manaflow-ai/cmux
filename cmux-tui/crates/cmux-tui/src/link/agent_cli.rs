@@ -761,14 +761,23 @@ fn commit(
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
     }
-    records.clear();
     // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
+    // Before the record clears: a run that dies here moves it on its next run.
     if let Some(sync) = &args.sync
         && let (Some(seed_local), Some(from)) = (&sync.seed_local, &sync.from_socket)
     {
         let local_root = sync.local.to_string_lossy();
-        let _ = super::seed_cli::follow(seed_local, &local_root, &sync.remote, from, &sync.socket);
+        if let Err(error) =
+            super::seed_cli::follow(seed_local, &local_root, &sync.remote, from, &sync.socket)
+        {
+            // The move stands; Bring Back Local then copies instead of merging.
+            eprintln!(
+                "{}",
+                json!({"warning": "seed_record_not_moved", "error": format!("{error:#}")})
+            );
+        }
     }
+    records.clear();
     Ok(Moved {
         session_id: record.session_id.clone().unwrap_or_default(),
         transfer_id: record.transfer_id.clone(),

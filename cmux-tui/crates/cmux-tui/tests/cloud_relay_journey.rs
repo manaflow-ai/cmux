@@ -181,6 +181,19 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     let again = relay(&mac, &one, &first, &two, &second);
     assert_eq!(again["written"], json!(0), "{again}");
 
+    // Work VM two put where a relayed symlink was is never deleted when the source drops the link.
+    fs::remove_file(second.join("lib-link")).unwrap();
+    fs::create_dir(second.join("lib-link")).unwrap();
+    fs::write(second.join("lib-link/mine.txt"), "made on vm two\n").unwrap();
+    fs::remove_file(first.join("lib-link")).unwrap();
+    relay(&mac, &one, &first, &two, &second);
+    assert_eq!(
+        fs::read_to_string(second.join("lib-link/mine.txt")).unwrap(),
+        "made on vm two\n",
+        "the relay deleted VM two's own work"
+    );
+    fs::remove_dir_all(second.join("lib-link")).unwrap();
+
     // A folder VM two already has, that no relay made, is never written over.
     let theirs = two.home().join("work/theirs");
     fs::create_dir_all(&theirs).unwrap();
@@ -265,8 +278,7 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
 
     // 4. Bring Back Local from VM two merges into the Mac's folder against the seed the Mac sent
     // VM one: its record followed the chat. A symlink made on a machine never comes back (Bring
-    // Back Local's own rule, not the relay's), so VM two's goes first.
-    fs::remove_file(second.join("lib-link")).unwrap();
+    // Back Local's own rule, not the relay's); VM two's went above.
     let (ok, back) = run_json(
         Command::new(bin())
             .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))

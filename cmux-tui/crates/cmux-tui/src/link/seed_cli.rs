@@ -362,10 +362,17 @@ pub(in crate::link) fn follow(
     let id = |socket: &Path| {
         machine_gate::identify(socket)?.get("session_id")?.as_str().map(str::to_owned)
     };
-    if kept.machine.is_some() && kept.machine != id(from) {
-        return Ok(false);
+    if kept.machine.is_some() {
+        let source = anyhow::Context::context(
+            id(from),
+            "the first machine did not say which machine it is",
+        )?;
+        if kept.machine.as_deref() != Some(source.as_str()) {
+            return Ok(false);
+        }
     }
-    kept.machine = id(to);
+    kept.machine =
+        Some(anyhow::Context::context(id(to), "the new machine did not say which machine it is")?);
     record::save(&local, to_root, &kept)?;
     Ok(true)
 }

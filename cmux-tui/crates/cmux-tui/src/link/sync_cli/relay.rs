@@ -64,6 +64,8 @@ const STREAM_DEPTH: usize = 4;
 const STREAM_PART: usize = 1024 * 1024;
 /// The refusal of a relay into a folder the target has that no relay made.
 pub(super) const TARGET_EXISTS: &str = "relay.target_exists";
+/// Files landed between two saves of the record, so a cut relay redoes at most these.
+const CHECKPOINT: u64 = 64;
 /// Most paths named in `skipped_files`.
 const NAMED_SKIPS: usize = 50;
 
@@ -212,9 +214,13 @@ pub(in crate::link) fn relay(
         }
         record.files.remove(relative);
     }
-    for relative in record.links.keys().cloned().collect::<Vec<_>>() {
+    for (relative, text) in record.links.clone() {
         if !matches!(items.get(&relative), Some(Item::Link { .. })) {
-            deletes.push(join(to_root, &relative));
+            // Only the link the last relay made: anything put there since is the target's.
+            let path = join(to_root, &relative);
+            if link_is(&mut target, &path, &text) {
+                deletes.push(path);
+            }
             record.links.remove(&relative);
         }
     }
@@ -254,6 +260,10 @@ pub(in crate::link) fn relay(
         }
     }
     progress(totals);
+    // The folder is this relay's from here: a retry after a cut goes on instead of refusing.
+    if let Some(path) = &record_path {
+        save(path, &record)?;
+    }
     // Big files last, so the small ones fill every connection first.
     jobs.sort_by_key(|job| job.size);
     let landed = copy_parallel(from, from_root, to, to_root, jobs, &mut |job, revision| {
@@ -263,11 +273,32 @@ pub(in crate::link) fn relay(
         totals.bytes_done += job.size;
         progress(totals);
         record.files.insert(job.relative, (job.revision, revision));
+        if summary.written % CHECKPOINT == 0
+            && let Some(path) = &record_path
+        {
+            let _ = save(path, &record);
+        }
     })
     .and_then(|()| {
         for (relative, text) in links {
             let path = join(to_root, &relative);
-            target.delete(std::slice::from_ref(&path))?;
+            // Replaced only when it is what the last relay left there: the link it made or a
+            // file it wrote that nothing changed since. Anything else is the target's work.
+            let ours =
+                record.links.get(&relative).is_some_and(|was| link_is(&mut target, &path, was))
+                    || unchanged_there(&record, &relative);
+            match target.kind(&path)? {
+                None => {}
+                Some(_) if ours => target.delete(std::slice::from_ref(&path))?,
+                Some(_) => {
+                    skipped.add(
+                        &relative,
+                        "symlink",
+                        "the target machine changed it since the last copy",
+                    );
+                    continue;
+                }
+            }
             match target.symlink(&path, &text) {
                 Ok(()) => {
                     record.links.insert(relative, text);
@@ -294,6 +325,11 @@ pub(in crate::link) fn relay(
     summary.skipped_files = json!(skipped.named);
     summary.skipped_counts = json!(skipped.kinds);
     Ok(summary)
+}
+
+/// Whether `path` on `target` is still the symlink `text`.
+fn link_is(target: &mut Remote, path: &str, text: &str) -> bool {
+    target.readlink(path).ok().flatten().as_deref() == Some(text)
 }
 
 /// The paths left out, as a push reports them.
