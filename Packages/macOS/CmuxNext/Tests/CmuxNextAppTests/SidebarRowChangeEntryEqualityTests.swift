@@ -237,9 +237,9 @@ import Testing
 
     @Test func theEntryRefusesWhatItCanNotProve() {
         let section = SectionID.machine(.local)
-        func refuses(_ change: SidebarLooseRowChange, _ why: Comment, rows: [SidebarSection] = Self.plainRows(), _ prepare: (SidebarModel) -> Void = { _ in }) {
+        func refuses(_ change: SidebarLooseRowChange, _ why: Comment, rows: [SidebarSection]? = nil, _ prepare: (SidebarModel) -> Void = { _ in }) {
             let model = SidebarModel(sections: [])
-            model.setSections(rows)
+            model.setSections(rows ?? Self.plainRows())
             prepare(model)
             let before = (model.sections, model.sectionsRevision)
             #expect(!model.apply(change), why)
