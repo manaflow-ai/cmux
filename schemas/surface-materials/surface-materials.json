@@ -117,6 +117,7 @@
     "CmuxNextFloating/QuickComposer/QuickComposerPanel.swift": "web-host",
     "CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift": "native-overlay",
     "CmuxNextHome/Conversations/HomeSheetController.swift": "native-overlay",
+    "CmuxNextHome/NativeTranscript/HomeAgentPillCard.swift": "native-overlay",
     "CmuxNextHomeEngine/HomeChiefSettingsPopover.swift": "native-overlay",
     "CmuxNextLayout/Views/ChiefPanelView.swift": "native-overlay",
     "CmuxNextLayout/Views/DockBackdropView.swift": "window-chrome",

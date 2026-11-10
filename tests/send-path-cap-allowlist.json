@@ -41,6 +41,7 @@
       "backend/packages/protocol/src/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/",
+      "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/",
       "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/"
     ],
     "include_named": {

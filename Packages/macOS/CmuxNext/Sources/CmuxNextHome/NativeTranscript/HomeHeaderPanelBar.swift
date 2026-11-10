@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextDesign
 
-
 /// The header's trailing cluster: quiet icon toggles (``HomeHeaderButton``: no pill at rest, the
 /// theme's hover pill, the accent glyph when on, never the system blue, no border), left to right
 /// in the host's order. Its gaps are not hits, so they drag the window like the rest of the header.
