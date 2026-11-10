@@ -5073,6 +5073,34 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/list", { sessionId });
   }
 
+  /// What running `command` on another machine would send, and where it can go
+  /// (conversation/runElsewhereModel.ts RunPlan). The person's only: acpmux refuses an agent.
+  planRunElsewhere(sessionId: string, command: string): Promise<unknown> {
+    return this.request("_acpmux/run_elsewhere/plan", { sessionId, command }, 45_000);
+  }
+
+  /// Runs `command` on connected machine `peer` as a background task of chat `sessionId`, if the
+  /// tree still has `digest`; returns `{task: {id, ...}}`.
+  startRunElsewhere(
+    sessionId: string,
+    command: string,
+    peer: string,
+    digest: string,
+    sendSecrets: string[],
+  ): Promise<unknown> {
+    return this.request("_acpmux/run_elsewhere/start", { sessionId, command, peer, digest, sendSecrets }, 60_000);
+  }
+
+  /// Chat `sessionId`'s background task `id`'s output from `fromByte`: `{data (base64), nextByte, state, exitCode}`.
+  bgOutput(sessionId: string, id: string, fromByte: number): Promise<unknown> {
+    return this.request("_acpmux/bg/output", { sessionId, id, fromByte });
+  }
+
+  /// Stops chat `sessionId`'s background task `id`.
+  bgStop(sessionId: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/bg/stop", { sessionId, id }, 15_000);
+  }
+
   /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
   watchProcesses(listener: (process: unknown) => void): () => void {
     this.processListeners.add(listener);

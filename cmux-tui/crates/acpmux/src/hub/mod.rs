@@ -558,6 +558,10 @@ pub struct PromptOptions {
     /// person's prompt, yet no connection proved the person, so it lifts no protected hold
     /// (`protected_hold.rs`), as #37497 made it.
     pub unproven_owner: bool,
+    /// The text of a prompt a connection proved the person's (`server/requests.rs`
+    /// `person_admitted`), for the prompt coach (`prompt_coach.rs`): recorded by the prompt's
+    /// id once it has one, so its own turn's end settles it.
+    pub coach: Option<String>,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
