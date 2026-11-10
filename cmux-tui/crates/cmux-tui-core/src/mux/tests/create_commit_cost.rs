@@ -18,6 +18,20 @@
 //! 826 workspaces (one terminal each) whose registry is a FILE in a temporary directory, with the
 //! journal writer thread, as in a daemon. The counts of one create must be equal at 60 and at 826.
 //!
+//! FULL-PATH row (the lead's condition): the same split when the registry has lost its fold of the
+//! journal, which is its state after a daemon start and after a commit whose receipt did not
+//! come (`abandon_effect_commit`). On his Mac this is the candidate for the 2157 ms: without the
+//! fold the create took the FULL projection, which reads the whole stored topology and every
+//! terminal record and writes one journal value for each resource of the session.
+//!
+//! FOCUS row (a product defect at the same site, not a cost): an empty workspace made with focus
+//! commits the workspace rows and the active workspace, but its journal record did not state
+//! the screen and the pane that lose the focus. The journal then says `focused: true` for two
+//! screens until a later projection has the old workspace in its scope: each `session.events`
+//! client and each reader of the journal's state can show two focused screens. A release daemon
+//! does not detect it (the cross-check is a debug check). The record must state that one screen
+//! and that one pane, and its size must not grow with the session.
+//!
 //! WAIT form (no clock for the verdict): the journal writer is stopped inside the transaction of
 //! the create's commit, which is the model of a slow disk. While it is there, the registry lock
 //! and the state lock must be free.
@@ -99,6 +113,75 @@ struct Arms {
     split: CreateCost,
     tab: CreateCost,
     workspace: CreateCost,
+    /// A split when the registry has no fold of the journal.
+    no_fold: CreateCost,
+    /// An empty workspace made with focus.
+    empty: EmptyWorkspaceRecord,
+}
+
+/// What the journal record of an empty workspace made with focus states.
+#[derive(Debug, Clone, Default)]
+struct EmptyWorkspaceRecord {
+    /// Changes in the journal records of the commit.
+    changes: u64,
+    /// `focused` of the screen that had the focus before, when the record states that screen.
+    old_screen_focused: Option<bool>,
+    /// `focused` of the pane that had the focus before, when the record states that pane.
+    old_pane_focused: Option<bool>,
+    /// The same two values in the record of the close of that empty workspace, which gives the
+    /// focus back to the same screen and pane.
+    back_screen_focused: Option<bool>,
+    back_pane_focused: Option<bool>,
+}
+
+/// `focused` of the last upsert of each `(resource, id)` in the journal records after
+/// `revision`, and the count of changes in those records.
+fn stated_focus(mux: &Arc<Mux>, revision: u64, ids: [(&str, &str); 2]) -> ([Option<bool>; 2], u64) {
+    let page = mux.workspace_registry.lock().unwrap().resource_events_after(revision).unwrap();
+    let changes = page
+        .batches
+        .iter()
+        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .collect::<Vec<_>>();
+    let focused = |(resource, id): (&str, &str)| {
+        changes
+            .iter()
+            .rev()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .and_then(|change| change["value"]["focused"].as_bool())
+    };
+    (ids.map(focused), changes.len() as u64)
+}
+
+/// Makes an empty workspace with focus and reads what the journal says of the commit.
+fn empty_workspace_record(mux: &Arc<Mux>) -> EmptyWorkspaceRecord {
+    let (screen, pane) = mux.with_state(|state| {
+        let workspace = &state.workspaces[state.active_workspace];
+        let screen = &workspace.screens[workspace.active_screen];
+        (
+            screen.public_id.to_string(),
+            state.panes.get(&screen.active_pane).unwrap().public_id.to_string(),
+        )
+    });
+    let ids = [("screen", screen.as_str()), ("pane", pane.as_str())];
+    let revision = || mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
+    let before = revision();
+    let empty = without_crosscheck(|| {
+        mux.create_empty_workspace(Some("empty".into()), None, None).unwrap().workspace
+    });
+    let ([old_screen_focused, old_pane_focused], changes) = stated_focus(mux, before, ids);
+    let before = revision();
+    assert!(without_crosscheck(|| mux.close_workspace(empty)), "the empty workspace did not close");
+    let ([back_screen_focused, back_pane_focused], _) = stated_focus(mux, before, ids);
+    EmptyWorkspaceRecord {
+        changes,
+        old_screen_focused,
+        old_pane_focused,
+        back_screen_focused,
+        back_pane_focused,
+    }
 }
 
 impl Arms {
@@ -230,12 +313,21 @@ fn arms(workspaces: usize) -> Arms {
     let (workspace, workspace_surface) = counted_create(&mux, || {
         mux.new_workspace(Some("measured".into()), Some((80, 24))).unwrap()
     });
-    let arms = Arms { split, tab, workspace };
-    for (name, cost) in arms.each() {
+    // The registry loses its fold of the journal, as after a daemon start or a commit whose
+    // receipt did not come.
+    let other_pane = mux.with_state(|state| state.pane_of(workspace_surface.id).unwrap());
+    mux.workspace_registry.lock().unwrap().abandon_effect_commit();
+    let (no_fold, no_fold_surface) =
+        counted_create(&mux, || mux.split(other_pane, SplitDir::Down, None).unwrap());
+    // The full projection of the split above seeded the fold again.
+    let empty = empty_workspace_record(&mux);
+    let arms = Arms { split, tab, workspace, no_fold, empty };
+    eprintln!("empty workspace with focus at {workspaces} workspaces: {:?}", arms.empty);
+    for (name, cost) in arms.each().into_iter().chain([("split with no fold", &arms.no_fold)]) {
         eprintln!("create cost at {workspaces} workspaces, {name}: {cost:?}");
     }
     drop(mux);
-    session.end(vec![split_surface, tab_surface, workspace_surface]);
+    session.end(vec![split_surface, tab_surface, workspace_surface, no_fold_surface]);
     arms
 }
 
@@ -338,10 +430,84 @@ fn a_create_clones_no_more_terminals_in_a_bigger_session() {
     assert_no_problems(problems);
 }
 
+#[test]
+fn a_create_with_no_journal_fold_does_not_project_the_session() {
+    let (small, large) = measured();
+    let (small, large) = (&small.no_fold, &large.no_fold);
+    let mut problems = Vec::new();
+    for (size, cost) in [(60, small), (826, large)] {
+        if cost.full_projections != 0 || cost.full_reads != 0 {
+            problems.push(format!(
+                "split with no fold at {size}: {} full projections, {} reads of the whole stored \
+                 topology",
+                cost.full_projections, cost.full_reads
+            ));
+        }
+    }
+    let counts: [(&str, u64, u64); 7] = [
+        ("workspaces stated by the walk", small.workspace_rows, large.workspace_rows),
+        ("stored workspace rows read", small.frame_rows, large.frame_rows),
+        ("durable changes sent to the journal writer", small.patch_changes, large.patch_changes),
+        ("public values built", small.public_deltas, large.public_deltas),
+        ("workspace rows written", small.workspace_rows_written(), large.workspace_rows_written()),
+        ("workspaces visited by index rebuilds", small.index_rebuild, large.index_rebuild),
+        ("surfaces visited by decoration walks", small.decoration_walk, large.decoration_walk),
+    ];
+    for (what, at_small, at_large) in counts {
+        if at_small != at_large {
+            problems
+                .push(format!("split with no fold: {what}: {at_small} at 60, {at_large} at 826"));
+        }
+    }
+    assert_no_problems(problems);
+}
+
+#[test]
+fn a_workspace_commit_that_moves_the_focus_states_the_screen_and_the_pane_that_change() {
+    let (small, large) = measured();
+    let mut problems = Vec::new();
+    for (size, record) in [(60, &small.empty), (826, &large.empty)] {
+        if record.old_screen_focused != Some(false) {
+            problems.push(format!(
+                "at {size}: the journal record says focused = {:?} for the screen that lost the \
+                 focus (None: the record does not state the screen, so the journal keeps true)",
+                record.old_screen_focused
+            ));
+        }
+        if record.old_pane_focused != Some(false) {
+            problems.push(format!(
+                "at {size}: the journal record says focused = {:?} for the pane that lost the \
+                 focus (None: the record does not state the pane, so the journal keeps true)",
+                record.old_pane_focused
+            ));
+        }
+        if record.back_screen_focused != Some(true) || record.back_pane_focused != Some(true) {
+            problems.push(format!(
+                "at {size}: the close of that empty workspace gives the focus back, but its \
+                 journal record says focused = {:?} for the screen and {:?} for the pane",
+                record.back_screen_focused, record.back_pane_focused
+            ));
+        }
+    }
+    if small.empty.changes != large.empty.changes {
+        problems.push(format!(
+            "changes in the journal record: {} at 60, {} at 826",
+            small.empty.changes, large.empty.changes
+        ));
+    }
+    assert!(
+        problems.is_empty(),
+        "a workspace commit that moves the focus leaves a wrong focused screen in the journal, or \
+         its record grows with the session:\n{}",
+        problems.join("\n")
+    );
+}
+
 /// How long the test looks for a free lock before it says that the lock is held for the whole
 /// stop of the journal writer. It is a give-up limit for the failing case, not a time budget: a
-/// lock that is free is seen at the first look.
-const HELD_VERDICT_AFTER: Duration = Duration::from_secs(3);
+/// lock that is free is seen at the first look. It is shorter than the journal writer's deadline
+/// of a test build (2 s), so the stopped commit still passes after the release.
+const HELD_VERDICT_AFTER: Duration = Duration::from_millis(500);
 
 /// True when `free` holds at some look before [`HELD_VERDICT_AFTER`].
 fn seen_free(free: impl Fn() -> bool) -> bool {
@@ -378,7 +544,7 @@ fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_cr
     }));
     let creator = std::thread::spawn({
         let mux = mux.clone();
-        move || without_crosscheck(|| mux.split(pane, SplitDir::Down, None).unwrap())
+        move || without_crosscheck(|| mux.split(pane, SplitDir::Down, None))
     });
     entered_receiver
         .recv_timeout(Duration::from_secs(30))
@@ -388,10 +554,10 @@ fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_cr
     let registry_free = seen_free(|| mux.workspace_registry.try_lock().is_ok());
 
     release.send(()).unwrap();
-    let created = creator.join().unwrap();
+    let created = creator.join().expect("the creating thread panicked");
     *mux.resource_projection_before_commit.lock().unwrap() = None;
     drop(mux);
-    session.end(vec![created]);
+    session.end(created.as_ref().ok().cloned().into_iter().collect());
 
     assert!(
         state_free,
@@ -403,4 +569,5 @@ fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_cr
         "the registry lock is held while the journal writer commits a create: every request \
          that takes it waits for the disk time of the create"
     );
+    created.expect("the create whose commit was stopped did not pass after the release");
 }
