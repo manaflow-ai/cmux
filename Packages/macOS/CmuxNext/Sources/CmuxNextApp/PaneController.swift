@@ -608,13 +608,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
 /// as hidden, though the tab's own workspace is parked.
 extension PaneController {
     /// Mirrored tab `id` as this pane may list or present it, with its incognito answer: nil for a tab that closed, that is this pane's own, whose page the app does
-    /// not draw (a daemon-rendered or app browser tab), or of the other kind of window (or of no known workspace): nothing shows across incognito and normal windows.
+    /// not draw (a daemon-rendered or app browser tab), or that the pane may not mirror (`AppServices.mirrorSource`: nothing shows across incognito and normal windows).
     func liveMirror(_ id: String) -> (tab: TabModel, incognito: Bool)? {
-        let host = services.machines.daemon(forPane: pane)
-        func incognito(_ held: PaneModel) -> Bool? { host.store.workspace(containing: held.handle).map { services.windows.isIncognito(workspace: $0) } }
-        guard let (tab, holder) = services.locateTab(id, onMachine: host.machineID), holder !== pane, Self.mirrorable(tab),
-              let secret = incognito(holder), secret == incognito(pane) else { return nil }
-        return (tab, secret)
+        services.mirrorSource(id, for: pane).flatMap { $0.holder !== pane && Self.mirrorable($0.tab) ? ($0.tab, $0.incognito) : nil }
     }
 
     /// A browser tab whose one page this app draws, so a second pane can show it.

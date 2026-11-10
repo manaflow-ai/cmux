@@ -107,7 +107,7 @@ struct AgentCursorSnapshotBuilder {
         let workspace = content.map(\.workspace) ?? services.workspace(id: shown)
         guard let workspace, workspace.id == shown else { return nil }
         for screen in workspace.screens {
-            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) }) {
+            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) && services.mirrorSource(target, for: $0) != nil }) {
                 return .init(workspace: shown, pane: pane.id)
             }
         }

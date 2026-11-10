@@ -19,7 +19,7 @@ extension AppServices {
     var controlPageFacts: ControlPageFacts {
         ControlPageFacts(appOnlyTabs: { [weak self] pane in self?.controlPageTabs(of: pane) ?? [] },
                          title: { [weak self] tab in self?.pages.storeTabItem(tab)?.title },
-                         mirroredTabs: { [weak self] pane in self?.tabMirrors[pane.id] ?? [] })
+                         mirroredTabs: { [weak self] pane in self?.tabMirrors[pane.id].filter { self?.mirrorSource($0, for: pane) != nil } ?? [] })
     }
 
     /// `pane`'s app-only page tabs as the control snapshot lists them, the
