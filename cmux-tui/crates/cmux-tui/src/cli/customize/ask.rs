@@ -6,7 +6,7 @@
 //! shows up in the app as an ordinary chat tab the person can talk to. The
 //! draft remembers the chat, so the next ask refines in the same one.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use cmux_customize::Customize;
 use serde_json::Value;
@@ -35,12 +35,10 @@ impl Chat for Child {
     fn run(&self, words: &[String]) -> Result<ChatResult, String> {
         let program =
             std::env::current_exe().map_err(|error| format!("cannot find cmux: {error}"))?;
-        let output = Command::new(program)
-            .args(&self.globals)
-            .args(words)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|error| format!("cannot start cmux chat: {error}"))?;
+        let mut command = cmux_process::Command::new(program);
+        command.args(&self.globals).args(words).stdin(Stdio::null());
+        let output =
+            command.output().map_err(|error| format!("cannot start cmux chat: {error}"))?;
         Ok(ChatResult {
             ok: output.status.success(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),

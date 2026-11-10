@@ -72,12 +72,11 @@ impl Roots {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn default_state_dir(_env: &impl Fn(&str) -> Option<OsString>, home: &Path) -> PathBuf {
-    home.join("Library/Application Support/cmux/customize")
-}
-
-#[cfg(not(target_os = "macos"))]
+/// One place on every system, outside the config folder (whose watcher
+/// would otherwise see every generation written) and outside the app's own
+/// per-build state: generations describe the person's config folder, which
+/// every build of cmux shares. A build with its own settings file keeps its
+/// own (see `from`).
 fn default_state_dir(env: &impl Fn(&str) -> Option<OsString>, home: &Path) -> PathBuf {
     env("XDG_STATE_HOME")
         .map(PathBuf::from)
@@ -100,7 +99,7 @@ mod tests {
         let roots = Roots::from(env(&[("HOME", "/home/pat")])).unwrap();
         assert_eq!(roots.settings_file, PathBuf::from("/home/pat/.config/cmux/cmux-next.json"));
         assert_eq!(roots.customize_dir, PathBuf::from("/home/pat/.config/cmux/customize"));
-        assert!(!roots.state_dir.starts_with(&roots.config_dir));
+        assert_eq!(roots.state_dir, PathBuf::from("/home/pat/.local/state/cmux/customize"));
     }
 
     #[test]

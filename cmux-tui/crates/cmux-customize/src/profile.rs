@@ -218,7 +218,7 @@ impl Customize {
     ) -> Result<Begun, Error> {
         if profile.version != 1 {
             return Err(Error::Profile(format!(
-                "this profile is format {}; this cmux reads format 1 (update cmux)",
+                "this profile is format {}; this cmux reads format 1",
                 profile.version
             )));
         }
