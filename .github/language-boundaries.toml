@@ -8,7 +8,7 @@
 #
 # Checked on every pull request into feat-cmux-next and main by the `language-boundaries` check
 # (.github/workflows/language-boundaries.yml, scripts/ci/language_boundaries.py), always with the BASE branch's copy
-# of this file and of the script, never the pull request's. leo-workspace's merge_hold reads the same file from the
+# of this file and of the script, never the pull request's. the agents' merge gate (merge_hold) reads the same file from the
 # PR base.
 #
 # Schema (keep it this simple; every field is required):

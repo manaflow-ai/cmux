@@ -21,7 +21,7 @@ or comment from an agent's. (2) stops every other account and every bot; (3) sto
 rulebook's footer rule. An agent that adds the label and writes a bare approval line on purpose gets through; the
 rulebook forbids it, and the approval line is in the PR's history for anyone to read.
 
-Also a library: `load(path)` and `violations(areas, records)` are what leo-workspace's merge_hold can read the
+Also a library: `load(path)` and `violations(areas, records)` are what the agents' merge gate (merge_hold) can read the
 same file with.
 """
 
