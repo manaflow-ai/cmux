@@ -39,7 +39,8 @@ export type ScriptedTurn =
   | "tool-group"
   | "steer-tools"
   | "thought-text"
-  | ArrivalTurn;
+  | ArrivalTurn
+  | ToggleTurn;
 
 /// The turn-transition turns, in the order of Leo's words.
 export const TRANSITION_TURNS = ["text-tool", "burst-thought", "tool-group", "steer-tools", "thought-text"] as const;
@@ -54,6 +55,23 @@ const isArrival = (turn: ScriptedTurn): turn is ArrivalTurn => (ARRIVAL_TURNS as
 /// How long an arrival turn holds still before its row arrives and after it (ms): longer than any
 /// motion the stream or the arrival starts, so the window holds the arrival's motion and nothing else.
 export const ARRIVAL_QUIET_MS = 600;
+
+/// The tool-toggle turns: the reader opens and closes a call's details while the reply streams.
+export const TOGGLE_TURNS = ["tool-toggle"] as const;
+export type ToggleTurn = (typeof TOGGLE_TURNS)[number];
+const isToggle = (turn: ScriptedTurn): turn is ToggleTurn => (TOGGLE_TURNS as readonly string[]).includes(turn);
+/// The call the tool-toggle turn's reader clicks (its line is `[data-tool-id="toggle-call"]`).
+export const TOGGLE_CALL_ID = "toggle-call";
+/// When each of the tool-toggle turn's clicks lands, ms after the one before it (the reply's next
+/// segment starting, for the first): an open, a close once it rested, an open, a close 60 ms into
+/// that open while its fold still plays, and a small drag across the closed line.
+export const TOGGLE_CLICKS = [
+  { step: "open", afterMs: 200, action: "toggle" },
+  { step: "close", afterMs: 450, action: "toggle" },
+  { step: "open-again", afterMs: 450, action: "toggle" },
+  { step: "reverse", afterMs: 60, action: "toggle" },
+  { step: "drag", afterMs: 400, action: "drag" },
+] as const;
 
 export const SCRIPTED_PROMPT_ID = "live-user";
 /// The reply's rows' ids start with this (`live-answer`, `live-answer-2`).
@@ -76,6 +94,8 @@ export type ScriptedTurnOptions = {
   everyMs?: number;
   /// The history's finished turns (streamingTextFixture `history`), 7 by default.
   historyTurns?: number;
+  /// What the reader does at a step (the tool-toggle turn's `toggle`: a click on its call's line).
+  act?: (action: "toggle" | "drag") => void;
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,7 +106,7 @@ export const scriptedHistory = (turns?: number) => history(turns);
 /// Plays one scripted turn over `scriptedHistory()`; resolves once its summary row is drawn.
 export async function playScriptedTurn(
   scenario: ScriptedTurn,
-  { show, frame, step = () => {}, chars = 24, everyMs = 16, historyTurns }: ScriptedTurnOptions,
+  { show, frame, step = () => {}, chars = 24, everyMs = 16, historyTurns, act = () => {} }: ScriptedTurnOptions,
 ): Promise<void> {
   const ANSWER_ID = SCRIPTED_ANSWER_ID;
   const base = history(historyTurns);
@@ -124,7 +144,12 @@ export async function playScriptedTurn(
     if (done) put({ id, at, kind: "assistant", text: source, streaming: false });
     emit();
   };
-  if (isTransition(scenario)) {
+  if (isToggle(scenario)) {
+    step("prompt");
+    show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
+    await wait(300);
+    await playToggle({ put, emit, stream, step, show, wait }, act);
+  } else if (isTransition(scenario)) {
     step("prompt");
     show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
     await wait(300);
@@ -245,6 +270,56 @@ const activityRow = (id: string, at: number, items: AcpmuxRow["items"]): Omit<Ac
       (item) => item.kind === "thought" || (item.tool?.status !== "completed" && item.tool?.status !== "failed"),
     ),
   }) as Omit<AcpmuxRow, "version">;
+
+/// A shell call that prints a dozen lines, as acpmux sends a finished one.
+const printingCall = (status: string) => ({
+  kind: "tool" as const,
+  text: "Run rg -n reconnect src",
+  tool: {
+    id: TOGGLE_CALL_ID,
+    title: "rg -n reconnect src",
+    kind: "execute",
+    command: "rg -n reconnect src",
+    status,
+    ...(status === "completed" && {
+      exitCode: 0,
+      output: Array.from(
+        { length: 12 },
+        (_, index) => `src/relay/socket.ts:${40 + index * 7}:  reconnect(attempt + ${index}); // retry ${index}`,
+      ).join("\n"),
+    }),
+  },
+});
+
+/// The tool-toggle turn: text, a call that prints, then the reply's next segment streams while the
+/// reader clicks the call's line at TOGGLE_CLICKS.
+async function playToggle(
+  { put, emit, stream, step, wait }: TransitionParts,
+  act: (action: "toggle" | "drag") => void,
+): Promise<void> {
+  const paragraphs = REPLY.split("\n\n");
+  const ANSWER = SCRIPTED_ANSWER_ID;
+  step("stream");
+  await stream(ANSWER, 100_001, paragraphs.slice(0, 2).join("\n\n"), false);
+  step("tool");
+  put({ id: ANSWER, at: 100_001, kind: "assistant", text: paragraphs.slice(0, 2).join("\n\n"), streaming: false });
+  put(activityRow("live-activity-1", 100_002, [printingCall("in_progress")]));
+  emit();
+  await wait(250);
+  step("tool-done");
+  put(activityRow("live-activity-1", 100_002, [printingCall("completed")]));
+  emit();
+  await wait(200);
+  step("segment");
+  // About 2.4 s of text at 1,500 characters a second: the clicks all land while it streams.
+  const streaming = stream("live-answer-2", 100_010, paragraphs.slice(2, 16).join("\n\n"), false);
+  for (const click of TOGGLE_CLICKS) {
+    await wait(click.afterMs);
+    step(click.step);
+    act(click.action);
+  }
+  await streaming;
+}
 
 async function playTransition(
   turn: TransitionTurn,

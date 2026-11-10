@@ -44,7 +44,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
-        "_acpmux/watch_take_over",
+        "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
@@ -77,6 +77,10 @@ nonisolated enum AcpmuxPaneMethods {
         // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
         // transport never logs a frame, so the value stays out of the host's logs.
         "_acpmux/secret_submit",
+        // The preset approval card's Approve / Not now (PresetApprovalCard.tsx; acpmux
+        // hub/unattended_presets.rs): approves or withdraws one preset's no-prompt policy for the
+        // contents the card showed. Only the approval fields pass (knownParams): never `set` or `clear`.
+        "_acpmux/presets",
         // The chat menu's Archive / Unarchive and Mark as Unread of a session in the pane's scope
         // (direct.ts archive, markUnread; cx-jlzsf). `_acpmux/archive` sets or removes only the
         // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
@@ -117,7 +121,7 @@ nonisolated enum AcpmuxPaneMethods {
         // waiting on the person across agents and machines, and the approvals audit trail, all
         // reads acpmux answers to this Mac's app only. `_acpmux/review_verdict` records a pull
         // request item's Accept or Request changes, only on the person's click or key (``gestureRules``).
-        "_acpmux/ledger", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
+        "_acpmux/ledger", "_acpmux/team_audit", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",
@@ -293,7 +297,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
-        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
@@ -406,6 +410,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // The card's Provide hands over a secret (its Decline is a click too).
         "_acpmux/secret_submit": .always,
+        // Approve lets agents start chats from the preset on other machines with no prompts.
+        "_acpmux/presets": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         // Racing starts additional agent turns; the launch button supplies a fresh click.
@@ -439,8 +445,9 @@ nonisolated enum AcpmuxPaneMethods {
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
     /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
     @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
+        // A preset approval lets agents start chats with no prompts from then on: a click, never typing.
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
-            || method == "_acpmux/plan/build"
+            || method == "_acpmux/plan/build" || method == "_acpmux/presets"
         return !answers || gestures.hasFreshAnswerGesture
     }
 

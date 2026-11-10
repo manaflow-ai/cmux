@@ -401,7 +401,8 @@ extension ConversationViewController {
         overlay.dim.frame = overlay.bounds
         let width = view.bounds.width
         let y = overlay.contentHeight
-        let headerBottom = header.frame.maxY
+        // Under the header and a host's pinned row (Chief's question bar).
+        let headerBottom = contentTop
         let available = composerContainer.frame.minY - headerBottom - Self.threadBottomGap
         // Where content-space 0 sits on screen, before and after.
         let before = overlay.content.frame.minY - overlay.content.contentOffset.y

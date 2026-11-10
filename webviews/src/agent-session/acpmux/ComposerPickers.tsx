@@ -235,7 +235,12 @@ export function ComposerPickers({
     !harnessSwitch &&
     !!summary?.harness &&
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
-  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
+  const allEntries = composerPickerEntries(
+    snapshot,
+    pickerCatalog,
+    // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
+    harnessesListed || snapshot.catalog.some((entry) => !entry.folder),
+  );
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
   // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -896,8 +901,10 @@ export function ComposerPickers({
   // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
   // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
-  // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
-  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  // machine (a peer, the cloud) starts in what that machine decides: none until it reports. So does
+  // a new chat here whose send starts it on a Cloud machine (`startsOnCloud`): this Mac's answer
+  // ("Bypass permissions") is not the Cloud chat's, which starts asking (cloud-ergo-start-chat).
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud;
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
   // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's. A peer's chat comes
