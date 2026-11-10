@@ -37,6 +37,12 @@ ACPMUX = "webviews/src/agent-session/acpmux"
 # (file, event): why this file listens. Each is a review decision; the exit plan is in
 # shared-projections.md section 6.
 ALLOWED_LISTENERS = {
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "visibilitychange"): "only while a Connect "
+    "GitHub card waits on GitHub's page: coming back sends the chat's Continue once; reads no data",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "focus"): "the Connect GitHub card's return, "
+    "as above",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "blur"): "the Connect GitHub card's leave, "
+    "as above",
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "

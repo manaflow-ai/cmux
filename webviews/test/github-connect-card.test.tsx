@@ -284,7 +284,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   let refuse = true;
   const reason = "Sign in to cmux to connect GitHub.";
   const { asked } = await render(async () => {
-    if (refuse) throw new NativeError({ code: "unavailable", message: reason, details: { reason } });
+    if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
   await press("Connect GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
