@@ -323,3 +323,36 @@ test("hiding the page ends every widget mount", async () => {
   owner.stop();
   expect(mock.mounted).toBe(0);
 });
+
+test("a host that ignores the interface lists no widgets and offers no edits", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.ignoresInterface = true; // it answers with Session Info's sections and no layout
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().panels).toEqual([]);
+  expect(owner.getView().editable).toBe(false);
+  owner.setLayout(["app:samples/github-prs#recent"]);
+  expect(mock.layouts).toEqual([]);
+  expect(owner.getView().layout).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("a host that refuses layout.set ends edits and keeps the row it listed", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.refusesLayout = true;
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().editable).toBe(true);
+  owner.setLayout(["app:manaflow-ai/clock#cmux.newtab.widget/1"]);
+  for (let i = 0; i < 4; i++) await settled();
+  expect(owner.getView().editable).toBe(false);
+  expect(owner.getView().layout).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  // A later list does not bring edits back.
+  await owner.refresh();
+  expect(owner.getView().editable).toBe(false);
+  owner.stop();
+});

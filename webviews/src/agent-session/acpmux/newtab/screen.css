@@ -1384,9 +1384,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-md);
 }
+/* The drop mark is the focus ring's stroke, on the side the widget lands. */
 .nt-grid-frame[data-drop="before"] {
-  box-shadow: -2px 0 0 var(--agent-accent, var(--agent-text));
+  box-shadow: calc(-1 * var(--cmux-focus-ring-width, 1.5px)) 0 0 var(--agent-accent, var(--agent-text));
 }
 .nt-grid-frame[data-drop="after"] {
-  box-shadow: 2px 0 0 var(--agent-accent, var(--agent-text));
+  box-shadow: var(--cmux-focus-ring-width, 1.5px) 0 0 var(--agent-accent, var(--agent-text));
 }

@@ -86,7 +86,9 @@ export function NewTabExtras({
       wide: widget.panel.size === "wide",
     });
   const order = gridOrder([...cells.keys()], extensions?.layout ?? []);
-  const edit = editing?.editing && onEdit && extensions ? { editing, onEdit, extensions } : undefined;
+  // Edit frames only where the host keeps the row's order: without it the row edits as it did
+  // before app widgets (not at all; its built-ins switch in Settings and Add Widgets).
+  const edit = editing?.editing && onEdit && extensions?.editable ? { editing, onEdit, extensions } : undefined;
   return (
     <div className="nt-extras" aria-label={nt("extra.widgets")} data-editing={edit ? "" : undefined}>
       {order.map((id) => {

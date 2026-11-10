@@ -103,6 +103,11 @@ export class MockAppPanelsClient implements PageClient {
   /** `cmux.newtab.widget/1`'s listing and the person's saved layout. */
   widgets: readonly AppPanel[] = MOCK_NEWTAB_WIDGETS;
   layout: string[] = [];
+  /** A host like the current Mac bridge: it lists Session Info's sections whatever `interface` asks,
+   * with no layout. */
+  ignoresInterface = false;
+  /** A host without `cmux.apps.panels.layout.set` (it answers unknown-op). */
+  refusesLayout = false;
   /** Apps whose mount the mock refuses (a widget in its error state). */
   readonly failing = new Set<string>();
   readonly dispatches: unknown[] = [];
@@ -119,11 +124,12 @@ export class MockAppPanelsClient implements PageClient {
     switch (op) {
       case "cmux.apps.panels.list":
         result =
-          params?.interface === NEW_TAB_WIDGET_INTERFACE
+          params?.interface === NEW_TAB_WIDGET_INTERFACE && !this.ignoresInterface
             ? { panels: this.widgets, layout: this.layout }
             : { panels: this.panels };
         break;
       case "cmux.apps.panels.layout.set":
+        if (this.refusesLayout) throw pageError("cmux.protocol.unknown_op", op);
         this.layout = [...(params.layout as string[])];
         this.layouts.push(this.layout);
         break;

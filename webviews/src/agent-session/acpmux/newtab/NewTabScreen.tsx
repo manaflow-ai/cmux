@@ -2424,9 +2424,11 @@ export function NewTabScreen(props: Props) {
   );
   // Add Widgets places an app's widget at the row's end, keeping the row's order as the person sees it.
   const placedAppWidgets = new Set(appWidgets.mounted.map((widget) => panelId(widget.panel)));
-  const addableAppWidgets = appWidgets.available
-    .filter((panel) => !placedAppWidgets.has(panelId(panel)))
-    .map((panel) => ({ id: panelId(panel), title: panel.title }));
+  const addableAppWidgets = !appWidgets.editable
+    ? []
+    : appWidgets.available
+        .filter((panel) => !placedAppWidgets.has(panelId(panel)))
+        .map((panel) => ({ id: panelId(panel), title: panel.title }));
   const addAppWidget = (id: string) => {
     const row = gridOrder(
       [...GRID_BUILTINS.filter((widget) => widgets.has(widget)), ...placedAppWidgets],

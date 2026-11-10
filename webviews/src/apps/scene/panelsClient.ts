@@ -1,4 +1,4 @@
-import type { PageClient } from "../../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { SceneStore, type SceneLimits, type SceneOp, type SceneViolation } from "./store";
 
 /** A page panel: a Session Info section, or a New Tab widget (`size` is a widget's cell). */
@@ -23,6 +23,9 @@ export type PanelsView = {
   readonly panels: readonly AppPanel[];
   readonly layout: readonly string[];
   readonly mounted: readonly MountedPanel[];
+  /** The host lists this interface with a layout and saves `layout.set`. A host that does not (an
+   * older Mac bridge drops `interface` and `layout`, and refuses `layout.set`) gets no edits. */
+  readonly editable: boolean;
 };
 export type PanelsOptions = {
   /** The interface listed (`cmux.apps.panels.list {interface}`); Session Info's sections when unset. */
@@ -34,7 +37,7 @@ export type PanelsOptions = {
 };
 type Entry = MountedPanel & { cancelled: boolean; failed: boolean; mountId?: string; unsubscribe?: () => void };
 const EMPTY: readonly MountedPanel[] = [];
-const EMPTY_VIEW: PanelsView = { panels: [], layout: [], mounted: EMPTY };
+const EMPTY_VIEW: PanelsView = { panels: [], layout: [], mounted: EMPTY, editable: false };
 
 function readPanels(value: unknown): AppPanel[] {
   const panels = (value as { panels?: unknown } | null)?.panels;
@@ -66,9 +69,10 @@ function readPanels(value: unknown): AppPanel[] {
     }));
 }
 
-function readLayout(value: unknown): string[] {
+/** The listing's layout; `undefined` when the host sent none (it does not keep one). */
+function readLayout(value: unknown): string[] | undefined {
   const layout = (value as { layout?: unknown } | null)?.layout;
-  if (!Array.isArray(layout)) return [];
+  if (!Array.isArray(layout)) return undefined;
   return [...new Set(layout.filter((id): id is string => typeof id === "string" && id.length > 0))];
 }
 
@@ -83,6 +87,11 @@ export class AppPanelsClient {
   private view: PanelsView = EMPTY_VIEW;
   private listed: readonly AppPanel[] = [];
   private layout: readonly string[] = [];
+  /** The layout the host last listed: what a refused save falls back to. */
+  private saved: readonly string[] = [];
+  private editable = false;
+  /** The host answered `layout.set` with unknown-op: it keeps no layout, for this client's life. */
+  private refused = false;
   private readonly listeners = new Set<() => void>();
   private readonly entries = new Map<ReturnType<typeof panelId>, Entry>();
   private active = false;
@@ -157,9 +166,15 @@ export class AppPanelsClient {
       reply = undefined;
     } // An older host offers no sections and no user-facing error.
     if (!this.active || listing !== this.listing) return;
-    this.listed = readPanels(reply);
+    // Only this interface's panels: a host that ignores the filter (it lists Session Info's
+    // sections) yields none, so nothing else is offered or mounted here.
+    const wanted = this.options.interface;
+    this.listed = readPanels(reply).filter((panel) => !wanted || panel.section === wanted);
+    const listedLayout = wanted && !this.refused ? readLayout(reply) : undefined;
+    this.editable = listedLayout !== undefined;
+    const layout = listedLayout ?? [];
+    this.saved = layout;
     // A layout edited while this list was in flight is newer than the one it read.
-    const layout = readLayout(reply);
     if (edits === this.edits && !sameIds(layout, this.layout)) this.layout = layout;
     this.reconcile(true);
   }
@@ -168,18 +183,36 @@ export class AppPanelsClient {
    * (`apps.panels.layout.set`). Called from the click, drop or key handler itself: the page host checks
    * the gesture. */
   setLayout(layout: readonly string[]): void {
-    if (!this.active || !this.client || !this.options.interface) return;
+    if (!this.active || !this.client || !this.options.interface || !this.editable) return;
     const next = [...new Set(layout)];
     if (sameIds(next, this.layout)) return;
     this.layout = next;
     const edit = ++this.edits;
+    const lifetime = this.lifetime;
     void this.client
       .call("cmux.apps.panels.layout.set", {
         interface: this.options.interface,
         layout: next,
         idempotency_key: `newtab-layout-${Date.now()}-${edit}`,
       })
-      .catch(() => undefined);
+      .then(
+        () => {
+          if (edit === this.edits) this.saved = next;
+        },
+        (error: unknown) => {
+          if (!this.active || lifetime !== this.lifetime) return;
+          // An unsaved edit is not shown as saved: the row goes back to the host's layout. A host
+          // without the op keeps no layout at all, so edits end here.
+          if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
+            this.refused = true;
+            this.editable = false;
+            this.saved = [];
+          }
+          if (edit !== this.edits && !this.refused) return;
+          this.layout = this.saved;
+          this.reconcile(false);
+        },
+      );
     this.reconcile(false);
   }
 
@@ -249,6 +282,7 @@ export class AppPanelsClient {
     const sameView =
       sameMounted &&
       this.view.layout === layout &&
+      this.view.editable === this.editable &&
       this.view.panels.length === panels.length &&
       panels.every((panel, index) => {
         const old = this.view.panels[index];
@@ -262,7 +296,7 @@ export class AppPanelsClient {
       });
     if (sameView) return;
     if (!sameMounted) this.snapshot = next;
-    this.view = { panels, layout, mounted: this.snapshot };
+    this.view = { panels, layout, mounted: this.snapshot, editable: this.editable };
     this.notify();
   }
 

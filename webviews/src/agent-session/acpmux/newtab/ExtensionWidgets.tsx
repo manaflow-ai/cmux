@@ -54,10 +54,19 @@ export type NewTabExtensionWidgets = {
   readonly layout: readonly string[];
   /** The placed widgets, mounted while the page shows. */
   readonly mounted: readonly MountedPanel[];
+  /** The host keeps the layout (`apps.panels.layout.set`). Until it does (the Mac bridge passes
+   * only Session Info through today), the row has no app widgets to add and no edit frames. */
+  readonly editable: boolean;
   setLayout(layout: readonly string[]): void;
 };
 
-const NO_WIDGETS: NewTabExtensionWidgets = { available: [], layout: [], mounted: [], setLayout: () => undefined };
+const NO_WIDGETS: NewTabExtensionWidgets = {
+  available: [],
+  layout: [],
+  mounted: [],
+  editable: false,
+  setLayout: () => undefined,
+};
 
 function subscribeVisible(notify: () => void): () => void {
   if (typeof document === "undefined") return () => undefined;
@@ -111,6 +120,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
             available: view.panels,
             layout: view.layout,
             mounted: view.mounted,
+            editable: view.editable,
             setLayout: (layout: readonly string[]) => owner.setLayout(layout),
           }
         : NO_WIDGETS,
@@ -118,7 +128,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
   );
 }
 const NOOP_SUBSCRIBE = () => () => undefined;
-const EMPTY_VIEW: PanelsView = { panels: [], layout: [], mounted: [] };
+const EMPTY_VIEW: PanelsView = { panels: [], layout: [], mounted: [], editable: false };
 const EMPTY_VIEW_READ = () => EMPTY_VIEW;
 
 /** The row's cells in the person's order: the ones the layout names first, in its order, then the
