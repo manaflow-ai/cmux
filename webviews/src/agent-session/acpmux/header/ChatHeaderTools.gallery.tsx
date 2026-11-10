@@ -876,7 +876,7 @@ export default componentEntry<HeaderToolsProps>({
       play: oneTrailingInset,
     },
     "unfocused-quiet": {
-      note: "Chosen: a pane without the keyboard draws its open Session Info toggle with no square and the muted ink; only its solid glyph says the panel is open. Hover still lights it.",
+      note: "Chosen: a pane without the keyboard draws its open Session Info toggle with no square and the muted ink, the same glyph as closed. Hover still lights it.",
       props: { ...base, ...changes, unfocused: "quiet", summary: sessionInfoToggle },
       play: toolsAreTheirButtons,
     },
@@ -1001,7 +1001,7 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "Session Info is open: its toggle is the filled rounded square with the lit ink and selected glyph; the other header controls have nothing behind them.",
+      note: "Session Info is open: its toggle is the filled rounded square with the lit ink, its glyph at the closed weight; the other header controls have nothing behind them.",
       props: { ...base, summary: panelToggle(true) },
     },
     "session-info-open": {
