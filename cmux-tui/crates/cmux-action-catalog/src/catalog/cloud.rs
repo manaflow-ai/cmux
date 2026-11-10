@@ -49,7 +49,7 @@ pub static ACTIONS: &[Action] = &[
         description: Some("Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the new machine shows in `cmux cloud list-machines` when the fork is done."),
         keywords: &["vm", "clone"],
         category: "cloud",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 203).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
