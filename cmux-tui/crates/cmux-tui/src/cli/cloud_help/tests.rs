@@ -105,11 +105,11 @@ fn every_verb_has_both_languages_and_a_target_when_it_names_a_machine() {
 }
 
 #[test]
-fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
+fn destructive_verbs_show_yes_in_the_list_and_their_help() {
     let destructive = GROUPS
         .iter()
         .flat_map(|group| group.verbs)
-        .filter(|verb| verb.usage.contains("--confirm"))
+        .filter(|verb| verb.usage.contains("--yes"))
         .map(|verb| verb.name)
         .collect::<BTreeSet<_>>();
     assert_eq!(
@@ -125,9 +125,9 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
     let text = overview(false);
     for name in &destructive {
         let row = text.lines().find(|line| line.starts_with(&format!("  {name} "))).unwrap();
-        assert!(row.ends_with("(--confirm)"), "{row}");
+        assert!(row.ends_with("(--yes)"), "{row}");
         let help = verb_help(name, false).unwrap();
-        assert!(help.contains("--confirm"), "{help}");
+        assert!(help.contains("--yes") && !help.contains("--confirm"), "{help}");
     }
 }
 
@@ -364,6 +364,6 @@ fn verbs_cloud_refuses_are_marked_in_the_list_and_their_help() {
     }
     let help = verb_help("firewall-delete", false).unwrap();
     assert!(help.starts_with("Cloud does not offer this yet"), "{help}");
-    assert!(help.contains("--confirm"), "{help}");
+    assert!(help.contains("--yes"), "{help}");
     assert!(!verb_help("kill-machine", false).unwrap().contains("does not offer"));
 }

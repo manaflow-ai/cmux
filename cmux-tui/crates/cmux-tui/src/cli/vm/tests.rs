@@ -577,9 +577,9 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
     assert!(text.starts_with("Created Cloud VM api-dev (vm-abc): running."), "{text}");
     for next in [
-        "cmux vm ssh --target vm:vm-abc",
-        "cmux vm start-session --target vm:vm-abc",
-        "cmux vm exec --target vm:vm-abc",
+        "cmux vm ssh vm-abc",
+        "cmux chat --on vm:vm-abc 'PROMPT'",
+        "cmux vm exec vm-abc -- uname -a",
     ] {
         assert!(text.contains(next), "{next} missing: {text}");
     }
@@ -630,11 +630,11 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     };
     let text = created_line(&params, &created, &global).unwrap();
     let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
-    for verb in ["vm ssh", "vm start-session", "vm exec"] {
-        assert!(text.contains(&format!("{cmux} {verb} --target vm:vm-abc")), "{verb}: {text}");
+    for next in ["vm ssh vm-abc", "chat --on vm:vm-abc", "vm exec vm-abc --"] {
+        assert!(text.contains(&format!("{cmux} {next}")), "{next}: {text}");
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.contains("  cmux vm ssh --target vm:vm-abc"), "{text}");
+    assert!(text.contains("  cmux vm ssh vm-abc"), "{text}");
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     let text = created_line(&params, &pending, &global).unwrap();
     assert!(text.contains(&format!("`{cmux} vm ls`")), "{text}");

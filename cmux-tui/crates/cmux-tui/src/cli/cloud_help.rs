@@ -97,7 +97,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "kill-machine",
-                "{target} --confirm",
+                "{target} --yes",
                 "Delete a machine and everything on it",
                 "マシンとその中身をすべて削除",
             ),
@@ -195,7 +195,7 @@ const GROUPS: &[Group] = &[
             verb("file-mkdir", "{target} --path /DIR", "Create a directory", "ディレクトリを作成"),
             verb(
                 "file-remove",
-                "{target} --path /FILE --confirm",
+                "{target} --path /FILE --yes",
                 "Remove a file",
                 "ファイルを削除",
             ),
@@ -231,7 +231,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "delete-snapshot",
-                "{target} --snapshot SNAPSHOT_ID --confirm",
+                "{target} --snapshot SNAPSHOT_ID --yes",
                 "Delete a snapshot",
                 "スナップショットを削除",
             ),
@@ -335,7 +335,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "firewall-delete",
-                "--arg path=RULE_ID --confirm",
+                "--arg path=RULE_ID --yes",
                 "Delete a firewall rule",
                 "ファイアウォールルールを削除",
             ),
@@ -361,7 +361,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "api-key-revoke",
-                "--path PUBLICATION --key KEY_ID --confirm",
+                "--path PUBLICATION --key KEY_ID --yes",
                 "Revoke a publication's API key",
                 "公開設定の API キーを失効",
             ),
@@ -416,6 +416,8 @@ USAGE
 These actions run through the cmux app, signed in (`cmux login`).
 The everyday verbs take the VM's name or id, or nothing when you have one VM:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+  cmux cloud exec [NAME|ID] -- COMMAND...   (its output and exit code)
+  cmux cloud ssh | move [NAME|ID]
 The others take --target vm:VM_ID: `cmux cloud ls` prints each VM's
 target. Without the app (CI, a headless agent), the VM API verbs below
 (`cmux vm run`, `cmux vm new`, ...) talk to the cmux VM API directly.
@@ -433,11 +435,12 @@ QUICK START
   Machines:
   cmux cloud ls --json
   cmux vm new --size small --json
-  cmux cloud exec --target vm:VM_ID --command 'uname -a' --json
+  cmux cloud exec dev -- uname -a
+  cmux cloud ssh dev
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev --confirm
+  cmux cloud rm dev            (asks first; --yes in a script)
 ";
 
 const INTRO_JA: &str = "\
@@ -448,6 +451,8 @@ const INTRO_JA: &str = "\
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
   cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
+  cmux cloud exec [名前|ID] -- コマンド...   （出力と終了コードをそのまま返す）
+  cmux cloud ssh | move [名前|ID]
 ほかのアクションは --target vm:VM_ID を取ります。各 VM の target は
 `cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
 下の VM API の動詞（`cmux vm run`、`cmux vm new` など）で cmux VM API を直接使えます。
@@ -465,11 +470,12 @@ const INTRO_JA: &str = "\
   マシン:
   cmux cloud ls --json
   cmux vm new --size small --json
-  cmux cloud exec --target vm:VM_ID --command 'uname -a' --json
+  cmux cloud exec dev -- uname -a
+  cmux cloud ssh dev
   cmux cloud status dev
   cmux cloud pause dev
   cmux cloud resume dev
-  cmux cloud rm dev --confirm
+  cmux cloud rm dev            (asks first; --yes in a script)
 ";
 
 const OUTRO_EN: &str = "\
@@ -488,7 +494,8 @@ CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
-Actions marked --confirm delete something and refuse to run without it.
+Actions that delete something ask first at a terminal; --yes (-y) skips the
+question and is required without one.
 Run `cmux action list --category cloud --json` for the live catalog and
 `cmux action describe cloud <action> --json` for an action's arguments.
 ";
@@ -509,7 +516,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
---confirm が付くアクションは何かを削除するため、--confirm なしでは実行されません。
+何かを削除するアクションはターミナルで確認します。--yes（-y）で確認を省略でき、
+ターミナルがない場合は必須です。
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe cloud <アクション> --json` で確認できます。
 ";
@@ -605,7 +613,7 @@ pub(super) fn overview(japanese: bool) -> String {
                 (true, false) => " (not on Cloud yet)",
                 (true, true) => "（Cloud では未対応）",
             };
-            let marker = if verb.usage.contains("--confirm") { " (--confirm)" } else { "" };
+            let marker = if verb.usage.contains("--yes") { " (--yes)" } else { "" };
             let description = if japanese { verb.ja } else { verb.en };
             text.push_str(&format!("  {:width$}  {description}{not_yet}{marker}\n", verb.name));
         }

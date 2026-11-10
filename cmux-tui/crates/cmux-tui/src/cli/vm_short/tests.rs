@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{Resolved, Short, app_list, cloud_words, misuse, parse, resolve};
+use super::{Resolved, Short, app_list, cloud_words, confirmed, misuse, parse, resolve, table};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -26,6 +26,7 @@ fn a_short_verb_takes_a_name_by_position() {
             targeted: false,
             tail: vec![],
             api_verb: true,
+            command: vec![],
         }
     );
     let resize = parse(&words(&["vm", "resize", "--size", "large", "dev"])).unwrap();
@@ -148,4 +149,80 @@ fn shutdown_is_pause() {
     assert_eq!(shutdown, pause);
     assert_eq!(parse(&words(&["cloud", "shutdown"])).unwrap().cloud_verb, "pause-machine");
     assert_eq!(parse(&words(&["vm", "stop", "dev"])), None);
+}
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're nice to type". `vm
+/// exec dev -- uname -a` was `vm exec --target machine:vm_… --command 'uname -a'`: the VM by name,
+/// the command as the words after it.
+#[test]
+fn exec_ssh_and_move_name_the_vm_by_position() {
+    for typed in [
+        &["vm", "exec", "dev", "--", "uname", "-a"][..],
+        &["vm", "exec", "dev", "uname", "-a"],
+        &["cloud", "exec", "dev", "--", "uname", "-a"],
+    ] {
+        let exec = parse(&words(typed)).unwrap();
+        assert_eq!((exec.cloud_verb, exec.named.as_deref()), ("exec", Some("dev")), "{typed:?}");
+        assert_eq!(
+            cloud_words(&exec, Some("vm_a1")),
+            words(&["--target", "machine:vm_a1", "--command", "uname -a"]),
+            "{typed:?}"
+        );
+    }
+    // The old form still runs as typed.
+    let old = parse(&words(&["vm", "exec", "--target", "machine:vm_a1", "--command", "ls"])).unwrap();
+    assert!(old.targeted && old.command.is_empty());
+    assert_eq!(cloud_words(&old, None), words(&["--target", "machine:vm_a1", "--command", "ls"]));
+    // A command's own flags after `--` are the command's.
+    let flags = parse(&words(&["vm", "exec", "dev", "--", "ls", "--help"])).unwrap();
+    assert_eq!(flags.command, words(&["ls", "--help"]));
+
+    let ssh = parse(&words(&["vm", "ssh", "dev"])).unwrap();
+    assert_eq!(cloud_words(&ssh, Some("vm_a1")), words(&["--target", "machine:vm_a1"]));
+    // `move` names its VM with the app's `--machine`.
+    let mv = parse(&words(&["vm", "move", "dev", "--path", "/src"])).unwrap();
+    assert_eq!(
+        cloud_words(&mv, Some("vm_a1")),
+        words(&["--machine", "machine:vm_a1", "--path", "/src"])
+    );
+    assert!(parse(&words(&["vm", "move"])).unwrap().named.is_none());
+}
+
+/// `vm rm dev --yes` (or `-y`) is the app's `--confirm`; the old `--confirm` still counts as yes.
+#[test]
+fn rm_says_yes_with_yes() {
+    for (typed, yes) in [
+        (&["vm", "rm", "dev", "--yes"][..], true),
+        (&["vm", "rm", "dev", "-y"], true),
+        (&["vm", "rm", "dev", "--confirm"], true),
+        (&["vm", "rm", "dev"], false),
+    ] {
+        let rm = parse(&words(typed)).unwrap();
+        assert_eq!(confirmed(&rm), yes, "{typed:?}");
+        if yes {
+            assert_eq!(
+                cloud_words(&rm, Some("vm_a1")),
+                words(&["--target", "machine:vm_a1", "--confirm"]),
+                "{typed:?}"
+            );
+        }
+    }
+}
+
+/// `vm ls` for a person: a table, name first, never the app's key/value dump with the VMs as one
+/// JSON line.
+#[test]
+fn ls_prints_a_table() {
+    let listed = json!({"machines": [
+        {"machine_id": "vm_a1", "title": "dev", "status": "running",
+         "created_at": "2026-11-05T06:20:17Z"},
+        {"machine_id": "vm_b2", "title": "", "status": "paused", "created_at": "2026-11-09T01:02:03Z"},
+    ], "creating": [{"title": "new-one", "status": "creating"}]});
+    let text = table(&listed);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0].split_whitespace().collect::<Vec<_>>(), ["NAME", "ID", "STATUS", "CREATED"]);
+    assert_eq!(lines[1].split_whitespace().collect::<Vec<_>>(), ["dev", "vm:vm_a1", "running", "2026-11-05"]);
+    assert_eq!(lines[2].split_whitespace().collect::<Vec<_>>(), ["-", "vm:vm_b2", "paused", "2026-11-09"]);
+    assert_eq!(lines[3].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
+    assert!(table(&json!({"machines": []})).contains("cmux vm new"));
 }

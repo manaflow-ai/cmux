@@ -467,7 +467,37 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
     let mut rewritten = before.to_vec();
     rewritten.push("cloud".to_owned());
-    rewritten.extend(after.iter().cloned());
+    rewritten.extend(yes_as_confirm(after));
+    Some(rewritten)
+}
+
+/// `words` with `--yes` (`-y`), every delete's yes (`vm rm dev --yes`), as the `--confirm` the
+/// app's Cloud actions read; from `--` on, words are text.
+fn yes_as_confirm(words: &[String]) -> Vec<String> {
+    let mut text = false;
+    words
+        .iter()
+        .map(|word| {
+            text |= word == "--";
+            match word.as_str() {
+                "--yes" | "-y" if !text => "--confirm".to_owned(),
+                _ => word.clone(),
+            }
+        })
+        .collect()
+}
+
+/// `cmux cloud VERB … --yes` (`cloud`, `vm`'s old name): the same `--confirm`, `None` when there
+/// is no `--yes` to respell.
+pub(super) fn cloud_yes(args: &[String]) -> Option<Vec<String>> {
+    let (_, at) = scope_at(args, |word| word == "cloud")?;
+    let after = args.get(at + 1..)?;
+    let respelled = yes_as_confirm(after);
+    if respelled == after {
+        return None;
+    }
+    let mut rewritten = args[..=at].to_vec();
+    rewritten.extend(respelled);
     Some(rewritten)
 }
 
@@ -712,9 +742,9 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     Some(format!(
         "Created Cloud VM {name}: {status}.\n\n\
          Next:\n  \
-         open a terminal:  {cmux} vm ssh --target {target}\n  \
-         start an agent:   {cmux} vm start-session --target {target} --agent claude\n  \
-         run a command:    {cmux} vm exec --target {target} --command 'uname -a'\n"
+         open a terminal:  {cmux} vm ssh {id}\n  \
+         start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \
+         run a command:    {cmux} vm exec {id} -- uname -a\n"
     ))
 }
 
