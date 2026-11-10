@@ -21,7 +21,7 @@
 //! default, the revision and the idempotency ledger.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -278,30 +278,53 @@ pub(crate) enum AvatarChange {
 /// The daemon's registry, opened on first use.
 #[derive(Default)]
 pub(crate) struct ChiefHost {
-    pub(crate) store: Mutex<Option<ChiefStore>>,
+    pub(crate) store: Arc<Mutex<Option<ChiefStore>>>,
     /// The brain supervisor's inbox (chief_brains.rs), when it runs.
     pub(crate) brains: crate::chief_brains::Slot,
 }
 
+impl ChiefHost {
+    /// Open the registry into `slot`, the content of [`Self::store`]: the
+    /// lock under which every commit of the registry runs. The WAL syncer
+    /// takes it for the tail of each WAL restart (`wal_durability`).
+    pub(crate) fn open_into(
+        &self,
+        slot: &mut Option<ChiefStore>,
+        directory: Option<&Path>,
+    ) -> anyhow::Result<()> {
+        let store = ChiefStore::open(directory)?;
+        if let Some(durability) = &store.durability {
+            durability.own_restart(Arc::downgrade(&self.store));
+        }
+        *slot = Some(store);
+        Ok(())
+    }
+}
+
 pub(crate) struct ChiefStore {
     connection: Connection,
+    /// The WAL syncer of a registry on disk (`wal_durability`).
+    durability: Option<crate::workspace_registry::wal_durability::WalDurability>,
 }
 
 impl ChiefStore {
     pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
-        let connection = match directory {
+        let (connection, durability) = match directory {
             Some(directory) => {
                 let path = directory.join(CHIEFS_FILE);
                 let connection = crate::workspace_registry::open_registry_database(&path)
                     .with_context(|| format!("open chief registry {}", path.display()))?;
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict chief registry {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
-                connection
+                let durability =
+                    crate::workspace_registry::wal_durability::attach_store(&connection, &path);
+                (connection, Some(durability))
             }
-            None => Connection::open_in_memory()?,
+            None => (Connection::open_in_memory()?, None),
         };
-        Self::initialize(connection)
+        let mut store = Self::initialize(connection)?;
+        store.durability = durability;
+        Ok(store)
     }
 
     fn initialize(mut connection: Connection) -> anyhow::Result<Self> {
@@ -393,7 +416,7 @@ impl ChiefStore {
         migrate_self_edit(&transaction)?;
         backfill_history(&transaction)?;
         transaction.commit()?;
-        Ok(Self { connection })
+        Ok(Self { connection, durability: None })
     }
 
     /// Every live Chief, the default first, then in creation order.

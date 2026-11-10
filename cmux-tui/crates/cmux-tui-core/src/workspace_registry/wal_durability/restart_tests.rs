@@ -1,9 +1,10 @@
 //! The WAL restart rule (`wal_durability` module docs): the WAL file's size
 //! under commits with no pause, behind a long read, after a previous run
-//! left it large, and at a clean stop. Bytes and counts, no times: a
-//! database attached in a test waits long for its checkpoint
-//! (`TEST_RESTART_WAIT`), so a try that timed out is a count, not a race.
+//! left it large, and at a clean stop. Bytes and counts, no times: the
+//! syncer of a database attached in a test waits long for the writer lock
+//! (`TEST_RESTART_WAIT`), so a try that did not get it is no race.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::tests::{database, grow_a_pinned_wal};
@@ -13,24 +14,66 @@ use super::*;
 /// limit and one step between tries to restart it (far above one commit).
 const STORM_WAL_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + CHECKPOINT_BYTES;
 
-/// One commit that rewrites the 64 KiB row 1 and, like an answered request,
-/// asks for a flush. `round` makes each value new: SQLite writes no page
-/// whose content did not change, so an equal value is no commit at all.
-fn rewrite_the_row(connection: &Connection, durability: &WalDurability, round: u64) {
+/// The lock of a store in these tests: every commit runs under it, as a
+/// registry commit runs under the registry's connection lock.
+type StoreLock = Arc<parking_lot::Mutex<()>>;
+
+/// The syncer's hold of a [`StoreLock`]; `wait`: it waits this long for the
+/// lock in place of the database's own limit.
+struct WeakStoreLock {
+    lock: std::sync::Weak<parking_lot::Mutex<()>>,
+    wait: Option<Duration>,
+}
+
+impl WriterLock for WeakStoreLock {
+    fn exclude_commits(&self, deadline: Instant, tail: &mut dyn FnMut()) -> bool {
+        let Some(lock) = self.lock.upgrade() else { return false };
+        let deadline = self.wait.map_or(deadline, |wait| Instant::now() + wait);
+        let Some(guard) = lock.try_lock_until(deadline) else { return false };
+        tail();
+        drop(guard);
+        true
+    }
+}
+
+/// Give `durability` the lock of its store, so its syncer runs the restart rule.
+fn own_lock(durability: &WalDurability) -> StoreLock {
+    let lock = Arc::new(parking_lot::Mutex::new(()));
+    durability.own_restart(WeakStoreLock { lock: Arc::downgrade(&lock), wait: None });
+    lock
+}
+
+/// One commit that rewrites the 64 KiB row 1 under the store's lock and,
+/// like an answered request, asks for a flush. `round` makes each value new:
+/// SQLite writes no page whose content did not change, so an equal value is
+/// no commit at all.
+fn rewrite_the_row(
+    connection: &Connection,
+    durability: &WalDurability,
+    lock: &StoreLock,
+    round: u64,
+) {
     let blob = vec![u8::try_from(round % 251).unwrap_or(0); 64 * 1024];
+    let held = lock.lock();
     connection.execute("INSERT OR REPLACE INTO t(rowid, v) VALUES (1, ?1)", [&blob]).unwrap();
+    drop(held);
     durability.request_flush();
 }
 
 /// Commits `frame_bytes` of WAL frames with no pause between them
 /// ([`rewrite_the_row`]). Returns the commit count.
-fn commit_storm(connection: &Connection, durability: &WalDurability, frame_bytes: u64) -> u64 {
-    rewrite_the_row(connection, durability, 0);
+fn commit_storm(
+    connection: &Connection,
+    durability: &WalDurability,
+    lock: &StoreLock,
+    frame_bytes: u64,
+) -> u64 {
+    rewrite_the_row(connection, durability, lock, 0);
     let before = durability.wal_frame_bytes();
     let mut commits = 0;
     while durability.wal_frame_bytes() - before < frame_bytes {
         commits += 1;
-        rewrite_the_row(connection, durability, commits);
+        rewrite_the_row(connection, durability, lock, commits);
         // A commit that wrote nothing would never end this loop.
         assert!(commits < 100_000, "{commits} commits wrote under {frame_bytes} bytes of frames");
     }
@@ -45,15 +88,18 @@ fn a_commit_storm_keeps_the_wal_file_under_its_bound() {
     let (dir, connection) = database("storm");
     let path = dir.join("r.sqlite");
     let durability = WalDurability::attach(&connection, &path, None, false);
+    let lock = own_lock(&durability);
     let storm = 3 * WAL_SIZE_LIMIT_BYTES;
-    let commits = commit_storm(&connection, &durability, storm);
+    let commits = commit_storm(&connection, &durability, &lock, storm);
     let (now, high_water) = durability.wal_file_bytes();
-    let (waits, longest) = durability.restart_waits();
-    let timeouts = durability.restart_timeouts();
+    let tries = durability.restart_tries();
+    let holds = durability.restart_holds();
+    let longest = holds.iter().map(|(from, to)| *to - *from).max().unwrap_or(Duration::ZERO);
     println!(
         "wal_storm: commits={commits} frame_bytes={storm} wal_file_bytes={now} \
          wal_file_high_water_bytes={high_water} bound={STORM_WAL_BOUND_BYTES} \
-         restart_waits={waits} restart_timeouts={timeouts} longest_wait_ms={}",
+         restart_tries={tries} lock_holds={} longest_hold_ms={}",
+        holds.len(),
         longest.as_millis()
     );
     drop(connection);
@@ -63,10 +109,14 @@ fn a_commit_storm_keeps_the_wal_file_under_its_bound() {
         "{commits} commits with no pause ({storm} bytes of frames) grew the WAL file to \
          {high_water} bytes; the bound is {STORM_WAL_BOUND_BYTES}"
     );
-    // The price: one wait per restart (two or three in three limits of
-    // frames), never one per commit, and each ended with its checkpoint.
-    assert!((2..=3).contains(&waits), "{waits} of {commits} commits waited");
-    assert_eq!(timeouts, 0, "{timeouts} of {waits} waits ended before their checkpoint");
+    // The price: one hold of the store's lock per restart (three limits of
+    // frames and a restart point of half a limit: about six), never one
+    // per commit.
+    assert!(
+        (2..=12).contains(&holds.len()) && tries >= 2,
+        "{} lock holds and {tries} tries for {commits} commits",
+        holds.len()
+    );
 }
 
 #[test]
@@ -130,7 +180,8 @@ fn a_long_read_in_a_commit_storm_never_holds_a_commit_and_the_wal_is_cut_after_i
     let path = dir.join("r.sqlite");
     let wal = dir.join("r.sqlite-wal");
     let durability = WalDurability::attach(&connection, &path, None, false);
-    rewrite_the_row(&connection, &durability, 0);
+    let lock = own_lock(&durability);
+    rewrite_the_row(&connection, &durability, &lock, 0);
     let reader = Connection::open(&path).unwrap();
     reader.execute_batch("BEGIN").unwrap();
     let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
@@ -140,35 +191,29 @@ fn a_long_read_in_a_commit_storm_never_holds_a_commit_and_the_wal_is_cut_after_i
     while durability.wal_frame_bytes() - before < 2 * WAL_SIZE_LIMIT_BYTES {
         commits += 1;
         let started = Instant::now();
-        rewrite_the_row(&connection, &durability, commits);
+        rewrite_the_row(&connection, &durability, &lock, commits);
         slowest = slowest.max(started.elapsed());
         assert!(commits < 100_000, "{commits} commits wrote under two limits of frames");
     }
-    let (waits, longest) = durability.restart_waits();
-    let timeouts = durability.restart_timeouts();
+    let tries = durability.restart_tries();
+    let holds = durability.restart_holds().len();
     let pinned = std::fs::metadata(&wal).unwrap().len();
     reader.execute_batch("COMMIT").unwrap();
     println!(
-        "wal_long_read: commits={commits} wal_file_bytes_pinned={pinned} restart_waits={waits} \
-         restart_timeouts={timeouts} longest_wait_ms={} slowest_commit_ms={}",
-        longest.as_millis(),
+        "wal_long_read: commits={commits} wal_file_bytes_pinned={pinned} restart_tries={tries} \
+         lock_holds={holds} slowest_commit_ms={}",
         slowest.as_millis()
     );
     assert!(pinned > WAL_SIZE_LIMIT_BYTES, "the reader did not pin the WAL: {pinned} bytes");
-    // One try per step past the limit, never one per commit.
-    let tries = 2 * WAL_SIZE_LIMIT_BYTES / CHECKPOINT_BYTES;
+    // One try per step past the restart point, never one per commit.
+    let most = 2 * WAL_SIZE_LIMIT_BYTES / CHECKPOINT_BYTES;
     assert!(
-        (1..=tries).contains(&waits),
-        "{waits} of {commits} commits waited for a restart checkpoint; at most {tries}"
+        (1..=most).contains(&tries),
+        "{tries} tries of the restart rule for {commits} commits; at most {most}"
     );
-    // The read lasted the whole storm; each wait ended with its checkpoint,
-    // which stops at the reader's mark. A wait for the reader would end at
-    // the limit and count here.
-    assert_eq!(
-        timeouts, 0,
-        "{timeouts} of {waits} waits behind a long read ended at the limit, not with their \
-         checkpoint"
-    );
+    // The read lasted the whole storm: each try's copy stopped at the
+    // reader's mark, so no try took the store's lock from the commits.
+    assert_eq!(holds, 0, "{holds} of {tries} tries behind a long read took the store's lock");
     // The read ended: answered requests go on and the WAL is cut.
     let deadline = Instant::now() + Duration::from_secs(10);
     let after = loop {
@@ -206,8 +251,9 @@ fn a_wal_left_over_the_limit_is_cut_in_a_commit_storm_from_the_first_moment() {
     let connection = Connection::open(&next_path).unwrap();
     connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").unwrap();
     let durability = WalDurability::attach(&connection, &next_path, None, false);
+    let lock = own_lock(&durability);
     // The first commit also counts the frames the previous run left.
-    rewrite_the_row(&connection, &durability, 0);
+    rewrite_the_row(&connection, &durability, &lock, 0);
     let before = durability.wal_frame_bytes();
     let mut commits = 0u64;
     // The WAL is cut once the syncer copied what the previous run left
@@ -216,7 +262,7 @@ fn a_wal_left_over_the_limit_is_cut_in_a_commit_storm_from_the_first_moment() {
     let deadline = Instant::now() + Duration::from_secs(30);
     let (written, high_water, now) = loop {
         commits += 1;
-        rewrite_the_row(&connection, &durability, commits);
+        rewrite_the_row(&connection, &durability, &lock, commits);
         let written = durability.wal_frame_bytes().saturating_sub(before);
         let (len, high_water) = durability.wal_file_bytes();
         if len <= WAL_SIZE_LIMIT_BYTES || Instant::now() > deadline {
@@ -261,80 +307,60 @@ fn a_clean_stop_copies_a_small_wal_into_the_database() {
 }
 
 #[test]
-fn a_commit_under_the_mux_state_lock_never_waits_for_the_restart_checkpoint() {
-    // A thread that holds the mux state lock commits on its own connection
-    // hold (a workspace presentation update). A wait in its WAL hook would
-    // hold every reader of the state behind the syncer's checkpoint.
-    use crate::workspace_registry::registry_connection::note_state_lock;
-    let (dir, connection) = database("state-lock");
+fn a_try_ends_with_no_restart_while_another_thread_keeps_the_stores_lock() {
+    // A flow holds the store's lock for longer than the syncer waits for
+    // it. The try ends, no commit waited, and a later try restarts the WAL.
+    let (dir, connection) = database("kept-lock");
     let path = dir.join("r.sqlite");
     let wal = dir.join("r.sqlite-wal");
     let durability = WalDurability::attach(&connection, &path, None, false);
-    rewrite_the_row(&connection, &durability, 0);
-    // A read of another connection pins the WAL for the storm, so no
-    // checkpoint that a flush request started can restart it by chance.
-    let reader = Connection::open(&path).unwrap();
-    reader.execute_batch("BEGIN").unwrap();
-    let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
-    // What `StateMutex` records when this thread takes the state lock.
-    note_state_lock(true);
-    let held_commits =
-        commit_storm(&connection, &durability, WAL_SIZE_LIMIT_BYTES + 2 * CHECKPOINT_BYTES);
-    let (held_waits, _) = durability.restart_waits();
-    note_state_lock(false);
-    reader.execute_batch("COMMIT").unwrap();
-    let held_bytes = std::fs::metadata(&wal).unwrap().len();
-    // The next commits of a thread without the state lock do the try.
-    let mut free_commits = 0u64;
+    let kept = Arc::new(parking_lot::Mutex::new(()));
+    // The syncer waits 50 ms for this lock; the test keeps it for the storm.
+    let wait = Some(Duration::from_millis(50));
+    durability.own_restart(WeakStoreLock { lock: Arc::downgrade(&kept), wait });
+    let held = kept.lock();
+    let blob = vec![7u8; 64 * 1024];
+    let mut commits = 0u64;
+    let mut slowest = Duration::ZERO;
+    while durability.restart_tries() < 2 {
+        commits += 1;
+        let started = Instant::now();
+        connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+        slowest = slowest.max(started.elapsed());
+        durability.request_flush();
+        assert!(commits < 100_000, "{commits} commits and no second try");
+    }
+    let kept_bytes = std::fs::metadata(&wal).unwrap().len();
+    let kept_holds = durability.restart_holds().len();
+    drop(held);
+    // The flow released the lock: the next tries get it.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let after = loop {
-        free_commits += 1;
-        rewrite_the_row(&connection, &durability, held_commits + free_commits);
+        let held = kept.lock();
+        connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+        drop(held);
+        durability.request_flush();
         let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
-        if len <= WAL_SIZE_LIMIT_BYTES || free_commits >= 64 {
+        if (len <= WAL_SIZE_LIMIT_BYTES && !durability.restart_holds().is_empty())
+            || Instant::now() > deadline
+        {
             break len;
         }
+        std::thread::sleep(Duration::from_millis(1));
     };
-    let (waits, _) = durability.restart_waits();
+    let holds = durability.restart_holds().len();
     println!(
-        "wal_state_lock: held_commits={held_commits} held_waits={held_waits} \
-         wal_file_bytes_held={held_bytes} free_commits={free_commits} waits={waits} \
-         wal_file_bytes={after}"
+        "wal_kept_lock: commits={commits} wal_file_bytes_kept={kept_bytes} holds_kept={kept_holds} \
+         slowest_commit_ms={} holds={holds} wal_file_bytes={after}",
+        slowest.as_millis()
     );
     drop(connection);
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(
-        held_waits, 0,
-        "{held_waits} of {held_commits} commits waited for a restart checkpoint while their \
-         thread held the mux state lock"
-    );
-    assert!(held_bytes > WAL_SIZE_LIMIT_BYTES, "the storm did not pass the limit: {held_bytes}");
+    assert_eq!(kept_holds, 0, "the syncer ran {kept_holds} tails while a flow kept the lock");
     assert!(
-        waits >= 1 && after <= WAL_SIZE_LIMIT_BYTES,
-        "after the state lock was released, {free_commits} commits made {waits} tries and \
-         left the WAL at {after} bytes"
+        holds >= 1 && after <= WAL_SIZE_LIMIT_BYTES,
+        "after the flow released the lock: {holds} lock holds, a WAL of {after} bytes"
     );
-}
-
-#[test]
-fn the_tries_after_a_timeout_come_at_4_12_28_60_and_124_mib_then_each_64_mib() {
-    // A disk slower than the wait: every try times out. MiB past the limit
-    // at which each next try comes, in frames of one 4 KiB page.
-    let frame_bytes = 4096 + WAL_FRAME_HEADER_BYTES;
-    let mib = |frames: u64| frames * frame_bytes / (1024 * 1024);
-    let mut step = 0;
-    let mut at = 0;
-    let mut tries = Vec::new();
-    for _ in 0..8 {
-        step = next_restart_step(step, false, frame_bytes);
-        at += step;
-        tries.push(mib(at));
-    }
-    // Whole frames: each point is a little under its MiB count.
-    assert_eq!(tries, [3, 11, 27, 59, 123, 187, 251, 315]);
-    // A try that ended sets the step back to 4 MiB, whatever it was.
-    assert_eq!(next_restart_step(step, true, frame_bytes), CHECKPOINT_BYTES / frame_bytes);
-    assert_eq!(next_restart_step(0, true, frame_bytes), CHECKPOINT_BYTES / frame_bytes);
-    assert_eq!(next_restart_step(0, false, frame_bytes), CHECKPOINT_BYTES / frame_bytes);
 }
 
 /// The next open of a database whose previous run was killed and left a
@@ -410,9 +436,18 @@ fn after_a_cut_the_syncer_checkpoints_by_what_commits_wrote_not_at_each_request(
     let path = dir.join("r.sqlite");
     let wal = dir.join("r.sqlite-wal");
     let durability = WalDurability::attach(&connection, &path, None, false);
-    commit_storm(&connection, &durability, 2 * WAL_SIZE_LIMIT_BYTES);
+    let lock = own_lock(&durability);
+    commit_storm(&connection, &durability, &lock, 2 * WAL_SIZE_LIMIT_BYTES);
+    // A try of the restart rule that the storm's last commits started ends
+    // first; it is not a checkpoint of the rest.
+    for _ in 0..2 {
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        durability.request_flush();
+        durability.checkpoints_once_idle();
+    }
     let file = std::fs::metadata(&wal).unwrap().len();
     let before = durability.checkpoints_once_idle();
+    let tries_before = durability.restart_tries();
     let frames_before = durability.wal_frame_bytes();
     let commits = 200u64;
     for _ in 0..commits {
@@ -421,6 +456,9 @@ fn after_a_cut_the_syncer_checkpoints_by_what_commits_wrote_not_at_each_request(
         durability.checkpoints_once_idle();
     }
     let checkpoints = durability.checkpoints_once_idle() - before;
+    // The small commits can take the WAL to its restart point: that try is
+    // one more pass, and not a checkpoint of the rest.
+    let tries = durability.restart_tries() - tries_before;
     let written = durability.wal_frame_bytes() - frames_before;
     println!(
         "wal_rest: wal_file_bytes={file} commits={commits} frame_bytes={written} \
@@ -432,7 +470,7 @@ fn after_a_cut_the_syncer_checkpoints_by_what_commits_wrote_not_at_each_request(
     assert!(written < CHECKPOINT_BYTES, "{commits} small commits wrote {written} bytes");
     // What the storm's last commits left may be one checkpoint size.
     assert!(
-        checkpoints <= 1,
+        tries <= 1 && checkpoints <= 1 + tries,
         "{checkpoints} checkpoints for {commits} small commits ({written} bytes of frames) at \
          rest after a cut; a checkpoint is due once per {CHECKPOINT_BYTES} bytes"
     );

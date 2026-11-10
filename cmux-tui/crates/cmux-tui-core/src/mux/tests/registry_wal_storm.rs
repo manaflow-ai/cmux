@@ -22,7 +22,7 @@ use crate::workspace_registry::wal_durability::{WAL_SIZE_LIMIT_BYTES, wal_index_
 const STORM_FRAME_BYTES: u64 = 3 * WAL_SIZE_LIMIT_BYTES;
 /// The WAL file's bound this test asserts: the limit and 4 MiB, the step to
 /// the next try when a reader of another thread stopped one checkpoint. The
-/// rule's own bound is the limit plus one commit.
+/// syncer starts a try 16 MiB under the limit.
 const WAL_FILE_BOUND_BYTES: u64 = WAL_SIZE_LIMIT_BYTES + 4 * 1024 * 1024;
 /// A storm that needs more changes than this writes too little per change
 /// for this test: it then says so and does not pass.
@@ -58,16 +58,19 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound(workspaces: usize) {
     };
     let seconds = started.elapsed().as_secs_f64();
     let after = mux.write_path_stats();
-    let (waits, longest_wait) = mux.registry_connection.wal_restart_waits_for_test();
+    let tries = mux.registry_connection.wal_restart_tries_for_test();
+    let holds = mux.registry_connection.wal_restart_holds_for_test();
+    let longest_hold = holds.iter().map(|(from, to)| *to - *from).max().unwrap_or_default();
     println!(
         "registry_wal_storm: workspaces={workspaces} changes={changes} seconds={seconds:.1} \
          wal_frame_bytes={written} wal_file_bytes_after_build={} wal_file_bytes={} \
-         wal_file_high_water_bytes={} bound={WAL_FILE_BOUND_BYTES} restart_waits={waits} \
-         longest_wait_ms={}",
+         wal_file_high_water_bytes={} bound={WAL_FILE_BOUND_BYTES} restart_tries={tries} \
+         lock_holds={} longest_hold_ms={}",
         built.registry_wal_file_bytes,
         after.registry_wal_file_bytes,
         after.registry_wal_file_high_water_bytes,
-        longest_wait.as_millis(),
+        holds.len(),
+        longest_hold.as_millis(),
     );
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
@@ -76,9 +79,10 @@ fn a_change_storm_keeps_the_wal_file_under_its_bound(workspaces: usize) {
         "{changes} renames wrote only {written} bytes of WAL frames: not a storm of \
          {STORM_FRAME_BYTES} bytes"
     );
-    // One wait per 64 MiB of WAL (the build and the storm), with room for
-    // tries a reader of another thread made miss. Never one per change.
-    assert!(waits <= 16, "{waits} of {changes} changes waited for a WAL restart checkpoint");
+    // One try of the syncer per restart (the build and the storm), with
+    // room for tries a reader of another thread made miss. Never one per
+    // change, and no change waits for one.
+    assert!(tries <= 32, "{tries} tries of the WAL restart rule for {changes} changes");
     assert!(
         after.registry_wal_file_high_water_bytes <= WAL_FILE_BOUND_BYTES,
         "{changes} changes with no pause ({written} bytes of WAL frames) on {workspaces} \

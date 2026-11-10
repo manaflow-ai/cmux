@@ -8,11 +8,9 @@
 //! power loss or kernel panic can take an acknowledged commit back, and such
 //! a loss also ends every terminal, host and shell the commit described.
 //!
-//! So no request waits for the disk, with one bounded exception: the
-//! restart rule below (one commit per 64 MiB of WAL waits for a checkpoint,
-//! at most [`RESTART_WAIT`], and never a thread that holds the mux state
-//! lock). SQLite's WAL hook runs on the committing thread right after a
-//! commit's frames are written and counts it. Once a request's reply is out (the server's reply funnel), or a
+//! So no request waits for the disk, and none for a checkpoint. SQLite's WAL
+//! hook runs on the committing thread right after a commit's frames are
+//! written and counts it. Once a request's reply is out (the server's reply funnel), or a
 //! background journal batch committed, the caller hands the commits to this
 //! syncer. During the run the WAL reaches the disk the way SQLite's
 //! `synchronous=NORMAL` defines it: at its checkpoint (SQLite syncs the WAL
@@ -46,45 +44,57 @@
 //! A checkpoint that runs beside commits never ends with the whole WAL
 //! copied: a commit landed while it copied. So under commits with no pause (a
 //! session build, a restore, an agent burst) the WAL never restarted, and one
-//! registry's WAL grew to 1366 MB beside a 45 MB database. The restart rule:
-//! the WAL hook of the commit that takes the WAL past
-//! [`WAL_SIZE_LIMIT_BYTES`] asks the syncer for one more PASSIVE checkpoint
-//! and waits for its end, at most [`RESTART_WAIT`]. The committing thread
-//! owns its connection (the registry's connection lock; a store's own lock),
-//! the only one that writes, so no commit lands during that checkpoint: it
-//! copies the whole WAL, the next commit restarts the WAL, and SQLite cuts
-//! the file to the limit. The syncer already copied all but the newest
-//! commits, so the wait is one short checkpoint per 64 MiB of WAL. The bound
-//! is the limit plus one commit, and it holds only while each try's
-//! checkpoint ends inside the wait and copies the whole WAL. Three cases
-//! take the bound away for a time, and none of them makes a commit wait
-//! longer:
+//! registry's WAL grew to 1366 MB beside a 45 MB database. A restart needs
+//! one moment with no commit. The restart rule: the syncer thread makes that
+//! moment, and no commit and no request waits for a checkpoint. The WAL hook
+//! of a commit that finds [`RESTART_BYTES`] of frames in the WAL only marks a
+//! restart owed. The syncer then ([`restart_the_wal`]):
 //!
-//! - A reader that holds a snapshot stops the checkpoint at its mark and the
-//!   checkpoint ends at once (PASSIVE waits for no one), so the commit never
-//!   waits for the reader. The rule tries again at each further
-//!   [`CHECKPOINT_BYTES`], never at each commit, and the file grows by what
-//!   commits write until the read ends.
-//! - A checkpoint slower than the wait (a slow disk): the commit goes on.
-//!   The tries come at 0, 4, 12, 28, 60 and 124 MiB past the limit, then
-//!   once per 64 MiB ([`next_restart_step`]): each try that timed out
-//!   doubles the step from 4 MiB up to the limit, and a try that ended sets
-//!   it back to 4 MiB. The file grows until one try ends.
-//! - A commit of a thread that holds the mux state lock never waits under
-//!   that lock (every reader of the state would wait behind it). Its try is
-//!   put off to the moment the thread releases its pin of the registry
-//!   connection, which is after the state lock ([`run_owed_restart`]); a
-//!   commit of another thread without that lock makes the try if it comes
-//!   first. A session build commits each workspace under the state lock, so
-//!   without the put-off try its WAL had no bound. The file grows by what
-//!   one hold of the state lock commits.
+//! 1. copies the bulk beside the commits with PASSIVE checkpoints and syncs
+//!    the database file itself, with no lock, until the commits that landed
+//!    meanwhile are under [`TAIL_BYTES`] (at most [`BULK_PASSES`] passes, and
+//!    no further pass when the WAL is 4 MiB under its size limit: the bound
+//!    goes before a short step 2);
+//! 2. takes the database's writer lock ([`WriterLock`]: the registry's
+//!    connection lock, a store's own lock) and runs one more PASSIVE
+//!    checkpoint. No commit can land, so it copies the whole WAL: the few
+//!    commits since the bulk, one sync of their WAL frames and one sync of
+//!    the database pages they changed;
+//! 3. releases the lock. The next commit restarts the WAL from its first
+//!    frame.
 //!
-//! The thread that waits holds its connection lock (and a request thread
-//! the registry lock) for the wait: other writers of that database wait
-//! with it, readers of the mux state do not.
-//! SQLite's own automatic checkpoint (which Chromium keeps: 1000 pages, on
-//! the committing connection, on the database's own sequence) has the same
-//! exclusion; here the bulk of the copy stays off the committing thread.
+//! Other writers of that database wait only for step 2. The syncer holds no
+//! other lock in it, and a thread that holds the mux state lock took the
+//! connection lock before (lock order), so no reader of the state waits
+//! behind it. The restart point is half the size limit, because commits go
+//! on while the syncer works on steps 1 and 2 (a storm on one workspace
+//! wrote 34 MiB per second on a fleet M4 Pro): the file stays under
+//! [`WAL_SIZE_LIMIT_BYTES`] while a try ends in under a second of such a
+//! storm. Nothing holds the commits back, so this bound is not a hard one:
+//! commits faster than the copy for longer than that grow the file until a
+//! try ends.
+//!
+//! A try can end with no restart. The syncer then tries again once commits
+//! wrote [`CHECKPOINT_BYTES`] more; nobody waits, and the file grows by what
+//! commits write until one try ends:
+//!
+//! - A reader that holds a snapshot stops the bulk at its mark (PASSIVE
+//!   waits for no one). The try ends there and takes no lock.
+//! - The writer lock does not come free in [`RESTART_WAIT`] (a flow that
+//!   holds it for long).
+//! - A reader of the old WAL is still open at the next commit: SQLite then
+//!   appends to the WAL instead of a restart.
+//!
+//! A slow disk makes a try long. Only the next try waits for it.
+//!
+//! Before, the commit that took the WAL past the limit waited for the
+//! syncer's checkpoint (at most 250 ms) with its connection lock held, and a
+//! request thread also with the registry lock: a person's split or new tab
+//! beside a storm waited behind that checkpoint. SQLite's own automatic
+//! checkpoint (which Chromium keeps: 1000 pages, on the committing
+//! connection) copies on the committing thread; Chromium commits on a
+//! background sequence, cmux on request threads, so here the copy has its
+//! own thread and the writers are kept out only for the tail.
 //!
 //! A WAL a previous run left (a kill in a storm, an older build) is
 //! checkpointed by the syncer when the database opens, with no caller that
@@ -111,8 +121,8 @@
 use std::cell::RefCell;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 
@@ -129,13 +139,27 @@ const WAL_FRAME_HEADER_BYTES: u64 = 24;
 /// (`journal_size_limit`).
 pub(crate) const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 
-/// The longest a commit waits for the checkpoint that lets the WAL restart
-/// (module docs). The checkpoint copies only the commits since the syncer's
-/// last one and runs two plain fsyncs: milliseconds on an idle disk. The
-/// limit is for a disk that is slow now (a network disk's fsync, a host
-/// under load): the commit then goes on, and the rule tries again later.
-/// A request thread can be the one that waits: at most this long, once per
-/// try, and a try comes once per 64 MiB of WAL when the checkpoint ends.
+/// WAL frame bytes at which the syncer tries to restart the WAL (module
+/// docs): half the size limit. The other half is the room for what commits
+/// write during one try.
+const RESTART_BYTES: u64 = WAL_SIZE_LIMIT_BYTES / 2;
+
+/// The bulk of a restart is copied when the commits that landed during the
+/// last pass are under this: the rest is the tail, copied under the writer
+/// lock.
+const TAIL_BYTES: u64 = 1024 * 1024;
+
+/// The most passes over the bulk in one try. Each pass copies what landed
+/// during the pass before, so each is shorter; under commits faster than the
+/// copy the tail stays larger and the try goes on with it.
+const BULK_PASSES: usize = 3;
+
+/// The longest the syncer waits for the writer lock of a restart, and the
+/// longest the clean stop waits for its checkpoint. No request waits in
+/// either. A holder of the writer lock releases it after each commit or
+/// flow, so the lock normally comes in under a millisecond; the limit is for
+/// a flow that holds it for long: the try ends and the next one comes
+/// [`CHECKPOINT_BYTES`] later.
 const RESTART_WAIT: Duration = Duration::from_millis(250);
 
 /// [`RESTART_WAIT`] for a database attached in this crate's unit tests:
@@ -143,15 +167,29 @@ const RESTART_WAIT: Duration = Duration::from_millis(250);
 /// does not depend on the load of its host.
 const TEST_RESTART_WAIT: Duration = Duration::from_secs(60);
 
-/// The frames from one try of the restart rule to the next, after a try
-/// with the step `previous` (0: the first try past the limit). A try whose
-/// checkpoint ended inside the wait: [`CHECKPOINT_BYTES`]. One that timed
-/// out: twice the previous step, from [`CHECKPOINT_BYTES`] up to
-/// [`WAL_SIZE_LIMIT_BYTES`].
-fn next_restart_step(previous: u64, ended: bool, frame_bytes: u64) -> u64 {
-    let step = (CHECKPOINT_BYTES / frame_bytes).max(1);
-    let limit = (WAL_SIZE_LIMIT_BYTES / frame_bytes).max(step);
-    if ended { step } else { previous.saturating_mul(2).clamp(step, limit) }
+/// The lock under which every commit of one database runs: the registry's
+/// connection lock, a store's own lock. The syncer takes it for the tail of
+/// a restart (module docs). An implementation holds its lock WEAK: the
+/// connection's commit hook owns the syncer's state, so a strong hold from
+/// there to the lock around the connection would be a cycle, and the flush
+/// at close would never run.
+pub(crate) trait WriterLock: Send + Sync {
+    /// Run `tail` while no other thread can commit. Waits for the lock at
+    /// most until `deadline`. False when the lock did not come or is gone.
+    fn exclude_commits(&self, deadline: Instant, tail: &mut dyn FnMut()) -> bool;
+}
+
+/// A store behind a `std` mutex (the conversation store, the chief
+/// registry). That mutex has no wait with a deadline, so the syncer waits
+/// until its holder releases it: one store operation.
+impl<T: Send> WriterLock for std::sync::Weak<Mutex<T>> {
+    fn exclude_commits(&self, _deadline: Instant, tail: &mut dyn FnMut()) -> bool {
+        let Some(lock) = self.upgrade() else { return false };
+        let guard = lock.lock().recover_poison();
+        tail();
+        drop(guard);
+        true
+    }
 }
 
 /// Commit counters shared with the syncer thread.
@@ -178,31 +216,26 @@ struct SyncState {
     /// The largest WAL file size seen since the database opened (`server-stats`
     /// `write_path.registry_wal_file_high_water_bytes`).
     wal_file_high_water: u64,
-    /// Checkpoints commits asked for so the WAL can restart ([`wait_for_restart_checkpoint`]).
-    restart_asked: u64,
+    /// Checkpoints the clean stop asked for ([`WalDurability::checkpoint_at_stop`]).
+    stop_asked: u64,
     /// Of those, the ones the syncer ended.
-    restart_done: u64,
-    /// The WAL frame count from which a commit asks again; 0 after a restart.
+    stop_done: u64,
+    /// A commit found the WAL at its restart point: the syncer owes one try
+    /// ([`restart_the_wal`]).
+    restart_owed: bool,
+    /// The syncer runs that try now.
+    restart_running: bool,
+    /// The WAL frame count from which a commit marks the next try; 0 after a restart.
     restart_try_frames: u64,
-    /// Frames between two asks ([`next_restart_step`]).
-    restart_step_frames: u64,
     /// The WAL a previous run left is large: the syncer checkpoints it first.
     leftover_owed: bool,
-    /// The syncer runs that checkpoint now. It can copy a WAL of any size, so no commit waits for it.
-    leftover_running: bool,
-    /// Commits that waited for a restart checkpoint, the longest wait, and
-    /// the waits that ended at the limit before their checkpoint did.
+    /// Tries of the restart rule the syncer ended.
     #[cfg(test)]
-    restart_waits: u64,
-    #[cfg(test)]
-    restart_wait_longest: Duration,
-    #[cfg(test)]
-    restart_timeouts: u64,
+    restart_tries: u64,
     /// Each span in which the restart rule kept the database's writer lock
-    /// from other threads (start, end), for the person measure
-    /// (`mux/tests/registry_wal_person.rs`).
+    /// from other threads (start, end).
     #[cfg(test)]
-    restart_holds: Vec<(std::time::Instant, std::time::Instant)>,
+    restart_holds: Vec<(Instant, Instant)>,
     /// Checkpoints the syncer ran, and the announced commits its ended
     /// passes had looked at.
     #[cfg(test)]
@@ -227,9 +260,12 @@ struct Shared {
     commit_delay: Option<Duration>,
     /// Bytes of one WAL frame: its header and one page.
     frame_bytes: u64,
-    /// The longest a commit, or the clean stop, waits for a checkpoint it
-    /// asked for ([`RESTART_WAIT`]).
+    /// The longest the syncer waits for the writer lock, and the clean stop
+    /// for its checkpoint ([`RESTART_WAIT`]).
     restart_wait: Duration,
+    /// The lock under which this database's commits run
+    /// ([`WalDurability::own_restart`]). Without one there is no restart rule.
+    writer_lock: OnceLock<Box<dyn WriterLock>>,
     /// Test seam ([`WalDurability::slow_restart_bulk`]), in milliseconds.
     #[cfg(test)]
     slow_restart_bulk_ms: std::sync::atomic::AtomicU64,
@@ -239,10 +275,6 @@ thread_local! {
     /// The syncer of the commit in progress on this thread: the commit hook
     /// sets it before SQLite writes the frames, the WAL hook takes it after.
     static COMMITTING: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
-    /// The database whose restart try this thread put off: its commit took
-    /// the WAL past the limit while the thread held the mux state lock
-    /// ([`run_owed_restart`]).
-    static RESTART_OWED: RefCell<Option<std::sync::Weak<Shared>>> = const { RefCell::new(None) };
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -345,6 +377,7 @@ impl WalDurability {
             commit_delay,
             frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
             restart_wait: if cfg!(test) { TEST_RESTART_WAIT } else { RESTART_WAIT },
+            writer_lock: OnceLock::new(),
             #[cfg(test)]
             slow_restart_bulk_ms: std::sync::atomic::AtomicU64::new(0),
         });
@@ -374,6 +407,15 @@ impl WalDurability {
             shared.state.lock().recover_poison().stopping = true;
         }
         Self { shared }
+    }
+
+    /// Give the syncer the lock under which every commit of this database
+    /// runs, so it can restart the WAL under commits with no pause (module
+    /// docs). Call it once, when the lock around the connection exists.
+    pub(crate) fn own_restart(&self, writer_lock: impl WriterLock + 'static) {
+        if self.shared.writer_lock.set(Box::new(writer_lock)).is_err() {
+            eprintln!("cmux-tui: the WAL syncer already has its writer lock");
+        }
     }
 
     /// Wait until every commit made before this call is on disk.
@@ -414,11 +456,10 @@ impl WalDurability {
         drop(checkpoint_and_wait(&self.shared, state));
     }
 
-    /// (commits that waited for a restart checkpoint, the longest wait).
+    /// Tries of the restart rule the syncer ended.
     #[cfg(test)]
-    pub(crate) fn restart_waits(&self) -> (u64, Duration) {
-        let state = self.shared.state.lock().recover_poison();
-        (state.restart_waits, state.restart_wait_longest)
+    pub(crate) fn restart_tries(&self) -> u64 {
+        self.shared.state.lock().recover_poison().restart_tries
     }
 
     /// The checkpoints the syncer ran, read once it ended the pass for the
@@ -428,7 +469,9 @@ impl WalDurability {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
             let state = self.shared.state.lock().recover_poison();
-            if state.settled >= state.requested || std::time::Instant::now() > deadline {
+            let idle =
+                state.settled >= state.requested && !state.restart_owed && !state.restart_running;
+            if idle || std::time::Instant::now() > deadline {
                 return state.checkpoints;
             }
             drop(state);
@@ -438,7 +481,7 @@ impl WalDurability {
 
     /// The spans in which the restart rule kept the writer lock from other threads.
     #[cfg(test)]
-    pub(crate) fn restart_holds(&self) -> Vec<(std::time::Instant, std::time::Instant)> {
+    pub(crate) fn restart_holds(&self) -> Vec<(Instant, Instant)> {
         self.shared.state.lock().recover_poison().restart_holds.clone()
     }
 
@@ -448,12 +491,6 @@ impl WalDurability {
     pub(crate) fn slow_restart_bulk(&self, delay: Duration) {
         let ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
         self.shared.slow_restart_bulk_ms.store(ms, std::sync::atomic::Ordering::Release);
-    }
-
-    /// Waits that ended at the limit before their checkpoint did.
-    #[cfg(test)]
-    pub(crate) fn restart_timeouts(&self) -> u64 {
-        self.shared.state.lock().recover_poison().restart_timeouts
     }
 
     /// (committed, synced) commit counts, for `server-stats` `write_path`.
@@ -502,99 +539,49 @@ fn note_commit(shared: &Arc<Shared>, frames: std::ffi::c_int) {
     let appended = frames.checked_sub(state.wal_frames).unwrap_or(frames);
     if frames < state.wal_frames {
         state.restart_try_frames = 0;
-        state.restart_step_frames = 0;
     }
     state.wal_frames = frames;
     state.wal_frame_bytes =
         state.wal_frame_bytes.saturating_add(appended.saturating_mul(shared.frame_bytes));
+    let mut wake = shared.flush_each_commit;
     if shared.flush_each_commit {
         state.requested = state.committed;
+    }
+    // The restart rule (module docs): mark the try owed and go on. The
+    // syncer makes it; this thread never waits.
+    if frames.saturating_mul(shared.frame_bytes) >= RESTART_BYTES
+        && frames >= state.restart_try_frames
+        && !state.restart_owed
+        && !state.restart_running
+        && !state.stopping
+        && shared.writer_lock.get().is_some()
+    {
+        state.restart_owed = true;
+        wake = true;
+    }
+    drop(state);
+    if wake {
         shared.changed.notify_all();
     }
-    wait_for_restart_checkpoint(shared, state, frames);
-}
-
-/// The restart rule (module docs), on the committing thread, after its
-/// commit: SQLite released the write lock and the read snapshot before it
-/// ran the WAL hook. With `frames` in the WAL past the size limit, ask the
-/// syncer for one PASSIVE checkpoint and wait for its end, at most
-/// [`RESTART_WAIT`]. This thread owns the writing connection, so the
-/// checkpoint sees no new commit and the next commit restarts the WAL.
-///
-/// A thread that holds the mux state lock makes no try under it: its wait
-/// would hold every reader of the state behind the disk (`registry_intent`:
-/// "No request waits for the disk while it holds the mux state lock"). The
-/// point of the next try stays, and the thread makes the try when it
-/// releases its pin of the connection ([`run_owed_restart`]), or the next
-/// commit of a thread without that lock does.
-fn wait_for_restart_checkpoint(
-    shared: &Arc<Shared>,
-    state: MutexGuard<'_, SyncState>,
-    frames: u64,
-) {
-    if frames.saturating_mul(shared.frame_bytes) <= WAL_SIZE_LIMIT_BYTES
-        || frames < state.restart_try_frames
-        || state.leftover_owed
-        || state.leftover_running
-        || state.stopping
-    {
-        return;
-    }
-    if super::registry_connection::current_thread_holds_state() {
-        drop(state);
-        let _ = RESTART_OWED.try_with(|owed| *owed.borrow_mut() = Some(Arc::downgrade(shared)));
-        return;
-    }
-    #[cfg(test)]
-    let started = std::time::Instant::now();
-    let (mut state, ended) = checkpoint_and_wait(shared, state);
-    // A checkpoint that ended and left frames (a reader holds a snapshot):
-    // try again one step on. One that did not end in time: twice that far.
-    state.restart_step_frames =
-        next_restart_step(state.restart_step_frames, ended, shared.frame_bytes);
-    state.restart_try_frames = frames.saturating_add(state.restart_step_frames);
-    #[cfg(test)]
-    {
-        state.restart_waits += 1;
-        state.restart_wait_longest = state.restart_wait_longest.max(started.elapsed());
-        state.restart_holds.push((started, std::time::Instant::now()));
-        state.restart_timeouts += u64::from(!ended);
-    }
-}
-
-/// The restart try that a commit of this thread put off while the thread
-/// held the mux state lock ([`wait_for_restart_checkpoint`]). The registry
-/// connection's pin calls it at its release: the flow released the state
-/// lock before, and still holds the connection, so no commit lands beside
-/// the checkpoint. A pin released under the state lock leaves the try owed.
-pub(crate) fn run_owed_restart() {
-    if super::registry_connection::current_thread_holds_state() {
-        return;
-    }
-    let owed = RESTART_OWED.try_with(|owed| owed.borrow_mut().take()).ok().flatten();
-    let Some(shared) = owed.and_then(|shared| shared.upgrade()) else { return };
-    let state = shared.state.lock().recover_poison();
-    let frames = state.wal_frames;
-    wait_for_restart_checkpoint(&shared, state, frames);
 }
 
 /// Ask the syncer for one PASSIVE checkpoint, whatever the WAL's size, and
-/// wait for its end, at most the database's wait limit ([`RESTART_WAIT`]).
-/// Returns whether it ended.
+/// wait for its end, at most the database's wait limit ([`RESTART_WAIT`]):
+/// the clean stop. Returns whether it ended.
 fn checkpoint_and_wait<'a>(
     shared: &'a Shared,
     mut state: MutexGuard<'a, SyncState>,
 ) -> (MutexGuard<'a, SyncState>, bool) {
-    state.restart_asked += 1;
-    let ask = state.restart_asked;
+    state.stop_asked += 1;
+    let ask = state.stop_asked;
     shared.changed.notify_all();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut waited = Duration::ZERO;
-    while state.restart_done < ask && !state.stopping && waited < shared.restart_wait {
+    while state.stop_done < ask && !state.stopping && waited < shared.restart_wait {
         state = shared.changed.wait_timeout(state, shared.restart_wait - waited).recover_poison().0;
         waited = started.elapsed();
     }
-    let ended = state.restart_done >= ask;
+    let ended = state.stop_done >= ask;
     (state, ended)
 }
 
@@ -613,8 +600,9 @@ fn run(shared: &Shared) {
     loop {
         while state.requested <= state.handled
             && state.forced <= state.synced
-            && state.restart_asked <= state.restart_done
+            && state.stop_asked <= state.stop_done
             && !state.leftover_owed
+            && !state.restart_owed
             && !state.stopping
         {
             state = shared.changed.wait(state).recover_poison();
@@ -625,49 +613,150 @@ fn run(shared: &Shared) {
         let force = state.stopping || state.forced > state.synced;
         let target = if force { state.committed } else { state.requested };
         state.handled = state.handled.max(state.requested);
-        // A commit waits for this checkpoint (the restart rule), or a
-        // previous run left a large WAL: checkpoint whatever the size.
-        let asked = state.restart_asked;
+        // The clean stop waits for this checkpoint, or a previous run left a
+        // large WAL, or a restart is owed: checkpoint whatever the size.
+        let asked = state.stop_asked;
         let leftover = std::mem::take(&mut state.leftover_owed);
-        state.leftover_running = leftover;
-        let owed = !state.stopping && (leftover || asked > state.restart_done);
+        let restart = std::mem::take(&mut state.restart_owed) && !state.stopping;
+        state.restart_running = restart;
+        let owed = !state.stopping && (leftover || restart || asked > state.stop_done);
         // Else a checkpoint is due by what the commits wrote since the last
         // one that copied the whole WAL, never by the file's size.
         let mark = state.wal_frame_bytes;
         let due =
             owed || (!force && mark.saturating_sub(state.copied_frame_bytes) > CHECKPOINT_BYTES);
-        #[cfg(test)]
-        let for_a_restart = !state.stopping && asked > state.restart_done;
         drop(state);
-        #[cfg(test)]
-        {
-            if for_a_restart {
-                slow_restart_bulk(shared);
-            }
-        }
         // A forced flush syncs the WAL; otherwise the WAL reaches the disk
         // with its checkpoint (SQLite syncs it first), or at close.
         let mut synced = force;
         if force {
             flush(shared);
         }
-        let (ran, whole) = checkpoint_if_due(shared, &mut checkpointer, due);
-        synced |= ran;
+        let pass = if restart {
+            restart_the_wal(shared, &mut checkpointer)
+        } else {
+            checkpoint_if_due(shared, &mut checkpointer, due)
+        };
+        synced |= pass.ran;
         state = shared.state.lock().recover_poison();
-        if whole {
+        if pass.whole {
             state.copied_frame_bytes = state.copied_frame_bytes.max(mark);
         }
         #[cfg(test)]
         {
-            state.checkpoints += u64::from(ran);
+            state.checkpoints += u64::from(pass.ran);
             state.settled = state.handled;
+            state.restart_tries += u64::from(restart);
         }
-        state.leftover_running = false;
-        state.restart_done = state.restart_done.max(asked);
+        if restart {
+            // The next commit restarts the WAL (its frame count falls, and
+            // this point with it). When it cannot (a reader), or this try
+            // did not end, the next try comes one step on.
+            let step = (CHECKPOINT_BYTES / shared.frame_bytes).max(1);
+            state.restart_try_frames = state.wal_frames.saturating_add(step);
+            state.restart_running = false;
+        }
+        state.stop_done = state.stop_done.max(asked);
         if synced {
             state.synced = state.synced.max(target);
         }
         shared.changed.notify_all();
+    }
+}
+
+/// One PASSIVE checkpoint of the syncer.
+#[derive(Clone, Copy, Default)]
+struct Pass {
+    /// It ran (SQLite synced the WAL before it copied).
+    ran: bool,
+    /// It copied the whole WAL as of its start.
+    whole: bool,
+    /// Frames in the WAL at its start.
+    frames: u64,
+}
+
+/// One try of the restart rule, on the syncer thread (module docs): the
+/// bulk with no lock, then the tail under the database's writer lock.
+/// `whole` is true when the try ended with every frame copied, so the next
+/// commit can restart the WAL.
+fn restart_the_wal(shared: &Shared, checkpointer: &mut Option<Connection>) -> Pass {
+    #[cfg(test)]
+    slow_restart_bulk(shared);
+    let mut bulk = Pass::default();
+    for _ in 0..BULK_PASSES {
+        bulk = checkpoint_if_due(shared, checkpointer, true);
+        if !bulk.whole {
+            // A reader's snapshot stopped the copy (or it failed): a tail
+            // under the lock would stop at the same mark.
+            return bulk;
+        }
+        // SQLite syncs the database file only in the checkpoint that copies
+        // the whole WAL: that is the tail, under the lock. Sync the pages of
+        // the bulk here, so the tail's sync finds only its own.
+        if let Some(connection) = checkpointer.as_ref() {
+            sync_database(connection);
+        }
+        let frames = shared.state.lock().recover_poison().wal_frames;
+        let tail = frames.saturating_sub(bulk.frames).saturating_mul(shared.frame_bytes);
+        // Near the size limit the bound goes first: the tail is then what
+        // it is, and the writers wait for its copy.
+        let near_the_limit =
+            frames.saturating_mul(shared.frame_bytes) >= WAL_SIZE_LIMIT_BYTES - CHECKPOINT_BYTES;
+        if tail <= TAIL_BYTES || near_the_limit {
+            break;
+        }
+    }
+    let Some(writer_lock) = shared.writer_lock.get() else { return Pass { whole: false, ..bulk } };
+    let mut tail = Pass::default();
+    // The syncer holds none of its own locks while it waits for this one: a
+    // committing thread holds the writer lock when it takes the counters.
+    let deadline = Instant::now() + shared.restart_wait;
+    let held = writer_lock.exclude_commits(deadline, &mut || {
+        #[cfg(test)]
+        let from = Instant::now();
+        tail = checkpoint_if_due(shared, checkpointer, true);
+        #[cfg(test)]
+        shared.state.lock().recover_poison().restart_holds.push((from, Instant::now()));
+    });
+    Pass { ran: true, whole: held && tail.whole, frames: tail.frames.max(bulk.frames) }
+}
+
+/// A plain fsync of the database file, as the checkpoint's own sync is
+/// ([`CHECKPOINTER_PRAGMAS`]): it writes the pages a PASSIVE checkpoint
+/// copied. Not needed for safety (SQLite syncs the file itself before the
+/// WAL can restart); it takes that work out of the tail of a restart.
+///
+/// Through SQLite's own handle of the file, never a second descriptor: the
+/// close of any descriptor of a file drops every POSIX lock the process
+/// holds on it, and each connection keeps a shared lock on the database
+/// file while it is in WAL mode.
+fn sync_database(checkpointer: &Connection) {
+    use rusqlite::ffi;
+    let mut file: *mut ffi::sqlite3_file = std::ptr::null_mut();
+    // SAFETY: `checkpointer` is the syncer's own connection, used only on
+    // this thread. SQLITE_FCNTL_FILE_POINTER writes the file object of its
+    // main database into `file`; that object lives as long as the connection.
+    let found = unsafe {
+        ffi::sqlite3_file_control(
+            checkpointer.handle(),
+            c"main".as_ptr(),
+            ffi::SQLITE_FCNTL_FILE_POINTER,
+            (&raw mut file).cast(),
+        )
+    };
+    if found != ffi::SQLITE_OK || file.is_null() {
+        eprintln!("cmux-tui: no file handle for the database sync (SQLite code {found})");
+        return;
+    }
+    // SAFETY: `file` is the open main database file of `checkpointer`; its
+    // method table is set while the file is open.
+    let sync = unsafe { (*file).pMethods.as_ref() }.and_then(|methods| methods.xSync);
+    let Some(sync) = sync else { return };
+    // SAFETY: the VFS's own sync of its open file, with the flag SQLite
+    // passes for a checkpoint with `checkpoint_fullfsync=OFF`.
+    let synced = unsafe { sync(file, ffi::SQLITE_SYNC_NORMAL) };
+    if synced != ffi::SQLITE_OK {
+        eprintln!("cmux-tui: database sync failed (SQLite code {synced})");
     }
 }
 
@@ -681,18 +770,12 @@ fn slow_restart_bulk(shared: &Shared) {
 }
 
 /// A PASSIVE checkpoint on the syncer's own connection when `due`: it
-/// copies what it can without waiting for a writer or reader. Returns
-/// whether a checkpoint ran (it synced the WAL before copying it) and
-/// whether it copied the whole WAL as of its start.
-fn checkpoint_if_due(
-    shared: &Shared,
-    checkpointer: &mut Option<Connection>,
-    due: bool,
-) -> (bool, bool) {
+/// copies what it can without waiting for a writer or reader.
+fn checkpoint_if_due(shared: &Shared, checkpointer: &mut Option<Connection>, due: bool) -> Pass {
     // Each pass reads the file's size for its high-water mark.
     wal_file_len(shared);
     if !due {
-        return (false, false);
+        return Pass::default();
     }
     if checkpointer.is_none() {
         *checkpointer = super::open_registry_database_with_flags(
@@ -707,16 +790,20 @@ fn checkpoint_if_due(
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
-    let Some(connection) = checkpointer.as_ref() else { return (false, false) };
+    let Some(connection) = checkpointer.as_ref() else { return Pass::default() };
     // The row: (busy, frames in the WAL, frames copied).
     let result = connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
     });
     match result {
-        Ok((busy, frames, copied)) => (true, busy == 0 && copied >= frames),
+        Ok((busy, frames, copied)) => Pass {
+            ran: true,
+            whole: busy == 0 && copied >= frames,
+            frames: u64::try_from(frames).unwrap_or(0),
+        },
         Err(error) => {
             eprintln!("cmux-tui: WAL checkpoint failed: {error}");
-            (false, false)
+            Pass::default()
         }
     }
 }
