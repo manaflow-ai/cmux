@@ -43,10 +43,14 @@ does. The dev loop and the gallery use the mock host (mockProvider.ts).
   once a frame) only when an order key changed (an agent started or stopped waiting, the machine
   changed state), a machine came or went, or a change moved a row in or out of the filter; never on
   a cost tick.
-- Events that arrive while the snapshot is read are held and applied over it once it lands. A Stop
-  answer is shown only when the stream sent nothing newer for that machine meanwhile.
+- Events that arrive while the snapshot is read are held and applied over it once it lands; so is a
+  Stop answer that comes during the read. A Stop answer is shown only when the stream sent nothing
+  newer for that machine meanwhile.
 - The list is windowed: every row is 52 px, only the rows in view and 8 above and below are in the
   DOM. Filter and search answer in the frame of the key press.
+- A row opens its machine: the name is the row's button and covers the row. Stop takes the cost's
+  cell while the row is hovered, focused or stopping, so the list has no column of repeated buttons.
+  Every row and the column header share one track list, so the costs line up.
 - No polling and no timers.
 
 ## Perf
@@ -58,18 +62,18 @@ work per one-screen step over 120 steps; live is 100 generated changes a second 
 
 | machines | mode   | open ms | rows in DOM | DOM nodes | scroll task ms/step | live task ms/s | live p95 frame ms |
 | -------- | ------ | ------- | ----------- | --------- | ------------------- | -------------- | ----------------- |
-| 3        | before | 18.4    | 3           | 146       | 0.04                | 30.2           | 16.8              |
-| 3        | after  | 18      | 3           | 146       | 0.04                | 32.6           | 16.8              |
-| 100      | before | 30.2    | 100         | 2,147     | 0.76                | 140            | 16.8              |
-| 100      | after  | 32.7    | 24          | 578       | 2.81                | 46.7           | 16.8              |
-| 1,000    | before | 137.3   | 1,000       | 20,107    | 7.71                | 582.8          | 50                |
-| 1,000    | after  | 27.7    | 24          | 617       | 3.68                | 55.4           | 16.8              |
-| 5,000    | before | 735.5   | 5,000       | 99,963    | 20.53               | 866.9          | 216.7             |
-| 5,000    | after  | 35.7    | 24          | 617       | 3.91                | 65             | 16.8              |
+| 3        | before | 29.9    | 3           | 144       | 0.12                | 35.9           | 16.8              |
+| 3        | after  | 18.4    | 3           | 144       | 0.04                | 27.5           | 16.8              |
+| 100      | before | 29.8    | 100         | 2,117     | 0.81                | 138.2          | 16.7              |
+| 100      | after  | 17.3    | 24          | 567       | 3.17                | 57.8           | 16.8              |
+| 1,000    | before | 154.8   | 1,000       | 19,735    | 10.38               | 574.3          | 66.6              |
+| 1,000    | after  | 26.9    | 24          | 616       | 3.38                | 62.1           | 16.7              |
+| 5,000    | before | 726     | 5,000       | 98,107    | 21.55               | 860.8          | 233.4             |
+| 5,000    | after  | 26.5    | 24          | 616       | 2.78                | 49.7           | 16.7              |
 
-Stated cost: a fast scroll mounts the rows coming into view, about 3 to 4 ms of work per one-screen
+Stated cost: a fast scroll mounts the rows coming into view, about 3 ms of work per one-screen
 step at every size; at 100 machines that is more than with every row mounted (0.8 ms), at 5,000
-it is a fifth of it.
+it is an eighth of it.
 
 ## Dev loop
 

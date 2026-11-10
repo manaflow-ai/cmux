@@ -351,6 +351,60 @@ describe("store", () => {
     expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "running" } });
   });
 
+  test("the gallery's Stop flow: rows exist once the snapshot is flushed, and Stop reaches the host", async () => {
+    const provider = new MockBoardProvider({ machines: 20 });
+    const { store } = manualStore(provider);
+    await store.start();
+    expect(store.getSnapshot().visible).toEqual([]);
+    store.flush();
+    const first = store.getSnapshot().visible.find((id) => store.getRow(id)?.row.state === "running");
+    expect(first).toBeDefined();
+    provider.holdStop();
+    void store.stopMachine(first!);
+    expect(provider.calls.filter((call) => call.op === "cmux.board.stop")).toHaveLength(1);
+    expect(store.getRow(first!)?.stopping).toBe(true);
+  });
+
+  test("a machine removed and added back within one frame shows once", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a", { createdAt: 2 }), machine("b")] } });
+    const { store, frame } = manualStore(provider);
+    await store.start();
+    frame();
+    provider.push({ kind: "gone", id: "a" });
+    provider.push({ kind: "machine", machine: machine("a", { createdAt: 2 }) });
+    frame();
+    expect(store.getSnapshot().visible).toEqual(["a", "b"]);
+    expect(store.getSnapshot().totals.machines).toBe(2);
+    provider.push({ kind: "gone", id: "a" });
+    provider.push({ kind: "machine", machine: machine("a", { createdAt: 2 }) });
+    provider.push({ kind: "gone", id: "a" });
+    frame();
+    expect(store.getSnapshot().visible).toEqual(["b"]);
+  });
+
+  test("a Stop answer that lands during a snapshot read is applied over the snapshot", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a")] } });
+    const { store, frame } = manualStore(provider);
+    await store.start();
+    frame();
+    // The next read is taken while "a" still runs, and answers only after Stop did.
+    const read = provider.call.bind(provider);
+    let release = () => {};
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op !== "cmux.board.snapshot") return read<R>(op, params);
+      const stale = { machines: [machine("a")] } as R;
+      await new Promise<void>((resolve) => (release = resolve));
+      return stale;
+    };
+    const refreshing = store.refresh();
+    await store.stopMachine("a");
+    release();
+    await refreshing;
+    frame();
+    expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "paused" } });
+    expect(store.getSnapshot().totals.running).toBe(0);
+  });
+
   test("with a filter on, a cost tick neither re-sorts nor refilters; a change of filter result does", async () => {
     const provider = new MockBoardProvider({
       snapshot: { machines: [machine("a", { createdAt: 2 }), machine("b", { createdAt: 1 })] },

@@ -1,7 +1,10 @@
 /* The team board (BoardPage.tsx). One header (title, totals, filters, search), one column header,
    one windowed list. Every row is --board-row tall and positioned by transform, so a scroll moves
    the rows in view and nothing else: no row past the viewport is in the DOM. Text in three theme
-   inks; the attention ink only for what needs a person (an agent waiting, no owner, unknown cost). */
+   inks; the attention ink only for what needs a person (an agent waiting, no owner, unknown cost).
+   Every row and the column header share one fixed track list, so the cost lines up down the list.
+   The name is the row's Open button and covers the row; Stop shares the cost's cell and shows in
+   its place while the row is hovered, focused or stopping. */
 html[data-cmux-page="board"],
 html[data-cmux-page="board"] body {
   height: 100%;
@@ -9,7 +12,8 @@ html[data-cmux-page="board"] body {
 
 .board-page {
   --board-row: 52px;
-  --board-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(88px, auto) auto;
+  --board-end: 8.5rem;
+  --board-columns: minmax(0, 2fr) minmax(0, 3fr) var(--board-end);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -186,6 +190,7 @@ html[data-cmux-page="board"] body {
 
 .board-name,
 .board-state,
+.board-state-text,
 .board-sub,
 .board-owner,
 .board-origin {
@@ -197,6 +202,33 @@ html[data-cmux-page="board"] body {
 
 .board-name {
   font-size: var(--text-body);
+}
+
+.board-open {
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+/* Clicking anywhere on the row opens the machine. */
+.board-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.board-open:focus-visible {
+  outline: none;
+}
+
+.board-open:focus-visible::after {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: -2px;
 }
 
 .board-sub {
@@ -247,8 +279,35 @@ html[data-cmux-page="board"] body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Cost and Stop share the last cell. Stop stays focusable while unseen, and focus shows it. */
+.board-cost,
 .board-actions {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.board-actions {
+  /* Positioned after the name's covering layer, so it paints above it and takes its own clicks. */
+  position: relative;
   flex-direction: row;
   justify-content: flex-end;
-  gap: var(--ds-space-1);
+  opacity: 0;
+}
+
+.board-actions .board-button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-row[data-stoppable]:is(:hover, :focus-within) .board-actions,
+.board-row[data-stoppable]:is(:has([data-popup-open]), :focus-within) .board-actions,
+.board-row[data-stopping] .board-actions {
+  opacity: 1;
+}
+
+.board-row[data-stoppable]:is(:hover, :focus-within) .board-cost,
+.board-row[data-stoppable]:is(:has([data-popup-open]), :focus-within) .board-cost,
+.board-row[data-stopping] .board-cost {
+  visibility: hidden;
 }

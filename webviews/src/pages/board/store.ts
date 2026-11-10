@@ -45,6 +45,9 @@ export interface RowView {
   refused?: string;
 }
 
+/** A held entry: a stream event, or a Stop answer that came during a snapshot read. */
+type Held = BoardEvent | { kind: "answer"; machine: TeamMachine; stale?: boolean };
+
 export type Schedule = (flush: () => void) => void;
 
 const frame: Schedule = (flush) =>
@@ -68,13 +71,19 @@ export class BoardStore {
   private readonly rowListeners = new Map<string, Set<() => void>>();
   private dirtyRows = new Set<string>();
   private orderDirty = false;
-  private orderGone = false;
+  /** Ids removed since the last flush: still in `order` until it walks the list. */
+  private gone = new Set<string>();
   private pageDirty = false;
   private scheduled = false;
-  /** Per row, bumped by each record the host sends for it, so a late Stop answer cannot undo a newer one. */
-  private seen = new Map<string, number>();
-  /** Events that arrived while a snapshot was being read: applied over it once it lands. */
-  private held: BoardEvent[] | null = null;
+  /**
+   * Stream arrivals, counted: `arrived` per machine and `resent` for the host's full resend. A Stop
+   * answer is shown only when the stream sent nothing for that machine after the press.
+   */
+  private arrivals = 0;
+  private arrived = new Map<string, number>();
+  private resent = 0;
+  /** Events (and Stop answers) that arrived while a snapshot was being read: applied over it once it lands. */
+  private held: Held[] | null = null;
   private stopChanges?: () => void;
   private stopped = false;
 
@@ -154,13 +163,24 @@ export class BoardStore {
   private releaseHeld(): void {
     const held = this.held ?? [];
     this.held = null;
-    for (const event of held) this.apply(event);
+    for (const event of held) {
+      if (event.kind === "answer") this.answer(event.machine, event.stale);
+      else this.record(event);
+    }
   }
 
   // ---- changes ----
 
   /** One event of the host's stream. */
   apply(event: BoardEvent): void {
+    this.arrivals += 1;
+    if (event.kind === "machine" && event.machine?.id) this.arrived.set(event.machine.id, this.arrivals);
+    else if (event.kind === "gone") this.arrived.set(event.id, this.arrivals);
+    else if (event.kind === "snapshot") this.resent = this.arrivals;
+    this.record(event);
+  }
+
+  private record(event: BoardEvent): void {
     if (this.held) {
       this.held.push(event);
       return;
@@ -195,7 +215,6 @@ export class BoardStore {
     this.totals = emptyTotals();
     for (const row of joinRows(snapshot)) {
       const before = previous.get(row.id);
-      this.seen.set(row.id, (this.seen.get(row.id) ?? 0) + 1);
       this.rows.set(row.id, { row, stopping: before?.stopping === true && row.state === "running" });
       this.texts.set(row.id, searchText(row));
       addToTotals(this.totals, row, 1);
@@ -203,17 +222,18 @@ export class BoardStore {
     for (const id of previous.keys()) if (!this.rows.has(id)) this.dirtyRows.add(id);
     for (const id of this.rows.keys()) this.dirtyRows.add(id);
     this.order = [...this.rows.keys()];
+    this.gone.clear();
     this.state = { ...this.state, loading: false, unavailable: false, failure: undefined };
     this.markOrder();
   }
 
   private upsert(machine: TeamMachine): void {
     if (!machine?.id) return;
-    this.seen.set(machine.id, (this.seen.get(machine.id) ?? 0) + 1);
     const next = rowOf(machine, this.context);
     const before = this.rows.get(machine.id);
     if (before) addToTotals(this.totals, before.row, -1);
-    else this.order.push(machine.id);
+    // Removed and back within one frame: the id never left `order`.
+    else if (!this.gone.delete(machine.id)) this.order.push(machine.id);
     addToTotals(this.totals, next, 1);
     // A Stop is done once the machine left running.
     const stopping = before?.stopping === true && next.state === "running";
@@ -238,12 +258,11 @@ export class BoardStore {
   private remove(id: string): void {
     const before = this.rows.get(id);
     if (!before) return;
-    this.seen.set(id, (this.seen.get(id) ?? 0) + 1);
     addToTotals(this.totals, before.row, -1);
     this.rows.delete(id);
     this.texts.delete(id);
     // The id leaves `order` at the next flush, which walks the list anyway.
-    this.orderGone = true;
+    this.gone.add(id);
     this.dirtyRows.add(id);
     this.markOrder();
   }
@@ -277,19 +296,25 @@ export class BoardStore {
 
   /**
    * Pauses a running machine. The row says Stopping until the host answers. The answer's record is
-   * shown only when nothing newer came for the row meanwhile (the stream may already have sent the
-   * paused machine, or its removal).
+   * shown only when the stream sent nothing newer for the machine meanwhile (the paused machine, or
+   * its removal). A snapshot read under way when the answer comes was taken before it: the answer is
+   * held with the stream's events and applied over the snapshot.
    */
   async stopMachine(id: string): Promise<void> {
     const view = this.rows.get(id);
     if (!this.client || !view || view.stopping) return;
     this.setRow(id, { ...view, stopping: true, refused: undefined });
-    const pressed = this.seen.get(id) ?? 0;
+    const pressed = this.arrivals;
     try {
       const machine = await this.client.call<TeamMachine>(BoardOps.stop, { machine: id });
-      if (machine?.id === id && this.rows.has(id) && (this.seen.get(id) ?? 0) === pressed) this.upsert(machine);
-      const now = this.rows.get(id);
-      if (now?.stopping) this.setRow(id, { ...now, stopping: false });
+      const newer = (this.arrived.get(id) ?? 0) > pressed || this.resent > pressed;
+      if (this.held) {
+        if (machine?.id === id && !newer) this.held.push({ kind: "answer", machine });
+        else this.held.push({ kind: "answer", machine: { id } as TeamMachine, stale: true });
+        return;
+      }
+      if (machine?.id === id && !newer) this.answer(machine);
+      else this.endStopping(id);
     } catch (error) {
       const now = this.rows.get(id);
       if (now) this.setRow(id, { ...now, stopping: false, refused: errorMessage(error) });
@@ -305,6 +330,17 @@ export class BoardStore {
       const now = this.rows.get(id);
       if (now) this.setRow(id, { ...now, refused: errorMessage(error) });
     }
+  }
+
+  /** Shows a Stop answer, and ends Stopping whatever it says. */
+  private answer(machine: TeamMachine, stale = false): void {
+    if (!stale && this.rows.has(machine.id)) this.upsert(machine);
+    this.endStopping(machine.id);
+  }
+
+  private endStopping(id: string): void {
+    const now = this.rows.get(id);
+    if (now?.stopping) this.setRow(id, { ...now, stopping: false });
   }
 
   // ---- publishing ----
@@ -336,8 +372,8 @@ export class BoardStore {
   /** Publishes every change since the last flush: rows first, then the page. */
   flush(): void {
     this.scheduled = false;
-    if (this.orderGone) {
-      this.orderGone = false;
+    if (this.gone.size > 0) {
+      this.gone.clear();
       this.order = this.order.filter((id) => this.rows.has(id));
       this.orderDirty = true;
     }

@@ -2884,133 +2884,133 @@
         }
       }
     },
-    "board.open": {
+    "board.openMachine": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح"
+            "value": "فتح %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvori"
+            "value": "Otvori %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn"
+            "value": "Åbn %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öffnen"
+            "value": "%@ öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open"
+            "value": "Open %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir"
+            "value": "Abrir %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir"
+            "value": "Ouvrir %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri"
+            "value": "Apri %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開く"
+            "value": "%@を開く"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បើក"
+            "value": "បើក %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열기"
+            "value": "%@ 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne"
+            "value": "Åpne %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz"
+            "value": "Otwórz %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir"
+            "value": "Abrir %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть"
+            "value": "Открыть %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิด"
+            "value": "เปิด %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aç"
+            "value": "%@ öğesini aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрити"
+            "value": "Відкрити %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mở"
+            "value": "Mở %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开"
+            "value": "打开 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "打開"
+            "value": "打開 %@"
           }
         }
       }

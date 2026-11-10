@@ -25,8 +25,10 @@ export function mountBoardPage(root: HTMLElement, client: PageClient | null = de
 function defaultClient(): PageClient | null {
   const query = new URLSearchParams(location.search);
   if (!query.has("mock")) return createPageClient();
+  // An absent or empty parameter keeps the default (`Number(null)` is 0, not "missing").
   const number = (key: string, fallback: number) => {
-    const value = Number(query.get(key));
+    const raw = query.get(key);
+    const value = raw === null || raw.trim() === "" ? Number.NaN : Number(raw);
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   };
   return createPageClient(

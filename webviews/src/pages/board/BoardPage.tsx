@@ -3,7 +3,9 @@
 // Stop and Open. State lives in `BoardStore`; this file renders it.
 //
 // The list is windowed: only the rows in view (plus a few above and below) are in the DOM, every
-// row is ROW_HEIGHT tall, and each row reads its own record from the store by id. Opening and
+// row is ROW_HEIGHT tall, and each row reads its own record from the store by id. A row opens its
+// machine (the name is the row's button); Stop takes the cost's place while the row is hovered or
+// focused, so the list carries no column of repeated buttons. Opening and
 // scrolling cost the same at 3 machines and at 5,000 (README.md "Perf"); a change to one machine
 // re-renders that row only.
 import {
@@ -104,7 +106,6 @@ export function BoardPage({
         <span>{t("board.col.machine")}</span>
         <span>{t("board.col.doing")}</span>
         <span className="board-num">{t("board.col.cost")}</span>
-        <span />
       </div>
       {state.visible.length === 0 && !state.loading ? (
         <p className="board-message">
@@ -239,22 +240,32 @@ function RowBody({
   const { row, stopping, refused } = view;
   const { t } = strings;
   const running = isRunning(row.state);
-  // The buttons say which machine they act on (the name is the row's first cell).
+  const stoppable = running || stopping;
+  // Stop says which machine it acts on (the name, which is also the row's Open button).
   const nameId = `board-name-${row.id}`;
   return (
     <li
       className="board-row"
       data-state={row.state}
       data-waiting={row.waiting || undefined}
+      data-stoppable={stoppable || undefined}
+      data-stopping={stopping || undefined}
       // Only the rows in view are in the DOM: the position and count say where this one is in the whole list.
       aria-posinset={index + 1}
       aria-setsize={count}
       style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}
     >
       <div className="board-cell board-machine">
-        <span className="board-name" id={nameId} title={row.title}>
+        <button
+          type="button"
+          className="board-name board-open"
+          id={nameId}
+          title={row.title}
+          aria-label={strings.format("board.openMachine", row.title)}
+          onClick={() => void store.openMachine(row.id)}
+        >
           {row.title}
-        </span>
+        </button>
         <span className="board-sub">
           <OwnerText owner={row.owner} strings={strings} />
           {row.origin && (
@@ -267,7 +278,7 @@ function RowBody({
       <div className="board-cell board-doing">
         <span className="board-state">
           {row.waiting && <span className="board-dot attention" aria-hidden="true" />}
-          {doingText(row, strings)}
+          <span className="board-state-text">{doingText(row, strings)}</span>
         </span>
         {refused ? (
           <output className="board-sub board-refused">{refused}</output>
@@ -275,7 +286,7 @@ function RowBody({
           <span className="board-sub">{lastText(row, strings)}</span>
         )}
       </div>
-      <div className="board-cell board-num">
+      <div className="board-cell board-num board-cost">
         <span title={row.costUsd === null ? t("board.cost.unknown") : undefined}>
           {row.costUsd === null ? "—" : money.total(row.costUsd)}
         </span>
@@ -283,16 +294,8 @@ function RowBody({
           {running && row.hourlyUsd !== null ? strings.format("board.rate", money.rate(row.hourlyUsd)) : ""}
         </span>
       </div>
-      <div className="board-cell board-actions">
-        <button
-          type="button"
-          className="board-button"
-          aria-describedby={nameId}
-          onClick={() => void store.openMachine(row.id)}
-        >
-          {t("board.open")}
-        </button>
-        {(running || stopping) && (
+      {stoppable && (
+        <div className="board-cell board-actions">
           <button
             type="button"
             className="board-button danger"
@@ -302,8 +305,8 @@ function RowBody({
           >
             {stopping ? t("board.stopping") : t("board.stop")}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </li>
   );
 }

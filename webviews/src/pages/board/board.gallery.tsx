@@ -20,28 +20,45 @@ type Props = {
   query?: string;
   /** Click Stop on the first running row, and hold or refuse the answer. */
   stop?: "hold" | "refuse";
+  /** Focus the first running row's Stop, as a keyboard user reaching it does (hover shows the same). */
+  focusStop?: boolean;
   /** No host serves the board. */
   unavailable?: boolean;
   ratePerSecond?: number;
 };
 
-function BoardGallery({ machines = 100, snapshot, filter, query, stop, unavailable, ratePerSecond = 0 }: Props) {
+function BoardGallery({
+  machines = 100,
+  snapshot,
+  filter,
+  query,
+  stop,
+  focusStop,
+  unavailable,
+  ratePerSecond = 0,
+}: Props) {
   const [provider] = useState(() => new MockBoardProvider({ machines, snapshot, ratePerSecond }));
   const [store] = useState(() => new BoardStore(unavailable ? null : provider));
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.start().then(() => {
+      // The snapshot is published at the next frame; flush it now so the rows below exist.
+      store.flush();
       if (filter) store.setFilter(filter);
       if (query) store.setQuery(query);
-      if (!stop) return;
       const first = store.getSnapshot().visible.find((id) => store.getRow(id)?.row.state === "running");
       if (!first) return;
+      if (focusStop)
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLButtonElement>(".board-row[data-stoppable] .board-actions button")?.focus(),
+        );
+      if (!stop) return;
       if (stop === "hold") provider.holdStop();
       else provider.stopRefusal = "The machine is busy with a snapshot. Try again in a minute.";
       void store.stopMachine(first);
     });
     return () => store.stop();
-  }, [store, provider, filter, query, stop]);
+  }, [store, provider, filter, query, stop, focusStop]);
   return <BoardPage store={store} strings={strings} />;
 }
 
@@ -86,12 +103,16 @@ export default componentEntry<Props>({
       note: "Negative, missing, NaN and infinite costs show a dash and count under Cost unknown; a 500-character name truncates; a machine listed twice shows once.",
       props: { snapshot: fixtureBoard({ machines: 60, degenerate: true }) },
     },
+    "stop-on-focus": {
+      note: "A row hovered or focused: Stop takes the place of its cost; the name opens the machine.",
+      props: { machines: 20, focusStop: true },
+    },
     stopping: {
       note: "Stop clicked on the first running machine; the host has not answered yet.",
       props: { machines: 20, stop: "hold" },
     },
     "stop-refused": {
-      note: "The host refused Stop: the row says why in place of its last action.",
+      note: "The host refused Stop: the row says why in place of its last action, and Stop is back.",
       props: { machines: 20, stop: "refuse" },
     },
     "search-no-match": {
