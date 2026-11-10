@@ -6,7 +6,11 @@ import { appSceneIcon } from "../../../apps/scene/SceneSymbol";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { Icon } from "../icons/Icon";
 
-export function AppWidgets({ client }: { /** Gallery and test seam; the page host when omitted. */ client?: PageClient | null }) {
+export function AppWidgets({
+  client,
+}: {
+  /** Gallery and test seam; the page host when omitted. */ client?: PageClient | null;
+}) {
   const widgets = useNewTabAppWidgets(client);
   if (!widgets.length) return null;
   return (
