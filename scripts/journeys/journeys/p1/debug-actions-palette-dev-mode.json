@@ -2,7 +2,7 @@
   "id": "debug-actions-palette-dev-mode",
   "priority": "P1",
   "title": "Debug actions show in the Command Palette only with Internal Developer Mode on; no Debug main menu",
-  "why": "cmux-ad i11: debug things live only in Cmd-Shift-P, only while Internal Developer Mode is on; a toggle shows at the next palette open; scripts keep running debug actions. The main menu's absence of a Debug menu is NoDebugMainMenuTests (MainMenu.make, what AppDelegate installs): debug.menu_item answers a missing title as an error, which a journey cannot expect.",
+  "why": "cmux-ad i11: debug things live only in Cmd-Shift-P, only while Internal Developer Mode is on; a toggle shows at the next palette open; scripts keep running debug actions. The main menu's absence of a Debug menu is NoDebugMainMenuTests (MainMenu.make, what AppDelegate installs): debug.menu_item answers a missing title as an error, which a journey cannot expect. The query is typed with debug.key target palette: the journey type step sends keys to the shell window.",
   "source": "cmux-ad i11 (PR #39980)",
   "budget_seconds": 150,
   "steps": [
@@ -70,8 +70,166 @@
       "mark": "open-off"
     },
     {
-      "do": "type",
-      "text": "tab bar playground"
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "t",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "b",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": " ",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "b",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "r",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": " ",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "p",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "l",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "y",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "g",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "r",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "o",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "u",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "n",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "d",
+        "modifiers": [],
+        "target": "palette"
+      }
     },
     {
       "do": "expect",
@@ -169,8 +327,166 @@
       "mark": "open-on"
     },
     {
-      "do": "type",
-      "text": "tab bar playground"
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "t",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "b",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": " ",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "b",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "r",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": " ",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "p",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "l",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "a",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "y",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "g",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "r",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "o",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "u",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "n",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "d",
+        "modifiers": [],
+        "target": "palette"
+      }
     },
     {
       "do": "expect",
