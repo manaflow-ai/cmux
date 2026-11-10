@@ -251,6 +251,7 @@ fn flapping_puts_compact(label: &str, seal_at: SealAt) {
     };
     let outcome = stage_registry(
         &db_path,
+        0,
         &StageControl {
             on_pending: &|| {},
             next_segment: &next_step,
@@ -371,6 +372,7 @@ fn a_registry_the_v1_cleanup_finished_compacts_its_put_flood_once() {
     );
     let outcome = stage_registry(
         &db_path,
+        0,
         &StageControl {
             on_pending: &|| {},
             next_segment: &|| true,

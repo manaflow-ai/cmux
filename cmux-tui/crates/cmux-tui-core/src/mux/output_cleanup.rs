@@ -181,6 +181,7 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
     let stop_control = control.clone();
     let outcome = stage_registry(
         db_path,
+        0,
         &StageControl {
             on_pending: &|| pending.store(true, Ordering::Release),
             next_segment: &|| match pause {

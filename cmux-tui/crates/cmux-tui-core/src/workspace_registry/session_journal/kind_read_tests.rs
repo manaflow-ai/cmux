@@ -552,6 +552,7 @@ fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuil
 
     let outcome = stage_registry(
         &db_path,
+        0,
         &StageControl {
             on_pending: &|| {},
             next_segment: &|| true,

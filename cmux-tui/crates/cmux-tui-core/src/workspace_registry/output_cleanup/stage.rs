@@ -110,8 +110,12 @@ const STOP_CHECK_STEPS: std::ffi::c_int = 10_000;
 /// Phase A for the registry at `db_path` (owned by the running process).
 /// Whatever fails once the owner is stopping (a read the stop cut short) is
 /// a stop: the staged work so far stays and the next start resumes it.
+///
+/// `floor` is the retention floor: every journal record at or below it may
+/// be left out of the new registry.
 pub(crate) fn stage_registry(
     db_path: &Path,
+    _floor: u64,
     control: &StageControl<'_>,
 ) -> anyhow::Result<StageOutcome> {
     match stage_registry_until_stopped(db_path, control) {

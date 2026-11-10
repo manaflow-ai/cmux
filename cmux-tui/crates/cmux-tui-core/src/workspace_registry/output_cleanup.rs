@@ -150,7 +150,18 @@ pub(crate) fn refused_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, REFUSED_SUFFIX)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// [`DISK_MARGIN_BYTES`] for a test on this thread.
+    static DISK_MARGIN_FOR_TEST: std::cell::Cell<Option<u64>> =
+        const { std::cell::Cell::new(None) };
+}
+
 fn disk_margin() -> u64 {
+    #[cfg(test)]
+    if let Some(bytes) = DISK_MARGIN_FOR_TEST.with(std::cell::Cell::get) {
+        return bytes;
+    }
     #[cfg(debug_assertions)]
     if let Some(bytes) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES")
         .ok()
@@ -420,6 +431,10 @@ fn mebibytes(bytes: u64) -> String {
 #[cfg(test)]
 #[path = "output_cleanup/guard_tests.rs"]
 mod guard_tests;
+
+#[cfg(test)]
+#[path = "output_cleanup/floor_tests.rs"]
+mod floor_tests;
 
 impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
