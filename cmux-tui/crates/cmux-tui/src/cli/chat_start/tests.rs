@@ -657,6 +657,27 @@ fn an_app_that_never_answers_starts_nothing() {
     assert_eq!(error["retryable"], true, "{error}");
 }
 
+/// An app that answers its liveness ping but never this ask is held to the whole wait: the read
+/// gives up at `total` with `app.setting_unanswered`, not when (or if) the app replies. Before, a
+/// pending ask waited as long as pings were answered, so `cmux chat` could hang forever.
+#[test]
+fn an_app_that_answers_pings_but_not_the_ask_is_held_to_the_wait() {
+    let value = json!({ "ok": true, "result": { "value": "cloud" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::from_secs(3), value)]);
+    let began = std::time::Instant::now();
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
+    let took = began.elapsed();
+    finish(app);
+    let error = read.unwrap_err();
+    assert_eq!(error["code"], "app.setting_unanswered", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+    assert!(took < Duration::from_secs(2), "gave up after {took:?}, not at the 300 ms wait");
+}
+
 /// A refusal that will not pass (an app with no `settings.get`) and an unset key are no setting.
 #[test]
 fn a_refused_or_unset_setting_is_no_setting() {

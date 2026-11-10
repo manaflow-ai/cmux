@@ -195,6 +195,36 @@ fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
     assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
 }
 
+/// `cmux cloud start-session --from-folder DIR` names a folder of this Mac, and a relative one is
+/// of the caller's working directory: the CLI sends it absolute, as `cloud start-chat` makes it
+/// (one path, `caller_absolute`); the app checks the folder. `~/…` and an absolute folder go as
+/// typed, and its `--cwd` stays a folder on the machine.
+#[test]
+fn relative_from_folder_of_cloud_start_session_is_made_absolute() {
+    let cwd = std::env::current_dir().unwrap();
+    for (action, name) in
+        [("cloud start-session", ActionName::Cli), ("cloudStartSession", ActionName::Any)]
+    {
+        let sent = |words: &[&str]| {
+            let (method, params) = call(run_action(action, &args(words), name).unwrap());
+            assert_eq!(method, "action.run");
+            params["args"].clone()
+        };
+        let sent_folder = |words: &[&str]| sent(words)["fromFolder"].clone();
+        assert_eq!(
+            sent_folder(&["--from-folder", "src"]),
+            json!(cwd.join("src").to_string_lossy())
+        );
+        assert_eq!(
+            sent_folder(&["--from-folder=./app/web"]),
+            json!(cwd.join("app/web").to_string_lossy())
+        );
+        assert_eq!(sent_folder(&["--from-folder", "~/app"]), json!("~/app"));
+        assert_eq!(sent_folder(&["--from-folder", "/srv/app"]), json!("/srv/app"));
+        assert_eq!(sent(&["--cwd", "."])["cwd"], json!("."), "{action}");
+    }
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
@@ -2035,7 +2065,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
     // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
     let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
     assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());

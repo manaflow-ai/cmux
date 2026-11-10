@@ -12193,6 +12193,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}
+                  // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
+                  // connection. acpmux answers it to this Mac's own app only, never a remote one.
+                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                    ? {
+                        onColdArchive: (sessionId: string, archived: boolean) =>
+                          directClient.current?.coldArchive(sessionId, archived) ??
+                          Promise.reject(new Error(translate("error.notOpen"))),
+                      }
+                    : {})}
                 />
               </Activity>
               {harnessesOpen && harnessesPage}

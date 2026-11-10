@@ -1325,24 +1325,20 @@ function ComposerFrame({
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
-  // The table loads in its own chunk once the composer is idle after its first paint.
+  // The table loads in its own chunk at the first idle moment after the person first types in this
+  // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
-  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
-  useEffect(() => {
-    let alive = true;
+  const emojiRequested = useRef(false);
+  const requestEmoji = () => {
+    if (emojiRequested.current) return;
+    emojiRequested.current = true;
     const load = () =>
-      void loadEmojiShortcodes().then(
-        (data) => alive && setEmojiData(data),
-        () => undefined,
-      );
-    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
-    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
-    return () => {
-      alive = false;
-      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, []);
+      void loadEmojiShortcodes().then(setEmojiData, () => {
+        emojiRequested.current = false;
+      });
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
+    else setTimeout(load, 0);
+  };
   // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
   // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
@@ -1387,6 +1383,7 @@ function ComposerFrame({
   });
 
   const edit = (value: string, at: number) => {
+    requestEmoji();
     setText(value);
     setCaret(at);
     setDismissed(undefined);
