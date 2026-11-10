@@ -809,19 +809,27 @@ class LiveForm(unittest.TestCase):
         self.assertIn('[[ ${3:-} == stale ]] && session="session-real+stale+$name"', program)
 
     def test_agent_records_of_closed_terminals_report_first_and_then_their_terminal_is_closed(self):
-        calls, world = [], {"terminals": 0, "rows": 5, "lost": 0}
+        calls, world = [], {"terminals": 0, "workspaces": 0, "rows": 5, "lost": 0, "refuse": False}
 
         class Daemon:
             def must(self, cmd, **params):
                 calls.append((cmd, params))
                 if cmd == "create-workspace":
-                    return {"workspace": 77}
+                    world["workspaces"] += 1
+                    return {"workspace": 70 + world["workspaces"]}
                 if cmd == "create-terminal":
                     world["terminals"] += 1
                     return {"surface": 900 + world["terminals"], "terminal_id": f"t{world['terminals']}"}
-                if cmd == "send":
-                    world["rows"] += 0 if world["lost"] and params["surface"] == 901 else 1   # the program reported: one more row
+                assert cmd == "send", cmd
+                world["rows"] += 0 if world["lost"] and params["surface"] == 901 else 1   # the program reported: one more row
                 return {}
+
+            def call(self, cmd, **params):
+                calls.append((cmd, params))
+                assert cmd in ("close-terminal", "close-workspace"), cmd
+                if world["refuse"] and cmd == "close-terminal":
+                    return {"ok": False, "error": "no", "error_code": "x"}
+                return {"ok": True}
 
             def v2(self, operation, **params):
                 calls.append((operation, params))
@@ -831,19 +839,24 @@ class LiveForm(unittest.TestCase):
         saved = (m.GONE_BATCH, m.LISTED_ONLY_REPORT_SECONDS, m.ptys_in_use)
         m.GONE_BATCH, m.LISTED_ONLY_REPORT_SECONDS, m.ptys_in_use = 3, 0, lambda: 0
         try:
-            made, parts = m.make_gone_agents(Daemon(), args, 7)
-            self.assertEqual((made, [part["terminals"] for part in parts]), (7, [3, 3, 1]))   # the 5 rows before are not counted
+            made, parts, failed = m.make_gone_agents(Daemon(), args, 7)
+            self.assertEqual((made, [part["terminals"] for part in parts], failed), (7, [3, 3, 1], []))   # the 5 rows before are not counted
             sends = [params["text"] for cmd, params in calls if cmd == "send"]
             self.assertEqual([text.split()[-2] for text in sends], ["working", "working", "blocked", "idle", "idle", "idle", "idle"])
             self.assertTrue(sends[0].endswith(" working gone-0001\n"), sends[0])
-            order = [cmd for cmd, _ in calls if cmd in ("send", "close-terminal", "close-workspace")]
-            self.assertEqual(order, ["send"] * 3 + ["close-terminal"] * 3 + ["send"] * 3 + ["close-terminal"] * 3 + ["send", "close-terminal", "close-workspace"])
+            order = [cmd for cmd, _ in calls if cmd in ("send", "close-terminal")]
+            self.assertEqual(order, ["send"] * 3 + ["close-terminal"] * 3 + ["send"] * 3 + ["close-terminal"] * 3 + ["send", "close-terminal"])
             self.assertEqual([params["terminal_id"] for cmd, params in calls if cmd == "close-terminal"], [f"t{n}" for n in range(1, 8)])
-            self.assertEqual(calls[-1], ("close-workspace", {"workspace": 77, "end_terminals": True}))
-            self.assertEqual({params["workspace"] for cmd, params in calls if cmd == "create-terminal"}, {77})
+            made_workspaces = [params["workspace"] for cmd, params in calls if cmd == "create-terminal"]
+            self.assertEqual(len(set(made_workspaces)), 7)                                     # one workspace each, as `make` makes them
+            closed = [params for cmd, params in calls if cmd == "close-workspace"]
+            self.assertEqual([params["workspace"] for params in closed], made_workspaces)      # and each one is closed again
+            self.assertTrue(all(params["end_terminals"] for params in closed))
             calls.clear()
-            world.update(terminals=0, rows=5, lost=1)
-            self.assertEqual(m.make_gone_agents(Daemon(), args, 7)[0], 6)                     # a program that did not report is not a record
+            world.update(terminals=0, workspaces=0, rows=5, lost=1)
+            self.assertEqual(m.make_gone_agents(Daemon(), args, 7)[0], 6)                      # a program that did not report is not a record
+            world.update(terminals=0, workspaces=0, rows=5, lost=0, refuse=True)
+            self.assertEqual(len(m.make_gone_agents(Daemon(), args, 7)[2]), 7)                 # a close the daemon refused is told, not raised
         finally:
             m.GONE_BATCH, m.LISTED_ONLY_REPORT_SECONDS, m.ptys_in_use = saved
 
@@ -886,12 +899,6 @@ class LiveForm(unittest.TestCase):
                     else:
                         world["listed"] += 1
                     return {}
-                if cmd == "close-terminal":      # the terminal and its tab go; its agent record stays
-                    world["terminals"] -= 1
-                    return {}
-                if cmd == "close-workspace":
-                    world["workspaces"] -= 1
-                    return {}
                 raise AssertionError(cmd)
 
             def v2(self, operation, **params):
@@ -900,6 +907,12 @@ class LiveForm(unittest.TestCase):
 
             def call(self, cmd, **params):
                 calls.append((cmd, params))
+                if cmd == "close-terminal":      # the terminal and its tab go; its agent record stays
+                    world["terminals"] -= 1
+                    return {"ok": True}
+                if cmd == "close-workspace":
+                    world["workspaces"] -= 1
+                    return {"ok": True}
                 assert cmd == "list-agents", cmd
                 return {"ok": True, "data": {"agents": [{}] * world["listed"]}}
 
@@ -942,7 +955,7 @@ class LiveForm(unittest.TestCase):
         names = [cmd for cmd, _ in calls]
         self.assertEqual(names.count("close-terminal"), 3)
         self.assertGreater(names.index("close-terminal"), max(index for index, name in enumerate(names) if name == "park-tabs"))
-        self.assertEqual(names[-1], "close-workspace")                               # the count read comes after it (a stub function)
+        self.assertEqual((names.count("close-workspace"), names[-1]), (3, "close-workspace"))   # the count read comes after (a stub function)
         gone = [params["text"] for cmd, params in calls if cmd == "send" and " gone-" in params["text"]]
         self.assertEqual([text.split()[-2] for text in gone], ["working", "idle", "idle"])
         # One program that never reported: 2 records, the form has 3: exit 3.

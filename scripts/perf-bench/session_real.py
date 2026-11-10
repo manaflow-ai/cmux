@@ -707,20 +707,23 @@ def gone_state(rank, args):
 
 def make_gone_agents(conn, args, count):
     """Makes `count` agent records whose terminal is CLOSED, as a long session has (the person's Mac, 2026-11-10: 111 of
-    214 agents named a terminal that the daemon no longer listed). A terminal in a workspace of its own starts the
-    agent program, the program reports through the product's hook path, then `close-terminal` ends the terminal: the
-    daemon keeps the agent record with its last state (the record of a closed terminal is never removed). The
-    workspace is closed at the end, so no workspace, pane, tab or terminal count changes. (records made, parts)."""
-    workspace = conn.must("create-workspace", name="real-gone")["workspace"]
+    214 agents named a terminal that the daemon no longer listed). Each one is a workspace with one terminal, made as
+    `make` makes them; the terminal starts the agent program, the program reports through the product's hook path,
+    then `close-terminal` ends the terminal and `close-workspace` removes its workspace: the daemon keeps the agent
+    record with its last state (the record of a closed terminal is never removed), and no workspace, pane, tab or
+    terminal count changes. In parts of GONE_BATCH. (records made, parts, closes that failed)."""
     base = durable_agents(conn)
     if base is None:
         raise SystemExit("session_real: the daemon does not answer the read agent.list: the agent records of closed "
                          "terminals (--agents-gone) can not be counted")
-    made, parts = 0, []
+    made, parts, failed = 0, [], []
     for start in range(0, count, GONE_BATCH):
         part = range(start, min(start + GONE_BATCH, count))
-        terminals = [conn.must("create-terminal", workspace=workspace, cwd=args.cwd) for _ in part]
-        for rank, terminal in zip(part, terminals):
+        terminals = []
+        for rank in part:
+            workspace = conn.must("create-workspace", name=f"gone-{rank + 1:04d}")["workspace"]
+            terminal = conn.must("create-terminal", workspace=workspace, cwd=args.cwd)
+            terminals.append((workspace, terminal))
             conn.must("send", surface=terminal["surface"], text=agent_command(rank + 1, gone_state(rank, args), prefix="gone"))
         deadline = time.time() + args.settle
         listed = len(durable_agents(conn) or [])
@@ -728,13 +731,16 @@ def make_gone_agents(conn, args, count):
             time.sleep(0.5)
             listed = len(durable_agents(conn) or [])
         time.sleep(LISTED_ONLY_REPORT_SECONDS)  # the last report of a program comes after the one that lists it
-        for terminal in terminals:
-            conn.must("close-terminal", terminal_id=terminal["terminal_id"])
+        for workspace, terminal in terminals:
+            for cmd, params in (("close-terminal", {"terminal_id": terminal.get("terminal_id")}),
+                                ("close-workspace", {"workspace": workspace, "end_terminals": True})):
+                reply = conn.call(cmd, **params)
+                if not reply.get("ok"):
+                    failed.append({"cmd": cmd, "error": str(reply.get("error"))[:160], "error_code": reply.get("error_code")})
         parts.append({"terminals": len(part), "listed": listed - len(base) - made})
         made = listed - len(base)
         print(f"agent records of closed terminals: {made}/{count}, PTYs in use {ptys_in_use()}", flush=True)
-    conn.must("close-workspace", workspace=workspace, end_terminals=True)
-    return made, parts
+    return made, parts, failed
 
 
 def shell_quote(text):
@@ -832,7 +838,7 @@ def make(args):
             if len(parked) != len(part):
                 print(f"park-tabs (listed agents): asked {len(part)}, parked {len(parked)}", flush=True)
     want_parked = mix.count("terminal") - live_plain + len(listed_only)
-    gone_made, gone_parts = make_gone_agents(conn, args, gone_of(args)) if gone_of(args) else (0, [])
+    gone_made, gone_parts, gone_failed = make_gone_agents(conn, args, gone_of(args)) if gone_of(args) else (0, [], [])
     after = counts(conn, app_socket)
     # A parked tab reads as parked when its host exited (tab_park.rs): give the last batch up to 15 s before the count is judged.
     deadline = time.time() + (45 if listed_only else 15)
@@ -844,7 +850,7 @@ def make(args):
     result = {
         "asked": dict(want, form=getattr(args, "form", None) or "real",
                       **{key: want_form[key] for key in ("terminals_running", "terminals_exited", "agent_processes")}),
-        "agents_listed_before_park": listed_before_park, "agents_gone": {"asked": gone_of(args), "made": gone_made, "parts": gone_parts},
+        "agents_listed_before_park": listed_before_park, "agents_gone": {"asked": gone_of(args), "made": gone_made, "parts": gone_parts, "closes_failed": gone_failed[:5]},
         "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
         "batch": args.batch, "agents_working": args.agents_working, "agents_blocked": args.agents_blocked,
         "before": before, "after": after, "host": host_facts(),
@@ -866,6 +872,8 @@ def make(args):
         faults.append(f"agents listed (agent.list): the form has {want_form['agents_listed']} ({want['agent_terminals']} in a terminal + "
                       f"{gone_of(args)} of a closed terminal), read back {after.get('agents_listed', 0) - before.get('agents_listed', 0)} "
                       f"more than before; records of closed terminals made: {gone_made}")
+    if gone_failed:
+        faults.append(f"{len(gone_failed)} closes of the terminals and workspaces of the agent records failed: first {json.dumps(gone_failed[0])}")
     faults += park_faults(park_asked, park_done, want_parked, after["terminals_parked"] - before["terminals_parked"])
     if after["terminals_live"] - before["terminals_live"] != want_form["terminals_running"]:
         faults.append(f"terminals that run: the form has {want_form['terminals_running']}, read back "
