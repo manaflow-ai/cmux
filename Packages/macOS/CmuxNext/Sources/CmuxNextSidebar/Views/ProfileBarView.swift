@@ -26,6 +26,8 @@ final class ProfileBarView: NSView {
     var pressPoint: NSPoint?
     /// The press now down showed its space (`switchOnPress`): its release is no click.
     private var pressSwitched = false
+    /// The space this window showed before that press; a tear-off of the dot gives it back (`dropDot`).
+    var pressOrigin: ProfileKey?
     /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
     var dotDrag: ProfileBarDotDrag?
     private var swipeTracker = ProfileSwipeTracker()
@@ -303,7 +305,9 @@ final class ProfileBarView: NSView {
         pressPoint = point
         let index = interactionIndex(at: point)
         setPressed(index)
+        let shown = model.activeProfileID
         pressSwitched = index.map { switchOnPress($0, option: event.modifierFlags.contains(.option)) } ?? false
+        pressOrigin = pressSwitched ? shown : nil
     }
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
@@ -316,6 +320,7 @@ final class ProfileBarView: NSView {
             pressed = nil
             pressPoint = nil
             pressSwitched = false
+            pressOrigin = nil
             needsDisplay = true
         }
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
