@@ -243,6 +243,26 @@ async function moveNow(from: string, to: string): Promise<void> {
   }
 }
 
+export type StashPlace = { sessionId?: string; newChatKey: string };
+
+/// The moves a composer asks as what it shows goes from `before` to `now` (`mounted`: the page
+/// just opened or reloaded on `now`). A new chat's drafts follow it only when it gets its session
+/// on this page: a page opened on a session, or a switch from one session to another, asks none,
+/// since nothing on the page says which chat the tab's leftovers were for (its composer lists them
+/// instead, `useDraftStash`'s `leftovers`). The page's own key's drafts follow the tab's key.
+export function stashMoves(before: StashPlace, now: StashPlace, mounted: boolean): [string, string][] {
+  if (mounted) return [];
+  const keyMoved = before.newChatKey !== now.newChatKey;
+  if (now.sessionId) {
+    if (before.sessionId) return [];
+    return [
+      [now.newChatKey, now.sessionId],
+      ...(keyMoved ? [[before.newChatKey, now.sessionId] as [string, string]] : []),
+    ];
+  }
+  return keyMoved ? [[before.newChatKey, now.newChatKey]] : [];
+}
+
 /// The moves into `chat` a failure left unfinished, tried again (as `chat` shows, and as acpmux
 /// connects again).
 export function retryMoves(chat: string): Promise<void> {

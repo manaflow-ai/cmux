@@ -310,14 +310,20 @@ describe("draft stash", () => {
 
   test("a reload asks no move: a page opened on another session never takes the tab's leftovers", () => {
     // Opened (or reloaded) on B, whose stack may be full: the tab's drafts stay where they are.
-    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, true)).toEqual([]);
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, true)).toEqual(
+      [],
+    );
     // A new chat that gets its session here brings its drafts.
-    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual([
-      ["new-tab:t", "session-a"],
-    ]);
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual(
+      [["new-tab:t", "session-a"]],
+    );
     // A switch from A to B moves nothing.
     expect(
-      stashMoves({ sessionId: "session-a", newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, false),
+      stashMoves(
+        { sessionId: "session-a", newChatKey: "new-tab:t" },
+        { sessionId: "session-b", newChatKey: "new-tab:t" },
+        false,
+      ),
     ).toEqual([]);
     // The tab's key comes after the page's own: the page's drafts follow it.
     expect(stashMoves({ newChatKey: "new-1" }, { newChatKey: "new-tab:t" }, false)).toEqual([["new-1", "new-tab:t"]]);

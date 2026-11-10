@@ -179,7 +179,7 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
-import { moveStash, useNewChatStash } from "./composer/draftStash";
+import { moveStash, stashMoves, useNewChatStash } from "./composer/draftStash";
 import { isStashKey, useDraftStash } from "./composer/useDraftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "./savedPrompts";
@@ -976,43 +976,44 @@ function ComposerFrame({
     stashed,
     unstash,
     toggle: toggleStash,
-  } = useDraftStash(stashChat, {
-    held: () => ({
-      text: field.current?.value() ?? textRef.current,
-      attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
-    }),
-    // An attachment still loading, an image's original still uploading under its preview (a send
-    // waits for both), or the chat's own chips not yet read back (that read would set them over a
-    // restored draft's): clearing or restoring now would lose one.
-    loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0 || !keptReadRef.current,
-    clear: () => {
-      stashEdited();
-      notTyped();
-      if (!field.current?.type("")) {
-        setText("");
-        setCaret(0);
-      }
-      attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
-      setAttachments((current) => current.filter((chip) => chip.shellRun));
+  } = useDraftStash(
+    stashChat,
+    {
+      held: () => ({
+        text: field.current?.value() ?? textRef.current,
+        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+      }),
+      // An attachment still loading, an image's original still uploading under its preview (a send
+      // waits for both), or the chat's own chips not yet read back (that read would set them over a
+      // restored draft's): clearing or restoring now would lose one.
+      loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0 || !keptReadRef.current,
+      clear: () => {
+        stashEdited();
+        notTyped();
+        if (!field.current?.type("")) {
+          setText("");
+          setCaret(0);
+        }
+        attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
+        setAttachments((current) => current.filter((chip) => chip.shellRun));
+      },
+      restore: (restoredText, restoredAttachments) => {
+        stashEdited();
+        restoreDraft(restoredText, restoredAttachments);
+      },
+      focus: () => field.current?.focus(),
     },
-    restore: (restoredText, restoredAttachments) => {
-      stashEdited();
-      restoreDraft(restoredText, restoredAttachments);
-    },
-    focus: () => field.current?.focus(),
-  });
-  // A new chat's stack follows the chat the tab shows: into its session once it has one, and to
-  // the tab's key once the tab is known. Every time the composer shows a session (a page opened
-  // or reloaded too), drafts left under the tab's new-chat key move into it, so a move that failed
-  // before a reload never leaves them where no composer looks; with none left it is one list.
-  const stashedFor = useRef({ sessionId, newChatKey });
+    sessionId ? newChatKey : undefined,
+  );
+  // A new chat's stack follows it: into its session once it gets one here, and to the tab's key
+  // once the tab is known (`stashMoves`). A page opened on a session moves none of the tab's
+  // leftovers (a move that failed before a reload, for a chat the page cannot know); the session's
+  // Stashed list shows them after its own, so none sits where no composer looks.
+  const stashedFor = useRef<{ sessionId?: string; newChatKey: string } | undefined>(undefined);
   useEffect(() => {
-    const before = stashedFor.current;
-    if (sessionId) {
-      void moveStash(newChatKey, sessionId);
-      if (before.newChatKey !== newChatKey) void moveStash(before.newChatKey, sessionId);
-    } else if (before.newChatKey !== newChatKey) void moveStash(before.newChatKey, newChatKey);
-    stashedFor.current = { sessionId, newChatKey };
+    const now = { sessionId, newChatKey };
+    for (const [from, to] of stashMoves(stashedFor.current ?? now, now, !stashedFor.current)) void moveStash(from, to);
+    stashedFor.current = now;
   }, [sessionId, newChatKey]);
   useImperativeHandle(
     handle,
