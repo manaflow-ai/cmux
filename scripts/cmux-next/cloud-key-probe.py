@@ -54,6 +54,28 @@ SHAPES = [
     ("an OAuth refresh token", re.compile(r'"refresh_token"\s*:\s*"([^"\s]{20,})"')),
 ]
 
+# Each shape's literal anchors: a shape can match only text that holds one, and a substring test is far cheaper than
+# the shape's own search (the walk's largest cost). An assertion keeps the two lists together.
+ANCHORS = {
+    "an Anthropic API key": ("sk-ant-api",),
+    "an Anthropic OAuth token": ("sk-ant-oat",),
+    "an Anthropic refresh token": ("sk-ant-ort",),
+    "an OpenAI project key": ("sk-proj-",),
+    "an OpenAI service account key": ("sk-svcacct-",),
+    "an OpenAI admin key": ("sk-admin-",),
+    "an OpenAI user key": ("T3BlbkFJ",),
+    "an OpenRouter key": ("sk-or-v1-",),
+    "a Google AI key": ("AIza",),
+    "an xAI key": ("xai-",),
+    "a Groq key": ("gsk_",),
+    "a Hugging Face token": ("hf_",),
+    "an AWS access key id": ("AKIA", "ASIA"),
+    "an OAuth refresh token": ('"refresh_token"',),
+}
+assert set(ANCHORS) == {kind for kind, _ in SHAPES}, "every shape has its anchors"
+# A key's name ends in one of these, in any case (KEY_NAMES and the prefilter's assertion): no ending, no name.
+NAME_ENDING = re.compile(r"_[Kk][Ee][Yy]|_[Tt][Oo][Kk][Ee][Nn]|_[Jj][Ss][Oo][Nn]")
+
 # Variables that hold a provider credential by name, whatever their value's shape.
 KEY_NAMES = {
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
@@ -135,6 +157,15 @@ PREFILTER = re.compile(
     # `\u00` too: JSON may write any ASCII character of a name or prefix that way (readings() takes it off).
     rb"sk-|AIza|xai-|gsk_|hf_|AKIA|ASIA|refresh_token|_[Kk][Ee][Yy]|_[Tt][Oo][Kk][Ee][Nn]|_[Jj][Ss][Oo][Nn]|\\u00"
 )
+# The same prefixes and name endings in decoded text: a `\u00` hit counts only when its stretch, escapes taken off,
+# holds one (minified code is full of `\u00XX`, and checking each one cost the walk about a tenth of its files).
+TOKENS = re.compile(PREFILTER.pattern.decode().removesuffix(r"|\\u00"))
+
+
+def escape_hit(hit, text):
+    """Whether an escape's prefilter hit (backslash, u00) leads nowhere: `text`, its stretch, holds no prefix or name
+    ending once decoded."""
+    return hit.group(0) == b"\\u00" and not any(TOKENS.search(r) for r in readings(text)[1:])
 # A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
 # in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
 ARG_ASSIGN = re.compile(r"^-{0,2}([A-Za-z][A-Za-z0-9_-]*)=(.*)$", re.S)
@@ -306,6 +337,8 @@ def shape_kinds(text):
     kinds = set()
     for reading in readings(text):
         for kind, pattern in SHAPES:
+            if not any(a in reading for a in ANCHORS[kind]):
+                continue
             for m in pattern.finditer(reading):
                 if PUBLIC_VALUE.search(m.group(0)):
                     continue
@@ -407,6 +440,8 @@ def named_kinds(text):
     recorded for redaction."""
     seen = set()
     for reading in readings(text):
+        if not NAME_ENDING.search(reading):
+            continue
         for m in ASSIGN.finditer(reading):
             if m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
                 found(m.group(2))
@@ -449,10 +484,13 @@ def context_kinds(text, line_end):
     seen = set()
     # Each reading's own line end: taking escapes off shortens the line.
     for reading, end in zip(readings(text), (len(r) for r in readings(text[:line_end]))):
-        for m in REFRESH.finditer(reading):
-            if m.start() < end and not PUBLIC_VALUE.search(m.group(0)):
-                found(m.group(1))
-                seen.add("an OAuth refresh token")
+        if '"refresh_token"' in reading:
+            for m in REFRESH.finditer(reading):
+                if m.start() < end and not PUBLIC_VALUE.search(m.group(0)):
+                    found(m.group(1))
+                    seen.add("an OAuth refresh token")
+        if not NAME_ENDING.search(reading):
+            continue
         for m in ASSIGN.finditer(reading):
             if m.start() < end and m.group(1).upper() in KEY_NAMES and literal_secret(m.group(2)):
                 found(m.group(2))
@@ -527,6 +565,8 @@ def scan_file(path):
                 for hit in PREFILTER.finditer(window):
                     at = hit.start()
                     stop = at + HIT_SPAN
+                    if escape_hit(hit, window[max(0, at - NAME_SPAN):stop].decode("latin-1")):
+                        continue
                     # A value left open at the span's end (a long refresh token) is followed to its end, up to
                     # MAX_VALUE; one still open at the window's end is checked again with the next chunk.
                     # Each stretch starts a name's length before the hit: a key's name, or an escaped opening quote
@@ -559,6 +599,9 @@ def scan_file(path):
             for hit in PREFILTER.finditer(whole):
                 start = whole.rfind(b"\n", 0, hit.start()) + 1
                 if start == last:
+                    continue
+                stop_at = whole.find(b"\n", hit.start())
+                if escape_hit(hit, whole[start:len(whole) if stop_at < 0 else stop_at].decode("utf-8", "replace")):
                     continue
                 line += whole.count(b"\n", seen_to, start)
                 seen_to = last = start
