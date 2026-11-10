@@ -205,8 +205,23 @@ async fn session_auth_refresh_recognizes_a_terminal_login_in_only_its_account() 
     let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
     assert_eq!(state(&unchanged), ("signedOut", "turn"), "an unchanged file proves nothing");
     // The credential-file timestamp must be strictly newer than the failed turn's millisecond.
-    tokio::time::sleep(Duration::from_millis(2)).await;
+    // Linux stamps file times from a coarse clock (a few ms per tick), so a short sleep before
+    // the write did not guarantee that (run 42728318947). Set the times explicitly instead.
+    let ended_at = before.as_ref().and_then(|turn| turn["endedAt"].as_u64()).unwrap();
     std::fs::write(&credential, "replacement credential").unwrap();
+    // A write stamped in the failed turn's own millisecond (what the coarse clock gave): no
+    // evidence of a later login, so the failure stands.
+    stamp(&credential, ended_at);
+    let same_ms = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&same_ms), ("signedOut", "turn"), "{same_ms}");
+    // One millisecond later: a changed file permits retry. The stamp must not be in the future
+    // either, so wait for the wall clock to pass it (at most 1 ms after the turn ended).
+    let changed_at = ended_at + 1;
+    let now = acpmux::store::now_ms();
+    if now < changed_at {
+        tokio::time::sleep(Duration::from_millis(changed_at - now)).await;
+    }
+    stamp(&credential, changed_at);
     let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
     assert_eq!(changed["state"], "unknown", "a changed file permits retry: {changed}");
     let cached = c.auth(json!({"sessionId": id})).await;
@@ -395,6 +410,12 @@ impl Client {
         assert!(v.get("error").is_none(), "{v}");
         v["result"].clone()
     }
+}
+
+/// Set PATH's modification time to AT (milliseconds since the epoch).
+fn stamp(path: &Path, at: u64) {
+    let file = std::fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(at)).unwrap();
 }
 
 fn state(v: &Value) -> (&str, &str) {
