@@ -125,15 +125,24 @@ fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool 
         return false;
     }
     let Some((program, args)) = spawned.argv.split_first() else { return false };
+    let folder = Folder::of(cwd);
+    let named = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
+    let script = script_of(named, args);
+    // A word with a slash is a path (absolute: where it leads; relative: a file the folder
+    // holds, so a model name such as `zai/glm-5` is none); a bare word only when it is the
+    // script an interpreter runs, never a subcommand (`opencode acp`) or `.`.
     let inside = |word: &str| {
         let path = Path::new(word);
-        if path.is_absolute() { path.starts_with(cwd) } else { cwd.join(word).exists() }
+        if path.is_absolute() {
+            folder.holds(path)
+        } else {
+            (word.contains('/') || script == Some(word)) && cwd.join(word).exists()
+        }
     };
-    let named = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
     let relative_program = program.contains('/') && Path::new(program).is_relative();
     if PACKAGE_RUNNERS.contains(&named)
         || relative_program
-        || (Path::new(program).is_absolute() && inside(program.as_str()))
+        || (Path::new(program).is_absolute() && folder.holds(Path::new(program)))
         || runs_folder_modules(named, args, &spawned.env)
     {
         return true;
@@ -141,24 +150,124 @@ fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool 
     if args.iter().flat_map(|arg| arg_paths(arg)).any(inside) {
         return true;
     }
-    if spawned.env.iter().any(|(key, value)| env_in_folder(key, value, cwd)) {
+    if spawned.env.iter().any(|(key, value)| env_in_folder(key, value, &folder)) {
         return true;
     }
     if path.iter().any(|dir| dir.as_os_str().is_empty() || dir.is_relative()) {
         return true;
     }
-    !program.contains('/') && resolves_in_folder(program, path, cwd)
+    !program.contains('/') && resolves_in_folder(program, path, &folder)
 }
 
-/// Whether bare program `program` resolves on `path` to a file whose real path is inside folder
-/// `cwd` (as written, or its real path).
-fn resolves_in_folder(program: &str, path: &[PathBuf], cwd: &Path) -> bool {
+/// Programs that run a script named by their first argument that is no option.
+const INTERPRETERS: &[&str] = &[
+    "node", "nodejs", "ruby", "perl", "php", "lua", "bash", "sh", "zsh", "dash", "tsx", "ts-node",
+];
+
+/// Options of an interpreter that take the next word (not the script).
+const TAKES_VALUE: &[&str] =
+    &["-W", "-X", "-r", "--require", "--import", "--loader", "--experimental-loader", "-I", "-o"];
+
+/// The script interpreter `named` runs with `args`: its first argument that is no option (nor an
+/// option's value), or None for any other program.
+fn script_of<'a>(named: &str, args: &'a [String]) -> Option<&'a str> {
+    if !named.starts_with("python") && !INTERPRETERS.contains(&named) {
+        return None;
+    }
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        if TAKES_VALUE.contains(&arg.as_str()) {
+            words.next();
+        } else if !arg.starts_with('-') || arg == "-" {
+            return Some(arg.as_str());
+        }
+    }
+    None
+}
+
+/// The chat folder as a start judges it: as written and as its real path (links resolved), and
+/// whether its volume ignores case (APFS by default), so a path that differs only in case is in
+/// it too.
+struct Folder {
+    written: PathBuf,
+    real: PathBuf,
+    folds_case: bool,
+}
+
+impl Folder {
+    fn of(cwd: &Path) -> Self {
+        let real = real_path(cwd);
+        let folds_case = folds_case(&real);
+        Self { written: cwd.to_path_buf(), real, folds_case }
+    }
+
+    /// Whether absolute path `path` leads into the folder (as written, through links, or in
+    /// another case on a volume that ignores case).
+    fn holds(&self, path: &Path) -> bool {
+        if path.starts_with(&self.written) {
+            return true;
+        }
+        let real = real_path(path);
+        if real.starts_with(&self.real) {
+            return true;
+        }
+        let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
+        self.folds_case && lower(&real).starts_with(lower(&self.real))
+    }
+}
+
+/// `path` with links resolved: the real path of its longest part that exists, then the rest as
+/// written.
+fn real_path(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut head = path;
+    loop {
+        if let Ok(real) = std::fs::canonicalize(head) {
+            return rest.iter().rev().fold(real, |p, part| p.join(part));
+        }
+        match (head.parent(), head.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                head = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Whether the volume of existing folder `real` ignores case: the same folder answers to its name
+/// in another case. A path with no letter to change cannot tell: it counts as ignoring case (fail
+/// closed).
+fn folds_case(real: &Path) -> bool {
+    let text = real.to_string_lossy();
+    let flipped: String = text
+        .chars()
+        .map(|c| if c.is_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() })
+        .collect();
+    if flipped == text {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        match (std::fs::metadata(real), std::fs::metadata(&flipped)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::metadata(&flipped).is_ok()
+    }
+}
+
+/// Whether bare program `program` resolves on `path` to a file whose real path is in `folder`.
+fn resolves_in_folder(program: &str, path: &[PathBuf], folder: &Folder) -> bool {
     let Some(found) = path.iter().map(|dir| dir.join(program)).find(|p| is_program(p)) else {
         return false;
     };
-    let real = std::fs::canonicalize(&found).unwrap_or(found);
-    let real_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    real.starts_with(cwd) || real.starts_with(&real_cwd)
+    // Where the lookup leads: a link in a `PATH` folder to a program elsewhere is that program.
+    folder.holds(&std::fs::canonicalize(&found).unwrap_or(found))
 }
 
 /// Whether `path` is a file a `PATH` lookup runs.
@@ -255,7 +364,8 @@ fn is_path_list(key: &str) -> bool {
 }
 
 /// Whether env value `value` of key `key` names something in folder `cwd` ([`reads_folder`]).
-fn env_in_folder(key: &str, value: &str, cwd: &Path) -> bool {
+fn env_in_folder(key: &str, value: &str, folder: &Folder) -> bool {
+    let cwd = folder.written.as_path();
     let list = is_path_list(key);
     if list && value.contains(':') && value.split(':').any(str::is_empty) {
         return true;
@@ -263,7 +373,7 @@ fn env_in_folder(key: &str, value: &str, cwd: &Path) -> bool {
     value.split([':', ';', ',', '=', ' ']).filter(|p| !p.is_empty()).any(|part| {
         let path = Path::new(part);
         if path.is_absolute() {
-            return path.starts_with(cwd);
+            return folder.holds(path);
         }
         part == "."
             || part == ".."

@@ -59,6 +59,11 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
 - A folder profile shadowed by a config entry of its name. Fixed: a folder-profile start records
   `not_a_config_entry`, which holds for that agent whatever the config gives later.
 
+- Review of #40158 (w5l-rev-1): an absolute path is judged by where it leads (links resolved,
+  `/tmp` is `/private/tmp`; on a volume that ignores case, another case is the same folder); an
+  argument counts as a path only with a slash or as the script an interpreter runs (no false
+  refusal for `opencode acp` or `.`); `not_started_here` tells the person to restart the chat.
+
 ## Still open
 - A `PATH` folder inside the chat folder that does not hold the agent's program is not judged:
   the agent's own subprocesses (not its tool calls, which ask) can find programs there.

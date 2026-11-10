@@ -701,7 +701,7 @@ pub(super) fn claim_distrust<'a>(meta: &'a SessionMeta, cfg: &Config) -> Option<
 fn distrust_text(distrust: &str) -> &'static str {
     match distrust {
         "not_started_here" => {
-            "this agent's claim was copied from another start (a fork or a moved chat)"
+            "acpmux has no record of starting this agent (a fork or a moved chat, or a chat an older acpmux started): restart the chat, with acpmux session restart NAME or from cmux, so acpmux starts its agent and can check it"
         }
         "not_a_config_entry" => {
             "this agent was started from a folder profile or an entry that is gone"
