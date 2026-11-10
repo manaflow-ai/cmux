@@ -305,6 +305,10 @@ if Path(sys.argv[0]).name == "git":
         ref = args[-1].removeprefix("refs/heads/")
         if ref in refs: print(refs[ref] + "\trefs/heads/" + ref)
     elif args[0] == "fetch": pass
+    elif args[0] == "merge-base":
+        # --is-ancestor A B: A is older than B when the test lists it so; a commit it does not know is unknown here.
+        older, newer = args[-2], args[-1]
+        sys.exit(0 if [older, newer] in state.get("ancestry", []) else 1)
     elif args[0] == "push":
         if "--delete" in args: state["refs"].pop(args[-1], None)
         else:
@@ -347,6 +351,13 @@ elif args[0] == "api":
             print(json.dumps({"message": "Not Found", "status": "404"}))
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
+    elif "/actions/workflows/" in endpoint:
+        if os.environ.get("GH_TOKEN") != "read-token":
+            print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
+        if state.get("runs_read") == "fail":
+            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+        state.setdefault("run_reads", []).append(endpoint); save()
+        emit({"workflow_runs": state.get("runs", [])})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
@@ -375,7 +386,7 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
-                  check_total=None,
+                  check_total=None, runs=(), ancestry=(), runs_read="ok",
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -404,7 +415,8 @@ class RePinPublication(unittest.TestCase):
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit,
                 "head_age_min": head_age_min, "checks": list(checks), "status": status,
-                "status_read": status_read,
+                "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
+                "runs_read": runs_read,
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -533,6 +545,65 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
         self.assertIn("verified open", result.stdout)
+
+    # 2026-11-10: the re-pin of b2fb62c7's predecessor (#39863 at 8c29468b) pinned 1818fd17 while the release run for
+    # a newer input commit (b2fb62c7, run 42737539302) was queued; it was stale on arrival and got BLOCK. The re-pin now
+    # leaves the branch to the newer run, which re-pins when it publishes.
+    NEWEST = "d" * 40  # the newest published release (the fake newest_app_ffi_release.py)
+
+    def test_a_newer_pending_release_run_re_pins_instead(self):
+        newer = "7" * 40
+        for status in ("queued", "in_progress", "waiting", "pending", "requested"):
+            with self.subTest(status):
+                result, state = self.run_repin(
+                    runs=[{"id": 9, "status": status, "head_sha": newer}],
+                    ancestry=[(self.NEWEST, newer)])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("run 9", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["writes"], 0)
+
+    def test_a_commit_the_checkout_does_not_have_counts_as_newer(self):
+        # A push after this job's checkout: it is not in the history here, so it cannot be older than the pin.
+        result, state = self.run_repin(runs=[{"id": 9, "status": "queued", "head_sha": "8" * 40}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["published"], [])
+
+    def test_this_run_an_older_run_or_a_finished_run_does_not_hold_the_re_pin(self):
+        older = "6" * 40
+        for name, runs in {
+            "this run": [{"id": int(RUN_ID), "status": "in_progress", "head_sha": "7" * 40}],
+            "an older run still building": [{"id": 9, "status": "in_progress", "head_sha": older}],
+            "the pinned release's own run": [{"id": 9, "status": "in_progress", "head_sha": self.NEWEST}],
+            "a newer run that failed": [{"id": 9, "status": "completed", "head_sha": "7" * 40}],
+        }.items():
+            with self.subTest(name):
+                result, state = self.run_repin(runs=runs, ancestry=[(older, self.NEWEST)])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                self.assertIn("verified open", result.stdout)
+
+    def test_the_runs_are_read_with_the_jobs_token_and_a_failed_read_re_pins_as_before(self):
+        result, state = self.run_repin(runs=[])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(state.get("run_reads", [])), 1)
+        self.assertIn("/actions/workflows/app-ffi-release.yml/runs", state["run_reads"][0])
+        self.assertIn("branch=feat-cmux-next", state["run_reads"][0])
+        result, state = self.run_repin(runs_read="fail")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertIn("could not read", result.stdout + result.stderr)
+
+    def test_a_failed_or_cancelled_release_run_still_re_pins(self):
+        # The newer run that held the re-pin must re-pin itself when it ends without a release, or nothing does.
+        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
+        repin = yaml.safe_load(REPIN_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
+        self.assertTrue(release["if"].startswith("${{ always() &&") or release["if"].startswith("always() &&"),
+                        release["if"])
+        self.assertNotIn("needs.publish.result == 'success'", release["if"])
+        for job in (release, repin):
+            self.assertEqual(job["permissions"].get("actions"), "read")
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
         for options in ({"wrong_head": True}, {"close_on_edit": True}):
