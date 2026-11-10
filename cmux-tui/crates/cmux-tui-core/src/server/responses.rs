@@ -87,6 +87,11 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
             error.downcast_ref::<super::LayoutRatioError>().map(|error| error.code().to_string())
         })
         .or_else(|| {
+            error
+                .downcast_ref::<crate::mux::DividerVisibilityError>()
+                .map(|error| error.code().to_string())
+        })
+        .or_else(|| {
             error.downcast_ref::<super::ViewportWidthError>().map(|error| error.code().to_string())
         })
         .or_else(|| {

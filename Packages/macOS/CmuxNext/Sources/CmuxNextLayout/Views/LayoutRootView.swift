@@ -148,6 +148,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
     /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
     public var onFramePlaced: (() -> Void)?
+    /// The right-click menu of split `SplitID`'s divider (Insert New, Hide or Show Divider), asked when the
+    /// person right-clicks its grab band; nil: no menu.
+    public var dividerMenu: ((SplitID) -> NSMenu?)? {
+        get { context.dividerMenu }
+        set { context.dividerMenu = newValue }
+    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -189,6 +195,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        context.window = { [weak self] in self?.window }
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in _ = self?.landMotion() }
@@ -448,6 +455,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
+            view.hiddenDividers = screen.hiddenDividers
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
