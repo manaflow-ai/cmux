@@ -1189,6 +1189,8 @@ mod partial_create_tests;
 #[cfg(test)]
 mod split_focus_tests;
 #[cfg(test)]
+mod tab_create_focus_tests;
+#[cfg(test)]
 mod terminal_get_tests;
 #[cfg(test)]
 mod tests;
