@@ -117,6 +117,18 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
   },
   // CloudStartChat: a Pro refusal keeps its own code (CloudStartView's Upgrade, This Mac, Not now).
   { id: "cloud_plan_required", code: "cloud_plan_required", message: "Cloud machines need a Pro plan." },
+  // CloudStartChat: a create the team's spending cap or the member's budget refused (cmux-platform SpendCap.ts),
+  // in the backend's words; the pane words it itself (cloudStartProgress `spendRefusal`) with Run on This Mac.
+  {
+    id: "cloud_spend_cap",
+    code: "cloud_start_failed",
+    message: "this team has spent 503.10 USD of its 500.00 USD spending cap; an admin can raise it",
+  },
+  {
+    id: "cloud_member_budget",
+    code: "cloud_start_failed",
+    message: "you have spent 50.20 USD of your 50.00 USD monthly budget; a team admin can raise it",
+  },
   // The pane's own refusals (cloudStartProgress.ts REFUSED_HERE and `transport.*`), worded by cloudRefusalText.
   { id: "cloud_attachments", code: "cloud_attachments", message: "Attachments can't go to a Cloud machine yet." },
   { id: "unsupported", code: "unsupported" },
@@ -217,6 +229,12 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     error: "AI models need cmux credits, your own API key, or a paid plan",
   },
   {
+    id: "team-cap",
+    kind: "team-cap",
+    error:
+      'API Error: 402 {"error":{"code":"team.cap_reached","message":"Your team reached its spending cap for this billing period. A team admin can raise it.","type":"insufficient_quota"}}',
+  },
+  {
     id: "no-credit",
     kind: "no-credit",
     error:
@@ -279,6 +297,7 @@ export const KINDS: { [kind in FailureKind]: true } = {
   "trust-untrusted": true,
   "no-team-account": true,
   "needs-credits": true,
+  "team-cap": true,
   "no-credit": true,
   "cloud-auth-expired": true,
   "rate-limited": true,
