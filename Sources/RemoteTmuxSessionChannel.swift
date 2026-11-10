@@ -144,6 +144,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     // MARK: - RemoteTmuxSessionSource: scoped reads
 
     var connectionState: RemoteTmuxConnectionState { underlying.connectionState }
+    var reconnectingSince: ContinuousClock.Instant? { underlying.reconnectingSince }
     var exited: Bool { underlying.exited }
 
     /// Scoped before forwarding: the ring belongs to the shared stream, so without the session's own

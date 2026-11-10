@@ -86,11 +86,15 @@ final class RemoteTmuxControlConnection {
     /// ``enterReceived`` it survives a respawn, which is what lets a retry tell "the
     /// session I was in went away" from "I never got in at all".
     private(set) var everReachedControlMode = false
+    /// When the current reconnect began, or nil outside one. Set before observers hear of the
+    /// state change, so the Reconnecting indicator counts its delay from the drop itself.
+    private(set) var reconnectingSince: ContinuousClock.Instant?
     /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
     /// disconnected UI; `exited` is derived from it.
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
+            reconnectingSince = connectionState == .reconnecting ? .now : nil
             if connectionState != .connected { paneAgentStatuses.removeAll() }
             observers.notifyStateChanged(connectionState)
             switch connectionState {
@@ -1137,20 +1141,6 @@ final class RemoteTmuxControlConnection {
                 Self.signalProcess(identity.pid, SIGKILL)
             }
         }
-    }
-
-    /// `root` and its descendants, parents before children, bounded in depth so a pathological
-    /// tree cannot make teardown expensive.
-    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
-        var out: [pid_t] = [root]
-        var frontier = [root]
-        for _ in 0..<4 {
-            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
-            if next.isEmpty { break }
-            out.append(contentsOf: next)
-            frontier = next
-        }
-        return out
     }
 
     /// Sends `signal` to `pid`, and to its process group when `pid` leads one. A leader's group

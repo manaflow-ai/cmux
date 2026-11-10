@@ -241,7 +241,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             },
             onConnectionStateChanged: { [weak self] state in
                 self?.paneInputForwarder?.setConnectionActive(state == .connected)
-                self?.reconnectingIndicator.connectionStateChanged(state, workspace: self?.workspace)
+                self?.reconnectingIndicator.connectionStateChanged(
+                    state, reconnectingSince: self?.connection.reconnectingSince, workspace: self?.workspace)
                 // Drop any mid-`ESC k` title-filter state when the stream isn't live:
                 // a reconnect's `reseedAfterReconnect` re-emits clear/capture bytes,
                 // and a filter stuck mid-title from before the drop would swallow them.
@@ -269,7 +270,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             }
         ))
         // A new observer gets no replay of the state, and the source may already be reconnecting.
-        reconnectingIndicator.connectionStateChanged(connection.connectionState, workspace: workspace)
+        reconnectingIndicator.connectionStateChanged(
+            connection.connectionState, reconnectingSince: connection.reconnectingSince, workspace: workspace)
         rebuild()
     }
 

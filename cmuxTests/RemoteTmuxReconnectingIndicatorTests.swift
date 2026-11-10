@@ -18,11 +18,11 @@ import Testing
         let workspace = Workspace()
         let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(60))
 
-        indicator.connectionStateChanged(.reconnecting, workspace: workspace)
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
         let presentation = try #require(indicator.pendingPresentation)
         #expect(workspace.statusEntries[key] == nil)
 
-        indicator.connectionStateChanged(.connected, workspace: workspace)
+        indicator.connectionStateChanged(.connected, reconnectingSince: nil, workspace: workspace)
         await presentation.value
 
         #expect(indicator.pendingPresentation == nil)
@@ -33,7 +33,7 @@ import Testing
         let workspace = Workspace()
         let indicator = RemoteTmuxReconnectingIndicator(delay: .milliseconds(10))
 
-        indicator.connectionStateChanged(.reconnecting, workspace: workspace)
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
         await indicator.pendingPresentation?.value
 
         let entry = try #require(workspace.statusEntries[key])
@@ -42,11 +42,11 @@ import Testing
         #expect(!workspace.sessionSnapshot(includeScrollback: false).statusEntries.contains { $0.key == key })
 
         // Each failed attempt reports reconnecting again; the row keeps its one entry.
-        indicator.connectionStateChanged(.reconnecting, workspace: workspace)
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
         #expect(indicator.pendingPresentation == nil)
         #expect(workspace.statusEntries[key] == entry)
 
-        indicator.connectionStateChanged(.connected, workspace: workspace)
+        indicator.connectionStateChanged(.connected, reconnectingSince: nil, workspace: workspace)
         #expect(workspace.statusEntries[key] == nil)
     }
 
@@ -54,12 +54,26 @@ import Testing
         let workspace = Workspace()
         let indicator = RemoteTmuxReconnectingIndicator(delay: .milliseconds(10))
 
-        indicator.connectionStateChanged(.reconnecting, workspace: workspace)
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
         await indicator.pendingPresentation?.value
         #expect(workspace.statusEntries[key] != nil)
 
-        indicator.connectionStateChanged(.ended, workspace: workspace)
+        indicator.connectionStateChanged(.ended, reconnectingSince: nil, workspace: workspace)
         #expect(workspace.statusEntries[key] == nil)
+    }
+
+    /// The delay counts from when the connection began reconnecting, not from when the indicator
+    /// heard about it, so a reconnect already past the delay shows at once.
+    @Test func aReconnectAlreadyPastTheDelayShowsAtOnce() async throws {
+        let workspace = Workspace()
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(60))
+
+        indicator.connectionStateChanged(
+            .reconnecting, reconnectingSince: .now - .seconds(61), workspace: workspace
+        )
+        await indicator.pendingPresentation?.value
+
+        #expect(workspace.statusEntries[key] != nil)
     }
 
     /// A mirror can attach to a source that is already reconnecting, such as a session opened
@@ -75,6 +89,7 @@ import Testing
         connection.beginReconnecting()
         defer { connection.stop() }
         try #require(connection.connectionState == .reconnecting)
+        #expect(connection.reconnectingSince != nil)
 
         let mirror = RemoteTmuxSessionMirror(
             host: connection.host, sessionName: "work", connection: connection,

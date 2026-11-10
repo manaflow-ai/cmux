@@ -87,6 +87,8 @@ struct RemoteTmuxSessionObservers {
 protocol RemoteTmuxSessionSource: AnyObject {
     /// Live transport state (host-global under a shared connection).
     var connectionState: RemoteTmuxConnectionState { get }
+    /// When the transport's current reconnect began, or nil when it is not reconnecting.
+    var reconnectingSince: ContinuousClock.Instant? { get }
     /// Notes a diagnostic event against this session.
     ///
     /// This appends to the transport's diagnostic ring, the buffer `remote.tmux.state` reads back.
