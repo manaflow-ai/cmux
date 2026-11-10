@@ -62,12 +62,9 @@ extension AppDelegate.MainWindowContext {
             dockSnapshot,
             excludingStableIdentities: excludingStableIdentities,
             deferBrowserPanels: deferBrowserPanels,
-            sourceWorkspaceResolver: { [tabManager] originalId in
-                tabManager.restoredSessionWorkspace(
-                    originalId: originalId,
-                    from: tabManagerSnapshot
-                )
-            }
+            sourceWorkspaceResolver: tabManager.restoredSessionWorkspaceResolver(
+                from: tabManagerSnapshot
+            )
         )
     }
 

@@ -31,16 +31,20 @@ extension TabManager {
         }
     }
 
-    func restoredSessionWorkspace(
-        originalId: UUID,
+    /// Resolves a window Dock panel's persisted source workspace ID to a
+    /// restored workspace. Built once per window Dock restore, so each panel
+    /// lookup is constant time.
+    func restoredSessionWorkspaceResolver(
         from snapshot: SessionTabManagerSnapshot
-    ) -> Workspace? {
+    ) -> (UUID) -> Workspace? {
         let pairs = restoredSessionWorkspacePairs(from: snapshot)
-        return DockSourceWorkspaceResolver(
+        let resolver = DockSourceWorkspaceResolver(
             originalWorkspaceIds: pairs.map(\.snapshot.workspaceId)
         )
-        .workspaceIndex(sourceWorkspaceId: originalId)
-        .map { pairs[$0].workspace }
+        return { originalId in
+            resolver.workspaceIndex(sourceWorkspaceId: originalId)
+                .map { pairs[$0].workspace }
+        }
     }
 
     private func restoredSessionWorkspacePairs(
