@@ -93,28 +93,47 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
       // chase folded into the offset keeps that; a row's own glide cut short would not.
       const reading = out.filter((sample) => sample.t > wheeled! + 2 * FRAME_MS && sample.t < back!);
       expect(reading.some((sample) => sample.t > wheeled! + 1100)).toBe(true);
+      // In a frame whose offset moved with no input (the fold), the rows also hold their places on
+      // screen: the layout check above can't see a fold that moves offset and translate apart.
       let drift = 0;
       let drifted: string | undefined;
+      let folded = 0;
+      let jump = 0;
+      let jumped: string | undefined;
       for (let index = 1; index < reading.length; index += 1) {
         const was = reading[index - 1]!;
         const now = reading[index]!;
-        const before = new Map((was.rows ?? []).map((row) => [row.id, row.top + was.scrollTop - was.lag]));
+        const before = new Map((was.rows ?? []).map((row) => [row.id, row]));
+        const offsetMoved = Math.abs(now.scrollTop - was.scrollTop) > 0.5;
+        if (offsetMoved) folded += 1;
         for (const row of now.rows ?? []) {
-          const at = before.get(row.id);
+          const prior = before.get(row.id);
           // What the reader sees: a row in the view, over the composer (a row under the glass composer
           // is the reply's live end, which streams on under it).
-          if (at === undefined || !row.inView || row.top >= (now.composer ?? Number.POSITIVE_INFINITY)) continue;
-          const shift = Math.abs(row.top + now.scrollTop - now.lag - at);
+          if (!prior || !row.inView || row.top >= (now.composer ?? Number.POSITIVE_INFINITY)) continue;
+          const shift = Math.abs(row.top + now.scrollTop - now.lag - (prior.top + was.scrollTop - was.lag));
           if (shift > drift) {
             drift = shift;
             drifted = row.id;
           }
+          const onScreen = offsetMoved ? Math.abs(row.top - prior.top) : 0;
+          if (onScreen > jump) {
+            jump = onScreen;
+            jumped = row.id;
+          }
         }
       }
-      console.log(`chat-scroll-back-still: while reading, rows ${drift.toFixed(1)} px (${drifted ?? "none"})`);
+      console.log(
+        `chat-scroll-back-still: while reading, rows ${drift.toFixed(1)} px (${drifted ?? "none"}); ` +
+          `${folded} offset moves, rows ${jump.toFixed(1)} px on screen (${jumped ?? "none"})`,
+      );
       expect({ drift: Math.round(drift * 10) / 10, drifted }).toEqual({
         drift: Math.min(Math.round(drift * 10) / 10, 0.5),
         drifted,
+      });
+      expect({ jump: Math.round(jump * 10) / 10, jumped }).toEqual({
+        jump: Math.min(Math.round(jump * 10) / 10, 0.5),
+        jumped,
       });
       // Every frame after the one the reader's scroll back down drew in, for as long as a held follow
       // motion took to play out (about a dozen frames on base): the thread is drawn at its layout, so

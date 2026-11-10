@@ -4479,8 +4479,11 @@ function TranscriptView({
       if (!chase || held === 0) return;
       const top = layoutScrollTop(node) - held;
       // An offset the scroller cannot take (a thread drawn above its layout at the very end) stays
-      // drawn, as before; it goes home when the view is followed again.
-      if (top < 0 || top > node.scrollHeight - node.clientHeight) return;
+      // drawn, as before; it goes home when the view is followed again. Nor one inside the room held
+      // for older history: handleScroll clamps the offset back to the room, which would draw the
+      // released translate as a jump.
+      const room = latestLayout.current.layout.origin ?? 0;
+      if (top < room || top > node.scrollHeight - node.clientHeight) return;
       // The physical offset moves by the whole pixels, so the origin under it (a fraction an anchor
       // write left) stays as it is and the browser rounds nothing.
       const physical = node.scrollTop;
