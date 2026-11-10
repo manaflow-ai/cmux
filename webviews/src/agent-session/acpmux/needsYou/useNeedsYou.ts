@@ -71,6 +71,8 @@ export function useNeedsYou({
 }): {
   mode: NeedsYouMode;
   items: NeedsYouItem[];
+  /// `items` whether or not Needs you is on (the triage strip's age and count).
+  waiting: NeedsYouItem[];
   actions: NeedsYouActions;
   attentionTabs: readonly AttentionTab[];
   pill?: TranscriptNeedsYou;
@@ -79,18 +81,19 @@ export function useNeedsYou({
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
   const tabs = useAttentionTabs();
-  const items = useMemo(
+  // Every ask waiting on the person, kept while the list and pill are off: the triage strip
+  // (TriageStrip.tsx) still says how long this ask waited and how many more wait.
+  const waiting = useMemo(
     () =>
-      mode === "off" && !pillOn
-        ? []
-        : needsYouItems({
-            sessions,
-            asks: asks ?? [],
-            open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
-            tabs,
-          }),
-    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval, tabs],
+      needsYouItems({
+        sessions,
+        asks: asks ?? [],
+        open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
+        tabs,
+      }),
+    [sessions, asks, sessionId, rows, queue, queueApproval, tabs],
   );
+  const items = useMemo(() => (mode === "off" && !pillOn ? [] : waiting), [mode, pillOn, waiting]);
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
   /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
@@ -198,5 +201,5 @@ export function useNeedsYou({
           },
         }
       : undefined;
-  return { mode, items, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
+  return { mode, items, waiting, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
 }

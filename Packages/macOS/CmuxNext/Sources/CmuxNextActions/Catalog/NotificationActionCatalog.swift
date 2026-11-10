@@ -17,6 +17,32 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "exclamationmark.bubble", surfaces: [.palette, .keyboard, .menu],
                 mainMenu: .window
             ),
+            // Triage (wow idea 22): from anywhere, Ctrl-Cmd-; opens the chat that has waited longest on
+            // a permission, a question or a plan, and Ctrl-Cmd-Y answers the chat on screen (allow once,
+            // or a question's first choice) and opens the next one (AgentTriage).
+            ActionDescriptor(
+                id: "agent.triage.next",
+                title: String(localized: "action.agent.triage.next", defaultValue: "Go to Longest-Waiting Agent", bundle: .module),
+                keywords: ["agent", "triage", "blocked", "waiting", "oldest", "approval", "question", "plan", "needs input", "next"],
+                defaultShortcut: Shortcut(";", modifiers: [.command, .control]),
+                category: .notifications, symbol: "hourglass", surfaces: [.palette, .keyboard, .menu],
+                cliName: "action agent-triage-next", mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            {
+                var action = ActionDescriptor(
+                    id: "agent.triage.answer",
+                    title: String(localized: "action.agent.triage.answer", defaultValue: "Allow and Go to Next Waiting Agent", bundle: .module),
+                    keywords: ["agent", "triage", "allow", "approve", "answer", "permission", "plan", "question", "waiting", "next"],
+                    defaultShortcut: Shortcut("y", modifiers: [.command, .control]),
+                    category: .notifications, symbol: "checkmark.bubble", surfaces: [.palette, .keyboard, .menu],
+                    cliName: "action agent-triage-answer", mainMenu: .window,
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                )
+                // Only the person's key answers: a socket caller never approves its own request.
+                action.isPersonOnly = true
+                return action
+            }(),
             ActionDescriptor(
                 id: "jumpToUnread",
                 title: String(localized: "action.jumpToUnread", defaultValue: "Jump to Latest Unread", bundle: .module),

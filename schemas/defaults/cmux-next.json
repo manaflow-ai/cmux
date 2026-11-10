@@ -11,6 +11,8 @@
     "ghostty.super+alt+w": "unbind",
     "ghostty.super+enter": "unbind",
     "ghostty.super+j": "unbind",
+    "key.agent.triage.answer": ["ctrl+cmd+y"],
+    "key.agent.triage.next": ["ctrl+cmd+;"],
     "key.agentPane.archiveChat": ["ctrl+cmd+a"],
     "key.agentPane.copyLastCodeBlock": ["opt+cmd+;"],
     "key.agentPane.nextTurn": ["ctrl+opt+down"],
