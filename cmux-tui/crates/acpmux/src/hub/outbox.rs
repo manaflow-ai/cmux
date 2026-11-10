@@ -299,9 +299,9 @@ impl Outbox {
         crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
-    /// Records a new delivery; the same prompt id again answers with the first one. Fails when
-    /// the file cannot be written: then the delivery is not kept in memory either (not kept
-    /// means not sent), and a later write never puts it on disk.
+    /// Records a new delivery; the same prompt id to the same target again answers with the first
+    /// one. Fails when the file cannot be written: then the delivery is not kept in memory either
+    /// (not kept means not sent), and a later write never puts it on disk.
     pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, added) = self.add_scoped(delivery, false);
         self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
@@ -325,16 +325,18 @@ impl Outbox {
     }
 
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
+    /// A prompt id names one message to one target, as the target's prompt ledger keys it
+    /// (`Hub::prompt_with`): the same id to another target is another message.
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
+                && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
-                        && d.target == delivery.target
                         && projected_message(d) == projected_message(&delivery)))
         }) {
             let first = first.clone();
