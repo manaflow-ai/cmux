@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { PageClient, PageHandler } from "../../pages/shared/pageClient";
 import { pageError } from "../../pages/shared/pageClient";
-import { AppPanelsClient, type AppPanel, type SceneEvent } from "./panelsClient";
+import { AppPanelsClient, bundleAssetURL, type AppPanel, type SceneEvent } from "./panelsClient";
 import { MOCK_APP_PANELS, MockAppPanelsClient } from "./panelsMock";
 
 function deferred<T>() {
@@ -267,4 +267,123 @@ test("a catalog change before the watch activates is recovered by its completion
   owner.stop();
   expect(host.changedStopped).toBe(1);
   expect(host.count("unmount")).toBe(1);
+});
+
+test("mount names its surface; status events reach the scene store and Reload calls the host from the click", async () => {
+  const host = new Host();
+  host.mount = Promise.resolve({ mount_id: "mount-a" });
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  expect(host.calls.find((call) => call.op === "cmux.apps.panels.mount")?.params).toEqual({
+    surface: "sessionInfoSection",
+    app: PANEL.app,
+    section: PANEL.section,
+    context: CONTEXT,
+  });
+  const mounted = owner.getSnapshot()[0]!;
+  expect(mounted.store.getStatus().state).toBe("loading");
+  host.scene?.({ mount_id: "mount-a", status: "failed", reason: "init: Error: nope" }, 1);
+  expect(mounted.store.getStatus()).toEqual({ state: "failed", reason: "init: Error: nope" });
+  host.scene?.({ mount_id: "someone-else", status: "ready" }, 2);
+  expect(mounted.store.getStatus().state).toBe("failed");
+  const before = host.calls.length;
+  mounted.reload();
+  // Recorded before any await: the host checks its own recent gesture.
+  expect(host.calls.slice(before)).toEqual([{ op: "cmux.apps.panels.reload", params: { mount_id: "mount-a" } }]);
+  host.scene?.(
+    {
+      mount_id: "mount-a",
+      ops: [
+        { op: "create", id: "t", type: "Text", props: { text: "Back" } },
+        { op: "root", id: "t" },
+      ],
+      reset: true,
+    },
+    3,
+  );
+  expect(mounted.store.getStatus().state).toBe("ready");
+  host.scene?.({ mount_id: "mount-a", status: "disconnected", reason: "cmux is not connected" }, 4);
+  expect(mounted.store.getStatus()).toEqual({ state: "disconnected", reason: "cmux is not connected" });
+  owner.stop();
+  mounted.reload();
+  expect(host.count("reload")).toBe(1);
+});
+
+test("layout reports each new drawn height once, rounded up, and nothing after close", async () => {
+  const host = new Host();
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  const mounted = owner.getSnapshot()[0]!;
+  mounted.layout(120.2);
+  mounted.layout(120.9);
+  mounted.layout(64);
+  mounted.layout(Number.NaN);
+  expect(host.calls.filter((call) => call.op === "cmux.apps.panels.layout").map((call) => call.params)).toEqual([
+    { mount_id: "mount-a", height: 121 },
+    { mount_id: "mount-a", height: 64 },
+  ]);
+  owner.stop();
+  mounted.layout(80);
+  expect(host.count("layout")).toBe(2);
+});
+
+test("bundle images resolve under the mount's asset base only when the host serves them", async () => {
+  const host = new Host();
+  host.mount = Promise.resolve({ mount_id: "mount-a", asset_base: "/__appbundle/mount-a/" });
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  const mounted = owner.getSnapshot()[0]!;
+  expect(mounted.resolveAsset("assets/logo one.png")).toBe("/__appbundle/mount-a/assets/logo%20one.png");
+  expect(mounted.resolveAsset("assets/a%2Fb.png")).toBeUndefined();
+  expect(bundleAssetURL("/b/", "x/%2e%2e/y.png")).toBeUndefined();
+  expect(bundleAssetURL("/b/", "%E0%A4%A.png")).toBeUndefined();
+  owner.stop();
+  const bare = new Host();
+  const other = new AppPanelsClient(bare, CONTEXT);
+  other.start();
+  await settled();
+  await settled();
+  expect(other.getSnapshot()[0]!.resolveAsset("assets/logo.png")).toBeUndefined();
+  other.stop();
+});
+
+test("a refused mount shows its reason as a failure", async () => {
+  const host = new Host();
+  host.mount = Promise.reject(
+    pageError("cmux.apps.panels.not_found", "No sessionInfoSection of local/customize#prs shows"),
+  );
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  expect(owner.getSnapshot()[0]!.store.getStatus()).toEqual({
+    state: "failed",
+    reason: "No sessionInfoSection of local/customize#prs shows",
+  });
+  owner.stop();
+});
+
+test("a height measured before the mount answers reaches the host once it does", async () => {
+  const host = new Host();
+  const mount = deferred<unknown>();
+  host.mount = mount.promise;
+  const owner = new AppPanelsClient(host, CONTEXT);
+  owner.start();
+  await settled();
+  await settled();
+  owner.getSnapshot()[0]!.layout(40);
+  expect(host.count("layout")).toBe(0);
+  mount.resolve({ mount_id: "mount-a" });
+  await settled();
+  await settled();
+  expect(host.calls.filter((call) => call.op === "cmux.apps.panels.layout").map((call) => call.params)).toEqual([
+    { mount_id: "mount-a", height: 40 },
+  ]);
+  owner.stop();
 });
