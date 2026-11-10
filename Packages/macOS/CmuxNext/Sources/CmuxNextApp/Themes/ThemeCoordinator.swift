@@ -53,6 +53,9 @@ final class ThemeCoordinator {
     private let themed = NSHashTable<ThemeScope>.weakObjects()
     /// The applies each live terminal took: an apply reaches the shown ones, the parked catch up.
     private let applies = ThemeApplyLedger()
+    #if DEBUG
+    private(set) var debugContentShows = 0 // `contentDidShow` runs, read by tests
+    #endif
 
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
          workspaceOpacities: WorkspaceBackgroundStore? = nil,
@@ -199,6 +202,9 @@ final class ThemeCoordinator {
     /// A workspace content was created or shown in `controller`'s window: it and the terminals in
     /// its panes take the applies they missed while parked.
     func contentDidShow(_ content: WorkspaceContentController) {
+        #if DEBUG
+        debugContentShows += 1
+        #endif
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
