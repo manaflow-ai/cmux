@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use super::{Ready, default_dir, ensure, is_commit, parse, same_remote};
+use super::{Ready, default_dir, ensure, parse, same_remote};
 
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -35,36 +35,58 @@ fn a_repo_is_cloned_once_and_then_reused() {
     assert!(dir.join("AGENTS.md").is_file());
     // The person's work in the clone stays: the second chat reuses it without a fetch or checkout.
     std::fs::write(dir.join("notes.txt"), "mine").unwrap();
-    assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Reused));
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Reused));
     assert!(dir.join("notes.txt").is_file());
 }
 
 #[test]
-fn a_ref_is_checked_out_and_a_missing_one_leaves_nothing_to_reuse() {
+fn a_ref_is_checked_out_and_a_clone_at_another_is_never_reused_for_it() {
     let root = tempfile::tempdir().unwrap();
     let url = origin(root.path());
+    let source = root.path().join("source");
+    git(&source, &["tag", "v1"]);
     let dir = root.path().join("topic");
     assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Cloned));
     let head = Command::new("git").arg("-C").arg(&dir).args(["branch", "--show-current"]).output();
     assert_eq!(String::from_utf8_lossy(&head.unwrap().stdout).trim(), "topic");
-    // A missing ref: no clone is left on the default branch for a retry to reuse.
+    assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Reused));
+    // Tags, full tag refs and commit ids, as git checkout takes them.
+    assert_eq!(ensure(&url, Some("refs/tags/v1"), &root.path().join("tag")), Ok(Ready::Cloned));
+    let first = Command::new("git").arg("-C").arg(&source).args(["rev-parse", "HEAD"]).output();
+    let first = String::from_utf8_lossy(&first.unwrap().stdout).trim().to_owned();
+    std::fs::write(source.join("later.txt"), "later").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-qm", "later"]);
+    let at = root.path().join("at-commit");
+    assert_eq!(ensure(&url, Some(&first[..6]), &at), Ok(Ready::Cloned));
+    assert!(!at.join("later.txt").exists());
+    // A missing ref: the clone stays on its default branch, and a retry at that ref is refused
+    // instead of starting there.
     let missing = root.path().join("missing");
     let error = ensure(&url, Some("no-such-ref"), &missing).unwrap_err();
-    assert_eq!(error["code"], "repo.clone_failed");
-    assert!(error["message"].as_str().unwrap().contains("no-such-ref"));
-    assert!(!missing.exists());
-    // A folder that was there stays, empty, with its own permissions.
+    assert_eq!(error["code"], "repo.checkout_failed");
+    assert!(missing.join(".git").exists());
+    assert_eq!(
+        ensure(&url, Some("no-such-ref"), &missing).unwrap_err()["code"],
+        "repo.ref_mismatch"
+    );
+    assert_eq!(ensure(&url, Some("topic"), &missing).unwrap_err()["code"], "repo.ref_mismatch");
+}
+
+#[test]
+fn an_empty_folder_keeps_its_permissions_and_a_symlink_to_it_works() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
     let empty = root.path().join("empty");
     std::fs::create_dir(&empty).unwrap();
     std::fs::set_permissions(&empty, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
-    assert!(ensure(&url, Some("no-such-ref"), &empty).is_err());
-    assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
+    let alias = root.path().join("alias");
+    std::os::unix::fs::symlink(&empty, &alias).unwrap();
+    assert_eq!(ensure(&url, None, &alias), Ok(Ready::Cloned));
+    assert!(empty.join("AGENTS.md").is_file());
     let mode =
         std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&empty).unwrap().permissions());
     assert_eq!(mode & 0o777, 0o700);
-    // A tag works as a branch does.
-    git(&root.path().join("source"), &["tag", "v1"]);
-    assert_eq!(ensure(&url, Some("v1"), &root.path().join("tag")), Ok(Ready::Cloned));
 }
 
 #[test]
@@ -129,34 +151,6 @@ fn a_folder_inside_another_repository_is_not_read_as_its_clone() {
 }
 
 #[test]
-fn a_commit_is_checked_out_and_a_failed_one_leaves_nothing() {
-    let root = tempfile::tempdir().unwrap();
-    let url = origin(root.path());
-    let source = root.path().join("source");
-    let first = Command::new("git").arg("-C").arg(&source).args(["rev-parse", "HEAD"]).output();
-    let first = String::from_utf8_lossy(&first.unwrap().stdout).trim().to_owned();
-    std::fs::write(source.join("later.txt"), "later").unwrap();
-    git(&source, &["add", "."]);
-    git(&source, &["commit", "-qm", "later"]);
-    assert!(is_commit(&first) && is_commit(&first[..7]) && !is_commit("topic"));
-    let dir = root.path().join("at-commit");
-    assert_eq!(ensure(&url, Some(&first[..12]), &dir), Ok(Ready::Cloned));
-    assert!(dir.join("AGENTS.md").is_file() && !dir.join("later.txt").exists());
-    // A missing commit: nothing is left for a retry to reuse.
-    let missing = root.path().join("missing-commit");
-    let error = ensure(&url, Some("0123456789abcdef"), &missing).unwrap_err();
-    assert_eq!(error["code"], "repo.checkout_failed");
-    assert!(!missing.exists());
-    // Nothing of a failed start is left beside the folder either.
-    let beside: Vec<_> = std::fs::read_dir(root.path())
-        .unwrap()
-        .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().contains(".cmux-clone-"))
-        .collect();
-    assert!(beside.is_empty());
-}
-
-#[test]
 fn a_linked_worktree_and_an_empty_repository_are_reused() {
     let root = tempfile::tempdir().unwrap();
     let url = origin(root.path());
@@ -173,18 +167,4 @@ fn a_linked_worktree_and_an_empty_repository_are_reused() {
     let empty = root.path().join("empty");
     assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Cloned));
     assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Reused));
-}
-
-#[test]
-fn another_starts_clone_put_in_place_first_is_reused() {
-    let root = tempfile::tempdir().unwrap();
-    let url = origin(root.path());
-    let dir = root.path().join("dir");
-    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
-    std::fs::write(dir.join("work.txt"), "theirs").unwrap();
-    // This start's staged clone arrives second: the rename is refused and theirs is reused.
-    let staging = root.path().join(".dir.cmux-clone-test");
-    super::clone_at(&url, None, &staging).unwrap();
-    assert_eq!(super::publish(&url, &staging, &dir), Ok(Ready::Reused));
-    assert_eq!(std::fs::read_to_string(dir.join("work.txt")).unwrap(), "theirs");
 }

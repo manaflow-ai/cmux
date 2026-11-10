@@ -45,99 +45,54 @@ pub(super) enum Ready {
     Reused,
 }
 
-/// `url` cloned into `dir` (an empty or missing folder) at `reference` when given; or the clone
-/// already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
+/// `url` cloned into `dir` (an empty or missing folder), `reference` checked out when given; or
+/// the clone already in `dir` when its origin is `url` (and it is at `reference`, when given).
+/// Err: a `{code, message, details}` error.
 ///
-/// The clone is made and checked out in a staging folder beside `dir` that only this start
-/// names, then put in place by one `rename`, which takes a missing or empty `dir` and refuses one
-/// that is not empty. No other start ever sees a clone before its checkout is done, and a failure
-/// at any step removes only the staging folder. A `dir` that was there keeps its permissions.
+/// Nothing here deletes anything. git clones into the folder itself (its permissions, its inode,
+/// a symlink to it all stay), refuses one that is not empty, and on a failed clone removes only
+/// what it made. A checkout that fails leaves the clone on its default branch, and says so; a
+/// later start at that ref finds it is not there ([`reuse`]) and is refused, never let in on the
+/// wrong commit.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     if is_nonempty(dir) {
-        return reuse(url, dir);
+        return reuse(url, reference, dir);
     }
-    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
-        return Err(failed(dir, format!("{} has no parent folder", dir.display())));
-    };
-    std::fs::create_dir_all(parent)
-        .map_err(|err| failed(dir, format!("could not make {}: {err}", parent.display())))?;
-    let mut staging_name = std::ffi::OsString::from(".");
-    staging_name.push(name);
-    staging_name.push(format!(".cmux-clone-{}-{}", std::process::id(), unique()));
-    let staging = parent.join(staging_name);
-    let result = clone_at(url, reference, &staging).and_then(|()| publish(url, &staging, dir));
-    let _ = std::fs::remove_dir_all(&staging);
-    result
-}
-
-/// `url` cloned into `staging` (which does not exist) and checked out at `reference`.
-fn clone_at(url: &str, reference: Option<&str>, staging: &Path) -> Result<(), Value> {
-    let commit = reference.filter(|reference| is_commit(reference));
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            error(
+                "repo.clone_failed",
+                format!("could not make {}: {err}", parent.display()),
+                json!({"dir": dir}),
+            )
+        })?;
+    }
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
-    let mut args = vec![OsStr::new("clone"), "--quiet".as_ref(), "--filter=blob:none".as_ref()];
-    match (reference, commit) {
-        (_, Some(_)) => args.push("--no-checkout".as_ref()),
-        (Some(reference), None) => args.extend([OsStr::new("--branch"), reference.as_ref()]),
-        (None, None) => {}
-    }
-    args.extend([OsStr::new("--"), url.as_ref(), staging.as_os_str()]);
-    git(None, args).map_err(|said| {
-        let at = reference.map(|reference| format!(" at {reference}")).unwrap_or_default();
-        error(
-            "repo.clone_failed",
-            format!("git clone {url}{at} failed: {said}"),
-            json!({"url": url, "ref": reference}),
-        )
+    let clone = ["clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
+    git(None, clone.into_iter().chain([dir.as_os_str()])).map_err(|said| {
+        error("repo.clone_failed", format!("git clone {url} failed: {said}"), json!({"url": url}))
     })?;
-    if let Some(commit) = commit {
-        git(Some(staging), ["-c", "advice.detachedHead=false", "checkout", "--quiet", commit])
+    if let Some(reference) = reference {
+        git(Some(dir), ["-c", "advice.detachedHead=false", "checkout", "--quiet", reference])
             .map_err(|said| {
                 error(
                     "repo.checkout_failed",
-                    format!("cloned {url}, but git checkout {commit} failed: {said}"),
-                    json!({"url": url, "ref": commit}),
+                    format!(
+                        "cloned {url} into {}, but git checkout {reference} failed: {said}; the \
+                         clone stays there on its default branch",
+                        dir.display()
+                    ),
+                    json!({"url": url, "ref": reference, "dir": dir}),
                 )
             })?;
     }
-    Ok(())
+    Ok(Ready::Cloned)
 }
 
-/// The finished clone in `staging` put at `dir` in one `rename`. A `dir` that is there (empty, or
-/// [`ensure`] would not have cloned) lends the clone its permissions first. When another start
-/// put its clone there meanwhile, the rename is refused and that clone is reused.
-fn publish(url: &str, staging: &Path, dir: &Path) -> Result<Ready, Value> {
-    if let Ok(meta) = std::fs::metadata(dir) {
-        let _ = std::fs::set_permissions(staging, meta.permissions());
-    }
-    match std::fs::rename(staging, dir) {
-        Ok(()) => Ok(Ready::Cloned),
-        Err(_) if is_nonempty(dir) => reuse(url, dir),
-        Err(err) => {
-            Err(failed(dir, format!("could not put the clone at {}: {err}", dir.display())))
-        }
-    }
-}
-
-/// A number no other start picks at the same moment, with the process id beside it.
-fn unique() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos())
-}
-
-fn failed(dir: &Path, message: String) -> Value {
-    error("repo.clone_failed", message, json!({"dir": dir}))
-}
-
-/// Whether `reference` reads as a commit id (7 to 40 hex digits) rather than a branch or tag,
-/// which `git clone --branch` takes.
-pub(super) fn is_commit(reference: &str) -> bool {
-    (7..=40).contains(&reference.len()) && reference.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// The clone already in `dir`, when its origin is `url`.
-fn reuse(url: &str, dir: &Path) -> Result<Ready, Value> {
+/// The clone already in `dir`, when its origin is `url` and, with `reference`, its HEAD is that
+/// commit. Read only: nothing is fetched or checked out, so a chat's work there stays.
+fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     // Only a folder with its own `.git` is asked: git would otherwise answer for a repository the
     // folder sits in.
     let origin = dir
@@ -145,17 +100,31 @@ fn reuse(url: &str, dir: &Path) -> Result<Ready, Value> {
         .exists()
         .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
         .flatten();
-    if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
+    if !origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
+        return Err(error(
+            "repo.dir_taken",
+            format!(
+                "{} already holds something other than a clone of {url}; give another folder \
+                 with --cwd DIR",
+                dir.display()
+            ),
+            json!({"dir": dir, "origin": origin}),
+        ));
+    }
+    let Some(reference) = reference else { return Ok(Ready::Reused) };
+    let commit = |name: &str| git(Some(dir), ["rev-parse", "--verify", "--quiet", name]).ok();
+    let head = commit("HEAD^{commit}");
+    if head.is_some() && head == commit(&format!("{reference}^{{commit}}")) {
         return Ok(Ready::Reused);
     }
     Err(error(
-        "repo.dir_taken",
+        "repo.ref_mismatch",
         format!(
-            "{} already holds something other than a clone of {url}; give another folder with \
-             --cwd DIR",
+            "{} holds a clone of {url} that is not at {reference}; check {reference} out there, \
+             or give another folder with --cwd DIR",
             dir.display()
         ),
-        json!({"dir": dir, "origin": origin}),
+        json!({"dir": dir, "ref": reference, "head": head}),
     ))
 }
 
