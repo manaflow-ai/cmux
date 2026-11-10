@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -6042,6 +6042,22 @@
           "kind": "choice_or_url",
           "default": "hosted",
           "group": "Messages Server"
+        },
+        {
+          "key": "subagents.closeFinishedWorkspaces",
+          "title": "Close Finished Subagent Workspaces",
+          "help": "When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Subagents"
+        },
+        {
+          "key": "subagents.showWorkspaces",
+          "title": "Show Each Subagent in the Sidebar",
+          "help": "Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Subagents"
         }
       ]
     },

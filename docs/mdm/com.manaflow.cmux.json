@@ -5144,6 +5144,18 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "subagents.closeFinishedWorkspaces" : {
+      "default" : false,
+      "description" : "When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it.",
+      "title" : "Close Finished Subagent Workspaces",
+      "type" : "boolean"
+    },
+    "subagents.showWorkspaces" : {
+      "default" : false,
+      "description" : "Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies.",
+      "title" : "Show Each Subagent in the Sidebar",
+      "type" : "boolean"
+    },
     "tabs.barOrder" : {
       "default" : "aboveToolbar",
       "description" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
