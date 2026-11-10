@@ -736,6 +736,7 @@ function ComposerFrame({
     dropLanded,
     attach,
     attachLater,
+    refused: attachRefused,
   } = useAttachmentIntake({
     // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
     // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
@@ -950,6 +951,9 @@ function ComposerFrame({
           });
       },
       attach(attachment) {
+        // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
+        // recording, a link pick, the focused tab), and the note says why (`refusal`).
+        if (attachRefused()) return;
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
@@ -1061,7 +1065,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater],
+    [setAttachments, attachLater, attachRefused],
   );
   useEffect(() => {
     if (!draft) return;

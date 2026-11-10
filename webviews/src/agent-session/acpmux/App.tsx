@@ -4496,6 +4496,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// text (Composer `onUnsentDraft`), and the host seeds the started chat's composer with it as a
   /// draft (CloudStartChat `openUploaded`). On failure the prompt comes back in front of it.
   const cloudStarting = cloudStart?.state === "starting";
+  /// The same, for dictation's recording (below), whose callbacks are made once.
+  const cloudStartingNow = useRef(false);
+  cloudStartingNow.current = cloudStarting;
   /// The prompt a Cloud start took out of the composer (it shows as the message, with the start under
   /// it, as a local send's does), by its start's key: a failed start puts it back. Set only where the
   /// prompt was taken out (the composer's Send, a sign-in's resend), so nothing reads the prompt off
@@ -6199,6 +6202,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
+      // A Cloud start is out: the words still land as text, which the started chat gets; the
+      // recording, a chip the host would not carry, is left out.
+      if (cloudStartingNow.current) return;
       const name = translate("dictation.recording");
       const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);

@@ -76,29 +76,40 @@ struct UnsentDraftTests {
         drafts.wire(sender) { "tab-1" }
         _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
         let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person),
-                                                                    limit: .seconds(30))
+                                                                    limit: .seconds(30)) { drafts.draft(forTab: "tab-1", machine: "this-mac") }
         #expect(await source.peek()?.cwd == "/w")
         // The started chat's page asks for its seed while the start still awaits its tab and the trust.
         let taking = Task { @MainActor in await source.take() }
         for _ in 0..<5 { await Task.yield() }
         // The person keeps typing on the sending tab meanwhile.
         _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
-        handOff(drafts.draft(forTab: "tab-1", machine: "this-mac"))
-        handOff("too late")
+        handOff(true)
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "too late"]))
+        handOff(false)
         let seed = await taking.value
         #expect(seed?.draft == "and the nightly")
         #expect(seed?.prompt == "fix the build")
         withExtendedLifetime(sender) {}
     }
 
-    /// A hand-off that never comes (the start failed after the chat's tab was made) holds the page's
-    /// seed only until the limit: the prompt still goes, without a draft.
-    @Test func aCloudStartsChatGoesWithoutADraftWhenTheHandOffNeverComes() async throws {
-        let (source, _) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person),
-                                                              limit: .milliseconds(50))
-        let seed = await source.take()
+    /// A hand-off later than the page's wait (the folder's trust ran long) does not lose the text: the
+    /// seed reads the sending tab's text as it is then. One that says there is none (the start failed)
+    /// gives none.
+    @Test func aCloudStartsChatTakesTheSendingTabsTextWhenTheHandOffRunsLate() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
+        let (late, _) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person),
+                                                            limit: .milliseconds(50)) { drafts.draft(forTab: "tab-1", machine: "this-mac") }
+        let seed = await late.take()
         #expect(seed?.prompt == "fix the build")
-        #expect(seed?.draft == nil)
+        #expect(seed?.draft == "and the nightly")
+        let (failed, give) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person),
+                                                                 limit: .seconds(30)) { "never read" }
+        give(false)
+        #expect(await failed.take()?.draft == nil)
+        withExtendedLifetime(sender) {}
     }
 
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held

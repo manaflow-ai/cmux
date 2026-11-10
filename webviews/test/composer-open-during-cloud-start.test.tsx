@@ -411,3 +411,23 @@ test("a large paste during the start stays text; one past the field's limit is r
   expect(composerText()).toBe(large);
   expect(note()).toContain("Cloud chat opens");
 }, 60_000);
+
+test("chips the page adds during the start are refused with the same note: a design highlight, a transcript selection", async () => {
+  await startInCloud();
+  await until(() => composerText() === "", "the sent prompt leaves the composer");
+  const bridge = (dom.window as unknown as { cmuxAcpmuxBridge?: { designSelection?(value: unknown): void } })
+    .cmuxAcpmuxBridge;
+  await act(async () =>
+    bridge?.designSelection?.({ id: "pick-1", name: "Sidebar header", text: "<header>…</header>" }),
+  );
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(chipsShown()).toBe(0);
+  expect(note()).toContain("Cloud chat opens");
+  const attachSelection = actions()?.["chat.attachSelection"] as ((params: unknown) => Promise<unknown>) | undefined;
+  expect(attachSelection).toBeDefined();
+  await act(async () => void (await attachSelection!({ text: "a line of the transcript worth quoting" })));
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(chipsShown()).toBe(0);
+  expect(note()).toContain("Cloud chat opens");
+  await typeWhileStarting(TYPED);
+}, 60_000);
