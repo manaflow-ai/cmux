@@ -170,10 +170,12 @@ impl Peer {
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         // After an attempt the network failed, the host's ssh port is tried every
         // `net_back::EVERY` (`peer_net_back.rs`); a parked peer's hourly wait does not.
-        let probing = delay <= Backoff::CAP
+        let mut probing = delay <= Backoff::CAP
             && self.net_down.load(Ordering::SeqCst)
             && self.ssh_parts().is_some();
         let mut next_try = started + net_back::EVERY;
+        // Its own deadline: a probe or an ask that does not end the wait never pushes it back.
+        let mut next_check = started + SleepWatch::EVERY;
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
             let asked = self.wanted.asked.notified();
@@ -183,9 +185,9 @@ impl Peer {
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
-            let check = (Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
-                _ = tokio::time::sleep_until(check) => {
+                _ = tokio::time::sleep_until(next_check.min(deadline)) => {
+                    next_check = Instant::now() + SleepWatch::EVERY;
                     if let Some(slept) = slept() {
                         tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
                         return BackoffWait::Woke;
@@ -203,28 +205,32 @@ impl Peer {
                     }
                 }
                 _ = tokio::time::sleep_until(next_try), if probing && next_try < deadline => {
-                    if self.network_back().await {
-                        tracing::info!(peer = %self.name, "the host answers again; reconnecting now");
-                        return BackoffWait::Done;
+                    match self.network_back().await {
+                        Some(true) => {
+                            tracing::info!(peer = %self.name, "the host answers again; reconnecting now");
+                            return BackoffWait::Done;
+                        }
+                        Some(false) => next_try = Instant::now() + net_back::EVERY,
+                        // Reached through a proxy: nothing to try, so the wait stops trying.
+                        None => probing = false,
                     }
-                    next_try = Instant::now() + net_back::EVERY;
                 }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
     }
 
-    /// Whether the host's ssh port answers a TCP connect now (`peer_net_back.rs`); false for a
-    /// host reached through a proxy.
-    pub(super) async fn network_back(&self) -> bool {
-        let Some((destination, _)) = self.ssh_parts() else { return false };
+    /// Whether the host's ssh port answers a TCP connect now (`peer_net_back.rs`); None for a
+    /// host reached through a proxy, which has no port to try.
+    pub(super) async fn network_back(&self) -> Option<bool> {
+        let (destination, _) = self.ssh_parts()?;
         let target = self
             .net_target
             .get_or_init(|| net_back::resolve(self.ssh_command(), &destination))
             .await;
         match target {
-            Some((host, port)) => net_back::answers(host, *port).await,
-            None => false,
+            Some((host, port)) => Some(net_back::answers(host, *port).await),
+            None => None,
         }
     }
 }
