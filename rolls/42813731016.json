@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42813731016",
+  "recorded_at": "2026-11-10T12:15:05Z",
+  "reason": "cmux-tui 0d935f8115f7 changes the image's cmux-tui (pinned 250b6f0e7fa9)",
+  "dry_run": false,
+  "cmux_tui": "0d935f8115f7443783a6935267215df89f7a3629",
+  "fixes": [
+    {
+      "sha": "0d935f8115f7443783a6935267215df89f7a3629",
+      "mergedAt": "2026-11-10T03:54:24-08:00",
+      "subject": "app health: the app feeds and repairs pages, renderers, the session daemon and the page host (#39190)"
+    },
+    {
+      "sha": "4ed48818646e03a06faeddd40acf6001afe10792",
+      "mergedAt": "2026-11-10T03:52:49-08:00",
+      "subject": "NEXT: Move to… any machine: Cloud VM to VM, back to this Mac, one menu (#40108)"
+    },
+    {
+      "sha": "0b14fcd8c6e5cdc05dea03e6e77382f507df39cd",
+      "mergedAt": "2026-11-10T11:52:42Z",
+      "subject": "chore(next): base autofix at 8553ed9ca6f8"
+    },
+    {
+      "sha": "8553ed9ca6f8b57035decb995a528ea1dc07b533",
+      "mergedAt": "2026-11-10T03:50:23-08:00",
+      "subject": "CLI reconnects: a slow control-server restart heals (5 s bounded backoff), --socket during a restart is not another kind of socket, no probe connection (#40372)"
+    },
+    {
+      "sha": "d54fdc7153a9950fb73c7e8fe4e5915216bd6a61",
+      "mergedAt": "2026-11-10T03:48:52-08:00",
+      "subject": "Agent chat: prompt coach shows how a heavily corrected chat could have landed in one shot (#38893)"
+    },
+    {
+      "sha": "d7f7b5d990bd5f66c67757fe5b064d570e3f1b53",
+      "mergedAt": "2026-11-10T03:47:34-08:00",
+      "subject": "cmux-api: Connect GitHub reuses before asking and returns to the chat (#40322)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T12:15:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
