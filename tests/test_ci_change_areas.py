@@ -4922,6 +4922,17 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
             assert result.returncode != 0, (web_job, outcome)
 
 
+def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
+    # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={job: "skipped" for job in WEB_JOBS if job != "web-subarea-scope"},
+        subareas={},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout, result.stdout
+
+
 def test_web_status_allows_unrouted_skips() -> None:
     result = run_web_status(
         inputs={"web": "false", "macos": "false", "agent_session_web": "false"},

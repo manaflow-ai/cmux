@@ -112,6 +112,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onCancelUpload?(key: string): void;
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   onCopy?(text: string): void;
+  /** A drag on an attachment: the host drags the file out (to Finder, another app). */
+  onDragAttachment?: RowActions["onDragAttachment"];
   /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
   onReply?(message: HomeMessage): void;
   /** Delete on my committed message in a Chief chat (bubbleMenu `canDeleteMessage`). */
@@ -294,6 +296,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       ...(props.onFile ? { onFile: props.onFile } : {}),
       ...(props.onReplyToSelection ? { onReplyToSelection: props.onReplyToSelection } : {}),
       ...(props.onOpenReplies ? { onOpenReplies: props.onOpenReplies } : {}),
+      ...(props.onDragAttachment ? { onDragAttachment: props.onDragAttachment } : {}),
       ...(links ? { links } : {}),
       ...(props.approvals ? { approvals: props.approvals } : {}),
       context: () => facts.current,
@@ -313,6 +316,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.onFile,
       props.onReplyToSelection,
       props.onOpenReplies,
+      props.onDragAttachment,
       links,
       props.approvals,
     ],

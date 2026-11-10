@@ -57,6 +57,7 @@ import {
   bubbleHostActions,
   chatAppearance,
   DEFAULT_APPEARANCE,
+  attachmentDragParams,
   DetailOps,
   homeToastAvoidance,
   linkPreviewFetch,
@@ -648,6 +649,12 @@ function ConversationView(
         onReplyToSelection={onReplyToSelection}
         replyCounts={timelineCounts}
         onOpenReplies={(id) => openBranch(id, [])}
+        {...(host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                hostCall(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex)),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
@@ -823,6 +830,14 @@ function ThreadView(
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={props.onReply}
         {...props.menus}
+        {...(props.host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                void props.host
+                  ?.call(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex))
+                  .catch(() => undefined),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}

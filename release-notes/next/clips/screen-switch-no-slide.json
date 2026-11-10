@@ -1,0 +1,15 @@
+{
+  "caption": "Switch between two screens of a workspace: each one shows at once, with no slide and no fade.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Screen 1 shows a build log", "cmux": ["action", "run", "newTab", "--arg", "name=Build", "--arg", "command=printf '\\033]0;Build\\007'; clear; printf '\\n  \\033[1;32mBUILD\\033[0m\\n\\n  compile  ok\\n  link     ok\\n  sign     ok\\n'; sleep 900", "--arg", "focus=true"], "wait": 2.5},
+    {"title": "A second screen", "cmux": ["action", "run", "screen.new"], "wait": 2.5},
+    {"title": "Screen 2 shows notes", "cmux": ["action", "run", "newTab", "--arg", "name=Notes", "--arg", "command=printf '\\033]0;Notes\\007'; clear; printf '\\n  \\033[1;34mNOTES\\033[0m\\n\\n  - ship the fix\\n  - write the test\\n  - call the lab\\n'; sleep 900", "--arg", "focus=true"], "wait": 2.5},
+    {"title": "Previous Screen", "cmux": ["action", "run", "screen.previous"], "wait": 1.2, "clip": true},
+    {"title": "Next Screen", "cmux": ["action", "run", "screen.next"], "wait": 1.2, "clip": true},
+    {"title": "Previous Screen again", "cmux": ["action", "run", "screen.previous"], "wait": 1.2, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.19, 0, 0.62, 0.5]
+}
