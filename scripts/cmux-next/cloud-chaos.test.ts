@@ -8,25 +8,26 @@ import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
 import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
-const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
+const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
 
 describe("chaosProbeRow", () => {
-  test("ok only when every fault that ran passed; ms is the slowest recovery", () => {
-    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
+  test("ok only when every fault that ran passed; ms is the slowest felt time, network_ms the slowest connection", () => {
+    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", felt_ms: null, recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
     expect(row.outcome).toBe("ok");
     expect(row.ms).toBe(2400);
+    expect(row.network_ms).toBe(800);
     expect(row.at).toBe("2026-11-08T09:00:00Z");
     expect(row.error).toBeNull();
   });
 
   test("a failed fault fails the row and is named", () => {
-    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", recover_ms: null, detail: "no answer within 120 s" }]);
+    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", felt_ms: null, recover_ms: null, detail: "no answer within 120 s" }]);
     expect(row.outcome).toBe("fail");
     expect(String(row.error)).toContain("drop 60 s: no answer within 120 s");
   });
 
   test("a run where nothing ran is a failure, not a pass", () => {
-    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, recover_ms: null, carrier: "", turn: "", detail: n.why })));
+    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why })));
     expect(row.outcome).toBe("fail");
     expect(row.error).toBe("no fault ran");
   });
@@ -443,5 +444,83 @@ describe("the chat's surface after a restart", () => {
     await chat.prompt("hi");
     expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
     chat.stop();
+  });
+});
+
+describe("the felt time after a send", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  /** A chat on a fake dial whose first `refuse` prompts fail (the carrier still down), then answers and pushes `pushes`. */
+  const chatWith = async (refuse: number, pushes: Array<{ ms: number; record: any }>) => {
+    const prompts: any[] = [];
+    let push: (m: any) => void = () => undefined;
+    let onDial: () => void = () => undefined;
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any) {
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_felt" } };
+          case "agent-session-start": return { ok: true, data: { session: "s-felt" } };
+          case "list-workspaces": return { ok: true, data: { workspaces: [{ screens: [{ panes: [{ tabs: [{ surface: 7, tab_resource_id: "tab_felt" }] }] }] }] } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 4, events: [], hasMore: false } };
+          case "agent-session-prompt":
+            prompts.push(frame);
+            if (prompts.length <= refuse) throw new Error("the client has no dial");
+            for (const p of pushes) setTimeout(() => push({ surface: 7, event: "agent-session-record", record: p.record }), p.ms);
+            return { ok: true, data: {} };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (onLine, d) => { push = onLine; onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, prompts };
+  };
+
+  test("runs from the send to the first record of the agent's reply, not to the echo of the prompt", async () => {
+    const { chat, prompts } = await chatWith(0, [
+      { ms: 10, record: { seq: 5, kind: "user_message_chunk" } },
+      { ms: 200, record: { seq: 6, kind: "tool_call", msg: { params: { update: { sessionUpdate: "tool_call" } } } } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, `${chaos.feltMarker("t-0")} drop 5 s: reply.`, 5_000);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(190);
+    expect(felt.felt_ms).toBeLessThan(1_000);
+    expect(felt.tries).toBe(1);
+    expect(prompts[0].text).toStartWith("[chaos-felt t-0]");
+    chat.stop();
+  });
+
+  test("a send the dial cannot take yet is tried again with the same prompt_id, and the clock keeps the wait", async () => {
+    const { chat, prompts } = await chatWith(2, [{ ms: 0, record: { seq: 5, params: { update: { sessionUpdate: "agent_message_chunk" } } } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 10_000);
+    expect(felt.tries).toBe(3);
+    expect(new Set(prompts.map((p) => p.prompt_id)).size).toBe(1);
+    // Two refusals, each followed by a 500 ms pause: the person waited through them.
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(1_000);
+    expect(felt.ack_ms).toBeGreaterThanOrEqual(1_000);
+    chat.stop();
+  });
+
+  test("no reply within the deadline is null, with the last error", async () => {
+    const { chat } = await chatWith(1_000, []);
+    const felt = await chaos.feltAfterSend(chat, "hi", 1_200);
+    expect(felt.felt_ms).toBeNull();
+    expect(felt.ack_ms).toBeNull();
+    expect(felt.error).toContain("no dial");
+    chat.stop();
+  });
+
+  test("only the agent's own output counts as the reply", () => {
+    expect(chaos.isReply({ seq: 1, kind: "agent_message_chunk" })).toBe(true);
+    expect(chaos.isReply({ params: { update: { sessionUpdate: "tool_call" } } })).toBe(true);
+    expect(chaos.isReply({ seq: 1, kind: "user_message_chunk" })).toBe(false);
+    expect(chaos.isReply({ seq: 1, kind: "turn_end" })).toBe(false);
+  });
+
+  test("the felt prompt never plays the counting turn", () => {
+    expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
   });
 });
