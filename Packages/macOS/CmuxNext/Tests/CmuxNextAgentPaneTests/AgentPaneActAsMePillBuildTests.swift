@@ -63,7 +63,7 @@ struct AgentPaneActAsMePillBuildTests {
         try await Self.until { pages.allSatisfy { Self.pills(in: $0).first?.isHidden == false } }
         #expect(pages.map { Self.pills(in: $0).count } == Array(repeating: 1, count: count))
         #expect(pages.allSatisfy { Self.pills(in: $0).first?.isHidden == false }, "a page shows no pill while the grant is on")
-        #expect(pages.allSatisfy { $0.actAsMeBadge === Self.pills(in: $0).first })
+        #expect(pages.allSatisfy { $0.actAsMePill.badge === Self.pills(in: $0).first })
 
         // Turn Off: the pill hides in each page.
         grant.turnOff()
