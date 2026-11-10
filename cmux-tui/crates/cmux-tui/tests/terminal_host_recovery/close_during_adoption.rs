@@ -6,7 +6,9 @@
 //! the child wait, and no client: the host never got Terminate. An adopting
 //! terminal has a host but no runtime here. The `terminal.close` effect
 //! ended only a runtime, while the legacy `close-terminal` also ends a
-//! pending terminal's host. Both entry points are tested. A debug seam holds
+//! pending terminal's host. Every entry point is tested, also a tab close
+//! that removes the terminal's last tab, and a close whose host is left to
+//! its record cleanup when the owner stops. A debug seam holds
 //! the adoption after it connected and before it finishes, so the close
 //! comes at that moment without a timer. The host must end in the same
 //! owner life, not at the next start.
@@ -46,19 +48,38 @@ enum CloseEntry {
     ResourceTerminalClose,
     /// The legacy `close-terminal` command.
     LegacyCloseTerminal,
+    /// `tab.close` of the terminal's only tab (a batch close).
+    TabClose,
 }
 
 #[test]
 fn a_closed_terminal_host_ends_when_terminal_close_comes_during_a_connected_adoption() {
-    close_during_a_connected_adoption(CloseEntry::ResourceTerminalClose);
+    close_during_a_connected_adoption(CloseEntry::ResourceTerminalClose, &[]);
 }
 
 #[test]
 fn a_closed_terminal_host_ends_when_close_terminal_comes_during_a_connected_adoption() {
-    close_during_a_connected_adoption(CloseEntry::LegacyCloseTerminal);
+    close_during_a_connected_adoption(CloseEntry::LegacyCloseTerminal, &[]);
 }
 
-fn close_during_a_connected_adoption(entry: CloseEntry) {
+#[test]
+fn a_closed_terminal_host_ends_when_its_last_tab_closes_during_a_connected_adoption() {
+    close_during_a_connected_adoption(CloseEntry::TabClose, &[]);
+}
+
+/// The close leaves the host to its record cleanup (debug seam: no inline
+/// Terminate, and the cleanup's first attempt waits 10 minutes). The owner
+/// stops at once; its shutdown must wake the cleanup for a last attempt and
+/// wait for it, not drop it with the process.
+#[test]
+fn a_closed_terminal_host_ends_when_its_record_cleanup_waits_at_owner_stop() {
+    close_during_a_connected_adoption(
+        CloseEntry::ResourceTerminalClose,
+        &[("CMUX_TUI_TEST_DEFER_CLOSE_TERMINATE", "1")],
+    );
+}
+
+fn close_during_a_connected_adoption(entry: CloseEntry, extra_env: &[(&str, &str)]) {
     let mut harness = RecoveryHarness::start("close-during-adoption");
     // The shell holds this FIFO open for writing until it ends, so EOF on it
     // is the shell's exit.
@@ -89,6 +110,7 @@ fn close_during_a_connected_adoption(entry: CloseEntry) {
     let terminals = terminals.as_array().unwrap();
     assert_eq!(terminals.len(), 1, "{terminals:?}");
     let terminal = terminals[0]["id"].as_str().unwrap().to_string();
+    let tab = terminals[0]["tab_ids"][0].as_str().unwrap().to_string();
 
     // The host holds its live marker's lease for its whole life, so taking
     // the lease is its exit event.
@@ -112,6 +134,9 @@ fn close_during_a_connected_adoption(entry: CloseEntry) {
         "CMUX_TUI_TEST_ADOPTION_HOLD_FIFOS".into(),
         format!("{}:{}", held_fifo.display(), release_fifo.display()),
     ));
+    harness
+        .extra_env
+        .extend(extra_env.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())));
     let held = read_fifo_to_end(&held_fifo);
     harness.restart();
     let held = held.recv_timeout(test_timeout(Duration::from_secs(30)));
@@ -138,6 +163,15 @@ fn close_during_a_connected_adoption(entry: CloseEntry) {
                 }),
             );
             assert_eq!(closed["terminal_id"].as_str(), Some(host_terminal_id.as_str()), "{closed}");
+        }
+        CloseEntry::TabClose => {
+            resource_request(
+                &harness.socket,
+                "close-during-adoption-tab-close",
+                "tab.close",
+                serde_json::json!({"machine":"current","session":"current","tab":&tab}),
+                Some("close-during-adoption-tab-close"),
+            );
         }
     }
     // The owner stops right after the close, as `server stop` did in the

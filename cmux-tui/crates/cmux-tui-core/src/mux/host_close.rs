@@ -179,7 +179,11 @@ impl TerminalHostCloses {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: PathBuf,
     ) {
-        let mut delay = Duration::from_millis(25);
+        let mut delay = if super::terminal_host_records::close_terminate_deferred_for_test() {
+            super::terminal_host_records::DEFERRED_CLOSE_CLEANUP_DELAY
+        } else {
+            Duration::from_millis(25)
+        };
         loop {
             // A bounded backoff between attempts; the owner's shutdown cuts it
             // short (begin_shutdown).

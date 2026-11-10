@@ -18,7 +18,8 @@ pub(super) fn terminate_discovered_terminal_host_in(
     for (path, record) in records {
         if record.terminal_id == terminal_id
             && incarnation.is_none_or(|expected| record.incarnation == expected)
-            && !terminate_host_record(record.clone(), path.clone())
+            && (close_terminate_deferred_for_test()
+                || !terminate_host_record(record.clone(), path.clone()))
         {
             closes.schedule_record_cleanup(record, path);
         }
@@ -161,3 +162,22 @@ pub(super) fn cleanup_terminal_host_record(
         }
     }
 }
+
+/// Test seam (debug builds): `CMUX_TUI_TEST_DEFER_CLOSE_TERMINATE=1` skips a
+/// close's inline Terminate of a discovered host and holds the record
+/// cleanup's first attempt for [`DEFERRED_CLOSE_CLEANUP_DELAY`] (cut short
+/// by the owner's shutdown), so a test can stop the owner while a closed
+/// terminal's host waits for its record cleanup.
+pub(super) fn close_terminate_deferred_for_test() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("CMUX_TUI_TEST_DEFER_CLOSE_TERMINATE").is_some_and(|value| value == "1")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+/// The record cleanup's first wait under [`close_terminate_deferred_for_test`].
+pub(super) const DEFERRED_CLOSE_CLEANUP_DELAY: Duration = Duration::from_secs(600);
