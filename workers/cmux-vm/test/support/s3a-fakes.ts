@@ -47,7 +47,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
   const requests: Request[] = [];
   const ptySessions = new Map<string, FakePtySession[]>();
-  const state: { terminalScript: TerminalScript | null; failSnapshotRecord: boolean } = { terminalScript: null, failSnapshotRecord: false };
+  const state: { terminalScript: TerminalScript | null; failSnapshotRecord: boolean; loseSnapshotRecordReply: boolean } = { terminalScript: null, failSnapshotRecord: false, loseSnapshotRecordReply: false };
 
   const ownedSnapshot = (tenantId: string, id: string) =>
     resources.find((row) => row.tenantId === tenantId && row.kind === "snapshot" && row.cmuxId === id);
@@ -111,6 +111,12 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
             meta.set(snapshot.id, { sourceVmId: snapshot.sourceVmId, displayName: snapshot.displayName, labels: snapshot.labels });
           }),
         ),
+        // The write committed but its reply was lost: the caller sees an error for a row that exists.
+        Effect.zipRight(Effect.suspend(() => {
+          if (!state.loseSnapshotRecordReply) return Effect.void;
+          state.loseSnapshotRecordReply = false;
+          return Effect.fail(new StoreError({ operation: "snapshots.record", cause: "connection lost after commit" }));
+        })),
       ),
     inspect: (tenantId, id) => Effect.sync(() => { const row = ownedSnapshot(tenantId, id); const old = tombstones.get(id); return row === undefined ? old?.tenantId === tenantId ? Option.some({ ...old.row, createdBy: old.createdBy, deleted: true }) : Option.none() : Option.some({ ...rowOf(row), createdBy: row.createdBy, deleted: deleted.has(id) }); }),
     describe: (tenantId, id) =>
@@ -283,6 +289,10 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     },
     failNextSnapshotRecord() {
       state.failSnapshotRecord = true;
+    },
+    /** The next snapshot row write commits, then answers an error (a reply lost after commit). */
+    loseNextSnapshotRecordReply() {
+      state.loseSnapshotRecordReply = true;
     },
     onTerminal(script: TerminalScript) {
       state.terminalScript = script;

@@ -89,29 +89,32 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
         .listClassicImports(tenantId, { labels: { ...labels, ...required }, includeDeleted: false, limit: 1 })
         .pipe(Effect.map((rows) => Option.fromNullable(rows[0])), Effect.catchAll(dependencyDown("snapshots.listClassicImports")));
 
-    // An Idempotency-Key names one import: replay it, or refuse it for a different classic VM or migration.
     const keyLabel = key === undefined ? null : (yield* Effect.promise(() => sha256Hex(["classic-import-key:v1", actorRef(principal.actor), key]))).slice(0, 40);
-    if (keyLabel !== null) {
-      const keyed = yield* live({ [CLASSIC_IMPORT_KEY_LABEL]: keyLabel });
-      if (Option.isSome(keyed)) {
-        const row = keyed.value;
-        if (row.labels[CLASSIC_VM_LABEL] !== payload.classic_vm_id || row.labels[CLASSIC_MIGRATION_LABEL] !== payload.migration_id) {
-          return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));
-        }
-        return toImport(tenantId, row, "ready");
-      }
-    }
-    const existing = yield* live(identity);
-    if (Option.isSome(existing)) return toImport(tenantId, existing.value, "ready");
-
-    // One import of this identity at a time per tenant: a concurrent request waits for the first to finish.
-    const lockKey = `classic-import:${yield* Effect.promise(() => classicImportDigest({ tenantId, classicVmId: payload.classic_vm_id, migrationId: payload.migration_id }))}`;
+    const identityDigest = yield* Effect.promise(() => classicImportDigest({ tenantId, classicVmId: payload.classic_vm_id, migrationId: payload.migration_id }));
     const holder = crypto.randomUUID();
-    const taken = yield* limits.lock(tenantId, lockKey, holder, IMPORT_LOCK_MS).pipe(Effect.catchAll(dependencyDown("limits.lock")));
-    if (!taken) return yield* Effect.fail(conflict("An import of this classic VM is running; retry shortly"));
-    return yield* Effect.gen(function* () {
-      const settled = yield* live(identity);
-      if (Option.isSome(settled)) return toImport(tenantId, settled.value, "ready");
+    /** Runs `effect` holding the tenant lock `name`; a request that finds it held is 409 "retry shortly". */
+    const locked = <A, E, R>(name: string, busy: string, effect: Effect.Effect<A, E, R>) =>
+      Effect.gen(function* () {
+        const taken = yield* limits.lock(tenantId, name, holder, IMPORT_LOCK_MS).pipe(Effect.catchAll(dependencyDown("limits.lock")));
+        if (!taken) return yield* Effect.fail(conflict(busy));
+        return yield* effect.pipe(Effect.ensuring(limits.unlock(tenantId, name, holder)));
+      });
+
+    const run = Effect.gen(function* () {
+      // An Idempotency-Key names one import: replay it, or refuse it for a different classic VM or migration.
+      // The key's lock (taken before this runs) makes the check and the import that binds the key one step.
+      if (keyLabel !== null) {
+        const keyed = yield* live({ [CLASSIC_IMPORT_KEY_LABEL]: keyLabel });
+        if (Option.isSome(keyed)) {
+          const row = keyed.value;
+          if (row.labels[CLASSIC_VM_LABEL] !== payload.classic_vm_id || row.labels[CLASSIC_MIGRATION_LABEL] !== payload.migration_id) {
+            return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));
+          }
+          return toImport(tenantId, row, "ready");
+        }
+      }
+      const existing = yield* live(identity);
+      if (Option.isSome(existing)) return toImport(tenantId, existing.value, "ready");
       const request: ClassicImportRequest = {
         tenantId,
         classicVmId: payload.classic_vm_id,
@@ -130,14 +133,24 @@ const importOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<
       const createdAt = new Date(yield* Clock.currentTimeMillis);
       const labels = { ...required, ...identity, ...(keyLabel === null ? {} : { [CLASSIC_IMPORT_KEY_LABEL]: keyLabel }) };
       const createdBy = `user:${payload.created_by}`;
-      yield* store
+      const recorded = yield* store
         .record({ tenantId, id, upstreamId: created.upstreamId, sourceVmId: null, displayName: null, labels, createdBy, createdAt })
-        .pipe(
-          Effect.tapError(() => upstream.discardCreatedSnapshot(created).pipe(Effect.ignore)),
-          Effect.catchAll(dependencyDown("snapshots.record")),
-        );
+        .pipe(Effect.either);
+      if (recorded._tag === "Left") {
+        // A failed write may still have committed (a lost reply). Never delete the provider snapshot here: read the row
+        // back and answer it if it is there; otherwise 503 and keep the snapshot, which a retry adopts by its slug.
+        const settled = yield* live(identity);
+        if (Option.isSome(settled) && settled.value.upstreamId === created.upstreamId) return toImport(tenantId, settled.value, settled.value.id === id ? "created" : "ready");
+        return yield* dependencyDown("snapshots.record")(recorded.left);
+      }
       return toImport(tenantId, { id, upstreamId: created.upstreamId, labels, createdBy, createdAt, deleted: false }, "created");
-    }).pipe(Effect.ensuring(limits.unlock(tenantId, lockKey, holder)));
+    });
+
+    // One import of this identity, and one use of this Idempotency-Key, at a time per tenant.
+    const byIdentity = locked(`classic-import:${identityDigest}`, "An import of this classic VM is running; retry shortly", run);
+    return yield* keyLabel === null
+      ? byIdentity
+      : locked(`classic-import-key:${keyLabel}`, "A request with this Idempotency-Key is still running; retry shortly", byIdentity);
   });
 
 const rollbackOf = <C>(caller: Named<C, Principal>, allowed: ClassicImportAllowed<C>, rawId: string) =>

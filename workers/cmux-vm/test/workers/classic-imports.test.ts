@@ -101,6 +101,51 @@ describe("import", () => {
     expect(h.upstream.snapshots.has(result.upstream_snapshot_id)).toBe(true);
   });
 
+  it("keeps the provider snapshot when the row write committed but its reply was lost, and answers that row", async () => {
+    const key = await importer();
+    const vm = h.upstream.addVm("running");
+    h.s3a.loseNextSnapshotRecordReply();
+    const response = await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) });
+    expect(response.status).toBe(200);
+    const result = await response.json<ImportBody>();
+    expect(result.state).toBe("created");
+    expect(h.upstream.snapshots.has(result.upstream_snapshot_id)).toBe(true);
+    expect(h.resources.find((row) => row.cmuxId === result.id)?.upstreamId).toBe(result.upstream_snapshot_id);
+    const again = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) })).json<ImportBody>();
+    expect(again).toMatchObject({ id: result.id, state: "ready" });
+    expect(h.upstream.snapshots.has(again.upstream_snapshot_id)).toBe(true);
+    expect(snapshotSends()).toHaveLength(1);
+  });
+
+  it("keeps the provider snapshot when the row write fails, and a retry records it without snapshotting again", async () => {
+    const key = await importer();
+    const vm = h.upstream.addVm("running");
+    h.s3a.failNextSnapshotRecord();
+    expect((await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) })).status).toBe(503);
+    expect(h.upstream.snapshots.size).toBe(1);
+    expect(h.upstream.callsTo("DELETE", /^\/v5\/snapshots\//)).toHaveLength(0);
+    const retry = await (await h.request(PATH, asTeam(key, TENANT_A), { method: "POST", body: body(vm.id) })).json<ImportBody>();
+    expect(retry.state).toBe("created");
+    expect(h.upstream.snapshots.has(retry.upstream_snapshot_id)).toBe(true);
+    expect(snapshotSends()).toHaveLength(1);
+  });
+
+  it("refuses a concurrent second use of an Idempotency-Key, then its mismatch, so one key never binds two imports", async () => {
+    const key = await importer();
+    const vm = h.upstream.addVm("running");
+    const other = h.upstream.addVm("running");
+    const keyed = asTeam(key, TENANT_A, { "idempotency-key": "shared-key" });
+    const [a, b] = await Promise.all([
+      h.request(PATH, keyed, { method: "POST", body: body(vm.id) }),
+      h.request(PATH, keyed, { method: "POST", body: body(other.id, { classic_vm_id: "cvm-2" }) }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const loser = a.status === 409 ? body(vm.id) : body(other.id, { classic_vm_id: "cvm-2" });
+    expect((await h.request(PATH, keyed, { method: "POST", body: loser })).status).toBe(409);
+    expect(snapshotSends()).toHaveLength(1);
+    expect(h.resources.filter((row) => row.labels["classic.import_key"] !== undefined)).toHaveLength(1);
+  });
+
   it("replays an Idempotency-Key and refuses it for a different request", async () => {
     const key = await importer();
     const vm = h.upstream.addVm("running");
