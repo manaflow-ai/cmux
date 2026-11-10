@@ -43,11 +43,13 @@ const LIST_FOLD_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 /// only the records after that cursor, never the whole journal again.
 pub(crate) const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
 /// Bump when the saved fold's shape or meaning changes: a saved fold of
-/// another version is dropped and the journal folded again. Journal
-/// retention (`workspace_registry::journal_retention`) deletes the records
-/// below this fold's saved cursor, so the fold starts at the first RETAINED
-/// record: a bump must migrate the saved fold, or the agent sessions older
-/// than the retained journal leave the History list.
+/// another version is dropped and the journal folded again. Not so when
+/// journal retention (`workspace_registry::journal_retention`) has deleted
+/// records: the journal no longer has the sessions below the floor, and the
+/// saved fold is their only copy. Then the saved fold of another version is
+/// the start state (see `HistoryHost::restore`), so a bump that changes the
+/// shape must keep the old shape readable (serde defaults), or the agent
+/// sessions older than the retained journal leave the History list.
 pub(crate) const AGENT_FOLD_STATE_VERSION: u32 = 1;
 /// A long fold (the first one over a large journal) saves its progress at
 /// least every this many journal sequences, so a restart midway keeps it.
@@ -110,22 +112,42 @@ impl HistoryHost {
     /// and cursor, when the version matches and the cursor is not past the
     /// journal head (a newer journal than the one it folded). Call with the
     /// turn held.
+    ///
+    /// A saved fold of another version is loaded too when journal retention
+    /// has deleted records. A fold from the first retained record would not
+    /// have the sessions below the floor, and the next save would write that
+    /// smaller fold over their only copy. Retention never deletes a record
+    /// after the saved cursor, so the fold goes on from that cursor with no
+    /// hole. The loaded fold is saved again at this build's version by the
+    /// next save.
     pub(super) fn restore(&self, mux: &Mux) {
         if self.lock().restored {
             return;
         }
         let saved = {
             let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            registry
-                .journal_reducer_state(AGENT_FOLD_STATE_ID)
-                .and_then(|state| Ok((state, registry.session_journal_head()?)))
+            registry.journal_reducer_state(AGENT_FOLD_STATE_ID).and_then(|state| {
+                Ok((state, registry.session_journal_head()?, registry.journal_pruned_through()?))
+            })
         };
+        let mut another_version = false;
         let restored = match saved {
-            Ok((Some((AGENT_FOLD_STATE_VERSION, cursor, snapshot)), head)) if cursor <= head => {
-                serde_json::from_str::<AgentSessionFold>(&snapshot)
+            Ok((Some((version, cursor, snapshot)), head, pruned_through))
+                if cursor <= head
+                    && (version == AGENT_FOLD_STATE_VERSION || pruned_through > 0) =>
+            {
+                another_version = version != AGENT_FOLD_STATE_VERSION;
+                let fold = serde_json::from_str::<AgentSessionFold>(&snapshot)
                     .ok()
-                    .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor)
-                    .map(|fold| (fold, cursor))
+                    .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor);
+                if fold.is_none() && another_version {
+                    eprintln!(
+                        "cmux-tui: the saved agent history of version {version} does not load, \
+                         and journal retention deleted the records through {pruned_through}: \
+                         the agent sessions with no later record are gone"
+                    );
+                }
+                fold.map(|fold| (fold, cursor))
             }
             Ok(_) => None,
             Err(error) => {
@@ -140,7 +162,9 @@ impl HistoryHost {
         {
             state.agents = agents;
             state.cursor = cursor;
-            state.saved_cursor = cursor;
+            // What the registry holds of another version is not saved yet.
+            state.saved_cursor = if another_version { 0 } else { cursor };
+            state.unsaved_agents |= another_version;
         }
     }
 

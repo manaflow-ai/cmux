@@ -18,6 +18,8 @@ use super::journal_retention_bound::{
     ACTIVE_AGENTS, AGENTS, RECORDS, head, session, write_through,
 };
 use super::*;
+use crate::history_ops::{AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION};
+use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
 use crate::mux::agent_roster_restore::restore_agent_roster;
 
 /// The terminal and the tab of each agent session, by the provider's session
@@ -233,5 +235,182 @@ fn a_live_agent_with_every_record_deleted_stays_in_the_roster_a_start_and_the_li
     assert!(
         problems.is_empty(),
         "a live agent whose records retention deleted is lost: {problems:#?}"
+    );
+}
+
+/// The provider's session id of the agent that rests in
+/// [`stopped_store_after_a_prune`].
+const RESTED_SESSION: &str = "session-below-the-floor";
+
+/// A stopped daemon's registry in which a first agent started a session and
+/// then rested, a second agent worked, and retention deleted every record of
+/// the first one. The saved roster and the saved agent history fold are then
+/// the only copies of the first agent. Returns its terminal.
+fn stopped_store_after_a_prune(session: &str, root: &Path) -> TerminalPublicId {
+    let mux = open_persistent_test_mux(session, root);
+    // The worker ticks each 30 s; this setup runs the same tick itself.
+    mux.stop_journal_maintenance();
+    let rested = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &rested, "SessionStart", Some(RESTED_SESSION));
+    let rested_end = mux.session_journal_head().unwrap();
+    let live = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &live, "SessionStart", Some("session-live"));
+    for cycle in 0..32 {
+        for _ in 0..32 {
+            append_journal_hook(&mux, &live, "UserPromptSubmit", Some("session-live"));
+            append_journal_hook(&mux, &live, "Stop", Some("session-live"));
+        }
+        mux.create_journal_checkpoint("client_test", &format!("bump_{cycle}_checkpoint")).unwrap();
+        mux.run_journal_maintenance_for_test();
+        mux.run_journal_maintenance_for_test();
+    }
+    let floor = mux.journal_pruned_through().unwrap();
+    assert!(
+        floor >= rested_end,
+        "the setup: retention deleted through {floor}; the rested agent's records end at \
+         {rested_end}"
+    );
+    let first_retained =
+        mux.session_journal_after(0, 1).unwrap().records.first().map(|record| record.sequence);
+    assert!(
+        first_retained.is_some_and(|sequence| sequence > rested_end),
+        "the setup: the journal still has record {first_retained:?}, at or below {rested_end}"
+    );
+    assert!(roster_agent_state(&mux, &rested).is_some(), "the setup: the roster has the agent");
+    mux.shutdown();
+    drop(mux);
+    rested
+}
+
+/// The saved state of `reducer` in a stopped store, written back as
+/// `version`: what a build with another reducer version finds at its start.
+/// The setup fails when the state is not of `saved_version` or does not
+/// hold `needle`.
+fn save_as_another_version(
+    session: &str,
+    root: &Path,
+    reducer: &str,
+    saved_version: u32,
+    version: u32,
+    needle: &str,
+) {
+    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    let (found, cursor, snapshot) =
+        registry.journal_reducer_state(reducer).unwrap().expect("the setup: a saved state");
+    assert_eq!(found, saved_version, "the setup: {reducer} is saved at the current version");
+    assert!(snapshot.contains(needle), "the setup: the saved {reducer} holds {needle}");
+    registry.put_journal_reducer_state(reducer, version, cursor, &snapshot).unwrap();
+}
+
+/// A build with a newer agent roster reducer starts on a registry where
+/// retention deleted every record of a live agent. The start serves the
+/// saved roster (migrated) and rebuilds it in the background. A rebuild from
+/// the first RETAINED record would not have that agent: the rebuild must go
+/// on from the served roster, and the roster it saves must hold the agent.
+#[test]
+fn a_roster_version_bump_after_retention_keeps_an_agent_whose_records_are_deleted() {
+    let session = "retention-roster-bump";
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-retention-roster-bump-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let rested = stopped_store_after_a_prune(session, &root);
+    save_as_another_version(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_ID,
+        AGENT_ROSTER_REDUCER_VERSION,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        rested.as_str(),
+    );
+
+    let mut problems = Vec::new();
+    let reopened = open_persistent_test_mux(session, &root);
+    reopened.stop_journal_maintenance();
+    if roster_agent_state(&reopened, &rested).is_none() {
+        problems.push("the roster the start serves lost the agent".to_owned());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while reopened.agent_roster_rebuilding() && std::time::Instant::now() < deadline {
+        settled(&reopened);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!reopened.agent_roster_rebuilding(), "the roster rebuild ends");
+    if roster_agent_state(&reopened, &rested).is_none() {
+        problems.push("the rebuilt roster lost the agent".to_owned());
+    }
+    {
+        let registry = reopened.workspace_registry.lock().unwrap();
+        let (version, _, snapshot) =
+            registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+        assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION, "the rebuild saves its roster");
+        if !snapshot.contains(rested.as_str()) {
+            problems.push("the roster the rebuild saved lost the agent".to_owned());
+        }
+    }
+
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        problems.is_empty(),
+        "a roster reducer version bump after retention loses an agent: {problems:#?}"
+    );
+}
+
+/// A build with another version of the agent history fold starts on a
+/// registry where retention deleted every record of an agent session. A
+/// saved fold of another version used to be dropped and the journal folded
+/// again: from the first RETAINED record, so the session left the list the
+/// app reads, and the next save wrote the smaller fold over the only copy.
+#[test]
+fn a_history_fold_version_bump_after_retention_keeps_a_session_whose_records_are_deleted() {
+    let session = "retention-history-bump";
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-retention-history-bump-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let rested = stopped_store_after_a_prune(session, &root);
+    save_as_another_version(
+        session,
+        &root,
+        AGENT_FOLD_STATE_ID,
+        AGENT_FOLD_STATE_VERSION,
+        AGENT_FOLD_STATE_VERSION + 1,
+        RESTED_SESSION,
+    );
+
+    let mut problems = Vec::new();
+    let reopened = open_persistent_test_mux(session, &root);
+    reopened.stop_journal_maintenance();
+    match listed_agents(&reopened).get(RESTED_SESSION) {
+        None => problems.push("the list lost the session".to_owned()),
+        Some(row) if row.get("terminal").and_then(Value::as_str) != Some(rested.as_str()) => {
+            problems.push(format!("the session's terminal is {:?}", row.get("terminal")));
+        }
+        Some(_) => {}
+    }
+    // The next save is of this build's version and still holds the session.
+    let folded =
+        crate::history_ops::fold_for_retention(&reopened, std::time::Duration::from_secs(30), 1);
+    assert!(folded.unwrap(), "the agent history fold reaches the journal head");
+    {
+        let registry = reopened.workspace_registry.lock().unwrap();
+        let (version, _, snapshot) =
+            registry.journal_reducer_state(AGENT_FOLD_STATE_ID).unwrap().unwrap();
+        if version != AGENT_FOLD_STATE_VERSION {
+            problems.push(format!("the saved fold is still of version {version}"));
+        }
+        if !snapshot.contains(RESTED_SESSION) {
+            problems.push("the saved fold lost the session".to_owned());
+        }
+    }
+
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        problems.is_empty(),
+        "an agent history fold version bump after retention loses a session: {problems:#?}"
     );
 }
