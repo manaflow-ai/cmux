@@ -51,14 +51,20 @@ impl Inputs<'_> {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
-    fn owner_cloud_image(&self) -> bool {
+    pub(crate) fn owner_cloud_image(&self) -> bool {
         self.root.join("etc/cmux/agent-auth.sh").is_file()
             && std::fs::read(self.root.join("etc/cmux/vm-kind"))
                 .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
     }
 
     fn choice(&self) -> Option<&'static str> {
-        let text = std::fs::read_to_string(self.home.join(".config/cmux/agent-auth/codex")).ok()?;
+        self.choice_for("codex")
+    }
+
+    /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
+    pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
+        let text =
+            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
@@ -75,14 +81,17 @@ impl Inputs<'_> {
     /// `/etc/cmux/model-plane.env`). The daemon's login-env import keeps no `CMUX_` name, so on a
     /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
     /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
-    fn team_origin(&self) -> Option<String> {
+    pub(crate) fn team_origin(&self) -> Option<String> {
         (self.var)("CMUX_CODEROUTER_URL")
-            .or_else(|| {
-                [self.home.join(".config/cmux/model-plane.env"), self.root.join(MODEL_PLANE_ENV)]
-                    .iter()
-                    .find_map(|f| file_var(f, "CMUX_CODEROUTER_URL"))
-            })
+            .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
             .filter(|u| u.starts_with("https://"))
+    }
+
+    /// `key` from the model-plane env files a login shell sources, the per-home one first.
+    pub(crate) fn model_plane_var(&self, key: &str) -> Option<String> {
+        [self.home.join(".config/cmux/model-plane.env"), self.root.join(MODEL_PLANE_ENV)]
+            .iter()
+            .find_map(|f| file_var(f, key))
     }
 
     /// Whether `config.toml` is the one cmux generated (`model_provider = "cmux"`).
@@ -305,7 +314,8 @@ mod tests {
         // The per-home file (a boot env agent-config.sh persisted) comes first.
         let dir = m.home.join(".config/cmux");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='http://plain'\n").unwrap();
+        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='http://plain'\n")
+            .unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
         std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL=''\n").unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
