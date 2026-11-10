@@ -2816,7 +2816,7 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|session| !is_mirrored_session(session))
+        .filter(|session| session.is_object() && !is_mirrored_session(session))
         .cloned()
         .collect()
 }
