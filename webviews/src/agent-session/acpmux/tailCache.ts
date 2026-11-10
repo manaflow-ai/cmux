@@ -11,6 +11,7 @@
 // failure: the chat opens cold, as it did before.
 import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
+import { forgetSettled, resetSettledForTests } from "./settledPages";
 import type { EventRecord } from "./direct";
 import type { QueuedPrompt } from "./model";
 
@@ -125,6 +126,8 @@ export function forgetTail(sessionId: string): void {
   keptTails.delete(sessionId);
   readAheadTails.delete(sessionId);
   reading.delete(sessionId);
+  // Its settled pages too, here and in the store the app's pages share (settledPages.ts).
+  forgetSettled(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
   // Its drawn copy (chatSnapshot/) goes with it: the next launch draws no frame of it either. When
   // it went (`savedAt`): a copy captured before it and arriving after is never kept.
@@ -431,4 +434,7 @@ export function resetKeptTailsForTests(): void {
   keptTails.clear();
   readAheadTails.clear();
   reading.clear();
+  // A fresh page holds no settled pages either, and with no store of the app's installed reads
+  // none: a test that wants the app's shared store passes one (`resetSettledForTests(shared)`).
+  resetSettledForTests(undefined);
 }

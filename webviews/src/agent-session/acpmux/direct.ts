@@ -100,6 +100,7 @@ import {
   rememberTail,
   shareReadAhead,
 } from "./tailCache";
+import { readSettled, settle as settlePages, settledTail } from "./settledPages";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
@@ -3716,7 +3717,33 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+    this.settleTurns();
   }
+
+  /// Writes the chat's turns that ended since the last write as settled pages (settledPages.ts):
+  /// once each, never changed after. Only the chat's own events, read by an attach of this
+  /// selection: never rows drawn from a tail or a copy before it answered, nor a replay.
+  private settleTurns(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
+    if (this.attachedGeneration !== this.selectionGeneration) return;
+    if (this.peerCopy?.sessionId === sessionId) return;
+    const summary = this.provenSummary();
+    settlePages(sessionId, this.events, {
+      ...(typeof summary?.createdAt === "number" ? { createdAt: summary.createdAt } : {}),
+      ...(typeof summary?.peer === "string" ? { peer: summary.peer } : {}),
+    });
+  }
+
+  /// A turn ended: its page is written once the record is in (`settleTurns`), off the receive path.
+  private settleSoon(): void {
+    if (this.settleTimer !== undefined) return;
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = undefined;
+      if (!this.closed) this.settleTurns();
+    }, 0);
+  }
+  private settleTimer?: ReturnType<typeof setTimeout>;
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
   /// need to draw, or every record with `whole`), once its attach answered; undefined before, or for
@@ -4118,7 +4145,17 @@ export class AcpmuxDirectClient {
   private async drawTailWhileConnecting(sessionId: string, generation: number): Promise<void> {
     if (connectFailedAfterEarlyTail === sessionId) return;
     this.earlyTailWindow = generation;
-    const held = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
+    // The past first from what needs no round trip at all: this page's tail, else the chat's
+    // settled pages (settledPages.ts), from this page or the store every pane page of the app shares,
+    // which WebKit's storage process serves without the app host's main thread or acpmux. The host's
+    // tail only when neither holds the chat: at 100% CPU the host's main thread misses its 250 ms
+    // race, and the chat used to open blank (Leo, 2026-11-10: "the past literally is not visible").
+    let held = keptTail(sessionId) ?? settledTail(sessionId);
+    if (!held) {
+      // Both asked at once, so a store miss costs nothing over the host's read alone.
+      const hostRead = readHostTail(sessionId).catch(() => undefined);
+      held = (await readSettled(sessionId).catch(() => undefined)) ?? (await hostRead);
+    }
     if (
       !held ||
       this.closed ||
@@ -4267,7 +4304,11 @@ export class AcpmuxDirectClient {
     if (this.onLost) {
       this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
       const onLost = this.onLost;
-      this.close();
+      // The pane connects a new client in this same page: the chat on screen stays in the page's
+      // map too, so that client draws it on its first frame, the turn in progress included, and only
+      // that turn waits on the new connection. Handed to the host alone, the rows waited on the
+      // host's main thread and, past the open's hold, the pane drew the chat blank.
+      this.close(true);
       onLost();
     } else this.scheduleReconnect();
   }
@@ -7757,6 +7798,7 @@ export class AcpmuxDirectClient {
     }
     if (sessionId && event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
       clearPlanScope(sessionId);
+      this.settleSoon();
     }
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
@@ -13228,15 +13270,17 @@ export class AcpmuxDirectClient {
     }
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
-  close(): void {
+  close(keepForPage = false): void {
     this.raceListeners.clear();
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
     this.presence.detached();
     // Before anything is torn down: the chat on screen is still readable here, and a tab closing on
     // it should leave it warm for the next one. The host alone keeps it: this client is going away,
-    // and a tail left in this page's map would be drawn by whatever client comes after it.
-    this.rememberCurrentTail(false);
+    // and a tail left in this page's map would be drawn by whatever client comes after it. Except
+    // after a lost connection (`keepForPage`), where the client that comes after it is this page's
+    // reconnect of the same chat, whose attach checks the rows as it checks any kept tail.
+    this.rememberCurrentTail(keepForPage);
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
