@@ -234,7 +234,9 @@ impl StartupAdoptionGate {
     /// ticket of the line gets a turn, and the turns that run go on to
     /// their end. A waiter that goes first ([`Self::turn_first_if`]) is not
     /// stopped. The respawn gate stops its line while the memory pressure of
-    /// the Mac is above normal (`terminal_respawn/line_pause.rs`).
+    /// the Mac is above normal (`terminal_respawn/line_pause.rs`): only macOS
+    /// has a caller, so the line never stops on another system.
+    #[cfg(any(target_os = "macos", test))]
     pub(super) fn set_line_paused(&self, paused: bool) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.line_paused == paused {
