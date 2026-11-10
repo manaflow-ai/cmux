@@ -1005,7 +1005,6 @@
     "agent-pane.file-search#pick": [],
     "agent-pane.file-search#truncated": [],
     "agent-pane.first-run#minimal": [],
-    "agent-pane.first-run#minimal-projects": [],
     "agent-pane.first-run#project-card": [],
     "agent-pane.folder-choice#error": [],
     "agent-pane.folder-choice#keyboard": [],
@@ -1733,16 +1732,8 @@
     "agent-pane.new-chat-composer#started": [],
     "agent-pane.new-chat-composer#started-codex": [],
     "agent-pane.new-chat-no-shift#send-to-streaming": [],
-    "agent-pane.new-tab-dots#claude-actions": [],
     "agent-pane.new-tab-dots#claude-minimal": [],
     "agent-pane.new-tab-dots#codex-minimal": [],
-    "agent-pane.new-tab-headline-stability#long": [],
-    "agent-pane.new-tab-headline#machine": [],
-    "agent-pane.new-tab-headline#on": [],
-    "agent-pane.new-tab-headline#picked": [],
-    "agent-pane.new-tab-headline#picker-open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.new-tab-page#escape-clear": [],
     "agent-pane.new-tab-page#folder-chooser": [],
     "agent-pane.new-tab-page#idle": [],
@@ -1813,18 +1804,10 @@
     ],
     "agent-pane.new-tab#layout-claude-chips-below": [],
     "agent-pane.new-tab#layout-codex-tabs-above": [],
-    "agent-pane.new-tab#layout-current-fixed": [],
     "agent-pane.new-tab#long-title": [],
     "agent-pane.new-tab#machines-fleet": [],
     "agent-pane.new-tab#many-chats": [],
-    "agent-pane.new-tab#minimal-ambient": [],
-    "agent-pane.new-tab#minimal-ambient-offline": [],
     "agent-pane.new-tab#minimal-default": [],
-    "agent-pane.new-tab#minimal-edit-mode": [],
-    "agent-pane.new-tab#minimal-headline-off": [],
-    "agent-pane.new-tab#minimal-stage-foot": [],
-    "agent-pane.new-tab#minimal-widgets": [],
-    "agent-pane.new-tab#minimal-widgets-ordered": [],
     "agent-pane.new-tab#model-picker-open": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -1927,12 +1910,6 @@
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
     "agent-pane.new-tab#typed-tab-match-stage": [],
-    "agent-pane.new-tab#widgets": [],
-    "agent-pane.new-tab#widgets-all-off": [],
-    "agent-pane.new-tab#widgets-all-on": [],
-    "agent-pane.new-tab#widgets-hover": [],
-    "agent-pane.new-tab#widgets-hover-dismiss": [],
-    "agent-pane.new-tab#widgets-off": [],
     "agent-pane.new-tab#workspace-switch-animation-audit": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"

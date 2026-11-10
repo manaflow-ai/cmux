@@ -184,7 +184,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
-    case "newTab.editWidgets":
     case "nowPlaying.command":
     case "newTab.touched":
     case "newTab.warm":

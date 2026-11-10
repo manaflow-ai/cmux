@@ -120,32 +120,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
   newSession: true,
 });
 
-// The weather widget's reading (AgentPaneNewTabWeather), read `age` ms ago.
-const weatherAt = (age: number) => ({
-  place: "Berlin",
-  temperature: 18.4,
-  high: 22.1,
-  low: 11.6,
-  code: 2,
-  unit: "celsius",
-  readAt: Date.now() - age,
-});
-
-// The machines widget's snapshot: an SSH peer acpmux lists (online) and a Cloud host an older chat
-// ran on that it no longer lists (offline).
-const ambientSnapshot = () => {
-  const snapshot = noChat(manySessions(12));
-  const [first] = snapshot.sessions;
-  return {
-    ...snapshot,
-    peers: ["build-box"],
-    peerKinds: { "build-box": "ssh" as const },
-    sessions: first
-      ? [...snapshot.sessions, { ...first, sessionId: "cloud-old", hostKind: "cloud" as const, host: "cloud-dev" }]
-      : snapshot.sessions,
-  };
-};
-
 // One page of the device chat index as the host answers `chats.page` (AllChatsList): titled
 // chats, untitled ones in several projects (named apart by their project), newest first.
 const CHAT_TITLES = [
@@ -175,7 +149,7 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
-/// The widget view's fixtures: projects as the host sends them, and chats where three need the user.
+/// The stage's fixtures: projects as the host sends them, and chats where three need the user.
 const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
 const widgetSessions = () => [
   session({
@@ -373,7 +347,6 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
-    "agent-session/acpmux/newtab/AmbientWidgets.tsx#AmbientWidgets",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",
@@ -385,8 +358,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
-    "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
-    "agent-session/acpmux/newtab/WidgetEditing.tsx",
     "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -399,7 +370,7 @@ export default agentPaneEntry({
   variants: withAllChats({
     "start-refused": {
       note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
       native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
       play: async (ctx) => {
@@ -420,7 +391,7 @@ export default agentPaneEntry({
     },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
-      ready: newTab({ pageWidgets: ["chats"] }),
+      ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty") !== null);
@@ -430,7 +401,7 @@ export default agentPaneEntry({
     },
     "chats-loading": {
       note: "The first session list is pending: recent chats use placeholders until it settles.",
-      ready: newTab({ pageWidgets: ["chats"] }),
+      ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
@@ -440,7 +411,7 @@ export default agentPaneEntry({
     // empty git repository for the chat; the strip names it, from the prompt until the person types one.
     "new-project-chosen": {
       note: "New project just chosen, prompt empty: the strip reads New project / project (the placeholder name until a prompt names one).",
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await chooseNewProject(ctx);
@@ -451,7 +422,7 @@ export default agentPaneEntry({
     },
     "new-project-derived": {
       note: 'New project with a prompt typed: "a habit tracker web app" names the folder habit-tracker in the strip, the kind words dropped.',
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await chooseNewProject(ctx);
@@ -461,7 +432,7 @@ export default agentPaneEntry({
     },
     "new-project-long-name-narrow": {
       note: "New project in a 300 px pane with a long name the person typed: the name field gives up width before the folder control and ends in an ellipsis; nothing leaves the strip.",
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await chooseNewProject(ctx);
@@ -482,7 +453,7 @@ export default agentPaneEntry({
     },
     "new-project-refused": {
       note: "New project refused: acpmux made no folder, so the reason shows above the card with Dismiss, no chat starts and the prompt stays.",
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await chooseNewProject(ctx);
@@ -590,12 +561,11 @@ export default agentPaneEntry({
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
-    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the composer
-    // alone, no greeting (Leo 2026-10-22), with chats on this Mac it does not list. The optional
-    // headline is agent-pane.new-tab-headline. `minimal-default` is a host that
-    // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
+    // Minimal, the page as it opens by default (Leo 2026-10-20): the composer alone, no greeting (Leo
+    // 2026-10-22) and no widgets (Lawrence 2026-11-09), with chats on this Mac it does not list.
+    // `minimal-default` is a host that sends no template (the app's unset key).
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the three dots (Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), the first marked. No greeting. The headline, project card, quick actions, chats and other template dots are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the two dots (Claude Minimal, Codex Minimal), the first marked. No greeting and no widgets.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
@@ -604,11 +574,11 @@ export default agentPaneEntry({
           throw new Error("an unset NewTabScreen template still renders the Default stage");
         if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
           throw new Error("an unset NewTabScreen template did not render Minimal");
-        const extra = ctx.document.querySelector(".nt-greeting, .nt-headline, .nt-stage, .nt-cards, .nt-create");
+        const extra = ctx.document.querySelector(".nt-greeting, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
-        // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
+        // The look dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
         const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-        if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
+        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two`);
       },
     },
     "fix-from-link": {
@@ -658,169 +628,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-error[role=alert]") !== null);
       },
     },
-    "widgets-all-off": {
-      note: "All optional New Tab widgets off: the composer is the whole page.",
-      ready: newTab({ template: "minimal", pageWidgets: [] }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        if (ctx.document.querySelector(".nt-extras, .nt-headline, .nt-stage, .nt-create, .nt-ambient"))
-          throw new Error("optional widget rendered while all are off");
-      },
-    },
-    "widgets-all-on": {
-      note: "All optional New Tab widgets on: work-on headline, projects, actions, chats, clock, stopwatch, warm greeting and quote of the day.",
-      ready: newTab({
-        template: "minimal",
-        pageWidgets: [
-          "greeting",
-          "projects",
-          "actions",
-          "chats",
-          "styleDots",
-          "weather",
-          "machines",
-          "clock",
-          "timer",
-          "warmGreeting",
-          "quote",
-        ],
-        weather: weatherAt(60_000),
-      }),
-      snapshot: ambientSnapshot(),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-headline, .nt-stage") !== null);
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-extras") !== null);
-        if (!ctx.document.querySelector(".nt-extra-clock, .nt-extra-timer, .nt-extra-warm, .nt-extra-quote"))
-          throw new Error("all-on extras missing");
-      },
-    },
     "layout-codex-tabs-above": {
       note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in the model picker.",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      ready: newTab({ template: "minimal" }),
       snapshot: noChat(manySessions(12)),
     },
     "layout-claude-chips-below": {
       note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(12)),
-    },
-    "layout-current-fixed": {
-      note: "Current fixed layout: the work-on headline names the project picker, real project and machine icons remain visible, and the existing glass spacing is preserved.",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
-      snapshot: noChat(manySessions(12)),
-    },
-    // A user who had turned the greeting off before it went (`"greeting": false` in cmux.json, which
-    // the host sends as `headlineOff`): the composer stays where it sat for them, at the page's top
-    // padding, with no room kept for the headline.
-    "minimal-headline-off": {
-      note: "Minimal for someone who had turned the greeting off (greeting: false in cmux.json): the composer alone, where it sat for them before, with no room kept over it for the headline.",
-      ready: newTab({ template: undefined, pageWidgets: [], headlineOff: true }),
-      snapshot: noChat(manySessions(12)),
-      play: (ctx: PlayContext) => ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null),
-    },
-    "minimal-widgets": {
-      note: "Minimal with the project card, quick actions, recent chats and the template dots turned on in Settings: Default's stage around the same composer.",
-      ready: newTab({
-        template: "minimal",
-        pageWidgets: ["greeting", "projects", "actions", "chats", "styleDots"],
-      }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
-      },
-    },
-    // The ambient widgets (`tabs.newTabWidgets.weather|machines`, newtab/ambient.ts): one quiet row
-    // under the composer. `minimal-ambient` has a fresh reading and an SSH peer online beside an old
-    // Cloud host; `minimal-ambient-offline` has a reading older than its refresh, drawn dimmed.
-    "minimal-ambient": {
-      note: "Minimal with Weather and Machines on: under the composer, today's weather (glyph, temperature, high and low, city) and each machine with its color, icon and an online dot (this Mac and an SSH peer online, an old Cloud host offline).",
-      ready: newTab({
-        template: "minimal",
-        pageWidgets: ["greeting", "weather", "machines"],
-        weather: weatherAt(60_000),
-      }),
-      snapshot: ambientSnapshot(),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-ambient-machine").length === 3);
-        if (ctx.document.querySelector(".nt-ambient-weather[data-stale]")) throw new Error("a fresh reading is dimmed");
-        const field = ctx.document.querySelector(".nt-field")?.getBoundingClientRect();
-        const row = ctx.document.querySelector(".nt-ambient")?.getBoundingClientRect();
-        if (!field || !row || row.top < field.bottom) throw new Error("the ambient row is not under the field");
-        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
-          throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
-      },
-    },
-    "minimal-ambient-paused": {
-      note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
-      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
-      snapshot: {
-        ...ambientSnapshot(),
-        peers: ["build-box", "cloud-dev"],
-        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
-        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
-      },
-      native: {
-        "cloudMachine.list": {
-          signedIn: true,
-          loaded: true,
-          machines: [{ id: "vm-dev", name: "cloud-dev", stage: "paused" }],
-        },
-      },
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-machine[data-paused]") !== null);
-        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
-          throw new Error("this Mac and the SSH peer should stay online");
-      },
-    },
-    "minimal-ambient-offline": {
-      note: "The weather could not refresh (offline): the last reading stays, dimmed; its tooltip says it is the last reading.",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "weather"], weather: weatherAt(3 * 60 * 60_000) }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-weather[data-stale]") !== null);
-      },
-    },
-    "minimal-stage-foot": {
-      note: "Minimal with the project card, quick actions and recent chats on, the template dots off: the composer at the page's foot, its quiet row a few px over the page's bottom edge, as Claude Code's (Leo 2026-10-21).",
-      ready: newTab({
-        template: "minimal",
-        pageWidgets: ["greeting", "projects", "actions", "chats"],
-      }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !== null);
-      },
-    },
-    // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode
-    // (newtab/WidgetEditing.tsx): right-click > Edit New Tab, and the widgets wiggle with their ✕.
-    "minimal-widgets-ordered": {
-      note: "Minimal with Recent Chats dragged over the project card in edit mode: the stage draws the widgets in the order the user left them.",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "chats", "projects"] }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
-        const chats = ctx.document.querySelector(".nt-chats");
-        const projects = ctx.document.querySelector(".nt-env");
-        if (!chats || !projects || !(chats.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING))
-          throw new Error("Recent Chats should come before the project card");
-      },
-    },
-    "minimal-edit-mode": {
-      note: "Minimal's edit mode, as an iPhone's home screen: each widget wiggles (still with Reduce Motion or animations off) and has a ✕ that turns it off; drag one, or Option-Up / Option-Down, to move it. Add Widgets opens App Store Features on New Tab; Done or Escape ends it.",
-      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "projects", "actions", "chats"] }),
-      snapshot: noChat(manySessions(12)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
-        await ctx.contextMenu({ selector: ".nt-env" });
-        await ctx.click({ role: "menuitem", name: "Edit New Tab" });
-        // Four ✕: the headline over the stage is a widget too, with its own frame.
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 4);
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
-      },
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
@@ -930,47 +746,6 @@ export default agentPaneEntry({
         // test/composer-plus-menu-shape.browser.test.ts holds the shape (one-line rows, no header band,
         // the pills covered); the play only opens it, so the same state draws the menu before the fix.
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="history.search"]'));
-      },
-    },
-    // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
-    // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
-    // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.
-    widgets: {
-      note: "Widget view on (Debug Settings newTab.widgets): a Projects card with this Mac and its recent projects, the picked one checked; a Needs you card with the chats waiting on you or that hit an error, each dismissable. Then the calm chat rows.",
-      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
-        await ctx.click({ text: "cmux" });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
-      },
-    },
-    "widgets-off": {
-      note: "The same chats and projects with the widget view off (the default): no cards, only the calm chat rows.",
-      ready: newTab({ projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
-        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
-      },
-    },
-    "widgets-hover": {
-      note: "Widget view, a pointer over a Needs you chat: a hover card with its whole title and why it needs you (its last line).",
-      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
-        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
-      },
-    },
-    "widgets-hover-dismiss": {
-      note: "Widget view, a pointer over a Needs you chat's x: the x lights alone; its row and open button take no wash.",
-      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
-        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-dismiss" });
       },
     },
     "stage-layout": {

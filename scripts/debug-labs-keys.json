@@ -88,7 +88,6 @@
   "newTab.layout": {"case": "keep", "why": "A design comparison for the new tab screen; design B is the default and A is still selectable."},
   "newTab.picksFollowLinks": {"case": "keep", "why": "A placement comparison; the default (open where links do, Lawrence 10-19, restated 11-05) is chosen, and the alternative (replace the page) was Leo 10-20."},
   "newTab.privateChatLists": {"case": "delete", "why": "Off by default; the on path is the old per-page chat list. Delete the switch and keep the shared list."},
-  "newTab.widgets": {"case": "keep", "why": "Off by default so the New Tab page stays calm (Leo 10-18); the widgets are an optional extra."},
   "notifications.attention.look": {"case": "keep", "why": "A look comparison for the notification ring; subtle is the chosen default and strong is the old ring."},
   "palette.itemActions": {"case": "keep", "why": "A prototype comparison of Tab on a palette row; the default menu is the shipped behavior."},
   "palette.scopeChip": {"case": "keep", "why": "A look comparison for the palette scope chip, marked as a prototype; the default is the current look."},

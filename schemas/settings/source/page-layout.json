@@ -69,14 +69,7 @@
               "appearance.metrics.tabMinInactiveWidth", "appearance.metrics.tabPinnedWidth"
             ]},
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying",
-              "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots",
-              "tabs.newTabWidgets.order"
-            ]},
-            {"title": {"key": "settings.pageGroup.newTabWidgets", "text": "New Tab Widgets"}, "keys": [
-              "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
-              "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity",
-              "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"
+              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]},
             {"group": "settings.group.columns"},
             {"title": {"key": "settings.pageGroup.newPanes", "text": "New Panes"}, "keys": [
