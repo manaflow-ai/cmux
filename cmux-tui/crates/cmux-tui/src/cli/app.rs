@@ -514,27 +514,34 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path`, `out` or `cwd` argument as the app must read it: a relative
-/// path names a folder or file of the caller's working directory, and the app
-/// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
-/// non-string value is sent unchanged.
+/// An action's `path`, `out`, `cwd` or `fromFolder` argument as the app must read it: a
+/// relative path names a folder or file of the caller's working directory, and the app
+/// runs elsewhere, so it is made absolute here ([`caller_absolute`]). An absolute path,
+/// `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a non-string value is sent
+/// unchanged.
 fn caller_path(value: Value) -> Value {
-    let Some(text) = value.as_str() else { return value };
-    if text == "-" {
-        return value;
+    match value.as_str().and_then(caller_absolute) {
+        Some(path) => json!(path),
+        None => value,
     }
+}
+
+/// A relative path of the caller's, joined to this process's working directory (`.` parts
+/// dropped); `None` for an absolute path, `~/…`, `-`, the empty text, or no working directory.
+/// The one place a CLI path argument of this Mac becomes absolute: [`caller_path`] for app
+/// actions, and `cloud start-chat --from-folder` (`cloud_start_chat::local_folder`).
+pub(in crate::cli) fn caller_absolute(text: &str) -> Option<String> {
     let path = Path::new(text);
-    if text.is_empty() || path.is_absolute() || text.starts_with('~') {
-        return value;
+    if text == "-" || text.is_empty() || path.is_absolute() || text.starts_with('~') {
+        return None;
     }
-    let Ok(cwd) = std::env::current_dir() else { return value };
+    let cwd = std::env::current_dir().ok()?;
     let joined: PathBuf = cwd
         .join(path)
         .components()
         .filter(|part| !matches!(part, std::path::Component::CurDir))
         .collect();
-    json!(joined.to_string_lossy())
+    Some(joined.to_string_lossy().into_owned())
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
@@ -696,9 +703,11 @@ pub(super) fn run_action(
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
-                let file =
-                    matches!(key.as_str(), "path" | "out" | "bootstrapScript" | "machineConfig")
-                        || (key == "cwd" && cwd_is_callers(action));
+                // `fromFolder` (`cloud start-session`) is always a folder of this Mac to copy.
+                let file = matches!(
+                    key.as_str(),
+                    "path" | "out" | "bootstrapScript" | "machineConfig" | "fromFolder"
+                ) || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
@@ -827,15 +836,6 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 /// that does not answer as the cmux app is `socket.wrong_kind`; neither
 /// tries another socket.
 pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
-    connect_command_within(global, None)
-}
-
-/// [`connect_command`] for an optional read that must never hold up a command: with `probe`, the
-/// `--socket` kind probe (`system.ping`) has that hard deadline instead of waiting out a busy app.
-pub(super) fn connect_command_within(
-    global: &GlobalArgs,
-    probe: Option<Duration>,
-) -> Result<UnixStream, Value> {
     let socket = command_socket(global)?;
     let Some(flag) = socket.named_by else {
         return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
@@ -858,10 +858,7 @@ pub(super) fn connect_command_within(
         // An app's refusal is an object with a code (a classic app in
         // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
-        let pong = match probe {
-            Some(timeout) => exchange_within(&mut stream, "system.ping", json!({}), timeout),
-            None => exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT),
-        };
+        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
@@ -1393,55 +1390,6 @@ pub(super) fn exchange(
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
     read_reply(stream, method, timeout, app_answers_ping)
-}
-
-/// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
-/// that is only busy. For an optional read that must never hold up a command. The write and
-/// every read share the one deadline, so an app that trickles bytes cannot stretch it. Like
-/// every app request, it carries the read barrier ([`with_read_barrier`]), so a value an earlier
-/// `cmux` call wrote through the daemon is the one read; the barrier's round trip is inside the
-/// same deadline.
-pub(super) fn exchange_within(
-    stream: &mut UnixStream,
-    method: &str,
-    params: Value,
-    timeout: Duration,
-) -> Result<Result<Value, Value>, String> {
-    let deadline = std::time::Instant::now().checked_add(timeout);
-    let left = || {
-        deadline
-            .and_then(|deadline| deadline.checked_duration_since(std::time::Instant::now()))
-            .filter(|left| !left.is_zero())
-            .ok_or_else(|| wait::timeout_message(timeout))
-    };
-    stream.set_write_timeout(Some(left()?)).map_err(|error| error.to_string())?;
-    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(method, params) });
-    send_line(stream, &line)
-        .map_err(|error| if left().is_err() { wait::timeout_message(timeout) } else { error })?;
-    let mut response = Vec::new();
-    let mut chunk = [0_u8; 4096];
-    loop {
-        stream.set_read_timeout(Some(left()?)).map_err(|error| error.to_string())?;
-        let read = match stream.read(&mut chunk) {
-            Ok(read) => read,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(read_error(&error, Some(timeout))),
-        };
-        let got = chunk.get(..read).unwrap_or_default();
-        if let Some(end) = got.iter().position(|byte| *byte == b'\n') {
-            response.extend_from_slice(got.get(..=end).unwrap_or_default());
-            break;
-        }
-        // End of stream: parse what came.
-        if got.is_empty() {
-            break;
-        }
-        response.extend_from_slice(got);
-        if u64::try_from(response.len()).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
-            return Err(format!("{method}: the answer is over {MAX_RESPONSE_BYTES} bytes"));
-        }
-    }
-    parse_response(&String::from_utf8_lossy(&response))
 }
 
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still

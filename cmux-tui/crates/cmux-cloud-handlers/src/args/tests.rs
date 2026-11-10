@@ -234,23 +234,40 @@ fn a_browser_path_is_slash_when_absent_and_never_has_spaces() {
 #[test]
 fn the_needed_text_arguments() {
     assert_eq!(
-        needed(&args(json!({"publicKey": " ssh-ed25519 AAA "})), "publicKey"),
+        needed(
+            &args(json!({"publicKey": " ssh-ed25519 AAA "})),
+            "publicKey",
+            &PortNames::default()
+        ),
         Ok(" ssh-ed25519 AAA ".into())
     );
     assert_eq!(
-        needed(&args(json!({"publicKey": " "})), "publicKey"),
+        needed(&args(json!({"publicKey": " "})), "publicKey", &PortNames::default()),
         Err(Said::key("publicKeyRequired"))
     );
-    assert_eq!(needed(&args(json!({"contents": ""})), "contents"), Ok(String::new()));
-    assert_eq!(needed(&args(json!({})), "contents"), Err(Said::key("fileContentsRequired")));
     assert_eq!(
-        needed(&args(json!({"snapshot": ""})), "snapshot"),
+        needed(&args(json!({"contents": ""})), "contents", &PortNames::default()),
+        Ok(String::new())
+    );
+    assert_eq!(
+        needed(&args(json!({})), "contents", &PortNames::default()),
+        Err(Said::key("fileContentsRequired"))
+    );
+    assert_eq!(
+        needed(&args(json!({"snapshot": ""})), "snapshot", &PortNames::default()),
         Err(Said::key("snapshotRequired"))
     );
-    assert_eq!(needed(&args(json!({"key": " k1 "})), "key"), Ok("k1".into()));
     assert_eq!(
-        needed(&args(json!({})), "linkId"),
-        Err(Said::with("portFailed", ["linkId is required"]))
+        needed(&args(json!({"key": " k1 "})), "key", &PortNames::default()),
+        Ok("k1".into())
+    );
+    assert_eq!(
+        needed(
+            &args(json!({})),
+            "linkId",
+            &PortNames { name: "box".into(), id: "vm-1".into(), port: Some(3000) }
+        ),
+        Err(Said::with("portFailed", ["box", "vm-1", "3000", "linkId is required"]))
     );
 }
 

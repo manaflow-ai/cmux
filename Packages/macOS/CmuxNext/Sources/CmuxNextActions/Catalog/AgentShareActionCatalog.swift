@@ -31,7 +31,7 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
                 id: "agent.share.revoke",
                 title: t("action.agent.share.revoke", "Revoke Guest Link"),
                 description: "Ends a guest link (--share-id from `cmux share list`): it stops working and every guest on it leaves at once. Returns share_id and state.",
-                keywords: ["share", "guest", "link", "revoke", "end", "stop"], category: .agents, symbol: "link.badge.minus",
+                keywords: ["share", "guest", "link", "revoke", "end", "stop"], category: .agents, symbol: "minus.circle",
                 arguments: [shareIDArgument], cliName: "share revoke", surfacePlan: family
             ),
             ActionDescriptor(

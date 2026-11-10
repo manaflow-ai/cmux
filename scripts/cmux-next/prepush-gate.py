@@ -1778,9 +1778,13 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    # The surface materials manifest lies outside SCOPES too: a push that only edits it still runs its check.
+    # The surface materials manifest lies outside SCOPES too: a push that only edits it, or only deletes a file the
+    # check judges (an entry then goes stale), still runs its check.
     materials_data = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--",
                                      SURFACE_MATERIALS_DATA).decode().split("\0") if n]
+    materials_data += [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
+                                      "--", *SURFACE_MATERIALS_SOURCES).decode().split("\0")
+                       if n.endswith((".swift", ".tsx"))]
     if not changed and not dropped and not deleted and not materials_data:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
