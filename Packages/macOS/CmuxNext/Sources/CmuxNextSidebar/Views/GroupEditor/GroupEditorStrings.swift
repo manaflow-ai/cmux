@@ -18,6 +18,7 @@ enum GroupEditorStrings {
     static var moveToTop: String { String(localized: "sidebar.groupEditor.moveToTop", defaultValue: "Move to Top", bundle: .module) }
     static var sort: String { String(localized: "sidebar.groupEditor.sort", defaultValue: "Sort", bundle: .module) }
     static var sortUndo: String { String(localized: "sidebar.groupSort.undo", defaultValue: "Sort Group", bundle: .module) }
+    static var rowLimitUndo: String { String(localized: "sidebar.groupRowLimit.undo", defaultValue: "Set Chats per Project", bundle: .module) }
     static var moreActions: String { String(localized: "sidebar.groupEditor.moreActions", defaultValue: "More Group Actions…", bundle: .module) }
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }

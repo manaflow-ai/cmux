@@ -1835,6 +1835,268 @@
         }
       }
     },
+    "groupRowLimit.refusal.needsDocument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this sidebar cannot set chats per project yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الشريط الجانبي تعيين الدردشات لكل مشروع بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova bočna traka još ne može postaviti razgovore po projektu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne sidebjælke kan endnu ikke angive chats pr. projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diese Seitenleiste kann Chats pro Projekt noch nicht festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta barra lateral aún no puede definir chats por proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette barre latérale ne peut pas encore définir les discussions par projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa barra laterale non può ancora impostare le chat per progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイドバーではまだプロジェクトごとのチャット数を設定できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀងនេះមិនទាន់អាចកំណត់ការជជែកក្នុងមួយគម្រោងបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사이드바에서는 아직 프로젝트당 채팅 수를 설정할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dette sidepanelet kan ikke angi chatter per prosjekt ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ten pasek boczny nie może jeszcze ustawić czatów na projekt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta barra lateral ainda não pode definir chats por projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "эта боковая панель пока не может задать число чатов в проекте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้างนี้ยังตั้งค่าแชตต่อโปรเจกต์ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu kenar çubuğu henüz proje başına sohbeti ayarlayamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ця бічна панель поки не може задати кількість чатів у проєкті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "thanh bên này chưa thể đặt số cuộc trò chuyện mỗi dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此边栏暂时无法设置每个项目的聊天数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此側邊欄暫時無法設定每個專案的聊天數"
+          }
+        }
+      }
+    },
+    "groupRowLimit.refusal.badLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chats per project takes default, all or a number above 0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقبل الدردشات لكل مشروع default أو all أو رقمًا أكبر من 0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "razgovori po projektu primaju default, all ili broj veći od 0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chats pr. projekt tager default, all eller et tal over 0"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats pro Projekt nimmt default, all oder eine Zahl über 0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chats por proyecto acepta default, all o un número mayor que 0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les discussions par projet acceptent default, all ou un nombre supérieur à 0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chat per progetto accetta default, all o un numero maggiore di 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトごとのチャット数には default、all、または 0 より大きい数を指定します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកក្នុងមួយគម្រោងទទួល default, all ឬលេខធំជាង 0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트당 채팅 수는 default, all 또는 0보다 큰 숫자를 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chatter per prosjekt tar default, all eller et tall over 0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "czaty na projekt przyjmują default, all lub liczbę większą od 0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chats por projeto aceita default, all ou um número maior que 0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "число чатов в проекте принимает default, all или число больше 0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตต่อโปรเจกต์รับค่า default, all หรือตัวเลขที่มากกว่า 0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "proje başına sohbet default, all veya 0'dan büyük bir sayı alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "кількість чатів у проєкті приймає default, all або число більше за 0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "số cuộc trò chuyện mỗi dự án nhận default, all hoặc một số lớn hơn 0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个项目的聊天数可取 default、all 或大于 0 的数字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個專案的聊天數可取 default、all 或大於 0 的數字"
+          }
+        }
+      }
+    },
     "archive.refusal.noOtherWorkspaces": {
       "extractionState": "manual",
       "localizations": {

@@ -30,6 +30,13 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var isArchived = false
     /// How its workspaces list (the editor's Sort; the document's `extra.sort`). Set by `arrange`.
     public var sort: SidebarGroupSort = .manual
+    /// Its own chats-per-project cap (the right-click menu; the document's `extra.row_limit`; 0 is All); nil follows
+    /// the Chats per Project setting. Set by `arrange`.
+    public var rowLimit: Int?
+    /// The rows its "Show N more" revealed past the cap (the document's `extra.revealed`), remembered per project.
+    public var revealed = 0
+    /// Its members pinned inside it: first, whatever the cap (`SidebarLayout+DoneFold`). Set by `arrange`.
+    public var pinnedMembers: Set<WorkspaceID> = []
     /// The machine a remote group stands for (``SidebarSection/wrappedAsHostGroup()``): its header is
     /// a group's, with the machine's mark and status dot (``SidebarHostGroupLook``); nil for every other group.
     public var machine: SidebarMachine?

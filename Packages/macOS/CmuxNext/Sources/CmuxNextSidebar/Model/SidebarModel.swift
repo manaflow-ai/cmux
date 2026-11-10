@@ -121,6 +121,9 @@ public final class SidebarModel {
     @ObservationIgnored var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// The lists whose "Show N more" row the person opened, kept here for the same reason.
     @ObservationIgnored var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The rows each list's "Show N more" revealed, set at the press so the list grows at once; the document's
+    /// `SidebarGroup.revealed` follows (no undo entry: a reveal is a view, not an edit).
+    @ObservationIgnored var revealedRows: [SidebarDoneFoldID: Int] = [:]
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The same row patches with their previous values, for projections that only need to react
@@ -248,6 +251,9 @@ public final class SidebarModel {
     public var groupHeaderDetails = GroupHeaderDetails()
     /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
     public var grouping = SidebarGrouping()
+    /// Chats per Project, Float to Top Within Project, the Needs you section and Include Working (Leo 2026-11-10).
+    /// Off until the settings arrive (`applyListPreferences`): a model made in a test or a capture draws every row.
+    public var projectCaps = SidebarProjectCapsPreferences.off
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -683,6 +689,7 @@ public final class SidebarModel {
                                                 background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
+        projectCaps = SidebarProjectCapsPreferences(preferences)
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
@@ -723,9 +730,10 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
-        // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
-        if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
-        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
+        // Every project shows its first chats and "Show N more" (Leo 2026-11-10); the Projects list itself lists every
+        // project, and Recents has no cap (it is the infinite list).
+        (o.projectCap, o.floatsInProject, o.includesWorking) = (projectCaps.cap, projectCaps.floats, projectCaps.includesWorking)
+        (o.openDoneFolds, o.openShowMore, o.revealed) = (openDoneFolds, openShowMore, revealedRows)
         o.grouping = settledGrouping()
         return o
     }
@@ -751,5 +759,28 @@ public final class SidebarModel {
             return
         }
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+}
+
+/// The `sidebar.*` settings of per-project caps and Needs you (design/sidebar.md "Per-project caps").
+public nonisolated struct SidebarProjectCapsPreferences: Hashable, Sendable {
+    /// Quiet chats a project shows before "Show N more"; 0 shows all.
+    public var cap = SidebarChatsPerProject.five.cap
+    public var floats = true
+    public var needsYouSection = true
+    public var includesWorking = false
+
+    /// No cap, no floating, no Needs you.
+    public static let off = SidebarProjectCapsPreferences(cap: 0, floats: false, needsYouSection: false)
+
+    public init() {}
+
+    public init(cap: Int, floats: Bool, needsYouSection: Bool = true, includesWorking: Bool = false) {
+        (self.cap, self.floats, self.needsYouSection, self.includesWorking) = (cap, floats, needsYouSection, includesWorking)
+    }
+
+    public init(_ p: SidebarSectionsPreferences) {
+        (cap, floats) = (p.chatsPerProject.cap, p.floatWithinProject)
+        (needsYouSection, includesWorking) = (p.needsYouSection, p.needsYouIncludesWorking)
     }
 }

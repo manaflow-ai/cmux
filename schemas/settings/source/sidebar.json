@@ -390,6 +390,145 @@
           }
         },
         {
+          "key": "sidebar.chatsPerProject",
+          "title": {
+            "key": "settings.sidebar.chatsPerProject",
+            "text": "Chats per Project"
+          },
+          "help": {
+            "key": "settings.sidebar.chatsPerProject.help",
+            "text": "How many recent chats each project shows before Show more. Pinned, running, unread and waiting chats always show. A project's right-click menu can override it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "3",
+              "title": {
+                "key": "settings.choice.chatsPerProject3",
+                "text": "3"
+              },
+              "swift_case": "three"
+            },
+            {
+              "value": "5",
+              "title": {
+                "key": "settings.choice.chatsPerProject5",
+                "text": "5"
+              },
+              "swift_case": "five"
+            },
+            {
+              "value": "10",
+              "title": {
+                "key": "settings.choice.chatsPerProject10",
+                "text": "10"
+              },
+              "swift_case": "ten"
+            },
+            {
+              "value": "all",
+              "title": {
+                "key": "settings.choice.chatsPerProjectAll",
+                "text": "All"
+              }
+            }
+          ],
+          "default": "5",
+          "keywords": [
+            "sidebar",
+            "projects",
+            "chats",
+            "cap",
+            "limit",
+            "show more",
+            "recent"
+          ],
+          "swift_enum": {
+            "name": "SidebarChatsPerProject",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.floatWithinProject",
+          "title": {
+            "key": "settings.sidebar.floatWithinProject",
+            "text": "Float to Top Within Project"
+          },
+          "help": {
+            "key": "settings.sidebar.floatWithinProject.help",
+            "text": "Chats waiting on you, then finished unread chats, move to the top of their project, below pinned. They never leave the project, and working chats never move."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "float",
+            "top",
+            "unread",
+            "waiting",
+            "needs you",
+            "order"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.needsYou.section",
+          "title": {
+            "key": "settings.sidebar.needsYou.section",
+            "text": "Needs You Section"
+          },
+          "help": {
+            "key": "settings.sidebar.needsYou.section.help",
+            "text": "A section at the top of the sidebar lists chats waiting on you, then finished unread chats, from every project. It shows only when there is something in it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "needs you",
+            "waiting",
+            "unread",
+            "inbox",
+            "attention"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.needsYou.includeWorking",
+          "title": {
+            "key": "settings.sidebar.needsYou.includeWorking",
+            "text": "Include Working Chats"
+          },
+          "help": {
+            "key": "settings.sidebar.needsYou.includeWorking.help",
+            "text": "Working chats also float to the top of their project and show in Needs You."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "needs you",
+            "working",
+            "running",
+            "float"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showSpaces",
           "title": {
             "key": "settings.sidebar.showSpaces",

@@ -27,8 +27,6 @@ extension SidebarListViewComponents {
                 openDoneFolds.formUnion(folds)
                 reload(animated: true)
             }
-            // Projects and Recents folds groups past five behind one Show more: opening it can draw the row.
-            if model.grouping.groupsByRecents { lists.append(.projects) }
             if displayed.row(for: key) == nil, !Set(lists).isSubset(of: openShowMore) {
                 openShowMore.formUnion(lists)
                 reload(animated: true)

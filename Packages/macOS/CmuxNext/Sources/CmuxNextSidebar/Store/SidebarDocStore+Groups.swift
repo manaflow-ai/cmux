@@ -42,6 +42,25 @@ extension SidebarDocStore {
         try sendChecked(ops: [["op": "group.update", "id": item(group: group), "patch": ["sort": sort.rawValue]]], title: GroupEditorStrings.sortUndo)
     }
 
+    /// Group `group`'s own Chats per Project (nil: the global setting; 0: All), from its right-click menu (Leo
+    /// 2026-11-10: "a per-project override in the right-click menu"). Undoable, as a sort is.
+    public func setGroupRowLimit(_ group: GroupID, _ cap: Int?) throws(SidebarDocSendRefusal) {
+        let value: Any = cap.map { $0 == 0 ? "all" as Any : $0 as Any } ?? NSNull()
+        try sendChecked(ops: [["op": "group.update", "id": item(group: group), "patch": ["row_limit": value]]],
+                        title: GroupEditorStrings.rowLimitUndo)
+    }
+
+    /// How far group `group`'s "Show N more" revealed (0: folded to its cap), so the project opens as it was left.
+    /// View state the window already shows: no undo entry and no rebuild, as a fold (`setGroupCollapsed`).
+    public func setGroupRevealed(_ group: GroupID, _ revealed: Int) {
+        let ops: [[String: Any]] = [["op": "group.update", "id": item(group: group), "patch": ["revealed": revealed > 0 ? revealed as Any : NSNull()]]]
+        send(ops: ops, title: Self.moveTitle, undoable: false)
+    }
+
+    /// Group `group`'s own Chats per Project as the sidebar last drew it (`SidebarGroup.rowLimit`; 0 is All): nil
+    /// when it follows the setting.
+    public func groupRowLimit(_ group: GroupID) -> Int? { projectionCache?.projection.groupRowLimits[item(group: group)] }
+
     /// How group `group` lists its workspaces now: manual when the document holds no sort for it.
     public func groupSort(_ group: GroupID) -> SidebarGroupSort { records.items[item(group: group)]?.sort ?? .manual }
 

@@ -14,6 +14,7 @@ import Testing
         "workspaceGroup.rename", "workspaceGroup.setColor", "toggleFocusedWorkspaceGroupCollapsed", "workspaceGroup.collapseOthers",
         "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces", "workspaceGroup.duplicate", "workspaceGroup.newWorkspace",
         "workspaceGroup.sortByName", "workspaceGroup.sortByLastUsed", "workspaceGroup.sortByDirectory", "workspaceGroup.setSort",
+        "workspaceGroup.setRowLimit",
     ]
     /// A workspace row's verbs, as its menu shows them.
     nonisolated static let workspaceMenu: [ActionID] = [

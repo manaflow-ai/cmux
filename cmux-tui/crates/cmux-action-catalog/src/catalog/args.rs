@@ -167,6 +167,10 @@ pub const INTO: Argument = Argument { name: "into", title: t("WorkspaceActions",
 #[rustfmt::skip]
 pub const SECTION_2: Argument = Argument { name: "section", title: t("Localizable", "argument.workspaceGroup.section", "Section"), kind: ArgKind::Target("sidebar-section"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const CASES_DEFAULT_3: &[EnumCase] = &[EnumCase { value: "default", title: t("WorkspaceActions", "argument.value.groupRowLimit.default", "Default") }, EnumCase { value: "3", title: Text::raw("3") }, EnumCase { value: "5", title: Text::raw("5") }, EnumCase { value: "10", title: Text::raw("10") }, EnumCase { value: "all", title: t("WorkspaceActions", "argument.value.groupRowLimit.all", "All") }];
+#[rustfmt::skip]
+pub const ROW_LIMIT: Argument = Argument { name: "limit", title: t("WorkspaceActions", "argument.workspaceGroup.rowLimit", "Chats per Project"), kind: ArgKind::Enumeration(CASES_DEFAULT_3), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const SORT: Argument = Argument { name: "sort", title: t("WorkspaceActions", "argument.workspaceGroup.sort", "Sort Order"), kind: ArgKind::Enumeration(CASES_MANUAL_NAME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const SPACE: Argument = Argument { name: "space", title: t("ProfileActions", "argument.room", "Space"), kind: ArgKind::Target("room"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: true, asked_in_palette: false };

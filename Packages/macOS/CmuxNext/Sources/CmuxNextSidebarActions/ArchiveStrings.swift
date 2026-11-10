@@ -17,6 +17,8 @@ nonisolated enum ArchiveStrings {
     static var noSuchItem: String { text("archive.refusal.noSuchItem", "no such sidebar item") }
     static var groupSortNeedsDocument: String { text("groupSort.refusal.needsDocument", "this sidebar cannot sort groups yet") }
     static var groupSortBadValue: String { text("groupSort.refusal.badSort", "a group sorts by manual, name or recent") }
+    static var groupRowLimitNeedsDocument: String { text("groupRowLimit.refusal.needsDocument", "this sidebar cannot set chats per project yet") }
+    static var groupRowLimitBadValue: String { text("groupRowLimit.refusal.badLimit", "chats per project takes default, all or a number above 0") }
 
     static var noOtherWorkspaces: String {
         text("archive.refusal.noOtherWorkspaces", "There are no other workspaces to archive. Pinned workspaces stay.")

@@ -63,9 +63,12 @@ final class SidebarScrollBench {
         case manyCollapsed(perGroup: Int)
         /// One open group of `members` workspaces, the rest loose under it.
         case openGroupThenLoose(members: Int)
+        /// `count / perGroup` open groups (projects), each of `perGroup`, every one open.
+        case projects(perGroup: Int)
     }
 
-    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false, shape: Shape = .mixed) {
+    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false, shape: Shape = .mixed,
+         caps: SidebarProjectCapsPreferences? = nil) {
         _ = NSApplication.shared
         self.count = count
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -123,9 +126,19 @@ final class SidebarScrollBench {
             let end = min(members, count)
             nodes = [.group(SidebarGroup(id: GroupID("sb-g0"), name: "Open group", color: .green, workspaces: (0..<end).map(ws)))]
                 + (end..<count).map { .workspace(ws($0)) }
+        case let .projects(perGroup):
+            var next = 0, g = 0
+            while next < count {
+                let members = (next..<min(count, next + perGroup)).map(ws)
+                nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Project \(g)", color: .green, workspaces: members)))
+                next += members.count
+                g += 1
+            }
         }
         rows = (0..<count).map(ws)
         model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.first)
+        // No caps unless asked: the benches that predate per-project caps measure every row drawn.
+        model.projectCaps = caps ?? .off
         sidebar = SidebarView(model: model, design: DesignSettings())
         window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: height), styleMask: [.borderless],
                           backing: .buffered, defer: false)

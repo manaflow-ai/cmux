@@ -88,6 +88,11 @@ extension SidebarDocProjection {
                 guard case .group(var group) = node else { return node }
                 // Every group, manual too: a list arranged before (a fold) may carry an old sort.
                 group.sort = projection.groupSorts[group.id.rawValue] ?? .manual
+                group.rowLimit = projection.groupRowLimits[group.id.rawValue]
+                group.revealed = projection.groupRevealed[group.id.rawValue] ?? 0
+                group.pinnedMembers = pinned.isEmpty ? [] : Set(group.workspaces.lazy.filter { workspace in
+                    drag.item(.workspace(workspace.id)).map { pinned.contains($0) } ?? false
+                }.map(\.id))
                 guard group.sort != .manual else { return .group(group) }
                 group.workspaces = group.sort.ordered(group.workspaces) { workspace in
                     drag.item(.workspace(workspace.id)).map { pinned.contains($0) } ?? false

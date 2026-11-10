@@ -27,6 +27,26 @@ public nonisolated enum SidebarLayoutStyle: String, Hashable, Sendable, CaseIter
     case rail
 }
 
+/// `sidebar.chatsPerProject`: how many recent chats each project shows before "Show N more" (Leo 2026-11-10:
+/// "just make it configurable"). Pinned, running, unread and waiting chats always show; a project's right-click menu
+/// overrides it.
+public nonisolated enum SidebarChatsPerProject: String, Hashable, Sendable, CaseIterable {
+    case three = "3"
+    case five = "5"
+    case ten = "10"
+    case all
+
+    /// The cap the layout passes to Rust; 0 shows every chat.
+    public var cap: Int {
+        switch self {
+        case .three: 3
+        case .five: 5
+        case .ten: 10
+        case .all: 0
+        }
+    }
+}
+
 /// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
 /// (Leo 2026-10-06).
 public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
@@ -66,6 +86,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// Chats per project before "Show N more" (`sidebar.chatsPerProject`).
+    public var chatsPerProject: SidebarChatsPerProject = .five
+    /// Yellow then blue rise to the top of their project, below pinned (`sidebar.floatWithinProject`).
+    public var floatWithinProject = true
+    /// The Needs you section at the top of the sidebar (`sidebar.needsYou.section`).
+    public var needsYouSection = true
+    /// Working chats also float and show in Needs you (`sidebar.needsYou.includeWorking`).
+    public var needsYouIncludesWorking = false
     /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
     /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
     /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).

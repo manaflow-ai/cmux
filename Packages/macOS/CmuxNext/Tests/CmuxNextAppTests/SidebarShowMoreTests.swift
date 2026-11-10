@@ -3,8 +3,9 @@
 import Foundation
 import Testing
 
-/// A group or list longer than `sidebar.groupRowLimit` shows its first rows, the ones that need you and the active
-/// one, then a "Show N more" row that lists the rest (Leo's sidebar organization, slice S5).
+/// A project longer than its cap (Chats per Project, or the Debug `sidebar.groupRowLimit` for any list) shows its
+/// first rows and every active one, then a "Show N more" row that reveals 20 more (Leo 2026-11-10; Rust decides,
+/// `cmux-layout-reducer::sidebar_caps`).
 @MainActor @Suite(.serialized) struct SidebarShowMoreTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let section = SectionID.machine(.local)
@@ -56,12 +57,43 @@ import Testing
             == [.group(GroupID("g"))] + Self.members(0..<10) + Self.members([11, 12]) + [.showMore(Self.groupList)])
     }
 
-    @Test func anOpenListShowsEveryRowThenShowFewer() throws {
-        let o = Self.options(open: [Self.groupList])
+    /// "Show N more" reveals 20 at a time, never all at once; revealed to the end it reads "Show less" (Leo 2026-11-10).
+    @Test func aRevealedListShowsTheNextRowsThenShowLess() throws {
+        var o = Self.options()
+        o.revealed[Self.groupList] = 20
         #expect(Self.keys(o, Self.sections()) == [.group(GroupID("g"))] + Self.members(0..<14) + [.showMore(Self.groupList)])
         let row = try #require(SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: o).row(for: .showMore(Self.groupList)))
         #expect(row.childCount == 0)
         #expect(!row.isCollapsed)
+        // 60 rows past a cap of 10: one press shows 20 more, and the row offers the next 20.
+        o.revealed[Self.groupList] = 20
+        let long = SidebarLayout.make(sections: Self.sections(count: 60), metrics: .standard, options: o)
+        #expect(long.rows.count { if case .workspace = $0.key { true } else { false } } == 30)
+        #expect(try #require(long.row(for: .showMore(Self.groupList))).childCount == 20)
+    }
+
+    /// Chats per Project caps a project (a group) and not the loose rows; a group's own cap wins.
+    @Test func chatsPerProjectCapsProjectsOnly() {
+        var o = Self.options(limit: 0)
+        o.projectCap = 5
+        #expect(Self.keys(o, Self.sections()) == [.group(GroupID("g"))] + Self.members(0..<5) + [.showMore(Self.groupList)])
+        let loose: [SidebarNode] = (0..<12).map { .workspace(Self.ws("m\($0)")) }
+        #expect(Self.keys(o, [SidebarSection(kind: .machine(Self.machine), nodes: loose)]) == Self.members(0..<12))
+        guard case var .group(group) = Self.sections()[0].nodes[0] else { Issue.record("no group"); return }
+        group.rowLimit = 0
+        #expect(Self.keys(o, [SidebarSection(kind: .machine(Self.machine), nodes: [.group(group)])]) == [.group(GroupID("g"))] + Self.members(0..<14))
+    }
+
+    /// Float to Top Within Project: yellow then blue rise to the top of the project; working rows stay in place.
+    @Test func yellowThenBlueFloatWithinTheProject() {
+        var o = Self.options(limit: 0)
+        (o.projectCap, o.floatsInProject) = (5, true)
+        var sections = Self.sections(needsYou: [9])
+        guard case var .group(group) = sections[0].nodes[0] else { Issue.record("no group"); return }
+        group.workspaces[12].unread = .dot
+        group.workspaces[2].agentWorking = true
+        sections[0].nodes[0] = .group(group)
+        #expect(Self.keys(o, sections) == [.group(GroupID("g"))] + Self.members([9, 12, 0, 1, 2, 3, 4]) + [.showMore(Self.groupList)])
     }
 
     @Test func oneRowOverTheLimitShowsWithoutTheRow() {
@@ -107,6 +139,6 @@ import Testing
 
     @Test func theRowSaysHowManyMore() {
         #expect(Strings.showMore(4).contains("4"))
-        #expect(!Strings.showFewer.isEmpty)
+        #expect(!Strings.showLess.isEmpty)
     }
 }
