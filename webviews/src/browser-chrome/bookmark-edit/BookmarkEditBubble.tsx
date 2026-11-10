@@ -3,22 +3,30 @@
 // saves what it shows when it closes. The fields are the Bookmarks page's editor's (Name, Folder;
 // pages/bookmarks/BookmarkEditor.tsx), without URL: the star bookmarks the page shown. The Folder
 // menu shows past the card's edge through the app's popup host, so the card never grows for it.
+// The host draws at most 1,000 rows a level: the menu draws the first folders in tree order and its
+// search field finds any folder of a profile with more (model.ts `folderMenu`).
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../ui/Button";
 import { DialogButton } from "../../ui/DialogButton";
 import { Input } from "../../ui/Input";
 import { Select } from "../../ui/Select";
-import { selectDescription } from "../../ui/popupDescriptors";
+import { selectDescription, textRow } from "../../ui/popupDescriptors";
 import "../../ui/popupSurface.css";
 import type { Strings } from "../../pages/shared/i18n";
 import {
   adoptTitle,
+  folderMenu,
   folderOptions,
   type BookmarkEditCommand,
   type BookmarkEditLook,
   type BookmarkEditState,
 } from "./model";
 import "./bookmarkEdit.css";
+import type { NativePopupEvent } from "../../ui/popupProtocol";
+
+/** The Folder menu's search field and its note row (native row identities, apart from options'). */
+export const FOLDER_SEARCH_ID = "folder-search";
+const FOLDER_MORE_ID = "folder-more";
 
 export type BookmarkEditBubbleProps = {
   state: BookmarkEditState;
@@ -46,18 +54,42 @@ export function BookmarkEditBubble({
     setPushed({ revision: state.revision, title: state.title });
     setTitle((draft) => adoptTitle(draft, pushed.title, state.title));
   }
+  // Every folder, for the trigger's label and the pick check; the native menu draws `menu`.
   const options = useMemo(() => folderOptions(state, folder), [state, folder]);
-  const native = useMemo(
-    () => ({
-      model: selectDescription({
-        options,
-        value: folder,
-        label: t("field.folder"),
-        width: Math.round(state.width * 0.6),
-      }),
-    }),
-    [options, folder, state.width, t],
-  );
+  const [query, setQuery] = useState("");
+  const menu = useMemo(() => folderMenu(state, folder, query), [state, folder, query]);
+  const native = useMemo(() => {
+    const model = selectDescription({
+      options: menu.options,
+      value: folder,
+      label: t("field.folder"),
+      width: Math.round(state.width * 0.6),
+    });
+    const note =
+      menu.hidden > 0
+        ? textRow(FOLDER_MORE_ID, t("bubble.moreFolders"))
+        : query && menu.options.length === 0
+          ? textRow(FOLDER_MORE_ID, t("page.noMatches"))
+          : null;
+    return {
+      model: {
+        ...model,
+        search: {
+          id: FOLDER_SEARCH_ID,
+          value: query,
+          placeholder: t("bubble.searchFolders"),
+          autoHighlight: "first" as const,
+        },
+        rows: note ? [...model.rows, note] : model.rows,
+      },
+      onEvent: (event: NativePopupEvent) => {
+        if ((event.type === "search" || event.type === "change") && event.id === FOLDER_SEARCH_ID)
+          setQuery(event.value ?? "");
+      },
+      // A menu opens on every folder again.
+      onDismiss: () => setQuery(""),
+    };
+  }, [menu, folder, query, state.width, t]);
   // The name has the keys and its text selected when the bubble opens, so typing renames it.
   const name = useRef<HTMLInputElement | null>(null);
   useLayoutEffect(() => {
@@ -107,6 +139,7 @@ export function BookmarkEditBubble({
           native={native}
           onChange={(next) => {
             setFolder(next);
+            setQuery("");
             send("edit", { title, folder: next });
           }}
         />

@@ -69,6 +69,56 @@ export function folderOptions(
 }
 
 /**
+ * The most folder rows the Folder menu draws at once. The app's popup host draws at most 1,000 rows
+ * a level (CmuxNextDesign NativePopupModel+Validation), and a profile can hold more folders: the
+ * menu shows the first ones in tree order and its search field finds any of them.
+ */
+export const FOLDER_MENU_LIMIT = 500;
+
+/** One Folder menu row: an indented title, or a found folder with where it lives. */
+export type FolderMenuOption = { value: string; label: string; description?: string };
+
+/**
+ * The Folder menu for `query`: with none, the first `limit` folders in tree order, indented, plus
+ * the current one when it is past them; with one, the folders whose title holds every word (any
+ * case), unindented, each with the folders it is in. `hidden` counts the matches left out.
+ */
+export function folderMenu(
+  state: Pick<BookmarkEditState, "folders">,
+  current: string,
+  query: string,
+  limit = FOLDER_MENU_LIMIT,
+): { options: FolderMenuOption[]; hidden: number } {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    const all = folderOptions(state, current);
+    const options = all.slice(0, limit);
+    if (!options.some((option) => option.value === current)) {
+      const chosen = all.find((option) => option.value === current);
+      if (chosen) options.push(chosen);
+    }
+    return { options, hidden: all.length - options.length };
+  }
+  const options: FolderMenuOption[] = [];
+  let hidden = 0;
+  // The titles of the folders above the one at each depth, as the list goes down in tree order.
+  const above: string[] = [];
+  for (const choice of state.folders) {
+    above.length = choice.depth;
+    const title = choice.title.toLowerCase();
+    if (terms.every((term) => title.includes(term))) {
+      if (options.length < limit) {
+        const option: FolderMenuOption = { value: choice.id, label: choice.title };
+        if (above.length > 0) option.description = above.join(" › ");
+        options.push(option);
+      } else hidden++;
+    }
+    above[choice.depth] = choice.title;
+  }
+  return { options, hidden };
+}
+
+/**
  * The name the bubble shows after a push: the host's when the person has not edited the one the
  * last push gave (a page title that arrived after the star), else the person's.
  */

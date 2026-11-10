@@ -40,7 +40,12 @@ export interface SelectProps {
    * value changes width (a right-aligned value), so a closing menu never slides. */
   align?: "start" | "end";
   /** Declarative native rows. Supplying this routes the open select to WebPopupHost. */
-  native?: { model: NativePopupDescription; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    onDismiss?(): void;
+    /** Every event of the native popup after the select's own handling (a search field's text). */
+    onEvent?(event: NativePopupEvent): void;
+  };
 }
 
 /** A single-choice menu with native keyboard, VoiceOver and press-drag-release behavior. */
@@ -79,6 +84,7 @@ export function Select({
                   const picked = action?.value;
                   if (picked !== undefined && options.some((option) => option.value === picked && !option.disabled))
                     onChange(picked);
+                  native.onEvent?.(event);
                 },
                 onDismiss: native.onDismiss,
               }

@@ -450,6 +450,35 @@ fn the_apps_reads_answer_from_the_stored_tree() {
 }
 
 #[test]
+fn an_exact_resolve_names_the_focused_page_only() {
+    // Only https://example.com/docs is bookmarked; the focused page is https://example.com/.
+    let (mux, conn) = app();
+    let docs = json!([{"op": "create", "id": FOLDER, "browser_profile_id": "default",
+        "parent": "bar", "index": null, "kind": "url", "title": "Docs",
+        "url": "https://example.com/docs", "favicon_key": null, "source_key": null,
+        "created_ms": null}]);
+    ok(send(&mux, &conn, "bookmarks.apply", json!({"ops": docs}), Some("k1")));
+    let resolve = |bookmark: &str, exact: bool| {
+        send(
+            &mux,
+            &conn,
+            "bookmarks.resolve",
+            json!({"browser_profile_id": "default", "bookmark": bookmark, "exact": exact,
+                   "bar_title": "Bar", "other_title": "Other"}),
+            None,
+        )
+    };
+    // Typed text still matches the way the omnibar does.
+    assert_eq!(ok(resolve("https://example.com/", false))["bookmark"]["title"], "Docs");
+    // The focused page names no other page's bookmark.
+    let refused = resolve("https://example.com/", true);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["details"]["extra"]["code"], "bookmarks.not_found");
+    assert_eq!(ok(resolve("HTTPS://example.com/docs", true))["bookmark"]["id"], FOLDER);
+    mux.shutdown();
+}
+
+#[test]
 fn a_source_import_says_what_its_undo_puts_back() {
     let (mux, conn) = app();
     let params = |items: Value| {
@@ -473,6 +502,14 @@ fn a_source_import_says_what_its_undo_puts_back() {
     ));
     assert_eq!(second["previous"]["title"], "Imported from Chrome");
     assert_eq!(second["previous"]["children"][0]["title"], "A");
+    // A re-import of an emptied source removes the folder and still says what it held.
+    let emptied = ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("s3")));
+    assert_eq!(emptied["deleted"].as_array().map(Vec::is_empty), Some(false), "{emptied}");
+    assert_eq!(emptied["previous"]["title"], "Imported from Chrome");
+    assert_eq!(emptied["previous"]["children"][0]["title"], "B");
+    // Nothing left to remove: nothing to put back.
+    let again = ok(send(&mux, &conn, "bookmarks.import_source", params(json!([])), Some("s4")));
+    assert_eq!(again["previous"], Value::Null);
     mux.shutdown();
 }
 

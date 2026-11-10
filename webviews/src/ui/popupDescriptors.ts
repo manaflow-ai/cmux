@@ -111,7 +111,15 @@ export function separatorId(itemId: string): string {
   return optionIds([itemId], "separator").get(itemId)!;
 }
 export interface SelectDescriptorInput {
-  options: readonly { value: string; label: string; shortcut?: string; disabled?: boolean; disabledReason?: string }[];
+  options: readonly {
+    value: string;
+    label: string;
+    /** A second line under the label (where a found folder lives). */
+    description?: string;
+    shortcut?: string;
+    disabled?: boolean;
+    disabledReason?: string;
+  }[];
   value: string;
   label?: string;
   width?: number;
@@ -127,8 +135,8 @@ export function selectDescription(input: SelectDescriptorInput): PopupDescriptio
     width: input.width ?? 220,
     ...(input.label ? { title: input.label } : {}),
     highlighted: ids.get(input.value),
-    rows: input.options.map((option) =>
-      choiceRow({
+    rows: input.options.map((option) => ({
+      ...choiceRow({
         id: ids.get(option.value)!,
         value: option.value,
         label: option.label,
@@ -137,7 +145,8 @@ export function selectDescription(input: SelectDescriptorInput): PopupDescriptio
         disabledReason: option.disabledReason,
         checked: option.value === input.value,
       }),
-    ),
+      ...(option.description ? { description: option.description } : {}),
+    })),
   };
 }
 export interface ComboboxDescriptorInput {

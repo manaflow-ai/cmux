@@ -15,7 +15,8 @@ import CmuxNextWakeups
 ///
 /// Syncs are debounced per store, and each event from a store pushes its sync back: Chromium's
 /// events are posted, so a sync sent while an extension's later change is still queued would undo
-/// that change. Events go to the daemon one after another, in the order Chromium posted them. A
+/// that change. Events go to the daemon one after another, in the order Chromium posted them (a big
+/// one in ordered batches the daemon takes). A
 /// store whose tree cannot be read yet (no home daemon) waits and syncs once it can.
 final class BookmarkChromiumSync {
     static let settle: Duration = .milliseconds(400)
@@ -71,12 +72,18 @@ final class BookmarkChromiumSync {
         }
         guard !ops.isEmpty else { return }
         let previous = writes
-        // task-owner: one Chromium event's ops, after the previous event's; ends with its reply
+        // `bookmarks.apply` takes at most 256 ops: a bigger event (a reorder of a big folder) goes
+        // as ordered batches, all awaited before the store's sync reads the tree.
+        let batches = BookmarkRoutedClient.batches(ops)
+        // task-owner: one Chromium event's ops, after the previous event's; ends with its last reply
         writes = Task { [weak self, weak service] in
             await previous?.value
-            do { try await service?.apply(ops) } catch {
-                // The deferred sync puts the daemon's tree back in Chromium.
-                self?.logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
+            for batch in batches {
+                do { try await service?.apply(batch) } catch {
+                    // The daemon stops at a refusal; the deferred sync puts its tree back in Chromium.
+                    self?.logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
+                    return
+                }
             }
         }
     }

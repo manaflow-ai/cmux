@@ -134,6 +134,27 @@ struct BookmarkFolderIconTests {
         #expect(acted.count == 1)
     }
 
+    /// Only an implicit name is exact: a bar's row (its id) and the focused page's URL resolve on the
+    /// daemon as an id or a link to the same page (`exact`, cmux-bookmarks-ops `find_exact`), so
+    /// Delete Bookmark on a page with no bookmark of its own never deletes another page's by a text
+    /// match. Text the person typed still matches the way the omnibar does.
+    @Test func onlyAnImplicitNameResolvesExactly() {
+        let resolver = BookmarkResolver(services: Self.services())
+        let typed = ActionInvocation(arguments: ["bookmark": .string(" docs ")])
+        #expect(resolver.name(typed) == BookmarkResolver.Name(text: "docs", exact: false))
+        let row = ActionInvocation(target: ActionTargetRef(kind: .bookmark, id: "bm_folder"))
+        #expect(resolver.name(row) == BookmarkResolver.Name(text: "bm_folder", exact: true))
+        #expect(resolver.name(ActionInvocation()) == nil, "no argument and no focused page names nothing")
+
+        let exact = BookmarkRoutedClient.resolveParams(profile: "default", bookmark: "https://example.com/", exact: true,
+                                                       foldersFirst: false, folder: nil, fallback: nil, url: nil)
+        #expect(exact["exact"] == .bool(true))
+        #expect(exact["bookmark"] == .string("https://example.com/"))
+        let loose = BookmarkRoutedClient.resolveParams(profile: "default", bookmark: "docs", exact: false,
+                                                       foldersFirst: false, folder: nil, fallback: nil, url: nil)
+        #expect(loose["exact"] == nil)
+    }
+
     /// Folder icons live in the home daemon's bookmarks: without `bookmark-icon-v1` there (an
     /// older daemon, or none yet) the actions say why instead of doing nothing.
     @Test func folderIconActionsWaitForAHomeDaemonThatServesThem() {

@@ -159,6 +159,27 @@ pub fn find(tree: &Tree, text: &str, folders_first: bool, now_ms: u64) -> Option
     search(tree, text).into_iter().next()
 }
 
+/// The bookmark `text` names exactly: an id, else a link to the same page
+/// when it is an absolute URL. No title or text match: the app asks this for
+/// the focused page, so a page with no bookmark of its own names none (a
+/// substring match would name another page's bookmark).
+pub fn find_exact(tree: &Tree, text: &str) -> Option<Bookmark> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Some(node) = tree.get(text) {
+        return Some(node.clone());
+    }
+    if !cmux_bookmarks_core::has_url_scheme(text) {
+        return None;
+    }
+    let key = url_key(text);
+    tree.listing()
+        .into_iter()
+        .find(|node| node.url.as_deref().is_some_and(|url| url_key(url) == key))
+}
+
 /// The folder `text` names: `bar`, `other`, a folder id, a root's title or a
 /// folder's title (the first in tree order, any case). No text is the
 /// `fallback` (the last folder used) while it is still a folder, else the bar.

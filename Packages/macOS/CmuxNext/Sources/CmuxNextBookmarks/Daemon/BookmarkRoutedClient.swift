@@ -108,21 +108,31 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
     }
 
     /// Asks for each part given: the node `bookmark` names (an id, a URL, a title; folders by
-    /// title first with `foldersFirst`), the folder `folder` names (`.some(nil)`: the default
-    /// folder, `fallback` while it is one), the URL `url` was typed as. A name that resolves to
-    /// nothing throws ``BookmarkError`` (`notFound`, `invalidParent`, `invalidURL`).
-    public func resolve(profile: String, bookmark: String? = nil, foldersFirst: Bool = false, folder: String?? = nil,
-                        fallback: String? = nil, url: String? = nil) async throws -> Resolved {
+    /// title first with `foldersFirst`; with `exact`, only an id or a link to the same page), the
+    /// folder `folder` names (`.some(nil)`: the default folder, `fallback` while it is one), the
+    /// URL `url` was typed as. A name that resolves to nothing throws ``BookmarkError``
+    /// (`notFound`, `invalidParent`, `invalidURL`).
+    public func resolve(profile: String, bookmark: String? = nil, exact: Bool = false, foldersFirst: Bool = false,
+                        folder: String?? = nil, fallback: String? = nil, url: String? = nil) async throws -> Resolved {
+        let params = Self.resolveParams(profile: profile, bookmark: bookmark, exact: exact, foldersFirst: foldersFirst,
+                                        folder: folder, fallback: fallback, url: url)
+        let result = try await send("bookmarks.resolve", params)
+        return Resolved(bookmark: try result["bookmark"].map { try Self.node($0) }, folder: result["folder"]?.stringValue,
+                        url: result["url"]?.stringValue.flatMap(URL.init(string:)))
+    }
+
+    /// ``resolve(profile:bookmark:exact:foldersFirst:folder:fallback:url:)``'s params.
+    static func resolveParams(profile: String, bookmark: String?, exact: Bool, foldersFirst: Bool, folder: String??,
+                              fallback: String?, url: String?) -> [String: JSONValue] {
         var params: [String: JSONValue] = ["browser_profile_id": .string(profile), "bar_title": .string(BookmarkStrings.barTitle),
                                            "other_title": .string(BookmarkStrings.otherBookmarks)]
         if let bookmark { params["bookmark"] = .string(bookmark) }
+        if exact { params["exact"] = .bool(true) }
         if foldersFirst { params["folders_first"] = .bool(true) }
         if let folder { params["folder"] = folder.map(JSONValue.string) ?? .null }
         if let fallback { params["fallback_folder"] = .string(fallback) }
         if let url { params["url"] = .string(url) }
-        let result = try await send("bookmarks.resolve", params)
-        return Resolved(bookmark: try result["bookmark"].map { try Self.node($0) }, folder: result["folder"]?.stringValue,
-                        url: result["url"]?.stringValue.flatMap(URL.init(string:)))
+        return params
     }
 
     /// Nodes whose title or URL holds every term of `text`, in tree order (folders by title).
@@ -148,6 +158,15 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
     }
 
     // MARK: Edits
+
+    /// The most ops one `bookmarks.apply` takes (cmux-tui `bookmarks_routed.rs` `MAX_OPS`).
+    public static let maxOps = 256
+
+    /// `ops` in order as batches of at most ``maxOps``: sent one after another, each awaited, a
+    /// longer list (a Chromium reorder of a big folder) still goes in Chromium's order.
+    public static func batches(_ ops: [Op]) -> [[Op]] {
+        stride(from: 0, to: ops.count, by: maxOps).map { Array(ops[$0..<min($0 + maxOps, ops.count)]) }
+    }
 
     /// The daemon's ops in turn (`bookmarks.apply`, at most 256): a refusal stops there and throws.
     @discardableResult

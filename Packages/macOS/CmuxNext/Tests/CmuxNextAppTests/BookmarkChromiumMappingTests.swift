@@ -34,6 +34,22 @@ struct BookmarkChromiumMappingTests {
         #expect(try CEFBookmarkEvent.reordered(parent: "bar", children: [uuid, uuid]).bookmarkOps(profile: "default").count == 2)
     }
 
+    /// `bookmarks.apply` takes at most 256 ops: a reorder of 257 children goes as two batches in
+    /// order (256, then 1), not one batch the daemon refuses whole.
+    @Test func aBigReorderGoesInOrderedBatchesTheDaemonTakes() throws {
+        let children = (0..<257).map { _ in BookmarkID.chromium(BookmarkID.make()) }
+        let ops = try CEFBookmarkEvent.reordered(parent: "bar", children: children).bookmarkOps(profile: "default")
+        #expect(ops.count == 257)
+        let batches = BookmarkRoutedClient.batches(ops)
+        #expect(batches.map(\.count) == [256, 1])
+        #expect(batches.allSatisfy { $0.count <= BookmarkRoutedClient.maxOps })
+        #expect(Array(batches.joined()) == ops, "every op, in Chromium's order")
+        let last = try #require(batches.last?.first?.json.foundationObject as? [String: Any])
+        #expect(last["index"] as? Double == 256)
+        #expect(BookmarkRoutedClient.batches([]).isEmpty)
+        #expect(BookmarkRoutedClient.batches(Array(ops.prefix(256))).count == 1)
+    }
+
     @Test func theSyncedTreeKeepsListingOrderInChromiumIds() throws {
         let folder = BookmarkNode(id: BookmarkID.make(), parent: "bar", kind: .folder, title: "Work")
         let link = BookmarkNode(id: BookmarkID.make(), parent: folder.id, kind: .url, title: "Docs", url: URL(string: "https://example.com/"))

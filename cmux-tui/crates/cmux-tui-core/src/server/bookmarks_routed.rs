@@ -29,9 +29,11 @@
 //!   `{bookmarks_revision, folders: [{id, title, depth}]}`, the roots and
 //!   every folder in tree order (the edit bubble's Folder menu).
 //! - `bookmarks.resolve {browser_profile_id, bookmark?, folders_first?,
-//!   folder?, fallback_folder?, url?, bar_title, other_title}`: what the
-//!   CLI and MCP name, `{bookmark?, folder?, url?}` (each asked for):
-//!   the placed node `bookmark` names (`lookup::find`), the folder
+//!   exact?, folder?, fallback_folder?, url?, bar_title, other_title}`: what
+//!   the CLI and MCP name, `{bookmark?, folder?, url?}` (each asked for):
+//!   the placed node `bookmark` names (`lookup::find`; with `exact`, only an
+//!   id or a link to the same page, `lookup::find_exact`, as for the focused
+//!   page the app names when no argument does), the folder
 //!   `folder` names (`lookup::folder`) and the URL `url` was typed as. A
 //!   name that resolves to nothing is `bookmarks.not_found`,
 //!   `bookmarks.not_folder` or `bookmarks.invalid_url`.
@@ -51,7 +53,7 @@
 //!   removes it. `{root_ids, count, added, duplicates, skipped, replayed,
 //!   previous}` (`skipped`: items whose URL the store would refuse;
 //!   `previous`: the source's folder before, as one import node that puts it
-//!   back, or null); a removal also has `deleted`.
+//!   back, or null, on a removal too); a removal also has `deleted`.
 //! - `bookmarks.import_legacy_file {document}` (mutation): an older build's
 //!   `bookmarks.json`, node by node with its ids and a stable key per node,
 //!   so a copy that stopped resumes. `{ops}`.
@@ -138,6 +140,9 @@ struct Resolve {
     bookmark: Option<String>,
     #[serde(default)]
     folders_first: bool,
+    /// Only an id or a link to the same page names the bookmark.
+    #[serde(default)]
+    exact: bool,
     /// Present (even null) asks for a folder: null is the default folder.
     #[serde(default, deserialize_with = "present")]
     folder: Option<Option<String>>,
@@ -359,6 +364,10 @@ pub(super) fn routed(
             let import: ImportSource = parse(params)?;
             let actor = super::origin_gate::connection_actor(mux, client);
             let key = import.idempotency_key.as_str();
+            // The folder as it is before this import replaces or removes it: the import's undo
+            // puts it back.
+            let (_, before) = read(mux, operation, &import.browser_profile_id)?;
+            let previous = lookup::source_draft(&before, &import.source_key);
             if import.items.is_empty() {
                 // No items: the source's folder goes (a re-import of an emptied source). The
                 // lookup, the delete and the replay record are one transaction.
@@ -377,6 +386,7 @@ pub(super) fn routed(
                         object.insert(field.into(), json!(0));
                     }
                     object.insert("root_ids".into(), json!([]));
+                    object.insert("previous".into(), json!(previous));
                 }
                 return Ok(result);
             }
@@ -387,9 +397,6 @@ pub(super) fn routed(
                 &import.items,
             )
             .map_err(|error| failure(operation, &error.into(), None))?;
-            // The folder as it is before this import replaces it: the import's undo puts it back.
-            let (_, before) = read(mux, operation, &import.browser_profile_id)?;
-            let previous = lookup::source_draft(&before, &import.source_key);
             let mut result = one(mux, &actor, key, BookmarkOp::Import(plan.import))
                 .map_err(|error| failure(operation, &error, None))?;
             if let Some(object) = result.as_object_mut() {
@@ -501,8 +508,12 @@ fn bounded(field: &str, count: usize) -> Result<(), ResourceError> {
 fn resolve(tree: &Tree, request: Resolve) -> Result<Value, Unresolved> {
     let mut answer = Map::new();
     if let Some(text) = &request.bookmark {
-        let node = lookup::find(tree, text, request.folders_first, now_ms())
-            .ok_or(Unresolved::NotFound)?;
+        let node = if request.exact {
+            lookup::find_exact(tree, text)
+        } else {
+            lookup::find(tree, text, request.folders_first, now_ms())
+        }
+        .ok_or(Unresolved::NotFound)?;
         answer.insert("bookmark".into(), lookup::placed(tree, &node));
     }
     if let Some(folder) = &request.folder {

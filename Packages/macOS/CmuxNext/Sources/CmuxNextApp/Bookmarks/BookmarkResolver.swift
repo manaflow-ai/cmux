@@ -29,13 +29,22 @@ struct BookmarkResolver {
         return BrowserProfileRecord.defaultID
     }
 
-    /// What names the bookmark: the target's id, else the `bookmark` argument, else the focused
-    /// page's URL. Nil when nothing does.
-    func name(_ invocation: ActionInvocation) -> String? {
-        if let target = invocation.target, target.kind == .bookmark { return target.id }
-        if let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty { return text }
+    /// What names the bookmark, and whether only an id or a link to the same page may answer it.
+    struct Name: Equatable {
+        var text: String
+        var exact: Bool
+    }
+
+    /// What names the bookmark: the target's id, else the `bookmark` argument (matched like the
+    /// omnibar does), else the focused page's URL, exactly: a page with no bookmark of its own names
+    /// none, never another page's by a text match. Nil when nothing does.
+    func name(_ invocation: ActionInvocation) -> Name? {
+        if let target = invocation.target, target.kind == .bookmark { return Name(text: target.id, exact: true) }
+        if let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
+            return Name(text: text, exact: false)
+        }
         guard let key = browserTabKey(invocation), let url = services.cache.existingBrowser(key)?.tab.state.url else { return nil }
-        return url.absoluteString
+        return Name(text: url.absoluteString, exact: true)
     }
 
     /// The parts an invocation names, resolved in one daemon read: the bookmark when `bookmark`
@@ -43,7 +52,7 @@ struct BookmarkResolver {
     /// the default folder), the `url` argument when given.
     func resolve(_ invocation: ActionInvocation, profile: String, bookmark: Bool = false, foldersFirst: Bool = false,
                  folder: Bool = false) async throws -> BookmarkRoutedClient.Resolved {
-        var name: String?
+        var name: Name?
         if bookmark {
             guard let named = self.name(invocation) else { throw ActionFailure(message: BookmarkAppStrings.needsBookmark) }
             name = named
@@ -54,7 +63,8 @@ struct BookmarkResolver {
             throw ActionFailure(message: BookmarkAppStrings.failure(services.bookmarks.unavailable))
         }
         do {
-            return try await services.bookmarks.routed.resolve(profile: profile, bookmark: name, foldersFirst: foldersFirst,
+            return try await services.bookmarks.routed.resolve(profile: profile, bookmark: name?.text, exact: name?.exact ?? false,
+                                                               foldersFirst: foldersFirst,
                                                                folder: folderText, fallback: services.bookmarks.lastFolder[profile],
                                                                url: url)
         } catch BookmarkError.notFound(_) {

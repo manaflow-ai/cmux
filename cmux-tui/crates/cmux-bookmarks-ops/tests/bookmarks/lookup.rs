@@ -4,8 +4,8 @@
 
 use cmux_bookmarks_core::{Bookmark, BookmarkOp, Tree};
 use cmux_bookmarks_ops::lookup::{
-    self, FolderChoice, Unresolved, bar_filled, find, folder, folders, matches, path, placed,
-    source_draft, typed_url,
+    self, FolderChoice, Unresolved, bar_filled, find, find_exact, folder, folders, matches, path,
+    placed, source_draft, typed_url,
 };
 
 const NOW: u64 = 1_700_000_000_000;
@@ -108,6 +108,22 @@ fn a_name_is_an_id_a_url_a_folder_title_or_the_best_match() {
     assert_eq!(find(&tree, "wor", false, NOW).unwrap().id, id(1));
     assert!(find(&tree, "nothing here", false, NOW).is_none());
     assert!(find(&tree, "  ", false, NOW).is_none());
+}
+
+#[test]
+fn an_exact_name_is_an_id_or_the_same_page_never_a_text_match() {
+    // Only https://example.com/docs is bookmarked: the focused page https://example.com/
+    // names nothing, though `find` would take the docs link by its text.
+    let tree = Tree::from_listing(
+        "default",
+        [node(1, "bar", "url", "Docs", Some("https://example.com/docs"))],
+    );
+    assert_eq!(find(&tree, "https://example.com/", false, NOW).unwrap().id, id(1));
+    assert!(find_exact(&tree, "https://example.com/").is_none());
+    assert_eq!(find_exact(&tree, "HTTPS://Example.com/docs").unwrap().id, id(1));
+    assert_eq!(find_exact(&tree, &id(1)).unwrap().id, id(1));
+    assert!(find_exact(&tree, "docs").is_none());
+    assert!(find_exact(&tree, " ").is_none());
 }
 
 #[test]

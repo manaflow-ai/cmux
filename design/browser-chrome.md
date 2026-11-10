@@ -254,7 +254,10 @@ It is the native SwiftUI form's look and behavior, now drawn by a page. Referenc
   to one row: More… a quiet link on the start, Remove and Done (the accent, with its Return
   keycap) at the end, all at the compact control height.
 - **Folder.** The daemon's folder choices (`bookmarks.folders`), indented by depth. The menu shows
-  through the app's popup host past the card's edge, so the card never grows or clips it.
+  through the app's popup host past the card's edge, so the card never grows or clips it. The host
+  draws at most 1,000 rows a level, so the menu draws the first 500 folders in tree order (and the
+  current one), with a search field on top that finds any folder by title, each found folder with
+  the folders it is in (`parity-many-folders`).
 - **Saving.** Every edit goes to the host, so Done, Return, Escape and a click outside all save
   what the card shows; Remove deletes every link to the page; More… opens the manager on it. A page
   title that arrives after the star renames a new bookmark only while its name is unedited.
@@ -262,6 +265,7 @@ It is the native SwiftUI form's look and behavior, now drawn by a page. Referenc
 | surface | variants | recommended |
 | --- | --- | --- |
 | bookmark edit bubble | parity (the native form), compact (the popups' padding), roomy (labels over fields) | **parity** |
+| bookmark edit bubble, Folder menu | every folder in one menu (refused past 1,000 rows), nested submenus a level at a time, first 500 plus a search field | **first 500 plus search** |
 
 **Parity** keeps the bubble as it was: the move to a page changes nothing a person sees. Compact
 crowds the buttons against the fields; roomy is easier to scan but taller than the form it replaces.

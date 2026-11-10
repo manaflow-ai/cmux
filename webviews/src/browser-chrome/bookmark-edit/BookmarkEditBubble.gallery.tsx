@@ -18,6 +18,13 @@ const folders: BookmarkEditFolder[] = [
   { id: "other", title: "Other Bookmarks", depth: 0 },
 ];
 
+// A profile past the 1,000 rows a level the app's popup host draws.
+const manyFolders: BookmarkEditFolder[] = [
+  { id: "bar", title: "Bookmarks Bar", depth: 0 },
+  ...Array.from({ length: 1500 }, (_, n) => ({ id: `bm_many_${n}`, title: `Project ${n}`, depth: 1 + (n % 3) })),
+  { id: "other", title: "Other Bookmarks", depth: 0 },
+];
+
 const added: BookmarkEditState = {
   revision: 1,
   isNew: true,
@@ -87,6 +94,10 @@ export default componentEntry<Props>({
         look: "parity",
       },
       note: "A long name scrolls in its field; the card keeps its width.",
+    },
+    "parity-many-folders": {
+      props: { state: { ...added, folders: manyFolders, folder: "bm_many_1499" }, look: "parity" },
+      note: "1,500 folders: the Folder menu draws the first 500 in tree order (and the current one), and its search field finds any other.",
     },
     "parity-gone-folder": {
       props: { state: { ...added, folder: "bm_deleted" }, look: "parity" },
