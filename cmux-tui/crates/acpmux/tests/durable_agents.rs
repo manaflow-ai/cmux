@@ -2198,6 +2198,44 @@ async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate()
     );
 }
 
+/// A restart's detach ends its agent within a bound, also when its host never takes the terminate
+/// (its link stopped reading; the debug seam `ACPMUX_TEST_STALL_HOST_TERMINATE`). The host is then
+/// ended by its nonce. Before, the detach held the session's agent slot for good, and
+/// `_acpmux/status`, which reads every slot, never answered.
+#[tokio::test]
+async fn a_detach_is_bounded_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stalldetach", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let mut restarter = daemon.rpc().await;
+    prove(&mut restarter).await;
+    let named = session.clone();
+    let restart = tokio::spawn(async move {
+        restarter.reply("_acpmux/sessions/restart_harness", json!({"sessions": [named]})).await
+    });
+    // The restart's detach holds the agent slot by now.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let status = tokio::time::timeout(Duration::from_secs(10), rpc.call("_acpmux/status", json!({})))
+        .await
+        .expect("status waited on a detach whose host never takes the terminate");
+    assert!(status["pid"].is_number(), "{status}");
+    let r = tokio::time::timeout(Duration::from_secs(20), restart)
+        .await
+        .expect("the restart waited on a host that never takes the terminate")
+        .unwrap();
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its host ignored the terminate"
+    );
+    daemon.wait_event(&session, "host_ended", |e| e["kind"] == "host_ended");
+}
+
 /// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
 fn record_mdm_off(daemon: &Daemon) {
     let state = daemon.home.join("start-mode.json");
