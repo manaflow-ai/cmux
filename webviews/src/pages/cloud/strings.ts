@@ -221,6 +221,21 @@ export const L = {
   storeNote: "store.note",
   storeBrowse: "store.browse",
   storeYourMachines: "store.yourMachines",
+  capNear: "cap.near",
+  capNearBody: "cap.nearBody",
+  capReached: "cap.reached",
+  capPaused: "cap.paused",
+  capSpent: "cap.spent",
+  capPausesAt: "cap.pausesAt",
+  capNoStarts: "cap.noStarts",
+  capPausedBody: "cap.pausedBody",
+  capAsk: "cap.ask",
+  capAskAdmin: "cap.askAdmin",
+  capMachinePaused: "cap.machinePaused",
+  capMachinePausesAt: "cap.machinePausesAt",
+  capTeamSpend: "cap.teamSpend",
+  budgetReached: "budget.reached",
+  budgetSpent: "budget.spent",
 } as const;
 
 export type StringKey = (typeof L)[keyof typeof L];

@@ -18,6 +18,12 @@ pub mod codes {
     pub const QUOTA_EXCEEDED: &str = "cmux.cloud.quota_exceeded";
     /// `cloud.size.locked`: the size needs another plan.
     pub const SIZE_LOCKED: &str = "cmux.cloud.size_locked";
+    /// `cloud.spend_cap.reached`: the team reached its spending cap; `details`
+    /// carries `{spent_usd, cap_usd, period_end, pause_at}`. An admin raises it.
+    pub const SPEND_CAP_REACHED: &str = "cmux.cloud.spend_cap_reached";
+    /// `cloud.member_budget.reached`: the member spent their monthly budget;
+    /// `details` carries `{spent_usd, limit_usd}`. An admin raises it.
+    pub const MEMBER_BUDGET_REACHED: &str = "cmux.cloud.member_budget_reached";
     /// `cloud.provider.unavailable` (retryable).
     pub const PROVIDER_UNAVAILABLE: &str = "cmux.cloud.provider_unavailable";
     /// `cloud.machine.not_bound`: still provisioning, no host yet.
@@ -107,6 +113,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.plan.required", codes::PLAN_REQUIRED),
     ("cloud.quota.exceeded", codes::QUOTA_EXCEEDED),
     ("cloud.size.locked", codes::SIZE_LOCKED),
+    ("cloud.spend_cap.reached", codes::SPEND_CAP_REACHED),
+    ("cloud.member_budget.reached", codes::MEMBER_BUDGET_REACHED),
     ("cloud.provider.unavailable", codes::PROVIDER_UNAVAILABLE),
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
