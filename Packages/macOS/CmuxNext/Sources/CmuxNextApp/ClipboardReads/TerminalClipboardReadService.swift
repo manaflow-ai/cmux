@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTerminal
@@ -66,7 +67,11 @@ final class TerminalClipboardReadService {
             (Self.isConnected(store.connectionState) && store.supports(capability), Self.terminalIDs(store))
         } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the service
-            Task { @MainActor [weak self] in self?.observe() }
+            Task { @MainActor [weak self] in
+                // Counted as a wrapper's wake is (this hop has the task-local values of the write; CmdTTabListReadersTests).
+                if let self { ObservationWakes.record(site: ObservationSite(fileID: #fileID, line: #line), instance: ObjectIdentifier(self)) }
+                self?.observe()
+            }
         }
         // The epoch changes on every reconnect, which resubscribes.
         broker.setConnection(connected ? store.connectionEpoch : nil)

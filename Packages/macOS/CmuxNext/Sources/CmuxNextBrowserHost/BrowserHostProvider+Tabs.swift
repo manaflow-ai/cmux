@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
+import CmuxNextCompat
 import Foundation
 import Observation
 
@@ -21,7 +22,11 @@ extension BrowserHostProvider {
             readTabs()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, self.observation == pass else { return }
+                guard let self else { return }
+                // Counted as the wrappers count their wakes: this hop has the task-local values of the write that
+                // woke the pass, so a test sees which changes wake it (CmdTTabListReadersTests).
+                ObservationWakes.record(site: ObservationSite(fileID: #fileID, line: #line), instance: ObjectIdentifier(self))
+                guard self.observation == pass else { return }
                 self.observeTabs()
             }
         }
