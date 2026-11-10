@@ -583,7 +583,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+        let catalog = hub.catalog.clone();
+        crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -777,13 +778,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_watch();
     // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
     let metadata = {
-        let hub = hub.clone();
-        tokio::spawn(async move { hub.load_store_async().await })
+        let loading = hub.clone();
+        crate::supervise::once("store load", &hub.fatal, async move {
+            loading.load_store_async().await;
+        })
     };
     hub.begin_startup_work();
     let startup = {
-        let hub = hub.clone();
-        tokio::spawn(async move {
+        let (hub, fatal) = (hub.clone(), hub.fatal.clone());
+        // A startup that panicked can never finish: the daemon stops for a restart.
+        crate::supervise::once("startup", &fatal, async move {
             hub.wait_store().await;
             #[cfg(debug_assertions)]
             test_panic_in("startup");
@@ -828,12 +832,23 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.run_after_startup().await;
         })
     };
-    tokio::spawn(notify::notify_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("notify", &hub.fatal.clone(), move || {
+            notify::notify_loop(hub.clone())
+        });
+    }
+    let weak = Arc::downgrade(&hub);
     // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
-    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
+    }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
-    tokio::spawn(Hub::desktop_bridge_loop(Arc::downgrade(&hub)));
+    crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
+        Hub::desktop_bridge_loop(weak.clone())
+    });
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]

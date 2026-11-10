@@ -161,35 +161,39 @@ impl Watches {
         for _ in 0..REMOTE_WORKERS {
             tokio::spawn(remote_worker(Arc::clone(hub)));
         }
-        let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
         let weak = Arc::downgrade(hub);
-        tokio::spawn(async move {
-            let Some(hub) = weak.upgrade() else { return };
-            hub.wait_logs().await;
-            hub.wait_startup().await;
-            let mut refresh = true;
-            loop {
-                #[cfg(test)]
-                hub.watches.test_pass();
-                if refresh && let Err(e) = reconcile(&hub).await {
-                    tracing::error!("watch: {e}");
-                }
-                refresh = tokio::select! {
-                    () = hub.shutdown.notified() => break,
-                    () = hub.watches.wake.notified() => true,
-                    () = hub.outbox.changed.notified() => { drain(&hub, false); false },
-                    e = events.recv() => match e {
-                        Ok(e) => concerns(&hub, &e),
-                        Err(broadcast::error::RecvError::Lagged(_)) => true,
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    }
-                };
-                // Coalesce already queued changes; no timer and no periodic reads.
+        // After a panic the loop starts over: subscribed again, then a full reconcile.
+        crate::supervise::restarting("watch", &hub.fatal, move || {
+            let weak = weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
+                hub.wait_logs().await;
+                hub.wait_startup().await;
+                let mut refresh = true;
                 loop {
-                    match events.try_recv() {
-                        Ok(e) => refresh |= concerns(&hub, &e),
-                        Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
-                        Err(_) => break,
+                    #[cfg(test)]
+                    hub.watches.test_pass();
+                    if refresh && let Err(e) = reconcile(&hub).await {
+                        tracing::error!("watch: {e}");
+                    }
+                    refresh = tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = hub.watches.wake.notified() => true,
+                        () = hub.outbox.changed.notified() => { drain(&hub, false); false },
+                        e = events.recv() => match e {
+                            Ok(e) => concerns(&hub, &e),
+                            Err(broadcast::error::RecvError::Lagged(_)) => true,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    };
+                    // Coalesce already queued changes; no timer and no periodic reads.
+                    loop {
+                        match events.try_recv() {
+                            Ok(e) => refresh |= concerns(&hub, &e),
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
+                            Err(_) => break,
+                        }
                     }
                 }
             }
