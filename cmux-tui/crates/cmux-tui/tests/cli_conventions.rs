@@ -481,3 +481,33 @@ fn a_missing_or_bad_option_is_the_usage_error_object() {
         }
     }
 }
+
+/// Shell completion for every scope, read from the help (Leo, 2026-11-10: "We need to keep
+/// cleaning up the cli commands so they're nice to type and intuitive and ergonomic and go with
+/// best practices"). Every scope the root help lists completes at the first word, the everyday
+/// scopes complete their verbs, and each shell gets a script that asks `cmux __complete`.
+#[test]
+fn completion_lists_every_scope() {
+    let cli = Cli::new();
+    let first = cli.run(&["__complete", "--", ""]);
+    assert!(first.status.success(), "cmux __complete -- '': {}", text(&first.stderr));
+    let offered: Vec<String> = text(&first.stdout).lines().map(str::to_owned).collect();
+    for scope in scopes(&cli) {
+        assert!(offered.contains(&scope), "`cmux <Tab>` does not offer `{scope}`: {offered:?}");
+    }
+    assert!(offered.iter().any(|word| word == "completion"), "{offered:?}");
+    for (scope, verb) in [("vm", "ls"), ("chat", "send"), ("workspace", "list"), ("completion", "zsh")] {
+        let out = cli.run(&["__complete", "--", scope, ""]);
+        let verbs = text(&out.stdout);
+        assert!(verbs.lines().any(|line| line == verb), "`cmux {scope} <Tab>` lacks `{verb}`: {verbs}");
+    }
+    for shell in ["zsh", "bash", "fish"] {
+        let out = cli.run(&["completion", shell]);
+        assert!(out.status.success(), "cmux completion {shell}: {}", text(&out.stderr));
+        assert!(text(&out.stdout).contains("cmux __complete --"), "cmux completion {shell}");
+    }
+    let help = cli.run(&["completion", "--help"]);
+    assert!(help.status.success() && text(&help.stdout).contains("cmux completion zsh"));
+    let bare = cli.run(&["completion"]);
+    assert_eq!(bare.status.code(), Some(2), "bare `cmux completion` is a usage error");
+}
