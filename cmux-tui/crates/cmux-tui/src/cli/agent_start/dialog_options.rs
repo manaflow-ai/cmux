@@ -181,7 +181,7 @@ fn unnumbered(screen: &str) -> Vec<DialogOption> {
         .collect();
     // An input box's hint row (`⏎ send`, `? for shortcuts`) is no choice.
     let joined = labels.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>().join("\n");
-    if labels.len() < 2 || super::readiness::composer_visible(&joined) {
+    if labels.len() < 2 || readiness::composer_visible(&joined) {
         return Vec::new();
     }
     labels
