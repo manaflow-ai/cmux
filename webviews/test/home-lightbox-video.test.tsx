@@ -132,12 +132,13 @@ async function mount({ videoFails = false } = {}) {
   const lightbox = () => document.querySelector<HTMLElement>(".hc-lightbox");
   const title = () => lightbox()?.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent;
   // Lets React and the attachment service settle until `reached` holds: a poll of the real state, bounded by a
-  // deadline, not one fixed tick that hopes the lightbox has rendered.
+  // deadline, not one fixed tick that hopes the lightbox has rendered. It always lets one tick run, as the
+  // lightbox moves focus to itself after it renders.
   const until = async (reached: () => boolean) => {
     const deadline = Date.now() + 5_000;
-    while (!reached() && Date.now() < deadline) {
+    do {
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    }
+    } while (!reached() && Date.now() < deadline);
   };
   const press = async (key: string) => {
     const target = document.activeElement ?? document.body;
