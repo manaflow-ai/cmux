@@ -109,14 +109,18 @@ export const NATIVE_KNOBS: readonly { key: string; status: "live" | "gap"; proof
   },
   {
     key: "appearance.accent = art (Art Color)",
-    status: "gap",
-    proof:
-      "pages' --cmux-app-accent keeps the old art's hue after a shuffle or a new pick (ThemeCoordinator.applyChromeTheme runs only on theme and accent changes)",
+    status: "live",
+    proof: "ArtAccentTests.pagesTakeTheNewArtsHueWhenThePictureChanges",
   },
   {
     key: "appearance.highlightColor",
-    status: "gap",
-    proof: "its live preview never shows: TerminalThemeSetting.take reads snapshot.highlightColor, not applied",
+    status: "live",
+    proof: "ThemeLivePreviewTests.previewingTheHighlightColorShowsItBeforeItIsSaved",
+  },
+  {
+    key: "terminal theme on the whole app (Preview on the Whole App)",
+    status: "live",
+    proof: "ThemeLivePreviewTests.aWholeAppPreviewShowsTheTerminalThemeOnTheChromeTooAndEndingRestoresBoth",
   },
   {
     key: "CMUX_NEXT_DEBUG_LEGACY_MATERIAL",
