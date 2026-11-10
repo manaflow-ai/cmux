@@ -68,6 +68,8 @@ NOT_MERGE_GATES = {
     ("cmux-next-media.yml", "hand-off"): "media comment, not a gate",
     ("cmux-next-media.yml", "publish"): "media comment, not a gate",
     ("cmux-next-perf-budgets.yml", "report"): "a perf report, not a merge gate",
+    ("cmux-next.yml", "compile-status-handoff"): "a status poster: cmux-next/compile carries the fallback's verdict; "
+                                                 "no fallback run posts error with the no-verdict marker (exit 3)",
     ("cmux-next.yml", "generated-verdict"): "its own no-verdict line (base_red_excuse GENERATED_NO_VERDICT)",
     ("cmux-next.yml", "release-compile-fast-admission"): "push-only promotion step, after the merge",
     ("cmux-vm.yml", "image-roll-settle"): "an image roll's settle, not a merge gate",

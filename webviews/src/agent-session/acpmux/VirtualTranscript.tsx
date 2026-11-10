@@ -169,7 +169,7 @@ import {
   jumpUpShown,
   jumpUpTarget,
   lastOwnPrompt,
-  placeOffScreen,
+  placeOffView,
   pressJumpUp,
   type JumpBack,
   type ManualMark,
@@ -1410,7 +1410,7 @@ function TranscriptView({
       repositoryReading.current,
     );
     repositoryReading.current = reading;
-    return reading.repositories;
+    return reading.at;
   }, [githubRepository, fallbackRepository, rows]);
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
@@ -3542,10 +3542,17 @@ function TranscriptView({
               const held = chaseHeld.current;
               chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
               chase.land();
-              // The rows under the reply (the turn's footer the fold brought) would move down by
-              // its growth at once: they glide there instead (tailGlide.ts).
+            }
+            // The rows under the reply (the turn's footer the fold brought) would move down by its
+            // growth at once: they glide there instead (tailGlide.ts), in every pass of the drain, not
+            // only the one that read the growth. The reply's drawn height can grow a pass before the
+            // layout takes it (a pass the mounted range brings, as the scroll trail's does), and the
+            // footer then moved by it in the next pass, at once (turn-transition-jumps `tool-group`,
+            // end step: 19.2 and 32.2 px in a frame). Only a move against the reply glides, so a pass
+            // where nothing moved plays nothing.
+            if (reply) {
               tailGlides = true;
-              tailAnchor = reply?.id;
+              tailAnchor = reply.id;
             }
           } else if (foldRiding && !resizing) {
             // The fold playing on: nothing noted, and a chase still landing lands on its own.
@@ -5041,7 +5048,7 @@ function TranscriptView({
     : undefined;
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffScreen(upTop, renderScroll.top - origin, height, topInset);
+  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
   const upTopRef = useRef(upTop);
   upTopRef.current = upTop;
@@ -5243,7 +5250,7 @@ function TranscriptView({
                         controls={controls}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
-                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                        githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         referenceScope={scopeAt(absoluteIndex)}
                       >
                         <RowContent
@@ -5256,7 +5263,7 @@ function TranscriptView({
                           onOpenDiff={onOpenDiff}
                           expanded={isExpanded}
                           controls={controls}
-                          githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                          githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         />
                       </RowFrame>
                     );
