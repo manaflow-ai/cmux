@@ -353,7 +353,11 @@ const CURSOR: &str = "\nCursor Agent\n\nTo log in, open this URL in your browser
 #[test]
 fn cursor_link_only_on_cursor_hosts() {
     let got = offer(Agent::Cursor, CURSOR).expect("a link");
-    assert!(got.url.starts_with("https://cursor.com/loginDeepControl?challenge=abc_123"), "{}", got.url);
+    assert!(
+        got.url.starts_with("https://cursor.com/loginDeepControl?challenge=abc_123"),
+        "{}",
+        got.url
+    );
     assert_eq!(got.user_code, None);
     // Each agent's link is on its own provider's hosts only.
     assert_eq!(offer(Agent::Claude, CURSOR), None);

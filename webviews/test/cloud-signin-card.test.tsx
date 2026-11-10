@@ -217,7 +217,9 @@ test("only an allowed provider page over https opens", () => {
   expect(signInURL("https://evil.example/?next=https://claude.ai")).toBeUndefined();
   expect(signInURL("javascript:alert(1)")).toBeUndefined();
   expect(signInURL(undefined)).toBeUndefined();
-  expect(signInURL("https://cursor.com/loginDeepControl?challenge=c")).toBe("https://cursor.com/loginDeepControl?challenge=c");
+  expect(signInURL("https://cursor.com/loginDeepControl?challenge=c")).toBe(
+    "https://cursor.com/loginDeepControl?challenge=c",
+  );
   expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
 });
 

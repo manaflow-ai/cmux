@@ -114,6 +114,8 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -724,7 +726,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => {
             vm::cloud_rename_note(args);
-            args
+            match vm::cloud_yes(args) {
+                Some(rewritten) => {
+                    cloud_args = rewritten;
+                    cloud_args.as_slice()
+                }
+                None => args,
+            }
         }
     };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
@@ -809,6 +817,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| safe_mode::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
