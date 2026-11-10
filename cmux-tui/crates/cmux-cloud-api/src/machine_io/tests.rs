@@ -1147,3 +1147,91 @@ fn a_listing_exactly_at_max_bytes_is_whole_and_one_byte_under_is_refused() {
     let (_, tiny) = go(&Request { max_bytes: Some(13), ..base }, T0);
     assert_eq!(tiny.code.as_deref(), Some("too_large"), "not even the wrapper fits");
 }
+
+/// The ops a fake machine saw, by the file program's op word.
+fn ran(seen: &[Seen], op: &str) -> usize {
+    seen.iter()
+        .filter(|s| s.is_exec_await())
+        .filter(|s| s.json()["command"].as_str().is_some_and(|c| c.contains(&format!("' {op} '"))))
+        .count()
+}
+
+/// Review of #40104 at d99396ad (F2): a staged upload the call's deadline runs out on is aborted
+/// and never committed, so it can never land after its caller was told it failed. A fake clock
+/// (no waits): each chunk the machine takes moves it on by `chunk_ms`. Cases: slow chunks that
+/// run out part way, a deadline that leaves exactly the 1 s a step needs (it all lands), one
+/// 1 ms short of it (nothing at all is sent), and one with room for the whole upload; each run several times.
+#[test]
+fn an_upload_out_of_time_is_aborted_and_never_committed() {
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    use std::time::{Duration, Instant};
+    let margin = Duration::from_secs(16); // a step's 15 s answer margin and its 1 s
+    // (time left at the start, each chunk's time, chunks sent, committed)
+    let cases = [
+        // 21 s: chunks at 0, 2.5 and 5 s (exactly 1 s left), none at 7.5 s.
+        (margin + Duration::from_millis(5_000), 2_500, 3, false),
+        (margin + Duration::from_millis(1), 2_500, 1, false),
+        // Exactly the 1 s a step needs, and a machine that takes no time: all of it lands.
+        (margin, 0, 4, true),
+        (margin - Duration::from_millis(1), 0, 0, false),
+        (margin + Duration::from_secs(60), 2_500, 4, true),
+    ];
+    for round in 0..3 {
+        for (left, chunk_ms, appends, committed) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("machine");
+            std::fs::create_dir(&root).unwrap();
+            let start = Instant::now();
+            let clock = Arc::new(Mutex::new(start));
+            let (cell, tick) = (Arc::new(Mutex::new(String::new())), Arc::clone(&clock));
+            let c = Arc::clone(&cell);
+            let (origin, seen) = fake(move |s| {
+                if s.is_mint() {
+                    minted(&c.lock().unwrap())
+                } else if s.is_exec_await() {
+                    if ran(std::slice::from_ref(s), "append") == 1 {
+                        *tick.lock().unwrap() += Duration::from_millis(chunk_ms);
+                    }
+                    run_here(s)
+                } else {
+                    (599, "{}".into())
+                }
+            });
+            *cell.lock().unwrap() = origin.clone();
+            let path = format!("{}/upload.bin", root.display());
+            let data: Vec<u8> = (0..direct::STDIN_MAX * 4).map(|i| (i % 251) as u8).collect();
+            let write = Request {
+                op: Op::Write,
+                path: Some(path.clone()),
+                data_base64: Some(BASE64.encode(&data)),
+                ..request(&origin, &dir.path().join("cache"), Op::Write)
+            };
+            let now = Arc::clone(&clock);
+            let deadline =
+                crate::Deadline { by: start + left, now: Arc::new(move || *now.lock().unwrap()) };
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let (route, answer) = runtime
+                .block_on(crate::DEADLINE.scope(deadline, perform(&client(), &write, move || T0)));
+            let case = format!("round {round}, {left:?} left, {chunk_ms} ms a chunk: {answer:?}");
+            let seen = seen.lock().unwrap();
+            assert_eq!(route, Route::Direct, "never handed to the proxy: {case}");
+            assert!(!seen.iter().any(Seen::is_proxy), "{case}");
+            assert_eq!(ran(&seen, "append"), appends, "{case}");
+            assert_eq!(ran(&seen, "commit"), usize::from(committed), "{case}");
+            assert_eq!(std::path::Path::new(&path).exists(), committed, "{case}");
+            if committed {
+                assert_eq!(answer.status, 200, "{case}");
+                assert_eq!(std::fs::read(&path).unwrap(), data, "{case}");
+            } else {
+                assert_eq!(answer.code.as_deref(), Some("timed_out"), "{case}");
+                assert_eq!(ran(&seen, "abort"), usize::from(ran(&seen, "stage") > 0), "{case}");
+            }
+            let leftovers = std::fs::read_dir(&root).unwrap().filter_map(Result::ok).count();
+            assert_eq!(leftovers, usize::from(committed), "no staging file is left: {case}");
+        }
+    }
+}

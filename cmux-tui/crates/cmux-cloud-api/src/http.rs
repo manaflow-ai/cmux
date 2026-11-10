@@ -183,6 +183,9 @@ impl Http {
         timeout: Duration,
         path: &str,
     ) -> Result<Reply, Failure> {
+        // Past the call's deadline nothing more is sent (`crate::perform_by`).
+        let timeout = crate::within(timeout, Duration::ZERO)
+            .ok_or_else(|| Failure::TimedOut(path.to_owned()))?;
         let mut builder =
             self.client.request(method, url).bearer_auth(&self.credential).timeout(timeout);
         match self.auth {

@@ -200,6 +200,12 @@ const LONGEST_FIXED_MS: u64 = 960_000;
 /// The longest `request` can take before its own deadlines answer it: the bound for a caller that
 /// waits on its answer (the CLI on the daemon's reply), which adds its own margin.
 pub fn longest(request: &Request) -> std::time::Duration {
+    own(request).max(std::time::Duration::from_millis(LONGEST_FIXED_MS))
+}
+
+/// The time `request`'s own arguments give it (a sandboxed Run's task, an exec's timeout); zero
+/// for a call with only fixed deadlines.
+pub fn own(request: &Request) -> std::time::Duration {
     let ms = |name: &str, default: i64| {
         u64::try_from(optional_int(&request.args, name).unwrap_or(default)).unwrap_or(0)
     };
@@ -210,7 +216,53 @@ pub fn longest(request: &Request) -> std::time::Duration {
         "machine.io" => ms("timeout_ms", 0).saturating_add(5_000),
         _ => 0,
     };
-    std::time::Duration::from_millis(call_ms.max(LONGEST_FIXED_MS))
+    std::time::Duration::from_millis(call_ms)
+}
+
+/// How long past its deadline a call may still clean up (abort a staged upload) before
+/// [`perform_by`] drops it: less than the 30 s an app caller's own deadline adds to the one it sends.
+pub const CLEANUP: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// A call's deadline and the clock it is read by (the real one; a test's own).
+#[derive(Clone)]
+pub(crate) struct Deadline {
+    pub(crate) by: std::time::Instant,
+    pub(crate) now: std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>,
+}
+
+tokio::task_local! {
+    /// The deadline [`perform_by`] runs its call by.
+    pub(crate) static DEADLINE: Deadline;
+}
+
+/// Runs one call that must be over by `by`: every request it sends is cut to end by then, a step
+/// with no time left is never sent (a staged write is aborted, never committed), and at `by` +
+/// [`CLEANUP`] the call is dropped and answers `timed_out`. The daemon's caller gives up only
+/// after that, so nothing of a call outlives the caller's answer.
+pub async fn perform_by(
+    request: &Request,
+    tail: Zeroizing<Vec<u8>>,
+    by: std::time::Instant,
+) -> Result<Value, Failure> {
+    let cut = tokio::time::Instant::from_std(by.checked_add(CLEANUP).unwrap_or(by));
+    let deadline = Deadline { by, now: std::sync::Arc::new(std::time::Instant::now) };
+    match tokio::time::timeout_at(cut, DEADLINE.scope(deadline, perform(request, tail))).await {
+        Ok(result) => result,
+        Err(_) => Err(Failure::TimedOut(request.call.clone())),
+    }
+}
+
+/// `want`, cut to end `margin` before the deadline [`perform_by`] set (`want` when none). None:
+/// less than a second is left for it, so it must not start.
+pub(crate) fn within(
+    want: std::time::Duration,
+    margin: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let Ok(left) = DEADLINE.try_with(|d| d.by.saturating_duration_since((d.now)())) else {
+        return Some(want);
+    };
+    let fit = left.checked_sub(margin)?;
+    (fit >= std::time::Duration::from_secs(1)).then(|| want.min(fit))
 }
 
 /// A refusal never carries the caller's credentials back (a server or proxy that echoed one).

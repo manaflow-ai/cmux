@@ -12,7 +12,7 @@ extension CloudOwnerAPIClient {
     public func handoffWait(_ id: String, after: Int?, timeoutMs: Int = handoffWaitLimitMs) async throws -> Data {
         let held = max(0, min(timeoutMs, Self.handoffWaitLimitMs))
         return try await call("owner.handoff_wait", ["id": id, "after": max(0, after ?? 0), "timeoutMs": held],
-                              wait: .milliseconds(held) + .seconds(15))
+                              wait: .milliseconds(held) + .seconds(15) + CloudDaemon.lineAllowance)
     }
 
     /// The person's hand-offs, newest first, page after page (at most `pages` of 100):

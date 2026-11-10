@@ -157,7 +157,7 @@ public struct CloudAPIClient: Sendable {
     /// with its receipt when it has one (`cloud.runs.wait`).
     public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
         let wait = max(0, min(timeoutMs, 10_000))
-        return try await call("runs.wait", ["id": id, "timeoutMs": wait], wait: .milliseconds(wait + 10_000))
+        return try await call("runs.wait", ["id": id, "timeoutMs": wait], wait: .milliseconds(wait + 10_000) + CloudDaemon.lineAllowance)
     }
 
     /// One sandboxed Run to its end: `cloud.runs.start` (the create, sent once more under

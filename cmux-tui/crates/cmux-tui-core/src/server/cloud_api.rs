@@ -21,6 +21,13 @@
 //! credential is ever in it. Each call runs on a worker thread (32 at most; long polls, 16 at most
 //! of those, so interactive calls always have 16). A long poll past its 16 waits in line, first
 //! come first served, with no thread; an interactive call past 32 is `busy`.
+//!
+//! `args.deadline_ms` (taken out before the call runs) is how long the caller waits for the
+//! answer; the app's SDK deadline is 30 s past it. The whole call, time in line included, is over
+//! by then (`cmux_cloud_api::perform_by`): a waiting long poll that can no longer start in time
+//! is `busy`, one that starts late is held shorter, no request outlives the deadline and a staged
+//! write with no time left is aborted, never committed. Without it (the CLI) the deadline is the
+//! call's longest (`cmux_cloud_api::longest`).
 
 use super::{MessageWriter, Mux, ResourceOperation, send_resource_response};
 use crate::resource_router::ParsedResourceRequest;
@@ -108,7 +115,8 @@ mod calls {
     use cmux_cloud_api::{Auth, Failure, Request};
     use serde_json::{Map, Value, json};
     use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+    use std::time::{Duration, Instant};
     use zeroize::Zeroizing;
 
     /// The daemon's call slots.
@@ -136,22 +144,26 @@ mod calls {
     /// Long polls waiting for a slot at once, past which one more is `busy`.
     pub(super) const MAX_QUEUED_LONG_POLLS: usize = 256;
 
-    /// What a waiting long poll does with the slot it is given (starts its call's thread).
-    pub(super) type Job = Box<dyn FnOnce(Slot) + Send>;
+    /// What a call does with the slot it is given, or with the limit that refused it (`busy`).
+    pub(super) type Job = Box<dyn FnOnce(Result<Slot, usize>) + Send>;
 
     /// The call slots: every call takes one of [`MAX_WORKERS`], and a long poll one of
     /// [`MAX_LONG_POLLS`] too. A long poll past its cap waits in line (no thread) and a freed
     /// slot goes to the oldest waiting one first, so followers that rearm at once never take
-    /// every slot from a newer caller (review of #40104 at 43732a03). An interactive call past
-    /// [`MAX_WORKERS`] is `busy`; it never waits behind long polls.
+    /// every slot from a newer caller (review of #40104 at 43732a03). A waiting one that can no
+    /// longer start in time for its caller's deadline (its `start_by`) is answered `busy` then, by
+    /// the line's own timer, long before that deadline (review at d99396ad). An interactive call
+    /// past [`MAX_WORKERS`] is `busy`; it never waits behind long polls.
     pub(super) struct Slots {
         state: Mutex<State>,
+        changed: Condvar,
+        timer: OnceLock<()>,
     }
 
     struct State {
         calls: usize,
         long_polls: usize,
-        waiting: VecDeque<Job>,
+        waiting: VecDeque<(Instant, Job)>,
     }
 
     /// A taken slot, given back when dropped (the call's thread ends, or never started).
@@ -162,16 +174,20 @@ mod calls {
 
     impl Slots {
         pub(super) const fn new() -> Self {
-            Self { state: Mutex::new(State { calls: 0, long_polls: 0, waiting: VecDeque::new() }) }
+            Self {
+                state: Mutex::new(State { calls: 0, long_polls: 0, waiting: VecDeque::new() }),
+                changed: Condvar::new(),
+                timer: OnceLock::new(),
+            }
         }
 
         fn state(&self) -> MutexGuard<'_, State> {
             self.state.lock().unwrap_or_else(PoisonError::into_inner)
         }
 
-        /// Runs `job` with a slot now, or (a long poll) once its turn in line comes. Err: the
-        /// limit it is past (`busy`), and `job` never runs.
-        pub(super) fn admit(&'static self, long_poll: bool, job: Job) -> Result<(), usize> {
+        /// Runs `job` with a slot now, or (a long poll) once its turn in line comes, if that is
+        /// by `start_by`; else `job` gets the limit it is past (`busy`).
+        pub(super) fn admit(&'static self, long_poll: bool, start_by: Instant, job: Job) {
             let mut state = self.state();
             let free = state.calls < MAX_WORKERS
                 && (!long_poll || (state.long_polls < MAX_LONG_POLLS && state.waiting.is_empty()));
@@ -181,17 +197,66 @@ mod calls {
                     state.long_polls = state.long_polls.saturating_add(1);
                 }
                 drop(state);
-                job(Slot { slots: self, long_poll });
-                return Ok(());
+                return job(Ok(Slot { slots: self, long_poll }));
             }
-            if !long_poll {
-                return Err(MAX_WORKERS);
+            let refused = if !long_poll {
+                Some(MAX_WORKERS)
+            } else if state.waiting.len() >= MAX_QUEUED_LONG_POLLS {
+                Some(MAX_QUEUED_LONG_POLLS)
+            } else if start_by <= Instant::now() {
+                Some(MAX_LONG_POLLS)
+            } else {
+                None
+            };
+            if let Some(limit) = refused {
+                drop(state);
+                return job(Err(limit));
             }
-            if state.waiting.len() >= MAX_QUEUED_LONG_POLLS {
-                return Err(MAX_QUEUED_LONG_POLLS);
+            state.waiting.push_back((start_by, job));
+            drop(state);
+            self.changed.notify_all();
+            self.timer.get_or_init(|| {
+                // One timer thread for the line; without it a waiting call is still answered
+                // when a slot frees.
+                let _ = std::thread::Builder::new()
+                    .name("cloud-api-line".into())
+                    .spawn(move || self.time_line());
+            });
+        }
+
+        /// Answers `busy` to every waiting call that could not start by `now` in time for its
+        /// caller; how many it answered.
+        pub(super) fn expire(&self, now: Instant) -> usize {
+            let mut state = self.state();
+            let (late, keep): (VecDeque<_>, VecDeque<_>) =
+                std::mem::take(&mut state.waiting).into_iter().partition(|(by, _)| *by <= now);
+            state.waiting = keep;
+            drop(state);
+            let count = late.len();
+            for (_, job) in late {
+                job(Err(MAX_LONG_POLLS));
             }
-            state.waiting.push_back(job);
-            Ok(())
+            count
+        }
+
+        /// The line's timer: wakes at the earliest `start_by` (or a change) and expires.
+        fn time_line(&self) {
+            loop {
+                let now = Instant::now();
+                self.expire(now);
+                let state = self.state();
+                let next = state.waiting.iter().map(|(by, _)| *by).min();
+                // concurrency-allow: the line's own timer thread, waiting for the next start_by or a new waiting call.
+                match next {
+                    Some(by) => {
+                        let wait = by.saturating_duration_since(Instant::now());
+                        let _ = self.changed.wait_timeout(state, wait);
+                    }
+                    None => {
+                        let _ = self.changed.wait(state);
+                    }
+                }
+            }
         }
     }
 
@@ -202,18 +267,57 @@ mod calls {
             if self.long_poll {
                 state.long_polls = state.long_polls.saturating_sub(1);
             }
-            let mut ready = Vec::new();
+            let now = Instant::now();
+            let (mut ready, mut late) = (Vec::new(), Vec::new());
             while state.calls < MAX_WORKERS && state.long_polls < MAX_LONG_POLLS {
-                let Some(job) = state.waiting.pop_front() else { break };
+                let Some((by, job)) = state.waiting.pop_front() else { break };
+                if by <= now {
+                    late.push(job);
+                    continue;
+                }
                 state.calls = state.calls.saturating_add(1);
                 state.long_polls = state.long_polls.saturating_add(1);
                 ready.push(job);
             }
             drop(state);
+            for job in late {
+                job(Err(MAX_LONG_POLLS));
+            }
             for job in ready {
-                job(Slot { slots: self.slots, long_poll: true });
+                job(Ok(Slot { slots: self.slots, long_poll: true }));
             }
         }
+    }
+
+    /// What a long poll keeps of its caller's deadline once it starts: the library's answer
+    /// margin on a poll's request (15 s for a hand-off's wait, 10 s for a Run's).
+    const POLL_MARGIN: Duration = Duration::from_secs(15);
+
+    /// Whether `call` is a wait the daemon may shorten (the server answers it at its `timeoutMs`).
+    fn shortens(call: &Request) -> bool {
+        matches!(call.call.as_str(), "runs.wait" | "owner.handoff_wait")
+    }
+
+    /// The latest a long poll can start and still answer by `by`: a wait held at least 1 s, or
+    /// a sandboxed Run's whole own time.
+    pub(super) fn start_by(call: &Request, by: Instant) -> Instant {
+        let need = if shortens(call) {
+            POLL_MARGIN.saturating_add(Duration::from_secs(1))
+        } else {
+            cmux_cloud_api::own(call)
+        };
+        by.checked_sub(need).unwrap_or(by)
+    }
+
+    /// A wait that starts at `now` is held no longer than answers by `by`.
+    pub(super) fn fit_poll(call: &mut Request, by: Instant, now: Instant) {
+        if !shortens(call) {
+            return;
+        }
+        let left = by.saturating_duration_since(now).saturating_sub(POLL_MARGIN);
+        let left = i64::try_from(left.as_millis()).unwrap_or(i64::MAX);
+        let held = call.args.get("timeoutMs").and_then(Value::as_i64).unwrap_or(left);
+        call.args.insert("timeoutMs".into(), json!(held.min(left)));
     }
 
     /// The largest answer a call sends: what a `cmux.protocol/2` client reads (16 MiB), less
@@ -226,10 +330,11 @@ mod calls {
         request: ParsedResourceRequest,
         writer: &MessageWriter,
     ) -> bool {
+        let received = Instant::now();
         let id = request.envelope.id.clone();
         let operation = request.envelope.operation;
         let mut request = request;
-        let (call, key) = match parse(operation, &mut request.fields) {
+        let (mut call, key, deadline) = match parse(operation, &mut request.fields) {
             Ok(parsed) => parsed,
             Err(error) => return send_resource_response(writer, id, operation, Err(error)),
         };
@@ -242,15 +347,31 @@ mod calls {
         };
         let worker_mux = Arc::clone(mux);
         let worker_writer = writer.clone();
-        let worker_id = id.clone();
+        let worker_id = id;
         // The slot goes with the thread's closure: given back when the call ends, or when the
         // thread cannot start (the closure is dropped then).
+        // The call is over by its caller's deadline (`args.deadline_ms`, the CLI's: the call's
+        // longest), time in line included.
+        let by = deadline.map_or_else(
+            || received.checked_add(cmux_cloud_api::longest(&call)),
+            |ms| received.checked_add(Duration::from_millis(ms)),
+        );
+        let by = by.unwrap_or(received);
+        let start_by = start_by(&call, by);
         let job: Job = Box::new(move |slot| {
+            let slot = match slot {
+                Ok(slot) => slot,
+                Err(limit) => {
+                    send_resource_response(&worker_writer, worker_id, operation, Err(busy(limit)));
+                    return;
+                }
+            };
+            fit_poll(&mut call, by, Instant::now());
             let refused_writer = worker_writer.clone();
             let refused_id = worker_id.clone();
             let spawned = std::thread::Builder::new().name("cloud-api".into()).spawn(move || {
                 let _slot = slot;
-                let result = answer(&worker_mux, operation, &call, key);
+                let result = answer(&worker_mux, operation, &call, key, by);
                 send_resource_response(&worker_writer, worker_id, operation, result);
             });
             if spawned.is_err() {
@@ -262,10 +383,8 @@ mod calls {
                 );
             }
         });
-        match SLOTS.admit(long_poll(operation), job) {
-            Ok(()) => true,
-            Err(limit) => send_resource_response(writer, id, operation, Err(busy(limit))),
-        }
+        SLOTS.admit(long_poll(operation), start_by, job);
+        true
     }
 
     fn invalid(field: &str, reason: &str) -> ResourceError {
@@ -281,7 +400,7 @@ mod calls {
     pub(super) fn parse(
         operation: ResourceOperation,
         fields: &mut Map<String, Value>,
-    ) -> Result<(Request, Zeroizing<Vec<u8>>), ResourceError> {
+    ) -> Result<(Request, Zeroizing<Vec<u8>>, Option<u64>), ResourceError> {
         // The person key never goes through the daemon: the app streams it to the Worker itself
         // (review of #40104, F3). A key here is refused, and its text wiped.
         if let Some(key) = fields.remove("key_base64") {
@@ -305,11 +424,19 @@ mod calls {
             .map(|token| token.trim().to_owned())
             .filter(|token| !token.is_empty())
             .ok_or_else(|| invalid("access_token", "access_token is required"))?;
-        let args = match fields.get("args") {
+        let mut args = match fields.get("args") {
             None | Some(Value::Null) => Map::new(),
             Some(Value::Object(args)) => args.clone(),
             Some(_) => return Err(invalid("args", "args is an object")),
         };
+        // The caller's deadline for the whole call, for the daemon only (never sent on).
+        let deadline =
+            match args.remove("deadline_ms") {
+                None => None,
+                Some(ms) => Some(ms.as_u64().ok_or_else(|| {
+                    invalid("args", "args.deadline_ms is a count of milliseconds")
+                })?),
+            };
         let request = Request {
             call: call.to_owned(),
             api: api.trim().to_owned(),
@@ -321,7 +448,7 @@ mod calls {
             local_only: fields.get("local_only").and_then(Value::as_bool).unwrap_or(false),
             args,
         };
-        Ok((request, Zeroizing::new(Vec::new())))
+        Ok((request, Zeroizing::new(Vec::new()), deadline))
     }
 
     /// Runs one call on this thread: its result, or its refusal scrubbed of both credentials.
@@ -330,9 +457,10 @@ mod calls {
         operation: ResourceOperation,
         request: &Request,
         key: Zeroizing<Vec<u8>>,
+        by: Instant,
     ) -> Result<Value, ResourceError> {
         let result = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
+            Ok(runtime) => runtime.block_on(cmux_cloud_api::perform_by(request, key, by)),
             Err(e) => Err(Failure::Transport(e.to_string())),
         };
         let result = result.and_then(|body| {

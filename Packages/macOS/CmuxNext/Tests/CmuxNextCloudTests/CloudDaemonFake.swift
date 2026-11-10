@@ -8,7 +8,9 @@ final class CloudDaemonFake: @unchecked Sendable {
         var operation: String
         var mutation: Bool
         var params: [String: Any]
-        var args: [String: Any] { params["args"] as? [String: Any] ?? [:] }
+        /// The call's own args (`deadline_ms`, the daemon's, is ``deadlineMs``).
+        var args: [String: Any] { (params["args"] as? [String: Any] ?? [:]).filter { $0.key != "deadline_ms" } }
+        var deadlineMs: Int? { (params["args"] as? [String: Any])?["deadline_ms"] as? Int }
     }
 
     private let lock = NSLock()

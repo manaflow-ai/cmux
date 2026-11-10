@@ -200,6 +200,17 @@ enum Failure {
     NotSent,
     /// Any other status, or an answer that is not Freestyle's: the command may have run.
     Unavailable,
+    /// The call's deadline left no time for it (`crate::perform_by`): it was never sent.
+    Expired,
+}
+
+/// How long an aborted staging file's removal may take: it runs even past the call's deadline,
+/// inside `crate::CLEANUP` (with exec's 15 s answer margin).
+const ABORT_TIMEOUT_MS: u64 = 3_000;
+
+/// The answer of a step the call's deadline left no time for.
+fn expired() -> Answer {
+    Answer::error(0, "timed_out", "the call reached its deadline; nothing more was sent")
 }
 
 pub(super) fn quote(word: &str) -> String {
@@ -237,6 +248,26 @@ async fn exec(
     stdin: Option<&[u8]>,
     timeout_ms: u64,
 ) -> Result<ExecAnswer, Failure> {
+    exec_until(client, grant, command, stdin, timeout_ms, true).await
+}
+
+/// [`exec`]; `bounded`: the command's own timeout is cut so it and its answer end by the call's
+/// deadline (an abort's cleanup is not).
+async fn exec_until(
+    client: &reqwest::Client,
+    grant: &Grant,
+    command: &str,
+    stdin: Option<&[u8]>,
+    timeout_ms: u64,
+    bounded: bool,
+) -> Result<ExecAnswer, Failure> {
+    let timeout_ms = if bounded {
+        let want = Duration::from_millis(timeout_ms);
+        let fit = crate::within(want, Duration::from_secs(15)).ok_or(Failure::Expired)?;
+        u64::try_from(fit.as_millis()).unwrap_or(timeout_ms)
+    } else {
+        timeout_ms
+    };
     let url =
         format!("{}/v5/vms/{}/exec-await", grant.api_base_url.trim_end_matches('/'), grant.vm_id);
     let mut body = serde_json::Map::new();
@@ -281,10 +312,15 @@ pub(super) async fn fs(
     args: &[String],
     stdin: Option<&[u8]>,
 ) -> Result<Value, Direct> {
-    let answer = match exec(client, grant, &fs_command(op, path, args), stdin, FS_TIMEOUT_MS).await
-    {
+    // An abort (a staging file's removal) still runs past the deadline; no other step does.
+    let (timeout, bounded) =
+        if op == "abort" { (ABORT_TIMEOUT_MS, false) } else { (FS_TIMEOUT_MS, true) };
+    let ran = exec_until(client, grant, &fs_command(op, path, args), stdin, timeout, bounded).await;
+    let answer = match ran {
         Ok(answer) => answer,
         Err(Failure::Auth) => return Err(Direct::Auth),
+        // Never sent, and never handed to the proxy: the call is out of time.
+        Err(Failure::Expired) => return Err(Direct::Done(expired())),
         // Nothing ran, or what may have run changed nothing the caller can see: the proxy runs it.
         Err(Failure::NotSent) => return Err(Direct::Fallback),
         Err(Failure::Unavailable) if !changes_target(op) => return Err(Direct::Fallback),
@@ -522,6 +558,7 @@ async fn run_exec(client: &reqwest::Client, grant: &Grant, request: &Request) ->
         Err(Failure::Auth) => Direct::Auth,
         // Only a command that never left may run again through the proxy.
         Err(Failure::NotSent) => Direct::Fallback,
+        Err(Failure::Expired) => Direct::Done(expired()),
         Err(Failure::Unavailable) => Direct::Done(Answer::error(
             502,
             "vm_unavailable",

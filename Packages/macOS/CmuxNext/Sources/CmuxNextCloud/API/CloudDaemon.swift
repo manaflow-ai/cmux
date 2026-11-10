@@ -106,11 +106,15 @@ public struct CloudDaemon: Sendable {
     ]
 
     /// Runs `call` (one of `cmux_cloud_api::CALLS`) with `args` as `route`; answers its body as JSON.
-    /// `wait` bounds a daemon that does not answer; the call's own deadlines end first. `ended` runs
-    /// once the call has really ended (see ``Send``), for what must outlive a cancelled caller.
+    /// `wait` is the call's deadline, sent as `args.deadline_ms`: the daemon ends the whole call by
+    /// then (time waiting for a slot included; a staged write out of time is aborted, never
+    /// committed), and this side gives up 30 s later, so nothing of it outlives this answer. `ended`
+    /// runs once the call has really ended (see ``Send``), for what must outlive a cancelled caller.
     public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, wait: Duration,
                      ended: (@Sendable () -> Void)? = nil) async throws -> Data {
         let ended = ended ?? {}
+        var args = args
+        args["deadline_ms"] = Int(clamping: wait.components.seconds * 1000 + wait.components.attoseconds / 1_000_000_000_000_000)
         var fields: [String: Any] = [
             "machine": "current", "session": "current", "api": route.api.absoluteString, "auth": route.auth.rawValue,
             "access_token": route.credential, "local_only": route.localOnly, "args": args,
@@ -152,6 +156,10 @@ public struct CloudDaemon: Sendable {
 
     /// The daemon ran nothing because its call slots (or its long polls') are all taken: worth
     /// trying again after a backoff.
+    /// What a long poll's `wait` adds for its time waiting for one of the daemon's long-poll slots
+    /// (more than one hand-off wait's 25 s, so a full batch of them frees one first).
+    public static let lineAllowance: Duration = .seconds(30)
+
     public static var busy: CloudAPIError { .transport("the cmux daemon is busy") }
 
     /// `body`'s answer, asked again after a backoff while the daemon answers ``busy``: a caller

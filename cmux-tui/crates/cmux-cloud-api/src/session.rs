@@ -111,10 +111,13 @@ pub async fn mint_session(
     let url = scope
         .route(machine, "/client-session")
         .map_err(|foreign| refused(0, "", foreign.to_string()))?;
+    // Past the call's deadline (`crate::perform_by`) no mint is sent.
+    let timeout = crate::within(MINT_TIMEOUT, std::time::Duration::ZERO)
+        .ok_or_else(|| refused(0, "", "the call reached its deadline".into()))?;
     let mut request = client
         .post(url)
         .bearer_auth(credential)
-        .timeout(MINT_TIMEOUT)
+        .timeout(timeout)
         .json(&ttl.map_or_else(|| json!({}), |ttl| json!({ "ttl_seconds": ttl })));
     if let Some(team) = scope.team() {
         request = request.header(TEAM_HEADER, team);

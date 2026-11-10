@@ -23,6 +23,10 @@ struct CloudDaemonTests {
         #expect(sent.params["refresh_token"] as? String == "refresh" && sent.params["team"] as? String == "team-1")
         #expect(sent.params["local_only"] as? Bool == true && sent.args["x"] as? Int == 1)
         #expect(sent.params["key_base64"] == nil)
+        // The call's deadline goes to the daemon, which ends the call by it (review of #40104 at d99396ad).
+        #expect(sent.deadlineMs == 1000)
+        _ = try await fake.daemon.call("vm.domains", as: route, wait: .milliseconds(2500))
+        #expect(fake.sent.last?.deadlineMs == 2500 && fake.sent.last?.args.isEmpty == true)
     }
 
     @Test func aMutationAnswersItsValue() async throws {
