@@ -8119,7 +8119,9 @@ Actions and their params:
 - `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
 - `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
   environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
-  `remove_secrets`, `network`, `repo`, `ref`, `maintenance_script`, `files` and `image`.
+  `remove_secrets`, `network`, `repo`, `ref`, `maintenance_script`, `files`, `image` and
+  `expected_revision` (the platform refuses a stale one with 409
+  `cloud_environment.revision_conflict`, whose code reaches the caller).
   Null and empty values reach the owner unchanged.
 - `create`, `{environment}`: `POST /v1/cloud-environments`, with `name` (not blank),
   `scope`, `secrets` and the patch's fields other than `set_secrets` and `remove_secrets`.

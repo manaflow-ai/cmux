@@ -253,7 +253,7 @@ fn cloud_environment_project_default_reads_and_puts_one_repository() {
 fn cloud_environment_update_and_create_forward_the_newer_fields() {
     let (mux, _, plain, backend) = daemon();
     let patch = json!({"repo":"a/b","ref":"main","maintenance_script":"bun install",
-        "files":[{"path":".env.example","content":"A=1"}],"image":"ubuntu-24.04",
+        "files":[{"path":".env.example","content":"A=1"}],"image":"ubuntu-24.04","expected_revision":7,
         "network":{"mode":"off","package_managers":false,"domains":[]}});
     backend.reply("/v1/cloud-environments/env_default", 200, json!({"id":"env_default"}));
     let updated =

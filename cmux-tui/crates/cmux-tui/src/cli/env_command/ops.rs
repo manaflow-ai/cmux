@@ -187,25 +187,40 @@ pub(super) fn execute(
         }
         Command::Edit { env, fields } => {
             let record = resolve(daemon, env)?;
-            let changes = patch(fields, local, Some(&record))?;
-            update(daemon, &record, Value::Object(changes))
+            // Files are read once; the patch is made again on the current environment after a
+            // conflict (its network keeps the current domains).
+            let scripts =
+                patch(&Fields { image: None, network: None, ..fields.clone() }, local, None)?;
+            let network = Fields { network: fields.network, ..Fields::default() };
+            update(daemon, &record, |current| {
+                let mut changes = scripts.clone();
+                changes.extend(patch(&network, local, Some(current))?);
+                if let Some(image) = &fields.image {
+                    changes.insert("image".into(), json!(image));
+                }
+                Ok(Value::Object(changes))
+            })
         }
         Command::SetVar { env, key, value } => {
             let record = resolve(daemon, env)?;
-            let mut vars = list(&record, "env_vars");
-            vars.retain(|var| var.get("name").and_then(Value::as_str) != Some(key));
-            vars.push(json!({"name": key, "value": value}));
-            update(daemon, &record, json!({"env_vars": vars}))
+            update(daemon, &record, |current| {
+                let mut vars = list(current, "env_vars");
+                vars.retain(|var| var.get("name").and_then(Value::as_str) != Some(key));
+                vars.push(json!({"name": key, "value": value}));
+                Ok(json!({"env_vars": vars}))
+            })
         }
         Command::UnsetVar { env, key } => {
             let record = resolve(daemon, env)?;
-            let mut vars = list(&record, "env_vars");
-            let before = vars.len();
-            vars.retain(|var| var.get("name").and_then(Value::as_str) != Some(key));
-            if vars.len() == before {
-                return Err(missing("variable", key, &record));
-            }
-            update(daemon, &record, json!({"env_vars": vars}))
+            update(daemon, &record, |current| {
+                let mut vars = list(current, "env_vars");
+                let before = vars.len();
+                vars.retain(|var| var.get("name").and_then(Value::as_str) != Some(key));
+                if vars.len() == before {
+                    return Err(missing("variable", key, current));
+                }
+                Ok(json!({"env_vars": vars}))
+            })
         }
         Command::SetSecret { env, key, hosts } => {
             let record = resolve(daemon, env)?;
@@ -225,25 +240,30 @@ pub(super) fn execute(
             {
                 return Err(missing("secret", key, &record));
             }
-            update(daemon, &record, json!({"remove_secrets": [key]}))
+            // Per key: the platform removes only this secret, so no revision is needed.
+            update(daemon, &record, |_| Ok(json!({"remove_secrets": [key]})))
         }
         Command::AddFile { env, path, from } => {
             let content = local.read_file(from)?;
             let record = resolve(daemon, env)?;
-            let mut files = whole_files(&record)?;
-            files.retain(|file| file.get("path").and_then(Value::as_str) != Some(path));
-            files.push(json!({"path": path, "content": content}));
-            update(daemon, &record, json!({"files": files}))
+            update(daemon, &record, |current| {
+                let mut files = whole_files(current)?;
+                files.retain(|file| file.get("path").and_then(Value::as_str) != Some(path));
+                files.push(json!({"path": path, "content": content}));
+                Ok(json!({"files": files}))
+            })
         }
         Command::RmFile { env, path } => {
             let record = resolve(daemon, env)?;
-            let mut files = whole_files(&record)?;
-            let before = files.len();
-            files.retain(|file| file.get("path").and_then(Value::as_str) != Some(path));
-            if files.len() == before {
-                return Err(missing("file", path, &record));
-            }
-            update(daemon, &record, json!({"files": files}))
+            update(daemon, &record, |current| {
+                let mut files = whole_files(current)?;
+                let before = files.len();
+                files.retain(|file| file.get("path").and_then(Value::as_str) != Some(path));
+                if files.len() == before {
+                    return Err(missing("file", path, current));
+                }
+                Ok(json!({"files": files}))
+            })
         }
         Command::Default { repo, env } => {
             let repo = repo.clone().or_else(|| local.current_repo()).ok_or_else(|| {
@@ -297,9 +317,14 @@ pub(super) fn execute(
 }
 
 /// One `update` of `record` with `changes`; answers the saved environment's public view.
-fn update(daemon: &mut dyn Daemon, record: &Value, changes: Value) -> Result<Value, Failure> {
-    let saved = daemon.call("update", &json!({"id": id(record)?, "patch": changes}))?;
-    Ok(public(&saved))
+/// One change of `record`'s environment that holds against a concurrent one
+/// ([`super::revision::update`]); answers the saved environment's public view.
+fn update(
+    daemon: &mut dyn Daemon,
+    record: &Value,
+    change: impl Fn(&Value) -> Result<Value, Failure>,
+) -> Result<Value, Failure> {
+    super::revision::update(daemon, record, change).map(|saved| public(&saved))
 }
 
 fn id(record: &Value) -> Result<&str, Failure> {
@@ -438,7 +463,8 @@ pub(super) fn summary(record: &Value) -> Value {
 /// file is its path and size.
 pub(super) fn public(record: &Value) -> Value {
     let Value::Object(mut view) = summary(record) else { return Value::Null };
-    for key in ["image", "network", "setup_script", "maintenance_script", "updated_at"] {
+    for key in ["image", "network", "setup_script", "maintenance_script", "updated_at", "revision"]
+    {
         view.insert(key.into(), record.get(key).cloned().unwrap_or(Value::Null));
     }
     let vars: Vec<Value> = list(record, "env_vars")

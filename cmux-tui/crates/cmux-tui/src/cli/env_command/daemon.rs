@@ -62,9 +62,24 @@ impl Live {
     }
 }
 
+/// The app to ask for a token: the one `--app-socket`, `--socket` or the environment names; when
+/// `--socket` names a session daemon (`socket.wrong_kind`), the app that owns that daemon (review
+/// F2 of #40325, as `chat_start`'s `setting_stream` does).
+fn app_stream(global: &GlobalArgs) -> Result<std::os::unix::net::UnixStream, Value> {
+    use super::super::app;
+    match app::connect_command(global) {
+        Err(error) if error.get("code").and_then(Value::as_str) == Some("socket.wrong_kind") => {
+            app::socket_path(global)
+                .and_then(|path| app::connect(&path))
+                .map_err(|message| json!({"code": "app.unreachable", "message": message}))
+        }
+        other => other,
+    }
+}
+
 /// `auth.token` from the app: the token and the platform of the API that issued it.
 fn mint(global: &GlobalArgs) -> Result<(String, Zeroizing<String>), Failure> {
-    let mut stream = super::super::app::connect_command(global).map_err(|error| {
+    let mut stream = app_stream(global).map_err(|error| {
         let message =
             error.get("message").and_then(Value::as_str).unwrap_or("the cmux app is not running");
         Failure::new(

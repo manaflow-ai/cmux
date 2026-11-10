@@ -26,7 +26,9 @@ const SHARED_FIELDS: &[&str] = &[
     "files",
     "image",
 ];
-const UPDATE_ONLY: &[&str] = &["set_secrets", "remove_secrets"];
+/// `expected_revision`: the update applies only to the environment as it was read
+/// (cmux-platform#1144; a mismatch is 409 `cloud_environment.revision_conflict`).
+const UPDATE_ONLY: &[&str] = &["set_secrets", "remove_secrets", "expected_revision"];
 const CREATE_ONLY: &[&str] = &["scope", "secrets"];
 
 /// A project's default environment (`cmux env default`, cmux-platform#1144): read with `?repo=`

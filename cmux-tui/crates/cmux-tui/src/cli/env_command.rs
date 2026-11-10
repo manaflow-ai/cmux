@@ -27,6 +27,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 mod daemon;
 mod ops;
 mod render;
+mod revision;
 mod secret;
 
 const USAGE: &str = super::cloud_help::ENVIRONMENTS_USAGE;
@@ -296,5 +297,7 @@ fn split_flags(words: &[String]) -> Result<Split, UsageError> {
     Ok((positional, flags))
 }
 
+#[cfg(test)]
+mod revision_tests;
 #[cfg(test)]
 mod tests;
