@@ -85,7 +85,7 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.
     public var base: SpringParameters {
-        MotionTunables.springs[self]?.value ?? SpringParameters(response: 0.2, dampingFraction: 0.9)
+        MotionTunables.springs[self]?.value ?? MotionTunables.fallbackSpring
     }
 }
 

@@ -56,8 +56,11 @@ public nonisolated enum MotionTunables {
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 
+    /// The spring of a token with no entry in `springDefaults` (every token has one today).
+    package static let fallbackSpring = SpringParameters(response: 0.2, dampingFraction: 0.9)
+
     package static let springs: [MotionSpring: Tunable<SpringParameters>] = Dictionary(uniqueKeysWithValues: MotionSpring.allCases.map { token in
-        let entry = springDefaults[token] ?? (SpringParameters(response: 0.2, dampingFraction: 0.9), "")
+        let entry = springDefaults[token] ?? (fallbackSpring, "")
         return (token, Tunable.spring("motion.spring.\(token.rawValue)", .springs, "\(token.rawValue) spring", help: entry.1,
                                       default: entry.0, code: "MotionTunables.springDefaults[.\(token.rawValue)]"))
     })
