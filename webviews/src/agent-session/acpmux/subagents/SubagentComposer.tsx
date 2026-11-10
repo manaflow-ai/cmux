@@ -144,6 +144,12 @@ export function SubagentComposer({
             "aria-label": t("subagents.messagePlaceholder", { name: subagent }),
           },
           onChange: (markdown) => setText(markdown),
+          // A quote taken while the editor was still being made, when this composer goes first: it
+          // stays this subagent's, after its kept draft, for the next composer that shows it.
+          onUnplacedQuotes: (quotes) => {
+            const kept = subagentDraft(draftKey);
+            keep({ ...kept, text: [kept.text, ...quotes].filter(Boolean).join("\n\n") });
+          },
           onSubmit: () => submit(),
         }}
         fieldRef={(handle) => {

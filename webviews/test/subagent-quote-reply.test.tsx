@@ -99,3 +99,23 @@ test("a quote goes into the subagent composer's prompt through its quote handle"
   root = undefined;
   expect(quoteRef.current).toBeNull();
 });
+
+test("a quote taken before the editor is ready survives the pane closing and comes back on reopen", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { SubagentComposer } = await import("../src/agent-session/acpmux/subagents/SubagentComposer");
+  const { subagentDraft } = await import("../src/agent-session/acpmux/subagents/subagentDrafts");
+  const key = "chat\u001fearly";
+  const quoteRef: { current: { quoteReply(markdown: string): void } | null } = { current: null };
+  root = createRoot(host);
+  // The first render's effects run, so the handle is set, but the editor is still being made.
+  act(() => root!.render(<SubagentComposer subagent="Helper" chat="Chat" draftKey={key} quoteRef={quoteRef} />));
+  expect(quoteRef.current).not.toBeNull();
+  act(() => quoteRef.current!.quoteReply("> Early quote."));
+  act(() => root!.unmount());
+  root = undefined;
+  expect(subagentDraft(key).text).toContain("> Early quote.");
+  root = createRoot(host);
+  await act(async () => root!.render(<SubagentComposer subagent="Helper" chat="Chat" draftKey={key} />));
+  await until(() => (host.querySelector(".acpmux-md")?.textContent ?? "").includes("Early quote."));
+  expect(host.querySelector(".acpmux-md")?.textContent).toContain("Early quote.");
+});
