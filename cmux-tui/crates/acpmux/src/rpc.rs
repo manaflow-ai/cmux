@@ -752,6 +752,10 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
+    /// to a connected machine, and its start there as a background task of the chat.
+    pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";
+    pub const MUX_RUN_ELSEWHERE_START: &str = "_acpmux/run_elsewhere/start";
     /// A chat's goal on any harness (`hub/goal_tools.rs`, `generic_goal.rs`): its own agent
     /// sets it, reports on it and reads it.
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";

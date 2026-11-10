@@ -53,6 +53,9 @@ final class AppHealthPageFeed: PageHealthFeed {
         }
         lastHandled[key] = handled
         health.beat(id)
+        // A beat answers the input sent since the last one: the page's thread ran after it. Its count cannot
+        // decide (#39247 at aebd2ef): the host notes key ups, mouse ups, drags, scrollbar clicks and menu
+        // choices the page never counts, so a healthy page would read as ignoring them and be reloaded.
         if inputSinceBeat.remove(key) != nil { health.input(id, sent: handled, handled: handled) }
     }
 
@@ -78,6 +81,8 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.event(AppHealth.pageHostID, .loaded)
         let key = ObjectIdentifier(page)
         guard shown[key] != nil else { return }
+        // A new document counts its handled input from 0 (pageHealth.ts), so the next beat compares with that.
+        lastHandled[key] = 0
         health.event(page.healthPartID, .loaded)
         if showingCrashNotice.remove(key) != nil { pageVisibilityChanged(page) }
     }
@@ -143,11 +148,13 @@ final class AppHealthPageFeed: PageHealthFeed {
     static func repair(_ action: AppHealth.Action) async -> Bool {
         guard let page = page(forPart: action.id) else { return false }
         // Unsaved edits a reload would drop: refuse, and the status says the repair did not run.
-        guard !page.holdsUnsavedEdits() else { return false }
+        guard !page.holdsEdits else { return false }
         switch action.action {
         case .reloadPage:
             return await page.reloadKeepingState()
         case .restartRenderer:
+            // A renderer can be shared (Chromium keeps one per site): ending it reloads every page in it.
+            guard !PageRegistry.pages().contains(where: \.holdsEdits) else { return false }
             page.restartRenderer()
             return true
         default:
