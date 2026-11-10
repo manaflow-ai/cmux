@@ -324,6 +324,9 @@ mod result_images;
 pub(crate) use result_images::result_images;
 #[cfg(test)]
 mod result_images_tests;
+// A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
+#[cfg(test)]
+mod queued_prompt_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
