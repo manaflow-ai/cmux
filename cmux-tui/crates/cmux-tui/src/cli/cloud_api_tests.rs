@@ -143,18 +143,19 @@ fn a_run_create_sends_its_key_through_the_daemon() {
 }
 
 #[test]
-fn a_keyed_start_carries_the_key_bytes_to_the_request_body_only() {
+fn a_keyed_start_is_refused_before_the_daemon_and_sends_nothing() {
     let (origin, seen) =
         fake(|_| (200, r#"{"ok":true,"value":{"personInstance":"run-2"}}"#.into()));
     let key = b"person-key-line\n";
     let args = json!({"machine": VM, "key_length": key.len()});
     let call = request(&origin, Auth::Owner, "owner.acpmux_keyed_start", args);
-    assert_eq!(go(&call, key).unwrap(), json!({"personInstance": "run-2"}));
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].body, key);
-    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_1"));
-    assert_eq!(seen[0].header("x-stack-refresh-token"), None);
-    assert!(!seen[0].head.contains("person-key"));
+    let failure = go(&call, key).unwrap_err();
+    assert!(matches!(&failure, Failure::Transport(m) if !m.contains("person-key")), "{failure:?}");
+    assert!(seen.lock().unwrap().is_empty(), "nothing reached the API");
+    // Even a socket that is no daemon is never dialed with a key.
+    let missing = std::env::temp_dir().join(format!("cloud-api-key-{}.sock", std::process::id()));
+    let refused = call_socket(&missing, false, None, &call, key).unwrap_err();
+    assert_eq!(refused, failure);
 }
 
 #[test]
@@ -207,19 +208,17 @@ fn a_daemon_that_is_not_running_is_a_transport_failure() {
 }
 
 #[test]
-fn the_params_carry_the_route_the_fields_and_the_key_as_base64() {
+fn the_params_carry_the_route_and_the_fields_and_never_a_key() {
     let call = request("https://cmux.com", Auth::Owner, "owner.acpmux_keyed_start", json!({}));
-    let params = Value::Object(params(&call, b"k\n", Some("work")));
+    let params = Value::Object(params(&call, Some("work")));
     assert_eq!(params["machine"], "current");
     assert_eq!(params["session"], "work");
     assert_eq!(params["access_token"], "secret-access");
     assert_eq!(params["refresh_token"], "secret-refresh");
     assert_eq!(params["auth"], "owner");
     assert_eq!(params["args"], json!({}));
-    assert_eq!(params["key_base64"], "awo=");
-    let plain = super::params(&call, &[], None);
-    assert!(plain.get("key_base64").is_none());
-    assert_eq!(plain["session"], "current");
+    assert!(params.get("key_base64").is_none());
+    assert_eq!(super::params(&call, None)["session"], "current");
 }
 
 #[test]
