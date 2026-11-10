@@ -1016,10 +1016,8 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
             break;
         }
         if Instant::now() >= deadline {
-            let kinds: Vec<_> = events
-                .iter()
-                .map(|e| json!([e["seq"], e["kind"], e["msg"]["promptId"]]))
-                .collect();
+            let kinds: Vec<_> =
+                events.iter().map(|e| json!([e["seq"], e["kind"], e["msg"]["promptId"]])).collect();
             let mut sent = vec![];
             for d in ca.call(method::MUX_SEND_STATUS, json!({"list": true})).await["deliveries"]
                 .as_array()
