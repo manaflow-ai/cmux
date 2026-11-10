@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42818576588",
+  "recorded_at": "2026-11-10T12:57:48Z",
+  "reason": "cmux-tui 812dc1f230f1 changes the image's cmux-tui (pinned 52d07ab73074)",
+  "dry_run": false,
+  "cmux_tui": "812dc1f230f159af5fc3739d9d26eb9d6d1589eb",
+  "fixes": [
+    {
+      "sha": "812dc1f230f159af5fc3739d9d26eb9d6d1589eb",
+      "mergedAt": "2026-11-10T12:28:50Z",
+      "subject": "A remote-terminal tab's title follows the terminal rule in the local tree and in its events (MTS-3 follow-up) (#40266)"
+    },
+    {
+      "sha": "9495da7725c2edfe704d30855641e8827472af74",
+      "mergedAt": "2026-11-10T04:28:10-08:00",
+      "subject": "Cloud Codex uses the person's ChatGPT sign-in; the Cloud chat matrix (#40395)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T12:57:48Z",
+    "snapshot_id": "sh-396fb6bde4514ea1a7628f8bfe2ad1c8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42818576588): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c2d1744e453dff71bfad7da724512aecc8004b76",
+    "image": "cloud-native-auto-812dc1f2-42818576588-1",
+    "revision": "ci-42818576588-1",
+    "at": "2026-11-10T12:57:48Z"
+  },
+  "rolled_back": false
+}
