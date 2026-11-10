@@ -1,3 +1,4 @@
+import Synchronization
 import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
@@ -48,6 +49,8 @@ public actor DaemonConnection {
     private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
     let configuration: Configuration
+    /// DIAG (not for merge): requests numbered for the launch marks.
+    private let diagRequests = Mutex(0)
     private let endpointProvider: EndpointProvider
     let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
@@ -223,6 +226,9 @@ public actor DaemonConnection {
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
+        let diagTag: String? = diagRequests.withLock { n in defer { n += 1 }; return n < 40 ? "req.\(configuration.clientName).\(n).\(R.command)" : nil }
+        if let diagTag { DaemonLaunchTimings.shared.mark("\(diagTag).sent") }
+        defer { if let diagTag { DaemonLaunchTimings.shared.mark("\(diagTag).done") } }
         let response: R.Response
         do {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
@@ -473,3 +479,4 @@ public actor DaemonConnection {
         reconnectTask = nil
     }
 }
+
