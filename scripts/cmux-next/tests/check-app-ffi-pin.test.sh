@@ -354,6 +354,80 @@ refuse cmux-tui/crates/cmux-rd-core/src/lib.rs '#[path = "../shared/foo.rs"] mod
   "a #[path] module outside src/"
 refuse cmux-tui/Cargo.toml '[[[' "a workspace manifest that is not TOML"
 
+# The build script is read whole (review round 2 of #40095): the file that Cargo.toml's `build` names (build.rs by
+# default) and every module it reaches through `mod` or #[path]; only cmux-motion's two computed reads are allowed
+# (BUILD_READS), and a Cargo.toml path is read in every TOML form (a dotted key, single quotes).
+before_build="$(git -C "$repo" rev-parse HEAD)"
+motion="$repo/cmux-tui/crates/cmux-motion"
+mkdir -p "$motion/src" "$motion/build-support" "$repo/plans/cmux-next/spec-proposals/visuals"
+printf '[package]\nname = "cmux-motion"\n\n[lib]\npath = "src/lib.rs"\n' > "$motion/Cargo.toml"
+printf '// cmux-motion\n' > "$motion/src/lib.rs"
+cat > "$motion/build.rs" <<'EOF'
+#[path = "build-support/json.rs"]
+mod json;
+const TOKENS: &str = "../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json";
+fn main() {
+    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(TOKENS);
+    println!("cargo:rerun-if-changed={}", path.display());
+    println!("cargo:rerun-if-changed=build-support/json.rs");
+    let text = std::fs::read_to_string(&path).unwrap();
+}
+EOF
+printf 'pub fn parse(_: &str) {}\n' > "$motion/build-support/json.rs"
+echo "json data" > "$motion/json-data.txt"
+echo '{}' > "$repo/plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+printf 'cmux-motion = { path = "../cmux-motion" }\n' >> "$repo/cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "cmux-motion and its token file"
+repin "pin cmux-motion"
+echo '{"motion": {}}' > "$repo/plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+git -C "$repo" commit -qam "design tokens"
+stale_after "a change to design-tokens.json, which cmux-motion's build script compiles in" \
+  plans/cmux-next/spec-proposals/visuals/design-tokens.json
+refuse cmux-tui/crates/cmux-motion/build.rs 'fn more(other: &str) { let _ = std::fs::read_to_string(other); }' \
+  "a third computed read in cmux-motion's build script"
+refuse cmux-tui/crates/cmux-motion/build-support/json.rs 'fn read(p: &str) { let _ = std::fs::read_to_string(p); }' \
+  "a computed read in a module of the build script"
+printf 'fn data() { let _ = std::fs::read_to_string("json-data.txt"); }\n' >> "$motion/build-support/json.rs"
+git -C "$repo" commit -qam "the build script's module reads json-data.txt"
+repin "pin the module's read"
+echo "changed" >> "$motion/json-data.txt"
+git -C "$repo" commit -qam "json data"
+stale_after "a change to a file a build script module reads" cmux-tui/crates/cmux-motion/json-data.txt
+# A build script that Cargo.toml's `build` names, and a path dependency in single quotes.
+browser="$repo/cmux-tui/crates/cmux-remote-browser"
+mkdir -p "$browser/build-support"
+printf '[package]\nname = "x"\nbuild = "build-support/b.rs"\n\n[lib]\npath = "src/lib.rs"\n\n[dependencies]\n' \
+  > "$browser/Cargo.toml"
+printf "cmux-sq = { path = '../cmux-sq' }\n" >> "$browser/Cargo.toml"
+printf 'fn main() { let _ = std::fs::read_to_string("b-data.txt"); }\n' > "$browser/build-support/b.rs"
+echo "b data" > "$browser/b-data.txt"
+crate cmux-sq
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a named build script and a single-quoted path dependency"
+repin "pin the named build script"
+echo "changed" >> "$browser/b-data.txt"
+git -C "$repo" commit -qam "b data"
+stale_after "a change to a file the named build script reads" cmux-tui/crates/cmux-remote-browser/b-data.txt
+echo "// changed" >> "$repo/cmux-tui/crates/cmux-sq/src/lib.rs"
+git -C "$repo" commit -qam "single-quoted dependency"
+stale_after "a change to a crate named by a single-quoted path" cmux-tui/crates/cmux-sq/src/lib.rs
+refuse_manifest() { # refuse_manifest FILE TEXT WHY: FILE becomes TEXT; the check must refuse
+  printf '%s\n' "$2" > "$repo/$1"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "refuse $1"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$3 passed: $out"
+  fi
+  [[ "$out" == *"the app FFI inputs cannot be listed"* ]] || fail "$3 did not refuse: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+}
+refuse_manifest cmux-tui/crates/cmux-remote-browser/Cargo.toml "$(printf "[package]\nname = 'x'\nbuild = 'tools/b.rs'")" \
+  "a build script outside build.rs and build-support/, in single quotes"
+refuse_manifest cmux-tui/crates/cmux-remote-browser/Cargo.toml "$(printf 'lib.path = "lib/root.rs"\n[package]\nname = "x"')" \
+  "a library root outside src/lib.rs, as a dotted key"
+git -C "$repo" reset -q --hard "$before_build"
+
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
 # fake: the release download fails, so the API is asked, and it names a release
