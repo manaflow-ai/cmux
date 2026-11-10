@@ -458,6 +458,14 @@ class GeneratedFoldTest(unittest.TestCase):
                 self.assertNotEqual(folds, generated)
                 self.assertEqual(reported, folds)
                 self.assertEqual(folds, result == "skipped" or verdict == "queued")
+        # A fast-tier host's run the fleet reported: placement left generated-files out of the cascade, so it takes
+        # Blacksmith 6 vCPU macOS, never the owned queue it would wait on (or the fork clause before it).
+        fallback = "github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'fast-tier' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
+        for text in (self.generated["runs-on"], self.generated["env"]["CMUX_NEXT_RUNNER"]):
+            self.assertIn(fallback, text)
+            self.assertLess(text.index("'blacksmith-6vcpu-macos-26'"), text.index(fallback))
+            self.assertLess(text.index(fallback), text.index("needs.macos-placement.outputs.blacksmith_12_jobs"))
+        self.assertTrue(self.step(tier, "Regenerate stale files")["continue-on-error"])
         # The checks run on the tier's build, in the root it built in, with the generated-files job's commands.
         for name in CHECKS:
             ours, theirs = self.step(tier, name), self.step(self.generated, name)
