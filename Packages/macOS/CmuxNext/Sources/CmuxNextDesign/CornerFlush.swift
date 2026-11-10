@@ -223,15 +223,18 @@ public final class CornerFlushChrome: NSView {
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
     }
 
-    /// Whether this window's shown strips on the card's top edge span it, side to side (a pane gap
-    /// apart at most): a pane that hides its strip (vertical tabs, a hidden tab bar) leaves its content
+    /// Whether the panes of this window's shown strips on the card's top edge span it, side to side (a
+    /// pane gap apart at most): a pane that hides its strip (vertical tabs, a hidden tab bar) leaves its content
     /// at the top, where a wedge or the tab row's shade would cover it. O(strips log strips): a window's
     /// strips, not its tabs.
     private func hasTopStrip(card: CGRect, in root: NSView) -> Bool {
         let spans = strips.allObjects.compactMap { object -> (CGFloat, CGFloat)? in
             guard let strip = object as? any TabStripCorner & NSView, strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor else { return nil }
             let frame = root.convert(strip.cornerFrameInWindow, from: nil)
-            return abs(frame.minY - card.maxY) < 2 ? (frame.minX, frame.maxX) : nil
+            guard abs(frame.minY - card.maxY) < 2 else { return nil }
+            // The strip's pane, not the strip: the pane's trailing toolbar takes the strip's end.
+            let pane = strip.superview.map { root.convert($0.bounds, from: $0) } ?? frame
+            return (pane.minX, pane.maxX)
         }.sorted { $0.0 < $1.0 }
         let gap = Metrics.scale(2 * LayoutGrid.base) + 1
         var reached = card.minX
