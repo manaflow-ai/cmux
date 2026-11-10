@@ -6,7 +6,7 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
-import { storeVmPlan } from "./cloud-vm-plan.ts"
+import { noteTeamEvent, storeVmPlan, teamEventCount } from "./cloud-vm-plan.ts"
 import { deliverPendingCarry, pendingCarryAt, planCarryOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
@@ -118,6 +118,8 @@ export class StackTeamSync {
     if (deps.sql.exec(`SELECT 1 FROM stack_webhook_events WHERE svix_id = ?`, ev.svix_id).toArray().length > 0) return Promise.resolve({ ok: true, outcome: "duplicate", duplicate: true })
     if (!deps.stack) return Promise.resolve({ ok: false, reason: "stack_server_not_configured" })
     const now = Date.now()
+    // A team event may change the team's Cloud grant: the copy a delete carries is current only once a read follows it.
+    if (ev.type !== "team.deleted") noteTeamEvent(deps.sql)
     const k = enqueue(deps.sql, ev, now)
     deps.sql.exec(`INSERT OR REPLACE INTO stack_webhook_events (svix_id, at, outcome) VALUES (?, ?, ?)`, ev.svix_id, now, "queued")
     deps.sql.exec(`DELETE FROM stack_webhook_events WHERE at < ?`, now - SEEN_RETENTION_MS)
@@ -283,7 +285,11 @@ export class StackTeamSync {
     }
     // The plan copy is dated before the read (review P3): a slower read never looks newer than it is.
     const readAt = Date.now()
+    const seen = teamEventCount(deps.sql)
     const team = await stack.getTeam(ev.stack_team)
+    // Every grant observed is kept at once, before any early return (review F1 at e9544f44): a delete that waits for
+    // its confirmation, or a sync that stops early, must never leave an older (since revoked) grant as the copy.
+    if (team !== null && team.vm_personal_tenant !== true && team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt, seen)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
     if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
@@ -324,8 +330,6 @@ export class StackTeamSync {
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
     storePlan(deps.sql, team.plan, readAt)
-    // The team's operator Cloud grant too: the delete event names only the team, so this copy is what a delete carries (team-grant-carry.ts).
-    if (team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
     const user = userIdFor(deps.stackProjectId, ev.stack_user!)

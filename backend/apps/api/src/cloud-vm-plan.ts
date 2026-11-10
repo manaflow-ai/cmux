@@ -27,6 +27,8 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
       // A grant carried here from a deleted shared team (team-grant-carry.ts) is compared, never written to the record.
       const carried = carriedVmPlan(sql)
       if (carried === null || (own !== null && grantRank(own) === 0)) return own
+      // An override the carried grant cannot exceed is the answer: no paid-plan read, so its failure can't lose it (review F2).
+      if (own !== null && grantRank(own) >= grantRank(carried)) return own
       const paid = await s.getUserPlan(stackUser)
       return higherGrant(own, paid === "user_gone" ? null : paid, carried)
     }
@@ -45,12 +47,13 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
   // pay the extra reads; the cached copy stays the answer when the service fails.
   const carrying = stackUser !== undefined && carriedVmPlan(sql) !== null
   if (row && !carrying && now - Number(row.checked_at) < VM_PLAN_FRESH_MS) return { ok: true, vm_plan: row.vm_plan }
+  const seen = stackUser === undefined ? teamEventCount(sql) : undefined
   try {
     if (!stack) throw new Error("stack server not configured")
     const vm_plan = await read(stack)
     // TEAM_NOT_FOUND before the delete event is processed (review F3): keep the snapshot, never overwrite it with null.
     if (vm_plan === undefined) return { ok: true, vm_plan: row ? row.vm_plan : null }
-    storeVmPlan(sql, vm_plan, now)
+    storeVmPlan(sql, vm_plan, now, seen)
     return { ok: true, vm_plan }
   } catch (e) {
     // A failed read keeps the last copy (as CloudDO keeps the last known plan); with none it is unavailable.
@@ -61,8 +64,37 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
 
 const ensure = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan (id INTEGER PRIMARY KEY CHECK (id = 1), vm_plan TEXT, checked_at INTEGER NOT NULL)`)
 
-/** Stores what the sign-in service answered at `at` (null = no grant); a read that started before a newer one never overwrites it. */
-export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number) => {
+const ensureSeq = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan_seq (id INTEGER PRIMARY KEY CHECK (id = 1), events INTEGER NOT NULL, observed INTEGER NOT NULL)`)
+const seqRow = (sql: SqlStorage) => {
+  ensureSeq(sql)
+  return sql.exec<{ events: number; observed: number }>(`SELECT events, observed FROM cloud_vm_plan_seq WHERE id = 1`).toArray()[0] ?? { events: 0, observed: 0 }
+}
+/**
+ * A team event (not a delete) arrived: its team record may carry a newer grant than the copy (team-stack-sync.ts
+ * deliver). Numbered, never timed, so two events in the same millisecond still order. Returns the new count.
+ */
+export const noteTeamEvent = (sql: SqlStorage): number => {
+  const r = seqRow(sql)
+  sql.exec(`INSERT INTO cloud_vm_plan_seq (id, events, observed) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET events = excluded.events`, r.events + 1, r.observed)
+  return r.events + 1
+}
+/** The team events arrived so far; a read that starts now has seen every one of them once it stores its answer. */
+export const teamEventCount = (sql: SqlStorage): number => seqRow(sql).events
+/** Every team event that arrived has been followed by a read of the team whose answer is the copy (no newer grant unseen). */
+export const vmPlanCopyCurrent = (sql: SqlStorage): boolean => {
+  const r = seqRow(sql)
+  return r.observed >= r.events
+}
+
+/**
+ * Stores what the sign-in service answered at `at` (null = no grant); a read that started before a newer one never
+ * overwrites it. `seen` is teamEventCount when the read started: the copy then reflects every event up to it.
+ */
+export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number, seen?: number) => {
+  if (seen !== undefined) {
+    const r = seqRow(sql)
+    if (seen > r.observed) sql.exec(`INSERT INTO cloud_vm_plan_seq (id, events, observed) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET observed = MAX(observed, excluded.observed)`, Math.max(r.events, seen), seen)
+  }
   ensure(sql)
   sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_vm_plan.checked_at`, vmPlan, at)
 }
