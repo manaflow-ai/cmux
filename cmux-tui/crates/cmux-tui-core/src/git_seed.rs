@@ -57,6 +57,8 @@ pub const GIT_SEED_EXPORT_COMMANDS: [&str; 1] = ["git.seed.export"];
 /// capability for the same reason as [`GIT_SEED_EXPORT_CAPABILITY`]: a Mac asks for it first.
 /// v2: an `fs.*` op that names its hold (`"hold": JOB`) lands only while the hold runs
 /// ([`GitSeedService::under_hold`]); a v1 machine applied a copy's write after its lease ran out.
+/// A store fetch (`blob.fetch.start`) names no hold: the Mac checks its hold before it starts
+/// one, and the next push's store fence cancels one still writing.
 pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v2";
 
 /// The ops of `git-seed-hold-v2`, exactly (its jobs are read with `git.seed.status`).

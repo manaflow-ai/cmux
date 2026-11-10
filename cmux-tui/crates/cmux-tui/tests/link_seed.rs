@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use cmux_tui_core::fs_ops::{FsService, Roots, stream};
+use cmux_tui_core::fs_ops::{FsService, Roots};
 use cmux_tui_core::git_seed::{self, GitSeedService};
 use serde_json::{Value, json};
 use sha2::Digest as _;

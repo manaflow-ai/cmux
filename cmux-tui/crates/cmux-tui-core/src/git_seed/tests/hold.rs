@@ -247,3 +247,32 @@ fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
     let refused = held_op(Some(&service), &json!(3), unknown, |_| panic!("never runs"));
     assert_eq!(refused["error_code"], "seed.unknown_job");
 }
+
+#[test]
+fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
+    let home = Home::new("hold-write-in-flight");
+    let service = service(&home);
+    let folder = home.join("work/notes");
+    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let (finish, wait_finish) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let request = json!({ "hold": job }).as_object().cloned().unwrap();
+        let writer = scope.spawn(|| {
+            held_op(Some(&service), &json!(1), request, |_| {
+                started.send(()).unwrap();
+                wait_finish.recv().unwrap();
+                std::fs::write(folder.join("slow.md"), "x").unwrap();
+                Ok(json!({}))
+            })
+        });
+        wait_started.recv().unwrap();
+        // Well past the lease: the hold may not end while the write is in flight.
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(state(&folder), "syncing", "the barrier stays until the write lands");
+        finish.send(()).unwrap();
+        assert_eq!(writer.join().unwrap()["ok"], true);
+    });
+    assert_eq!(settles(&folder, "incomplete"), "incomplete");
+}
