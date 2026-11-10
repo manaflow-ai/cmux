@@ -157,5 +157,60 @@ class StopTests(unittest.TestCase):
         self.assertNotEqual(answer[0][0], 0)
 
 
+    def test_a_child_started_while_stopping_is_ended_too(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        real = matrix.subprocess.Popen
+
+        def popen_then_stop(*args, **kwargs):  # stop() lands after the check, before registration
+            child = real(*args, **kwargs)
+            m.stop()
+            return child
+        matrix.subprocess.Popen = popen_then_stop
+        try:
+            answer = []
+            worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+            started = time.monotonic()
+            worker.start()
+            worker.join(10)
+        finally:
+            matrix.subprocess.Popen = real
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+    def test_sigterm_while_the_main_thread_holds_the_lock_does_not_deadlock(self):
+        import os
+        import signal
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+
+        class Cancelled(Exception):
+            pass
+
+        def handler(signum, frame):
+            m.stop()
+            raise Cancelled
+        previous = signal.signal(signal.SIGTERM, handler)
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        try:
+            with self.assertRaises(Cancelled):
+                with m.lock:  # as launch(), sweep() and kill() hold it
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    time.sleep(5)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

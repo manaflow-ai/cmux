@@ -440,16 +440,26 @@ class Matrix:
         self.lock = threading.Lock()
         self.machines: set[str] = set()
         self.stopping = threading.Event()
+        # The run's live CLI children, under their own lock: stop() runs in the SIGTERM handler, which can
+        # interrupt the main thread inside `self.lock` (launch, sweep, kill), and a Lock is not reentrant.
+        # Nothing holds children_lock across a call that can be interrupted by a signal handler that then
+        # needs it: the handler only reads a snapshot (`list()` is atomic under the GIL) and never waits.
+        self.children_lock = threading.Lock()
         self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
         # Once stop() ran, a cell's thread starts nothing more; the main thread's cleanup still runs.
-        if self.stopping.is_set() and threading.current_thread() is not threading.main_thread():
+        cell_thread = threading.current_thread() is not threading.main_thread()
+        if self.stopping.is_set() and cell_thread:
             return 130, "", "stopped: the run was cancelled"
         child = subprocess.Popen([self.cli, *words], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  text=True)
-        with self.lock:
+        with self.children_lock:
             self.children.add(child)
+        # A stop() between the check above and this registration took a snapshot without this child: look
+        # again now that it is registered, so it is ended either by stop() or here, never neither.
+        if self.stopping.is_set() and cell_thread:
+            child.terminate()
         try:
             out, err = child.communicate(timeout=timeout)
             return child.returncode, out, err
@@ -458,18 +468,19 @@ class Matrix:
             child.communicate()
             return 124, "", f"timed out after {timeout}s"
         finally:
-            with self.lock:
+            with self.children_lock:
                 self.children.discard(child)
 
     def stop(self) -> None:
         """A cancelled run (SIGTERM): no cell starts another step, and the CLI calls cells are waiting on
-        (this run's own children) end now, so cleanup runs at once rather than after 900 s starts."""
+        (this run's own children) end now, so cleanup runs at once rather than after 900 s starts. Safe in a
+        signal handler: it takes no lock (the interrupted frame may hold one) and only reads a snapshot."""
         self.stopping.set()
-        with self.lock:
-            children = list(self.children)
-        for child in children:
-            if threading.current_thread() is threading.main_thread():
+        for child in list(self.children):
+            try:
                 child.terminate()
+            except OSError:
+                pass
 
     @staticmethod
     def parsed(text: str) -> dict:
