@@ -324,6 +324,35 @@ test("hiding the page ends every widget mount", async () => {
   expect(mock.mounted).toBe(0);
 });
 
+test("a hidden page holds no widget mount, and showing it again mounts from the kept listing with no list read", async () => {
+  // plans/cmux-next/shared-projections.md: a switch away and back makes no fetch. extensibility-DESIGN.md
+  // R1: a hidden page runs no app. A hide ends the mounts; the listing and its watch stay.
+  const mock = new MockAppPanelsClient();
+  mock.layout = ["app:manaflow-ai/clock#cmux.newtab.widget/1"];
+  let lists = 0;
+  const call = mock.call.bind(mock);
+  mock.call = (async (op: string, input: unknown) => {
+    if (op === "cmux.apps.panels.list") lists++;
+    return call(op, input);
+  }) as typeof mock.call;
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(mock.mounted).toBe(1);
+  const listed = lists;
+  const panels = owner.getView().panels;
+  owner.setHidden(true);
+  for (let i = 0; i < 4; i++) await settled();
+  expect(mock.mounted).toBe(0);
+  expect(owner.getView().panels).toBe(panels);
+  owner.setHidden(false);
+  expect(owner.getView().mounted.map((entry) => entry.panel.app)).toEqual(["manaflow-ai/clock"]);
+  for (let i = 0; i < 4; i++) await settled();
+  expect(mock.mounted).toBe(1);
+  expect(lists).toBe(listed);
+  owner.stop();
+});
+
 test("a host that ignores the interface lists no widgets and offers no edits", async () => {
   const mock = new MockAppPanelsClient();
   mock.ignoresInterface = true; // it answers with Session Info's sections and no layout
