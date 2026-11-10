@@ -226,9 +226,8 @@ pub(super) fn run(
     if let Some(machine) = ended.or(request.installed.as_deref()) {
         let abandon = request.abandoned.is_some();
         if ended.is_none() {
-            file.installed.retain(|receipt| {
-                receipt.account != request.account || receipt.machine != machine
-            });
+            file.installed
+                .retain(|receipt| receipt.account != request.account || receipt.machine != machine);
             file.installed.push(Installed {
                 account: request.account.clone(),
                 team: team.clone(),
@@ -540,9 +539,8 @@ pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     if let Some(wait) = wait_request(flags) {
         return Some(wait_copy(state, &wait.machine, &wait.provider, &now_ms, &pause));
     }
-    if let Some(request) = flags
-        .one("--request")
-        .and_then(|request| serde_json::from_str::<Request>(request).ok())
+    if let Some(request) =
+        flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
         && let Some(asked) = request.login_receipt
     {
         return Some(receipt(state, &request.account, &asked.machine, &asked.provider, now_ms()));
