@@ -5,12 +5,16 @@
 //! starts after `SETTLE_BOUND` and reads them as the placeholder; the next
 //! turn sends that frozen view again byte for byte (spec 5a.1: a fold alone
 //! does not change it; a re-render folds the summaries in).
+//! The bound reads the brain's injected turn clock (`Brain::with_turn_clock`):
+//! the test moves that time itself and never measures a real wait.
 
 mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
+
+use optchat_chief::brain::TurnClock;
 
 use common::*;
 use optchat_core::{Kind, PLACEHOLDER};
@@ -65,13 +69,51 @@ fn prompt_text(h: &Harness, turn: usize) -> String {
         .join("\n")
 }
 
-/// Steps the brain until `n` turns were prompted; how long that took.
-fn until_prompt(h: &mut Harness, n: usize) -> Duration {
-    let asked = Instant::now();
-    while h.agents.inner.lock().unwrap().prompts.len() < n {
-        h.step();
+/// The settle bound's clock: time moves only when the test calls `advance`.
+/// Every read is counted, so the test knows when the turn worker has looked
+/// at the time again (a signal, not a wait for real time to pass).
+struct FakeTurnClock {
+    start: Instant,
+    state: Mutex<(Duration, u64)>,
+    read: Condvar,
+}
+
+impl FakeTurnClock {
+    fn new() -> FakeTurnClock {
+        FakeTurnClock {
+            start: Instant::now(),
+            state: Mutex::new((Duration::ZERO, 0)),
+            read: Condvar::new(),
+        }
     }
-    asked.elapsed()
+
+    fn advance(&self, d: Duration) {
+        self.state.lock().unwrap().0 += d;
+    }
+
+    fn reads(&self) -> u64 {
+        self.state.lock().unwrap().1
+    }
+
+    /// Blocks until the clock was read `n` more times after `seen` reads, or
+    /// `limit` of real time passes; whether it was.
+    fn wait_reads(&self, seen: u64, n: u64, limit: Duration) -> bool {
+        let state = self.state.lock().unwrap();
+        let (_state, timeout) = self
+            .read
+            .wait_timeout_while(state, limit, |(_, reads)| *reads < seen + n)
+            .unwrap();
+        !timeout.timed_out()
+    }
+}
+
+impl TurnClock for FakeTurnClock {
+    fn now(&self) -> Instant {
+        let mut state = self.state.lock().unwrap();
+        state.1 += 1;
+        self.read.notify_all();
+        self.start + state.0
+    }
 }
 
 #[test]
@@ -105,6 +147,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
         summary: Some(summary()),
         ..Owner::default()
     }));
+    let clock = Arc::new(FakeTurnClock::new());
     let mut h = Harness::over_chat(
         dir,
         default_script(),
@@ -112,18 +155,39 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
         settings,
         Arc::new(move |line: &str| logged.lock().unwrap().push(line.to_owned())),
         chat.clone(),
-    );
+    )
+    .with_turn_clock(clock.clone());
     h.connect();
+    let did_not_wait = |lines: &Mutex<Vec<String>>| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.starts_with("turn starts without"))
+    };
 
-    // Turn 1: the compactor is building (held), so the turn waits the bound
-    // and no longer, then reads the messages as the placeholder.
+    // Turn 1: the compactor is building (held). The bound counts from the
+    // message: one moment short of it, the turn worker looks at the time
+    // and still waits.
     h.say("user_local", "where do releases go?");
-    let waited = until_prompt(&mut h, 1);
-    assert!(waited >= SETTLE_BOUND, "it waited the bound: {waited:?}");
+    clock.advance(SETTLE_BOUND - Duration::from_millis(1));
+    let seen = clock.reads();
     assert!(
-        waited < SETTLE_BOUND + Duration::from_secs(2),
-        "and not longer: {waited:?}"
+        clock.wait_reads(seen, 2, WAIT),
+        "the turn worker reads the bound's clock"
     );
+    assert!(
+        !did_not_wait(&lines),
+        "the turn did not start before the bound: {:?}",
+        lines.lock().unwrap()
+    );
+    assert!(
+        h.agents.inner.lock().unwrap().prompts.is_empty(),
+        "no prompt before the bound"
+    );
+    // At the bound it starts, and reads the messages as the placeholder.
+    clock.advance(Duration::from_millis(1));
+    h.step_to_prompts(1);
     assert!(
         held.calls.load(Ordering::SeqCst) > 0,
         "the nodes were building"
@@ -139,11 +203,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
         "{status:?}"
     );
     assert!(
-        lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|l| l.starts_with("turn starts without")),
+        did_not_wait(&lines),
         "the host log says the turn did not wait: {:?}",
         lines.lock().unwrap()
     );
@@ -153,12 +213,10 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     // input (a fold alone does not change the frozen view, spec 5a.1).
     held.open();
     assert!(chat.wait_idle(None, Some(WAIT)));
+    // The bound's clock does not move: a turn that waited for it would
+    // never start.
     h.say("user_local", "and the unit?");
-    let waited = until_prompt(&mut h, 2);
-    assert!(
-        waited < Duration::from_secs(5),
-        "turn 2 did not wait: {waited:?}"
-    );
+    h.step_to_prompts(2);
     let second = prompt_text(&h, 1);
     assert!(
         second.starts_with(&first[..first.find("where do releases go?").unwrap()]),
