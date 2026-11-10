@@ -158,7 +158,10 @@ const SESSION_ID_FIELDS: [&str; 2] = ["agent_session", "session_id"];
 type SessionLookup = Box<dyn FnMut(&str) -> Option<String>>;
 
 /// Which sessions are automation runs' own (`auto-<id>-<run>`), each id
-/// looked up once.
+/// looked up until acpmux names it, then remembered. A lookup with no answer
+/// (acpmux busy, restarting, or not knowing the id yet) is not remembered, so
+/// one failed `acpmux info` cannot make a run's session look like a person's
+/// for the rest of the source's life.
 struct OwnSessions {
     lookup: SessionLookup,
     known: HashMap<String, bool>,
@@ -183,7 +186,8 @@ impl OwnSessions {
             if let Some(own) = self.known.get(id) {
                 return *own;
             }
-            let own = (self.lookup)(id).is_some_and(|name| own_name(&name));
+            let Some(name) = (self.lookup)(id) else { return false };
+            let own = own_name(&name);
             self.known.insert(id.to_string(), own);
             own
         })
@@ -424,6 +428,23 @@ mod tests {
         assert!(own.is_own(&dialog));
         // An id acpmux does not know is someone else's.
         assert!(!own.is_own(&chat("unknown-id")));
+    }
+
+    #[test]
+    fn a_lookup_with_no_answer_is_asked_again() {
+        // acpmux busy for one `info`: the next event from that run asks again
+        // and is then known as the run's own.
+        let answers = std::rc::Rc::new(std::cell::RefCell::new(vec![
+            None,
+            Some("auto-auto_abc-run_x".to_string()),
+        ]));
+        let calls = answers.clone();
+        let mut own = OwnSessions::new(Box::new(move |_: &str| calls.borrow_mut().remove(0)));
+        let chat = json!({"kind": "agent", "state": "idle", "agent_session": "5f0c-run"});
+        assert!(!own.is_own(&chat), "no answer: not known to be a run's");
+        assert!(own.is_own(&chat), "asked again, and now known");
+        assert!(own.is_own(&chat), "remembered: no third lookup");
+        assert!(answers.borrow().is_empty());
     }
 
     #[test]
