@@ -759,7 +759,10 @@ fn snapshot_boundary_protects_legacy_and_smart_bootstraps() {
             read_required_frame(&mut client_stream, "exit").unwrap().kind,
             MessageKind::Exit
         );
-        let _ = client_stream.shutdown(std::net::Shutdown::Both);
+        // The host ends the stream after its last frame; the client does not
+        // have to close first (the host's input thread holds a socket clone).
+        let mut byte = [0];
+        assert_eq!(client_stream.read(&mut byte).unwrap(), 0);
         server.join().unwrap().unwrap();
     }
 }
