@@ -73,10 +73,14 @@ extension AppActions {
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
         // The composer's attach button as an action (home.attachFiles): a path goes to the shown
-        // Home composer, a conversation tab's or the Chief panel's native transcript (HomeComposerIntake),
-        // else the Messages page's (HomeComposerHandoff), as a drop; without one its file picker opens.
+        // Home composer, as a drop: a native transcript's (a conversation tab's or the Chief panel's,
+        // HomeComposerIntake) that holds the keyboard, else the Messages page's (HomeComposerHandoff), else a
+        // shown native one; without one its file picker opens.
         registry.bindEffect("home.attachFiles", effect: { invocation in
-            if let intake = HomeComposerIntake(window: services.windows.active?.window), case .native = intake.target {
+            let window = services.windows.active?.window
+            if let intake = HomeComposerIntake(window: window, keyboardOnly: true)
+                ?? (HomeComposerHandoff.shown(in: window) == nil ? HomeComposerIntake(window: window) : nil),
+                case .native = intake.target {
                 guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
                     intake.pickFiles(openPanel: services.openPanel)
                     return .done
@@ -109,8 +113,11 @@ extension AppActions {
         // Reply to Selection (Cmd-Shift-R on Home, the palette): the text selected in a message of
         // the shown Messages page opens that message's reply with them quoted (pageCommands.ts `home.messages.replyToSelection`).
         registry.bindEffect("home.replyToSelection", effect: { _ in
-            // A conversation tab's or the Chief panel's native transcript answers at once.
-            if let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) {
+            // A conversation tab's or the Chief panel's native transcript answers at once: the one with the
+            // keyboard, else (no Messages page shown) any shown one.
+            let window = services.windows.active?.window
+            if let view = HomeNativeTranscriptView.keyboard(in: window)
+                ?? (HomeComposerHandoff.shown(in: window) == nil ? HomeNativeTranscriptView.shown(in: window) : nil) {
                 return view.replyToSelection() ? .done : .refused(RefusalStrings.homeReplyNoSelection)
             }
             guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {

@@ -70,7 +70,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
         if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
         guard params["tab"] == nil, params["action"]?.stringValue != "list",
-              let view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window) else {
+              let view = HomeNativeTranscriptView.keyboard(in: window ?? services.windows.active?.window)
+                ?? (DebugHome.messagesPage(services, tab: nil) == nil ? HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window) : nil) else {
             return await DebugHome.drive(params, services: services)
         }
         let ok: Bool

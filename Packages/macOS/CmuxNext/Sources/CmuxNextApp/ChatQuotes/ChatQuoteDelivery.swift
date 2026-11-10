@@ -22,7 +22,9 @@ struct ChatQuoteDelivery {
             return
         }
         let window = window ?? services.windows.active?.window
-        if let intake = HomeComposerIntake(window: window), case .native = intake.target {
+        if let intake = HomeComposerIntake(window: window, keyboardOnly: true)
+            ?? (HomeComposerHandoff.shown(in: window) == nil ? HomeComposerIntake(window: window) : nil),
+            case .native = intake.target {
             guard let file = try? ChatQuoteFile(folder: Self.folder()).write(quote) else {
                 return services.registry.refuse(RefusalStrings.homeQuoteNoHome)
             }

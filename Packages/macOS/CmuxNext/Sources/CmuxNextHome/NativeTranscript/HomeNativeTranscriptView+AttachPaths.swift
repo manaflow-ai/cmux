@@ -52,15 +52,22 @@ extension HomeNativeTranscriptView {
     /// else the first visible one (a Home tab whose box is not focused).
     public static func shown(in window: NSWindow?) -> HomeNativeTranscriptView? {
         guard let window else { return nil }
-        var responder = window.firstResponder as? NSView
-        while let view = responder {
-            if let home = view as? HomeNativeTranscriptView { return home }
-            responder = view.superview
-        }
+        if let home = keyboard(in: window) { return home }
         var stack = [window.contentView].compactMap { $0 }
         while let view = stack.popLast() {
             if let home = view as? HomeNativeTranscriptView, !home.isHiddenOrHasHiddenAncestor { return home }
             stack.append(contentsOf: view.subviews.reversed())
+        }
+        return nil
+    }
+
+    /// The Home transcript holding `window`'s keyboard, or nil (a caller that also reaches the Messages page asks
+    /// this first, then the page, then ``shown(in:)``).
+    public static func keyboard(in window: NSWindow?) -> HomeNativeTranscriptView? {
+        var responder = window?.firstResponder as? NSView
+        while let view = responder {
+            if let home = view as? HomeNativeTranscriptView { return home }
+            responder = view.superview
         }
         return nil
     }

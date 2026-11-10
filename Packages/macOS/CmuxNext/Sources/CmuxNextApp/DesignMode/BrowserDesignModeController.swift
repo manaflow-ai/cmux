@@ -91,11 +91,14 @@ final class BrowserDesignModeController {
         case native(HomeComposerIntake)
         case page(HomeComposerHandoff)
 
+        /// The native composer holding the keyboard, else the Messages page's, else a shown native one.
         init?(window: NSWindow?) {
-            if let intake = HomeComposerIntake(window: window), case .native = intake.target {
+            if let intake = HomeComposerIntake(window: window, keyboardOnly: true), case .native = intake.target {
                 self = .native(intake)
             } else if let handoff = HomeComposerHandoff.shown(in: window) {
                 self = .page(handoff)
+            } else if let intake = HomeComposerIntake(window: window), case .native = intake.target {
+                self = .native(intake)
             } else {
                 return nil
             }

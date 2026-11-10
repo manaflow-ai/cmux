@@ -38,7 +38,8 @@ public struct HomeComposerIntake {
 
     /// The Home composer `window` shows that takes files: the one holding the keyboard, else the
     /// first visible one; nil when none does.
-    public init?(window: NSWindow?) {
+    /// `keyboardOnly`: only the composer whose view holds the keyboard.
+    public init?(window: NSWindow?, keyboardOnly: Bool = false) {
         guard let window else { return nil }
         self.window = window
         var responder = window.firstResponder as? NSView
@@ -49,6 +50,7 @@ public struct HomeComposerIntake {
             }
             responder = view.superview
         }
+        if keyboardOnly { return nil }
         var stack = [window.contentView].compactMap { $0 }
         while let view = stack.popLast() {
             if !view.isHiddenOrHasHiddenAncestor, let found = Self.target(of: view) {
