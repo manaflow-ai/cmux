@@ -22,6 +22,7 @@ use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
 
 /// The methods `handle` answers.
@@ -38,6 +39,7 @@ pub const REMOTE_REFUSED: &str = "remote_refused";
 fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
+        | reason::UNSUPPORTED
         | reason::BAD_CODE
         | reason::UNKNOWN_LOGIN
         | reason::UNKNOWN_SESSION => -32602,
@@ -51,7 +53,7 @@ fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     Agent::parse(name).ok_or_else(|| {
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!("agent must be \"claude\" or \"codex\", not {name:?}"),
+            format!("agent must be \"claude\", \"codex\", \"gemini\" or \"grok\", not {name:?}"),
         ))
     })
 }
@@ -70,8 +72,9 @@ fn allowed(conn: &Conn, params: &Value) -> bool {
     }
 }
 
-/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`
-/// or `codex` harness profile when it runs that CLI itself, else the CLI on
+/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`,
+/// `codex`, `gemini` or `grok` harness profile when it runs that CLI itself
+/// (Gemini's and Grok's: the profile's program is `gemini` or `grok`), else the CLI on
 /// the login PATH. The profile's env and Codex's global options come along;
 /// values that refer to a secret store are left out (nothing here asks one).
 fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
@@ -87,6 +90,11 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let native = |p: &&HarnessProfile| match agent {
         Agent::Claude => p.kind == HarnessKind::ClaudeStdio && p.argv.len() == 1,
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
+        Agent::Gemini | Agent::Grok => p.argv.first().is_some_and(|program| {
+            Path::new(program).file_name().and_then(|f| f.to_str()) == Some(agent.name())
+        }),
+        // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
+        Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -101,19 +109,26 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         .collect();
     let argv: Vec<String> = match profile {
         Some(p) => p.argv.iter().map(|a| expand(a)).collect(),
-        None => vec![crate::config::which(agent.name())?],
+        None => vec![crate::config::which(agent.program())?],
     };
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude => None,
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude => Vec::new(),
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => Vec::new(),
     };
     Some(Cli { program, globals, env })
+}
+
+/// Whether `argv` runs Cursor's CLI: `cursor-agent` (or `agent`), then `acp`.
+fn cursor_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
+        && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
@@ -144,7 +159,7 @@ async fn signed_in(
     hub: &Arc<Hub>,
     agent: Agent,
     params: &Value,
-    store: &std::path::Path,
+    store: &Path,
 ) -> Result<bool, RpcError> {
     // Finishing a login may name a different chat, or its config may have changed while
     // the browser was open. Never apply one account's success to another account.
@@ -157,10 +172,7 @@ async fn signed_in(
     // Alternate account homes are scoped to this chat; do not flip the machine-wide
     // launcher mode away from team routing for the canonical account.
     let machine = machine(hub);
-    let canonical = machine.home.join(match agent {
-        Agent::Claude => ".claude",
-        Agent::Codex => ".codex",
-    });
+    let canonical = machine.home.join(agent.home_dir_name());
     if current.store(agent) == canonical
         && let Err(e) = machine.choose_own(agent)
     {

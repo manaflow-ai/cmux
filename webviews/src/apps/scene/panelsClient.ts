@@ -1,17 +1,23 @@
-import type { PageClient } from "../../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import type { SceneAssetResolver } from "./SceneRenderer";
-import { SceneStore, type SceneOp } from "./store";
+import { SceneStore, type SceneLimits, type SceneOp, type SceneViolation } from "./store";
 
-export type AppPanel = { app: string; section: string; title: string; symbol?: string };
+/** A page panel: a Session Info section, or a New Tab widget (`size` is a widget's cell). */
+export type AppPanel = { app: string; section: string; title: string; symbol?: string; size?: "small" | "wide" };
 export type MountContext = { session_id: string; cwd?: string; branch?: string; harness?: string };
+/** A New Tab widget's mount context (`cmux.newtab.widget/1`): the page, not a chat. */
+export type NewTabMountContext = { surface: "newTab" };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
-export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection";
+export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
 /** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
  * `failed {reason}`, `disconnected {reason}`). */
 export type SceneEvent =
   | { mount_id: string; ops: SceneOp[]; reset?: boolean }
   | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
+/** Why a mounted panel draws nothing: its mount failed, or its scene broke its interface's limits
+ * (it is unmounted then). Absent while it draws. */
+export type PanelProblem = { kind: "failed" } | { kind: "over"; violation: SceneViolation };
 /** One mounted scene as a host draws it (`SceneMount`). */
 export type MountedScene = {
   store: SceneStore;
@@ -23,11 +29,28 @@ export type MountedScene = {
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
 };
-export type MountedPanel = MountedScene & { panel: AppPanel };
-/** What `cmux.apps.panels.mount` takes: the surface, the app, the section of a sidebar or Session
- * Info mount, and the members the host adds to the mount's context. */
+export type MountedPanel = MountedScene & { panel: AppPanel; problem?: PanelProblem };
+/** What `cmux.apps.panels.mount` takes: the surface, the app, the section of a sidebar, Session
+ * Info or New Tab mount, and the members the host adds to the mount's context. */
 export type MountRequest = { surface: MountSurface; app: string; section?: string; context: object };
-
+/** What a page shows: every listed panel (the New Tab page's Add Widgets lists them), the person's
+ * layout (New Tab only: placed widget ids and built-in names, in order), and the mounted ones. */
+export type PanelsView = {
+  readonly panels: readonly AppPanel[];
+  readonly layout: readonly string[];
+  readonly mounted: readonly MountedPanel[];
+  /** The host lists this interface with a layout and saves `layout.set`. A host that does not (an
+   * older Mac bridge drops `interface` and `layout`, and refuses `layout.set`) gets no edits. */
+  readonly editable: boolean;
+};
+export type PanelsOptions = {
+  /** The interface listed (`cmux.apps.panels.list {interface}`); Session Info's sections when unset. */
+  interface?: string;
+  /** The interface's scene limits (`nodes`, `maxNodes`), applied to each mount's store. */
+  limits?: SceneLimits;
+  /** Which listed panels mount (New Tab: the placed ones); all when unset. */
+  mounts?: (panel: AppPanel, layout: readonly string[]) => boolean;
+};
 /** A bundle-relative path (already checked by the renderer) under the host's asset base, each
  * component encoded once, so a decoded `%2F` can never become a separator. */
 export function bundleAssetURL(base: string, path: string): string | undefined {
@@ -41,6 +64,7 @@ export function bundleAssetURL(base: string, path: string): string | undefined {
   }
 }
 const EMPTY: readonly MountedPanel[] = [];
+const EMPTY_VIEW: PanelsView = { panels: [], layout: [], mounted: EMPTY, editable: false };
 
 function readPanels(value: unknown): AppPanel[] {
   const panels = (value as { panels?: unknown } | null)?.panels;
@@ -63,15 +87,36 @@ function readPanels(value: unknown): AppPanel[] {
       seen.add(id);
       return true;
     })
-    .map(({ app, section, title, symbol }) => ({ app, section, title, ...(typeof symbol === "string" && { symbol }) }));
+    .map(({ app, section, title, symbol, size }) => ({
+      app,
+      section,
+      title,
+      ...(typeof symbol === "string" && { symbol }),
+      ...((size === "small" || size === "wide") && { size }),
+    }));
 }
+
+/** The listing's layout; `undefined` when the host sent none (it does not keep one). */
+function readLayout(value: unknown): string[] | undefined {
+  const layout = (value as { layout?: unknown } | null)?.layout;
+  if (!Array.isArray(layout)) return undefined;
+  return [...new Set(layout.filter((id): id is string => typeof id === "string" && id.length > 0))];
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/** How a mount ends early. `limits`: the interface's scene limits, applied to its store; a scene
+ * over them is unmounted. `onFail`: the mount failed or broke its limits (`failed` is set first). */
+export type SceneMountOptions = { limits?: SceneLimits; onFail?: (problem: PanelProblem) => void };
 
 /** One mount's lifetime on the host: `start` mounts and subscribes to its scene, `release` ends
  * it. Events after `release`, or before the mount answers, go nowhere. */
 export class AppSceneMount implements MountedScene {
-  readonly store = new SceneStore();
+  readonly store: SceneStore;
   cancelled = false;
-  /** The mount call failed or answered no id: the owner mounts again on its next list. */
+  /** The mount call failed, answered no id, or its scene broke its limits: the owner mounts again on its next list. */
   failed = false;
   private mountId?: string;
   private assetBase?: string;
@@ -83,7 +128,10 @@ export class AppSceneMount implements MountedScene {
   constructor(
     private readonly client: PageClient,
     private readonly request: MountRequest,
-  ) {}
+    private readonly options: SceneMountOptions = {},
+  ) {
+    this.store = new SceneStore(options.limits);
+  }
 
   dispatch = (node: string, event: string, payload?: unknown): void => {
     if (this.cancelled || !this.mountId) return;
@@ -122,7 +170,7 @@ export class AppSceneMount implements MountedScene {
         context: this.request.context,
       });
       if (typeof result?.mount_id !== "string" || !result.mount_id) {
-        this.failed = true;
+        this.fail({ kind: "failed" });
         return;
       }
       this.mountId = result.mount_id;
@@ -136,21 +184,33 @@ export class AppSceneMount implements MountedScene {
         "cmux.apps.panels.scene",
         (event) => {
           if (this.cancelled || event?.mount_id !== mountId) return;
-          if ("status" in event) this.store.setStatus(event.status, event.reason);
-          else if (Array.isArray(event.ops)) this.store.apply(event.ops, event.reset === true);
+          if ("status" in event) {
+            this.store.setStatus(event.status, event.reason);
+            return;
+          }
+          if (!Array.isArray(event.ops)) return;
+          this.store.apply(event.ops, event.reset === true);
+          const violation = this.store.violation;
+          if (violation && this.options.limits) {
+            // Over its interface's limits: it stops (no more work in its VM for this page) and says why.
+            this.unsubscribe?.();
+            this.unsubscribe = undefined;
+            this.unmount();
+            this.fail({ kind: "over", violation });
+          }
         },
         { mount_id: mountId },
       );
-      if (this.cancelled) stop();
+      if (this.cancelled || this.failed) stop();
       else {
         this.unsubscribe = stop;
         this.sendLayout();
       }
     } catch (error) {
-      this.failed = true;
-      // The row says why, as the host's model does when its mount call fails.
+      // The row says why, as the host's model does when its mount call fails; the next list mounts again.
       if (!this.cancelled) this.store.setStatus("failed", error instanceof Error ? error.message : String(error));
       this.unmount(); // A failed scene subscription must not leave a daemon mount alive.
+      this.fail({ kind: "failed" });
     }
   }
 
@@ -159,6 +219,11 @@ export class AppSceneMount implements MountedScene {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.unmount();
+  }
+
+  private fail(problem: PanelProblem): void {
+    this.failed = true;
+    if (!this.cancelled) this.options.onFail?.(problem);
   }
 
   private sendLayout(): void {
@@ -176,24 +241,35 @@ export class AppSceneMount implements MountedScene {
   }
 }
 
-type Entry = { panel: AppPanel; mount: AppSceneMount };
+type Entry = { panel: AppPanel; mount: AppSceneMount; problem?: PanelProblem };
 
 /** One pane/context's mount lifetime. Scene events notify the touched scene nodes only, never the
  * panel list. Entries exist before mount starts so concurrent list updates cannot mount twice. */
 export class AppPanelsClient {
   private snapshot: readonly MountedPanel[] = EMPTY;
+  private view: PanelsView = EMPTY_VIEW;
+  private listed: readonly AppPanel[] = [];
+  private layout: readonly string[] = [];
+  /** The layout the host last listed: what a refused save falls back to. */
+  private saved: readonly string[] = [];
+  private editable = false;
+  /** The host answered `layout.set` with unknown-op: it keeps no layout, for this client's life. */
+  private refused = false;
   private readonly listeners = new Set<() => void>();
   private readonly entries = new Map<ReturnType<typeof panelId>, Entry>();
   private active = false;
   private lifetime = 0;
   private listing = 0;
+  private edits = 0;
   private unwatch?: () => void;
 
   constructor(
     private readonly client: PageClient | null,
-    private readonly context: MountContext | undefined,
+    private readonly context: MountContext | NewTabMountContext | undefined,
+    private readonly options: PanelsOptions = {},
   ) {}
   getSnapshot = (): readonly MountedPanel[] => this.snapshot;
+  getView = (): PanelsView => this.view;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -201,14 +277,19 @@ export class AppPanelsClient {
     };
   };
 
+  /** Session Info mounts per chat; another interface mounts per page. */
+  private get ready(): boolean {
+    if (!this.client || !this.context) return false;
+    return this.options.interface !== undefined || ("session_id" in this.context && !!this.context.session_id);
+  }
+
   start(): void {
-    if (this.active || !this.client || !this.context?.session_id) return;
+    if (this.active || !this.ready) return;
     this.active = true;
     const lifetime = ++this.lifetime;
-    void this.client
-      .subscribe("cmux.apps.panels.changed", () => {
-        if (this.active && lifetime === this.lifetime) void this.refresh();
-      })
+    void this.client!.subscribe("cmux.apps.panels.changed", () => {
+      if (this.active && lifetime === this.lifetime) void this.refresh();
+    })
       .then((stop) => {
         if (!this.active || lifetime !== this.lifetime) stop();
         else {
@@ -231,44 +312,115 @@ export class AppPanelsClient {
     for (const entry of this.entries.values()) entry.mount.release();
     this.entries.clear();
     this.snapshot = EMPTY;
+    this.view = EMPTY_VIEW;
   }
 
   async refresh(): Promise<void> {
     if (!this.active || !this.client) return;
-    const client = this.client;
     const listing = ++this.listing;
-    let panels: AppPanel[];
+    const edits = this.edits;
+    let reply: unknown;
     try {
-      panels = readPanels(await client.call("cmux.apps.panels.list", {}));
+      reply = await this.client.call(
+        "cmux.apps.panels.list",
+        this.options.interface ? { interface: this.options.interface } : {},
+      );
     } catch {
-      panels = [];
+      reply = undefined;
     } // An older host offers no sections and no user-facing error.
     if (!this.active || listing !== this.listing) return;
-    const wanted = new Set(panels.map(panelId));
+    // Only this interface's panels: a host that ignores the filter (it lists Session Info's
+    // sections) yields none, so nothing else is offered or mounted here.
+    const wanted = this.options.interface;
+    this.listed = readPanels(reply).filter((panel) => !wanted || panel.section === wanted);
+    const listedLayout = wanted && !this.refused ? readLayout(reply) : undefined;
+    this.editable = listedLayout !== undefined;
+    const layout = listedLayout ?? [];
+    this.saved = layout;
+    // A layout edited while this list was in flight is newer than the one it read.
+    if (edits === this.edits && !sameIds(layout, this.layout)) this.layout = layout;
+    this.reconcile(true);
+  }
+
+  /** The New Tab page's edit mode: the person's new layout, drawn at once and saved by the daemon
+   * (`apps.panels.layout.set`). Called from the click, drop or key handler itself: the page host checks
+   * the gesture. */
+  setLayout(layout: readonly string[]): void {
+    if (!this.active || !this.client || !this.options.interface || !this.editable) return;
+    const next = [...new Set(layout)];
+    if (sameIds(next, this.layout)) return;
+    this.layout = next;
+    const edit = ++this.edits;
+    const lifetime = this.lifetime;
+    void this.client
+      .call("cmux.apps.panels.layout.set", {
+        interface: this.options.interface,
+        layout: next,
+        idempotency_key: `newtab-layout-${Date.now()}-${edit}`,
+      })
+      .then(
+        () => {
+          if (edit === this.edits) this.saved = next;
+        },
+        (error: unknown) => {
+          if (!this.active || lifetime !== this.lifetime) return;
+          // An unsaved edit is not shown as saved: the row goes back to the host's layout. A host
+          // without the op keeps no layout at all, so edits end here.
+          if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
+            this.refused = true;
+            this.editable = false;
+            this.saved = [];
+          }
+          if (edit !== this.edits && !this.refused) return;
+          this.layout = this.saved;
+          this.reconcile(false);
+        },
+      );
+    this.reconcile(false);
+  }
+
+  /** `retry`: a list read again retries the mounts that failed (a fixed app gets another chance);
+   * a layout edit or a failure never does, so a failing widget cannot loop. */
+  private reconcile(retry: boolean): void {
+    const panels = this.listed;
+    const layout = this.layout;
+    const mounts = this.options.mounts;
+    const shown = mounts ? panels.filter((panel) => mounts(panel, layout)) : panels;
+    const wanted = new Set(shown.map(panelId));
     for (const [id, entry] of this.entries) {
       if (wanted.has(id)) continue;
       entry.mount.release();
       this.entries.delete(id);
     }
-    const next = panels.map((panel) => {
+    const next = shown.map((panel) => {
       const id = panelId(panel);
       let entry = this.entries.get(id);
-      if (entry?.mount.failed) {
+      if (entry?.mount.failed && retry) {
         entry.mount.release();
         this.entries.delete(id);
         entry = undefined;
       }
       if (!entry) {
-        const mount = new AppSceneMount(client, {
-          surface: "sessionInfoSection",
-          app: panel.app,
-          section: panel.section,
-          context: this.context ?? {},
-        });
-        entry = { panel, mount };
+        // `onFail` runs only after `start` awaits, once `created` exists.
+        const mount = new AppSceneMount(
+          this.client!,
+          {
+            surface: this.context && "surface" in this.context ? this.context.surface : "sessionInfoSection",
+            app: panel.app,
+            section: panel.section,
+            context: this.context ?? {},
+          },
+          { limits: this.options.limits, onFail: (problem) => this.fail(created, problem) },
+        );
+        const created: Entry = { panel, mount };
+        entry = created;
         this.entries.set(id, entry);
         void mount.start();
-      } else if (entry.panel.title !== panel.title || entry.panel.symbol !== panel.symbol) {
+      } else if (
+        entry.panel.title !== panel.title ||
+        entry.panel.symbol !== panel.symbol ||
+        entry.panel.size !== panel.size
+      ) {
         entry.panel = panel;
       }
       // A separate snapshot prevents later metadata updates mutating a prior render's value.
@@ -280,18 +432,48 @@ export class AppPanelsClient {
         reload: mount.reload,
         layout: mount.layout,
         resolveAsset: mount.resolveAsset,
+        ...(entry.problem && { problem: entry.problem }),
       };
     });
-    if (
+    const sameMounted =
       next.length === this.snapshot.length &&
       next.every((entry, index) => {
         const old = this.snapshot[index];
-        return old?.panel === entry.panel && old.store === entry.store;
-      })
-    )
-      return;
-    this.snapshot = next;
+        return old?.panel === entry.panel && old.store === entry.store && old.problem === entry.problem;
+      });
+    const sameView =
+      sameMounted &&
+      this.view.layout === layout &&
+      this.view.editable === this.editable &&
+      this.view.panels.length === panels.length &&
+      panels.every((panel, index) => {
+        const old = this.view.panels[index];
+        return (
+          old !== undefined &&
+          panelId(old) === panelId(panel) &&
+          old.title === panel.title &&
+          old.symbol === panel.symbol &&
+          old.size === panel.size
+        );
+      });
+    if (sameView) return;
+    if (!sameMounted) this.snapshot = next;
+    this.view = { panels, layout, mounted: this.snapshot, editable: this.editable };
+    this.notify();
+  }
+
+  private notify(): void {
     for (const listener of this.listeners) listener();
+  }
+
+  /** A mount that failed or broke its limits. Session Info keeps a failed section empty (it
+   * retries on the next list); another interface, or a scene over its limits, shows why in the
+   * panel's place. */
+  private fail(entry: Entry, problem: PanelProblem): void {
+    if (entry.mount.cancelled) return;
+    if (problem.kind === "failed" && !this.options.interface) return;
+    entry.problem = problem;
+    this.reconcile(false);
   }
 }
 

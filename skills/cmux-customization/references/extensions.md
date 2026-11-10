@@ -77,6 +77,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 |---|---|---|
 | A sidebar section | `implements["cmux.section/1"]`, region `top`, `middle` or `bottom`; `cmux apps place` | none |
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
+| A New Tab widget | `implements["cmux.newtab.widget/1"]`, `options.size` `small` or `wide`; the person places it (Edit New Tab > Add Widgets); at most 64 nodes; mounted only while a New Tab page shows ([the clock recipe](../../../examples/extensions/clock/README.md)) | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |

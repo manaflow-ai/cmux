@@ -13,6 +13,16 @@ export type ApprovalSource = "connections" | "cloud"
 const OWNER_CLASS: Record<ApprovalSource, string> = { connections: "ConnectionDO", cloud: "CloudDO" }
 const POSTER = /^system:(connections|cloud):(.+)$/
 
+/**
+ * The outbox channels of answers a caller waits on, which FeedDO delivers at commit time (OwnerDO.promptChannel) and
+ * feed.answer waits for (bounded): the team's CloudDO. The Mac retries its Cloud create with the same key right after
+ * the person's answer returns; an answer still queued for FeedDO's alarm made that retry read approval.pending and
+ * sleep its backoff (1, 2, 4, 8 s) before it saw the machine (cmux-platform#875). CloudDO reads nothing from the
+ * PlanetScale projection. The integrations ConnectionDO stays on the alarm: its targets read the projection, which
+ * the alarm drains first (owner-outbox.ts).
+ */
+export const approvalAnswerChannel = (channel: string): boolean => channel.startsWith(`${OWNER_CLASS.cloud}:`)
+
 /** The posting owner of a system principal that may post approval requests, or null. */
 export const approvalPoster = (identity: string): { source: ApprovalSource; team: string } | null => {
   const m = POSTER.exec(identity)

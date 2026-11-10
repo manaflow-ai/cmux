@@ -1396,6 +1396,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "WKWebView call:scrollWheel/1": {
+   "27.0.1": true
+  },
   "WKWebView call:willOpenMenu/2:with": {
    "26.5.2": true,
    "26.7": true,

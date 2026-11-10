@@ -5,6 +5,7 @@ import CmuxNextCloudUI
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
@@ -89,6 +90,7 @@ enum FirstPartyPageSchemes {
         .serverCards,
         .settings,
         .stats,
+        .taskManager,
         .tasks,
     ]
 

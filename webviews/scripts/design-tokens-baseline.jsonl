@@ -70,7 +70,6 @@
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"color","values":{"#fff":2}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"filter","values":{"drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent)) drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16))":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"color","property":"outline","values":{"1.5px solid #fff":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"duration","property":"transition","values":{"stroke-dashoffset 120ms linear":1,"opacity 120ms ease-out":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"radius","property":"border-radius","values":{"10px":1,"3px":1,"1px":1,"7px":1}}

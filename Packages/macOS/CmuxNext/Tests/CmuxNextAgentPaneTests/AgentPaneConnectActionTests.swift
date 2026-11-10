@@ -165,12 +165,17 @@ struct AgentPaneConnectActionTests {
         model.header = AgentPaneHeaderHooks(
             run: { _, _ in },
             tabState: { AgentPaneHeaderState() },
-            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running")] },
+            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running"),
+                            AgentPaneMoveTarget(id: AgentPaneMoveTarget.localID, label: "", kind: "local", reason: "Not now")] },
             moveToMachine: { id, session in moved = (id, session); return true },
         )
         let state = await model.respond(to: .tabState(refresh: false))["value"] as? [String: Any]
         let targets = state?["moveTargets"] as? [[String: Any]]
         #expect(targets?.first?["id"] as? String == "vm-build")
+        // Move to…'s rows: each target's kind, and why one would refuse now.
+        #expect(targets?.first?["kind"] as? String == "cloud")
+        #expect(targets?.last?["kind"] as? String == "local")
+        #expect(targets?.last?["reason"] as? String == "Not now")
         #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool != true)
         model.transport.gestures.record()
         #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool == true)
