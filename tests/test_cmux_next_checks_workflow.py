@@ -30,6 +30,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
@@ -2176,7 +2177,7 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertIn("!contains(runner.name, '-glaeda')", key_step.get("if", ""))
         # Only the pass record (JobsReuseAPassOnTheSameInputs) is saved, never a build.
         self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [])
-        self.assertNotIn("secrets.", yaml.safe_dump(job))
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         self.assertNotIn("ci-cache-writer", str(job.get("environment", "")).replace("github.ref == 'refs/heads/main' && 'ci-cache-writer'", ""))
 
     def test_fast_tier_takes_every_directory_from_one_seed(self):
@@ -3807,7 +3808,7 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
                 for key in ("container", "services", "environment", "uses", "secrets", "env", "defaults"):
                     self.assertNotIn(key, job, f"a client job has no {key}")
                 text = yaml.safe_dump(job)
-                self.assertNotIn("secrets.", text)
+                self.assertEqual(workflow_jobs.secret_names(job), set())
                 self.assertNotIn("github.token", text)
                 for step in job["steps"]:
                     self.assertEqual(set(step) - {"name", "id", "env", "run", "if"}, set(),

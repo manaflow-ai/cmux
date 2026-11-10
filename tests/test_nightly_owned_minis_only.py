@@ -51,6 +51,7 @@ from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
+import workflow_jobs  # noqa: E402
 from test_nightly_never_blacksmith import manaflow_route as fork_free_route  # noqa: E402
 from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
@@ -190,7 +191,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
                          "a nightly job may not reach a GitHub-hosted runner")
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
-                self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a hosted job without a secret moves to the light runners")
 
     def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
         # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
@@ -291,7 +292,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID)
                 self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for("nightly.yml").strip())
                 self.assertFalse(set(gate) - {"name", "run", "shell", "id"})
-                first_secret = next(i for i, step in enumerate(job_steps) if "secrets." in json.dumps(step))
+                first_secret = next(i for i, step in enumerate(job_steps) if workflow_jobs.secret_names(step))
                 claim = next((i for i, step in enumerate(job_steps) if CLAIM in str(step.get("run", ""))), None)
                 # Second, before any checkout: the workspace an earlier job left is emptied on an owned Mac.
                 clean = job_steps[1]
@@ -300,7 +301,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertRegex(str(clean.get("run", "")), r'find "\$ws" -mindepth 1 -maxdepth 1 -exec rm -rf')
                 self.assertIsNotNone(claim)
                 self.assertLess(claim, first_secret)
-                self.assertFalse(JOBS[name].get("env") and "secrets." in json.dumps(JOBS[name]["env"]))
+                self.assertEqual(workflow_jobs.secret_names(JOBS[name].get("env") or {}), set())
 
     def test_credentials_are_wiped_after_the_job(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

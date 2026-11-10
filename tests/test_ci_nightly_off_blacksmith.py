@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import resolve_labels  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 SWITCH_OFF = {"CI_CLOUD_OVERFLOW_SAVED": []}
@@ -293,8 +294,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
                     self.assertTrue(label == "ubuntu-24.04" or label in owned | one_mini, f"{name} can take {label!r}")
-                self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
-                self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
+                held = workflow_jobs.secret_names(jobs[name])
+                self.assertNotIn(workflow_jobs.ALL_SECRETS, held)
+                self.assertEqual({s for s in held if s.startswith(("APPLE", "CMUX_RELEASE_APP_KEY"))}, set())
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             steps = {step.get("name"): step for step in jobs[name]["steps"]}
             with self.subTest(job=name):

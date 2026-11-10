@@ -22,6 +22,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-vault-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
@@ -90,7 +93,12 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
-        holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
+        self.assertEqual(workflow_jobs.secret_names(text),
+                         {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
+        for name, job in load()["jobs"].items():
+            outside_steps = {k: v for k, v in job.items() if k != "steps"} if name == "e2e" else job
+            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")

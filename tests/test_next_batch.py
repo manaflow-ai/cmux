@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
 # GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
@@ -1682,7 +1685,7 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("git push", script)
                 self.assertNotIn("git -c", script.replace("git -c user.", ""))
                 self.assertIn("format-patch", script)
-                self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
+                self.assertFalse(any(workflow_jobs.secret_names(step) for step in spec["steps"]))
 
     def run_format(self, bun: str) -> dict:
         """Run regen-linux's real step script for `kinds: format` with a stub bun."""

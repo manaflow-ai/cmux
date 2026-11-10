@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,8 +94,7 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
         if "workflow_dispatch" not in (document.get("on") or {}):
             continue
         for job_name, job in (document.get("jobs") or {}).items():
-            rendered = yaml.dump(job)
-            names = set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", rendered)) - {"GITHUB_TOKEN"}
+            names = workflow_jobs.secret_names(job) - {"GITHUB_TOKEN"}
             inherited = job.get("secrets") == "inherit"
             if not names and not inherited:
                 continue
@@ -103,7 +106,7 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
                 # passed secrets must, so the environment's branch policy still bounds who gets them.
                 callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
                 for callee_name, callee_job in (callee.get("jobs") or {}).items():
-                    if set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", yaml.dump(callee_job))) - {"GITHUB_TOKEN"}:
+                    if workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
                         assert callee_job.get("environment"), (
                             f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
                         )
@@ -139,7 +142,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     journey = jobs["journey"]
 
     assert smoke.get("environment") is None
-    assert "secrets." not in yaml.dump(smoke)
+    assert not workflow_jobs.secret_names(smoke)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", smoke["runs-on"]))
     assert "https://cmux.com/tui/install.sh" in run_text(smoke)
     assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
@@ -148,7 +151,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert installer.get("environment") is None
     assert installer.get("needs") == "public-installer-smoke"
     assert (installer.get("permissions") or {}).get("attestations") == "read"
-    assert "secrets." not in yaml.dump(installer)
+    assert not workflow_jobs.secret_names(installer)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", installer["runs-on"]))
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
@@ -172,7 +175,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
     secret_steps = [
         step for step in journey["steps"]
-        if any("secrets." in str(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
+        if any(workflow_jobs.secret_names(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
     ]
     assert len(secret_steps) == 1
     assert secret_steps[0].get("name") == "Journey"

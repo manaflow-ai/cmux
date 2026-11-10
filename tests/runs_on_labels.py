@@ -323,9 +323,10 @@ def unwrap_fork_pool_reads(value: str) -> str:
 
 # A job that holds signing or release material (scripts/ci/runner_routing_table.py's `sensitive`). It keeps its
 # route under runner trust policy: a RUNNER_POOLS read would let whoever writes that variable choose the machine
-# that holds the keys.
+# that holds the keys. The signing tools and uploads; the signing secrets are read through workflow_jobs in
+# holds_signing_material (SIGNING_SECRET_PREFIXES), in every form GitHub accepts.
 SIGNING_JOB = re.compile(
-    r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload"
+    r"codesign|notarytool|signing-keychain|gh release upload"
     r"|softprops/action-gh-release", re.IGNORECASE)
 
 

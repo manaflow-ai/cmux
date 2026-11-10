@@ -13,10 +13,12 @@ Stack credentials also requires that ref to be the run's own revision.
 """
 
 import os
-import re
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workflow_jobs  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
@@ -102,7 +104,8 @@ def main():
             # A mapping keeps the environment and only sets whether it records a deployment.
             _check((environment.get("name") if isinstance(environment, dict) else environment) == "artifacts",
                    f"{name} {job} runs in the artifacts environment")
-            used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
+            # Every form GitHub accepts; `secrets: inherit` or a computed index reads ALL_SECRETS, never a subset.
+            used = workflow_jobs.secret_names(definition)
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

@@ -25,6 +25,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
@@ -83,7 +84,11 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
+        self.assertEqual(workflow_jobs.secret_names(text), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        for name, job in load()["jobs"].items():
+            outside_steps = {k: v for k, v in job.items() if k != "steps"} if name == "e2e" else job
+            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], ["Mint, join, verify and revoke"])
         mint = holders[0]
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")

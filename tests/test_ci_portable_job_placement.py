@@ -26,6 +26,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workflow_jobs import secret_names  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
@@ -590,7 +593,7 @@ class OrganizationFallback(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+        self.assertEqual(secret_names(bootstrap), set())
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
@@ -656,7 +659,7 @@ class Wiring(unittest.TestCase):
                               job["runs-on"])
                 self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
                 self.assertEqual(bootstrap["permissions"], {"contents": "read"})
-                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
         print(f"status reports offered an idle mini: {offered}/2")

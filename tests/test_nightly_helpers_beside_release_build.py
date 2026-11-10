@@ -35,6 +35,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import nightly_text  # noqa: E402  (moved step scripts put back inline)
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
@@ -86,7 +87,7 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn("'glaeda-nightly-only-m4pro'", job["runs-on"])
         self.assertNotIn("RUNNER_POOLS", job["runs-on"])
         self.assertNotIn("macos-", job["runs-on"])
-        self.assertNotIn("secrets.", yaml.safe_dump(job))
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         # Each upload has a retry step for the same artifact (tests/test_nightly_artifact_uploads_retry.py).
         uploads = list(dict.fromkeys(step["with"]["name"] for step in job["steps"] if "upload-artifact" in step.get("uses", "")))
         self.assertEqual(uploads, ["cmux-nightly-web-bundles", "cmux-nightly-notices"])

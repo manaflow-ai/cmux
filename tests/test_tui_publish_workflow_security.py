@@ -12,6 +12,7 @@ from pathlib import Path
 import tomllib
 import yaml
 import git_fixture_env
+import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1706,7 +1707,7 @@ def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
         assert verify_step.get("env", {}).get("VERSION") == version
         run = verify_step.get("run", "")
         assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
-        assert "secrets." not in run
+        assert not workflow_jobs.secret_names(run)
         assert "gh-action-pypi-publish" not in run
         assert "twine " not in run
 
