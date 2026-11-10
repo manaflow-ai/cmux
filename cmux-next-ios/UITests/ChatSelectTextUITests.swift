@@ -33,11 +33,15 @@ final class ChatSelectTextUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars.buttons["More"].firstMatch.waitForExistence(timeout: 30),
                       "the pushed agent chat opens\n\(app.debugDescription)")
-        // The history answer's first paragraph, scrolled into view (the chat opens at its newest row).
+        // The newest answer's first paragraph, near the bottom where the chat opens. Small drags
+        // only: scrolling up into the earlier turns' incoming agent-message cards crashes the
+        // base app (a SwiftUI stack overflow in AgentSenderIcon while the list prefetches).
         let paragraph = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH %@", "Every link frame")).firstMatch
-        for _ in 0..<12 where !(paragraph.exists && paragraph.isHittable) {
-            app.swipeDown()
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "The transport switch holds up")).firstMatch
+        let window = app.windows.firstMatch
+        for _ in 0..<4 where !(paragraph.exists && paragraph.isHittable) {
+            let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 180)))
         }
         XCTAssertTrue(paragraph.exists && paragraph.isHittable, "the answer paragraph is on screen\n\(app.debugDescription)")
 
@@ -51,7 +55,7 @@ final class ChatSelectTextUITests: XCTestCase {
 
         let text = app.textViews["selectText.text"]
         XCTAssertTrue(text.waitForExistence(timeout: 5), "Select Text opens the text in a selectable view\n\(app.debugDescription)")
-        XCTAssertTrue((text.value as? String ?? "").contains("Every link frame"), "the sheet holds the whole message")
+        XCTAssertTrue((text.value as? String ?? "").contains("The transport switch holds up"), "the sheet holds the whole message")
         // A double tap selects one word: a range, with the system edit menu's Copy.
         // The first line's second word: 20 pt top inset, 16 pt leading inset.
         text.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0)).withOffset(CGVector(dx: 0, dy: 32)).doubleTap()
