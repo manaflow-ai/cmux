@@ -283,6 +283,94 @@ class Kick(unittest.TestCase):
             kick(FakeApi([(OLD, T0)], TIP, dispatch_status=403), Clock(T0 + 20 * 60))
 
 
+class PushEventTip(unittest.TestCase):
+    """2026-11-10: 14 of the last 40 kicks died on `HTTP 403` from the repository token's spent REST
+    quota (runs 42800611965 and 42800199912 on the branch ref read, six more on the run listing), so
+    those pushes never got a base tier. A push kick takes its own event's sha as the tip; it reads
+    the ref only when no push event names the branch."""
+
+    PUSH = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next", "GITHUB_SHA": TIP}
+
+    def test_the_event_names_the_tip_only_for_a_push_to_the_branch(self):
+        self.assertEqual(tier.event_tip(self.PUSH), TIP)
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_EVENT_NAME": "workflow_dispatch"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_EVENT_NAME": "schedule"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_REF": "refs/heads/main"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_SHA": "not-a-sha"}))
+        self.assertIsNone(tier.event_tip({}))
+
+    def test_a_push_kick_dispatches_at_its_own_sha_with_no_ref_read(self):
+        api, clock = FakeApi([(OLD, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, pushed=TIP), TIP)
+        self.assertFalse([path for path in api.gets if "/git/ref/" in path], api.gets)
+        self.assertIn(f"repos/{REPO}/compare/{OLD}...{TIP}", api.gets)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_a_push_that_already_has_a_base_tier_run_is_left_alone(self):
+        api, clock = FakeApi([(TIP, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                    log=lambda _: None, pushed=TIP))
+        self.assertEqual(api.dispatched, [])
+        self.assertFalse([path for path in api.gets if "/git/ref/" in path], api.gets)
+
+    def test_a_push_behind_the_last_base_tier_run_is_covered_by_it(self):
+        # An earlier kick dispatched at a branch tip newer than this push: its run covers this push.
+        api, clock = FakeApi([(MID, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        original = api.get
+        api.get = lambda path: {"status": "behind", "files": []} if "/compare/" in path else original(path)
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                    log=lambda _: None, pushed=TIP))
+        self.assertEqual(api.dispatched, [])
+
+
+class QuotaLine(unittest.TestCase):
+    def run_main(self, error: Exception | None):
+        import contextlib
+        import io
+
+        calls = []
+
+        def fake_kick(api, repo, patterns, **kwargs):
+            calls.append((api, kwargs))
+            if error:
+                raise error
+
+        original, env = tier.kick, dict(os.environ)
+        tier.kick = fake_kick
+        os.environ.update({"GH_TOKEN": "t", **PushEventTip.PUSH})
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                code = tier.main(["kick", "--repo", REPO, "--workflow-file", "/nonexistent"])
+        finally:
+            tier.kick = original
+            os.environ.clear()
+            os.environ.update(env)
+        return code, err.getvalue(), calls
+
+    def test_a_spent_quota_fails_with_one_line_and_no_traceback(self):
+        error = tier.QuotaExhausted("GET repos/manaflow-ai/cmux/actions/workflows/cmux-next.yml/runs: HTTP 403: "
+                                    "the repository token's core REST quota (shared by every workflow) is spent; "
+                                    "it resets at 2027-01-15T08:00:00Z, past this job's budget (2027-01-15T07:20:00Z)")
+        code, err, _ = self.run_main(error)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(err.splitlines()), 1, err)
+        self.assertIn("REST quota", err)
+        self.assertIn("resets at 2027-01-15T08:00:00Z", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_main_passes_the_push_sha_and_a_deadline_inside_the_job(self):
+        code, _, [(api, kwargs)] = self.run_main(None)
+        self.assertEqual(code, 0)
+        self.assertEqual(kwargs["pushed"], TIP)
+        # The job's timeout-minutes is 20; the API may wait out a spent quota for at most 18 of them.
+        self.assertLessEqual(api.deadline, tier.STARTED + 18 * 60)
+        self.assertGreater(api.deadline, tier.STARTED)
+        timeout = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["timeout-minutes"]
+        self.assertLess(tier.API_DEADLINE_S, timeout * 60)
+
+
 class PushPaths(unittest.TestCase):
     def test_it_reads_cmux_next_push_paths(self):
         patterns = tier.push_paths(WORKFLOW.read_text())
