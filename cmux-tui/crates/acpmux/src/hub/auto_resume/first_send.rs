@@ -41,7 +41,11 @@ pub(super) fn retried_error(error: &str) -> bool {
 
 /// The log's `reason` for a first send that goes again on `error`.
 fn retry_reason(error: &str) -> &'static str {
-    if crate::claude_auth::is_gateway_fallback(error) { "gateway_fallback" } else { "token_revoked" }
+    if crate::claude_auth::is_gateway_fallback(error) {
+        "gateway_fallback"
+    } else {
+        "token_revoked"
+    }
 }
 
 /// Whether the turn `cut` failed is the chat's first send on a revoked token: its own prompt
