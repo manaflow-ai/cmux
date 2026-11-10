@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { liveAllowList, syncUsage, USAGE_LIVE_ENABLED, usageKeyRefusal } from "../src/billing-usage-sync.ts"
+import { INCLUDED_MODES, USAGE_PLANS, usageIncludedUsd, usageMeterEvent, usageModesOf, usagePriceLookupKey } from "../src/billing-catalog.ts"
 import { fakeBoundaries, fakeStripe, nowS, sync } from "./setup/fake-stripe.ts"
 import { stackTeamIdFor } from "../src/domains/user.ts"
 
@@ -9,12 +10,33 @@ import { stackTeamIdFor } from "../src/domains/user.ts"
 // a restricted key; it reads only live objects, keeps to the allowlist, and a dry run writes nothing.
 
 const LIVE = "rk_live_0123456789abcdef"
-const prod = (extra: Record<string, unknown> = {}) => ({ ...(env as object), ENVIRONMENT: "production", STRIPE_USAGE_KEY: LIVE, ...extra }) as any
-/** The fake payment service answering as live mode: every object it returns says livemode. */
-const liveStripe = (stripe: ReturnType<typeof fakeStripe>) => {
+const prod = (extra: Record<string, unknown> = {}) => ({ ...(env as object), ENVIRONMENT: "production", STRIPE_USAGE_KEY: LIVE, BILLING_USAGE_PRICE_SET: "v2", ...extra }) as any
+/** The live v2 catalog as backend/scripts/stripe-usage-catalog.ts makes it: two meters aggregating `last`, one metered price per plan and mode. */
+const liveCatalog = () => {
+  const meters = INCLUDED_MODES.map((m) => ({ id: `mtr_${m}`, event_name: usageMeterEvent(m), default_aggregation: { formula: "last" } }))
+  const prices = USAGE_PLANS.flatMap((plan) =>
+    usageModesOf(plan).map((m) => {
+      const lookup_key = usagePriceLookupKey(plan, "v2", m)
+      const recurring = { interval: "month", usage_type: "metered", meter: `mtr_${m}` }
+      return m === "per_seat"
+        ? { id: `price_live_${lookup_key}`, lookup_key, recurring, billing_scheme: "per_unit", unit_amount_decimal: "100", tiers_mode: null }
+        : { id: `price_live_${lookup_key}`, lookup_key, recurring, billing_scheme: "tiered", tiers_mode: "graduated", unit_amount_decimal: null, tiers: [{ up_to: usageIncludedUsd(plan, "v2"), unit_amount_decimal: "0" }, { up_to: null, unit_amount_decimal: "100" }] }
+    }),
+  )
+  return { meters, prices }
+}
+/** The fake payment service answering as live mode: every object it returns says livemode, and it holds the live catalog. */
+const liveStripe = (stripe: ReturnType<typeof fakeStripe>, catalog: { meters: any[]; prices: any[] } = liveCatalog()) => {
   const handle = stripe.handle
   stripe.handle = async (url, init) => {
-    const res = await handle(url, init)
+    const method = (init.method ?? "GET").toUpperCase()
+    const asked = url.searchParams.getAll("lookup_keys[]")
+    const res =
+      method === "GET" && url.pathname === "/v1/prices"
+        ? Response.json({ data: catalog.prices.filter((p) => asked.includes(p.lookup_key)) })
+        : method === "GET" && url.pathname === "/v1/billing/meters"
+          ? Response.json({ data: catalog.meters })
+          : await handle(url, init)
     const body = (await res.json()) as any
     const mark = (o: any) => (o && typeof o === "object" ? { ...o, livemode: true } : o)
     return Response.json(Array.isArray(body?.data) ? { ...body, data: body.data.map(mark) } : mark(body), { status: res.status })
@@ -106,6 +128,44 @@ describe("the usage sync's live switch", () => {
     expect(await syncUsage(v1)).toMatchObject({ pushed: 1, failed: 0 })
     expect(stripe.events).toHaveLength(before + 1)
     expect(Number(stripe.events.at(-1)!["payload[value]"])).toBeCloseTo(dry.would_send![0]!.value_usd, 6)
+  })
+
+  it("a live run refuses a catalog that differs from the catalog code, before any write (#40319 F1)", async () => {
+    const run = async (edit: (c: ReturnType<typeof liveCatalog>) => void, extra: Record<string, unknown> = {}) => {
+      const catalog = liveCatalog()
+      edit(catalog)
+      const stripe = liveStripe(fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 }), catalog)
+      stripe.addSub(`sub_cat${crypto.randomUUID().slice(0, 8)}`, "cus_cat1", { plan: "pro", stackUserId: "live-switch-catalog" }, "cmux-pro-monthly-50")
+      fakeBoundaries(stripe, 0)
+      const r = await syncUsage(prod(extra), undefined, true)
+      expect(writes(stripe)).toHaveLength(0)
+      return r
+    }
+    const pro = (c: ReturnType<typeof liveCatalog>) => c.prices.find((p) => p.lookup_key === usagePriceLookupKey("pro", "v2", "per_team"))!
+    // A price that charges 100x, a pool that is too big, a summing meter, a meter that is gone, a missing price.
+    expect(await run((c) => (pro(c).tiers[1].unit_amount_decimal = "10000"))).toMatchObject({ refused: "catalog_mismatch", checked: 0 })
+    expect(await run((c) => (pro(c).tiers[0].up_to = 200))).toMatchObject({ refused: "catalog_mismatch" })
+    expect(await run((c) => (c.meters[0]!.default_aggregation.formula = "sum"))).toMatchObject({ refused: "catalog_mismatch" })
+    expect(await run((c) => c.meters.pop())).toMatchObject({ refused: "catalog_mismatch" })
+    expect(await run((c) => c.prices.pop())).toMatchObject({ refused: "catalog_mismatch" })
+    // Live bills v2 only.
+    expect(await run(() => {}, { BILLING_USAGE_PRICE_SET: undefined })).toMatchObject({ refused: "catalog_mismatch" })
+  })
+
+  it("a one-subscription live run refuses when the customer's other subscriptions are in test mode (#40319 F2)", async () => {
+    const stripe = liveStripe(fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 }))
+    stripe.addSub("sub_one1", "cus_one1", { plan: "pro", stackUserId: "live-switch-one" }, "cmux-pro-monthly-50")
+    const handle = stripe.handle
+    // The customer listing answers a test-mode subscription; the subscription itself reads live.
+    stripe.handle = async (url, init) => {
+      const res = await handle(url, init)
+      if (url.pathname !== "/v1/subscriptions" || !url.searchParams.get("customer")) return res
+      const body = (await res.json()) as any
+      return Response.json({ ...body, data: body.data.map((o: any) => ({ ...o, livemode: false })) })
+    }
+    fakeBoundaries(stripe, 0)
+    expect(await syncUsage(prod(), { subscription: "sub_one1" }, true)).toMatchObject({ refused: "livemode_mismatch" })
+    expect(writes(stripe)).toHaveLength(0)
   })
 
   it("a dry run reports what it would add and send, and writes nothing", async () => {
