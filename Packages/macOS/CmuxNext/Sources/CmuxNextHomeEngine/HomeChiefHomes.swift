@@ -1,5 +1,5 @@
 import AppKit
-import CmuxHomeCore
+public import CmuxHomeCore
 public import CmuxNextActions
 
 /// The action that acts on a Home's Chief from anywhere: Start now on an agent the Chief queued behind its cap
