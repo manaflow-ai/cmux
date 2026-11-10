@@ -93,4 +93,17 @@ struct SpaceSwitchRecordSaveTests {
         #expect(bench.services.workspace(id: "k5")?.screens.first?.panes.first?.id == id)
         #expect(saver.currentRecords().first?.selectedTabs[id] == tab, "the record does not list the pane that came back")
     }
+
+    /// A tab remembered for a pane that no workspace of the window holds stays out of the record: on the save that
+    /// applies the change, as on the one that reads every pane.
+    @Test func theSaveLeavesOutATabOfAPaneTheWindowDoesNotHold() async throws {
+        let bench = try await SpaceSwitchBench(total: 8, panes: true, registered: true)
+        defer { bench.close() }
+        let saver = bench.services.windows.recordSaver
+        _ = saver.currentRecords()
+        bench.state.selection.select("tab:none", in: "pane:none")
+        let record = try #require(saver.currentRecords().first)
+        #expect(record.selectedTabs["pane:none"] == nil, "the record lists a pane the window does not hold")
+        #expect(record.selectedTabs == rememberedTabs(bench))
+    }
 }

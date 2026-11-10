@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -39,7 +40,8 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
+    /// The remembered tab per pane of each window, as its last record build left them (``selectedTabs(window:in:)``).
+    private var selectedTabsCache: [String: SelectedTabs] = [:]
     /// Panes whose remembered tab a record build read on the main thread, since launch. A save reads the panes
     /// that changed, never the session's (`SpaceSwitchRecordSaveTests`).
     private(set) var paneReads = 0
@@ -198,7 +200,7 @@ final class WindowRecordSaver {
                                           // full screen only for a page's fullscreen is not the window's own
                                           && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
-                                      selectedTabs: selectedTabs(window: window), machines: manager.seenMachine)
+                                      selectedTabs: selectedTabs(window: window, in: value), machines: manager.seenMachine)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)
             return record
@@ -215,23 +217,70 @@ final class WindowRecordSaver {
         return panes.filter { listed.contains($0.key) }
     }
 
-    /// Remembered tab per pane across the window's workspaces, read again only when an input moved
-    /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
-    private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
-        guard let state = manager.states[window.id] else { return [:] }
-        let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
-                                  batches: services.machines.daemons.map(\.store.appliedSequence))
-        if let cached = selectedTabsCache[window.id], cached.key == key { return cached.tabs }
+    /// Remembered tab per pane across the window's workspaces, kept between saves. A save applies the selections
+    /// that changed since the last one (`TabSelectionMemory.takeChanges`) and reads no pane: nothing after a
+    /// workspace or space switch, one entry after a tab switch. Every pane is read again only when the panes
+    /// themselves may differ: the window lists other workspaces, or a machine's tree gained, lost or moved a pane or
+    /// a tab (`DaemonStore.tabListRevision`). A daemon batch that changes neither (an agent's output, a title, a
+    /// status) reads nothing: such batches land between any two actions of a live session, and each one made the
+    /// next save read every pane of the window on the main thread, before the frame of the action that asked for it.
+    private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
+        guard let memory = manager.states[window.id]?.selection else {
+            selectedTabsCache[window.id] = nil
+            return [:]
+        }
+        let tabLists = services.machines.daemons.map { TabListStamp(store: $0.store, revision: $0.store.tabListRevision) }
+        // Taken on every path: the full read below reads the memory itself, which has these changes.
+        let changes = memory.takeChanges()
+        if var cached = selectedTabsCache[window.id], cached.memory === memory, cached.workspaces == window.workspaceIDs,
+           cached.tabLists.elementsEqual(tabLists, by: { $0.isSame(as: $1) }) {
+            guard !changes.isEmpty else { return cached.tabs }
+            for (pane, tab) in changes { cached.tabs[pane] = lists(pane, window: window, in: registry) ? tab : nil }
+            selectedTabsCache[window.id] = cached
+            return cached.tabs
+        }
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
             for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
                 paneReads += 1
-                if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
+                if let tab = memory.selection(in: pane.id) { selected[pane.id] = tab }
             }
         }
-        selectedTabsCache[window.id] = (key, selected)
+        selectedTabsCache[window.id] = SelectedTabs(memory: memory, workspaces: window.workspaceIDs, tabLists: tabLists, tabs: selected)
         return selected
+    }
+
+    /// Whether a workspace `window` lists holds a pane with id `pane`, as the full read of
+    /// ``selectedTabs(window:in:)`` finds one (a pane of `services.workspace(id:)`), from the stores' indexes and the
+    /// registry's owner map: no walk of the window's panes. Its workspaces are searched only for a workspace
+    /// another window owns too (the registry names the first window that lists one).
+    private func lists(_ pane: String, window: WindowRegistry.Window, in registry: WindowRegistry) -> Bool {
+        services.machines.daemons.contains { daemon in
+            guard let model = daemon.store.pane(idOrResource: pane), model.id == pane,
+                  let workspace = daemon.store.location(of: model)?.workspace,
+                  let owner = registry.owner(of: workspace.id) else { return false }
+            return (owner == window.id || window.workspaceIDs.contains(workspace.id)) && services.workspace(id: workspace.id) === workspace
+        }
     }
 }
 
-private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }
+/// The remembered tabs of one window's panes, and what they were read from besides the selections themselves.
+private struct SelectedTabs {
+    /// The window's tab memory: a window opened again has another. Weak, so a freed one is never taken for a new one.
+    weak var memory: TabSelectionMemory?
+    var workspaces: [String]
+    var tabLists: [TabListStamp]
+    var tabs: [String: String]
+}
+
+/// One machine's store and its tab list revision.
+private struct TabListStamp {
+    /// Weak, so a freed store is never taken for a new one.
+    weak var store: DaemonStore?
+    var revision: UInt64
+
+    /// Whether `other` is the same live store at the same revision.
+    func isSame(as other: TabListStamp) -> Bool {
+        store != nil && store === other.store && revision == other.revision
+    }
+}

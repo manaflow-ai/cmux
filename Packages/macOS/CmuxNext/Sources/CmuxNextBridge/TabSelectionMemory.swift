@@ -22,6 +22,8 @@ public final class TabSelectionMemory {
     /// Bumped by every selection change in any pane: for a reader that follows
     /// all of this window's selections (one read, no walk of the panes).
     public private(set) var revision: UInt64 = 0
+    /// Each pane whose selection changed since ``takeChanges()`` last ran, with its selection now; never observed.
+    @ObservationIgnored private var changes: [String: String?] = [:]
 
     public init() {}
 
@@ -29,6 +31,16 @@ public final class TabSelectionMemory {
         guard selected[pane] != tab else { return }
         selected[pane] = tab
         revision &+= 1
+        changes.updateValue(tab, forKey: pane)
+    }
+
+    /// Each pane whose selection changed (set, replaced or dropped: nil) since the last call, with its selection
+    /// now. For the one reader that keeps a copy of every selection of this window (its saved record,
+    /// `WindowRecordSaver`): it applies these and reads no pane. One entry per pane at most, so it never holds
+    /// more than the panes this window selected a tab in.
+    public func takeChanges() -> [String: String?] {
+        defer { changes.removeAll(keepingCapacity: true) }
+        return changes
     }
 
     public func select(_ tab: String, in pane: String) {
