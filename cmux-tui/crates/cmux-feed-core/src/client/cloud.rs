@@ -116,27 +116,47 @@ pub fn reject(code: &str, message: &str, details: Option<&Value>) -> Reject {
     }
 }
 
-/// The owner's op params of one intent (Swift `FeedWireEncode.op`), or
-/// `None` when it has nothing to send. Mark All Read sends the owner's
-/// `all` (it also reads an item posted between the click and the commit),
-/// and only while an unread item posted by `before` is known.
-/// Most item ids one read, archive or snooze intent carries (the cloud owner's limit); `feed.intent`
-/// refuses more, so the overlay never shows an id the owner was not sent.
+/// Most item ids one read, archive or snooze op carries (the cloud owner's limit). A longer
+/// intent goes to the cloud as several ops (``CloudStream::send``), settled as one.
 pub const MAX_INTENT_IDS: usize = 256;
 
-pub fn op_params(intent: &Intent, unread_before: impl Fn(i64) -> bool) -> Option<Value> {
-    let first = |items: &[String]| items.iter().take(MAX_INTENT_IDS).cloned().collect::<Vec<_>>();
+/// Most item ids one `read` intent carries: every item the view shows (``MAX_VIEW_ENTRIES``),
+/// so the Inbox's Mark All Read is one page call (one gesture) however long the Inbox is.
+pub const MAX_READ_IDS: usize = super::view::MAX_VIEW_ENTRIES;
+
+/// The owner's op params of one intent (Swift `FeedWireEncode.op`), one per op, or none when it
+/// has nothing to send. An item list goes as ops of at most [`MAX_INTENT_IDS`] ids. Mark All Read
+/// sends the owner's `all` (it also reads an item posted between the click and the commit), and
+/// only while an unread item posted by `before` is known.
+pub fn op_params(intent: &Intent, unread_before: impl Fn(i64) -> bool) -> Vec<Value> {
+    let parts = |items: &[String], extra: Option<i64>| -> Vec<Value> {
+        items
+            .chunks(MAX_INTENT_IDS)
+            .map(|chunk| match extra {
+                Some(until) => json!({"items": chunk, "until": until}),
+                None => json!({"items": chunk}),
+            })
+            .collect()
+    };
     match &intent.kind {
-        IntentKind::Answer { item, value } => Some(json!({"item": item, "answer": value})),
-        IntentKind::Decline { item } => Some(json!({"item": item, "reason": "declined"})),
-        IntentKind::Read { items } | IntentKind::Archive { items } => {
-            (!items.is_empty()).then(|| json!({"items": first(items)}))
+        IntentKind::Answer { item, value } => vec![json!({"item": item, "answer": value})],
+        IntentKind::Decline { item } => vec![json!({"item": item, "reason": "declined"})],
+        IntentKind::Read { items } | IntentKind::Archive { items } => parts(items, None),
+        IntentKind::Snooze { items, until } => parts(items, Some(*until)),
+        IntentKind::MarkAllRead { before } => {
+            if unread_before(*before) {
+                vec![json!({"all": true})]
+            } else {
+                Vec::new()
+            }
         }
-        IntentKind::Snooze { items, until } => {
-            (!items.is_empty()).then(|| json!({"items": first(items), "until": until}))
-        }
-        IntentKind::MarkAllRead { before } => unread_before(*before).then(|| json!({"all": true})),
     }
+}
+
+/// The idempotency key of part `index` of an intent sent as several ops: the first keeps the
+/// intent's key, so an intent of one op is sent as before.
+fn part_key(key: &str, index: usize) -> String {
+    if index == 0 { key.to_owned() } else { format!("{key}:{}", index.saturating_add(1)) }
 }
 
 /// The stream's client state across connections.
@@ -146,10 +166,12 @@ pub struct CloudStream {
     /// A snapshot arrived on this connection.
     live: bool,
     active: bool,
-    /// Frames of intents sent and not settled, in send order (resent in
-    /// that order on reconnect).
-    unsettled: Vec<(String, String)>,
+    /// Ops of intents sent and not settled, in send order (resent in that
+    /// order on reconnect): the intent's key, the op's key, the frame.
+    unsettled: Vec<(String, String, String)>,
     rejects: HashMap<String, Reject>,
+    /// The first refusal of an intent sent as several ops, while another op is unsettled.
+    part_rejects: HashMap<String, Reject>,
     /// Unread items and when they were posted, for Mark All Read.
     unread: HashMap<String, i64>,
     known: HashSet<String>,
@@ -178,33 +200,41 @@ impl CloudStream {
     /// Sign-out or another account: forgets every intent and item. Returns
     /// the keys of the intents that never settled (refuse them).
     pub fn reset(&mut self) -> Vec<String> {
-        let keys = self.unsettled.drain(..).map(|(key, _)| key).collect();
+        let mut keys: Vec<String> = Vec::new();
+        for (key, _, _) in self.unsettled.drain(..) {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
         *self = Self { active: self.active, ..Self::default() };
         keys
     }
 
-    /// One intent for the owner: the frame to send, `Ok(None)` when there
-    /// is nothing to send (it settles at once), or `Err` while the stream
-    /// is not live (refused, nothing queues).
-    pub fn send(&mut self, intent: &Intent) -> Result<Option<String>, Reject> {
+    /// One intent for the owner: the frames to send (one per op; none when
+    /// there is nothing to send, it settles at once), or `Err` while the
+    /// stream is not live (refused, nothing queues). An intent of several ops
+    /// settles once every op did, with the first refusal.
+    pub fn send(&mut self, intent: &Intent) -> Result<Vec<String>, Reject> {
         if !self.live {
             return Err(Reject::Disconnected);
         }
         let unread = &self.unread;
-        let Some(params) = op_params(intent, |cut| unread.values().any(|posted| *posted <= cut))
-        else {
-            return Ok(None);
-        };
-        let frame = json!({
-            "t": "op",
-            "op": intent.op(),
-            "params": params,
-            "idempotency_key": intent.key,
-            "origin": "user",
-        })
-        .to_string();
-        self.unsettled.push((intent.key.clone(), frame.clone()));
-        Ok(Some(frame))
+        let parts = op_params(intent, |cut| unread.values().any(|posted| *posted <= cut));
+        let mut frames = Vec::with_capacity(parts.len());
+        for (index, params) in parts.into_iter().enumerate() {
+            let key = part_key(&intent.key, index);
+            let frame = json!({
+                "t": "op",
+                "op": intent.op(),
+                "params": params,
+                "idempotency_key": key,
+                "origin": "user",
+            })
+            .to_string();
+            self.unsettled.push((intent.key.clone(), key, frame.clone()));
+            frames.push(frame);
+        }
+        Ok(frames)
     }
 
     /// The app's active state for the owner's push rule (a Mac in use gets
@@ -236,7 +266,7 @@ impl CloudStream {
                 // No `after_seq`: resumed log events carry no items, so a
                 // (re)subscribe always takes the snapshot.
                 let pending: Vec<&str> =
-                    self.unsettled.iter().map(|(key, _)| key.as_str()).collect();
+                    self.unsettled.iter().map(|(_, key, _)| key.as_str()).collect();
                 actions.push(CloudAction::User(user));
                 actions.push(CloudAction::Send(
                     json!({"t": "subscribe", "stream": self.stream, "pending": pending})
@@ -255,7 +285,7 @@ impl CloudStream {
                 if let Some(frame) = self.presence_frame() {
                     actions.push(CloudAction::Send(frame));
                 }
-                for (_, frame) in &self.unsettled {
+                for (_, _, frame) in &self.unsettled {
                     actions.push(CloudAction::Send(frame.clone()));
                 }
             }
@@ -287,9 +317,16 @@ impl CloudStream {
             }
             Frame::Settled { key } => {
                 let reject = self.rejects.remove(&key);
-                if let Some(index) = self.unsettled.iter().position(|(sent, _)| *sent == key) {
-                    self.unsettled.remove(index);
-                    actions.push(CloudAction::Settled { key, reject });
+                if let Some(index) = self.unsettled.iter().position(|(_, sent, _)| *sent == key) {
+                    let (intent, _, _) = self.unsettled.remove(index);
+                    if self.unsettled.iter().any(|(other, _, _)| *other == intent) {
+                        if let Some(reject) = reject {
+                            self.part_rejects.entry(intent).or_insert(reject);
+                        }
+                    } else {
+                        let reject = self.part_rejects.remove(&intent).or(reject);
+                        actions.push(CloudAction::Settled { key: intent, reject });
+                    }
                 }
             }
             Frame::Ignored => {}

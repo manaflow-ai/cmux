@@ -230,7 +230,7 @@ describe("intents", () => {
     expect(intents(list.provider)).toEqual([{ kind: "mark_all_read", before: NOW, idempotency_key: "k1" }]);
   });
 
-  test("Mark All Read of a long Inbox reads every shown item, 256 ids per intent", async () => {
+  test("Mark All Read of a long Inbox is one intent of every shown item (one gesture)", async () => {
     const notices: MockItem[] = Array.from({ length: 300 }, (_, index) => ({
       id: `fi_notice_${index}`,
       home: "local",
@@ -253,8 +253,9 @@ describe("intents", () => {
     store.markShownRead();
     await settle();
     const sent = intents(provider).filter((intent) => intent.kind === "read");
-    expect(sent.map((intent) => intent.items!.length)).toEqual([256, 44]);
-    expect(new Set(sent.flatMap((intent) => intent.items!)).size).toBe(300);
+    expect(sent.map((intent) => intent.items!.length)).toEqual([300]);
+    expect(new Set(sent[0]!.items!)).toEqual(new Set(notices.map((notice) => notice.id)));
+    expect(intents(provider)).toHaveLength(1);
   });
 
   test("an item waits dimmed while its intent is in flight", async () => {

@@ -377,15 +377,59 @@ fn an_intent_is_checked_before_it_is_logged() {
     assert!(invalid(json!({"kind": "answer", "item": "nope", "answer": "x"})));
     assert!(invalid(json!({"kind": "answer", "item": "fi_1"})));
     assert!(invalid(json!({"kind": "read", "items": []})));
-    // More ids than one cloud op carries is refused, never shown changed and sent cut short.
-    let many: Vec<String> = (0..=256).map(|n| format!("fi_{n}")).collect();
-    assert!(invalid(json!({"kind": "read", "items": many})));
+    // A read takes every id a view shows, and no more; archive and snooze one op's worth.
+    let many = |count: usize| -> Vec<String> { (0..count).map(|n| format!("fi_{n}")).collect() };
+    let most = cmux_feed_core::client::MAX_READ_IDS;
+    assert!(invalid(json!({"kind": "read", "items": many(most + 1)})));
+    assert!(invalid(json!({"kind": "archive", "items": many(257)})));
     assert!(invalid(json!({"kind": "snooze", "items": ["fi_1"]})));
     // Nothing left to send settles at once (an open request is not archivable).
     assert!(matches!(
         h.feed.intent("k3", &json!({"kind": "archive", "items": ["fi_1"]})),
         Ok(IntentReply::Now(Ok(())))
     ));
+}
+
+fn notice(id: &str) -> FeedItem {
+    FeedItem::notice(id, "Done", Poster::new("agent", "Agent"), NOW - 1000)
+}
+
+/// cmux#37378 review: the Inbox's Mark All Read is one `read` intent (the page's one gesture)
+/// of every shown id. The integration owner reads all of its items in that one intent, and the
+/// cloud gets ops of at most MAX_INTENT_IDS ids; the intent settles once both owners did.
+#[test]
+fn one_read_of_300_local_and_300_cloud_items_reads_them_all() {
+    let local: Vec<String> = (0..300).map(|n| format!("fi_local_{n}")).collect();
+    let cloud: Vec<String> = (0..300).map(|n| format!("fi_cloud_{n}")).collect();
+    let backend = Arc::new(FakeBackend::default());
+    let wire = backend.wire();
+    connected(&wire, cloud.iter().map(|id| notice(id)).collect());
+    let (signed, _) = signed_in(&backend);
+    let h = harness(Some(signed));
+    wait_until("the snapshot", || view(&h.feed)["connection"]["state"] == "connected");
+    for id in &local {
+        let mut item = notice(id);
+        item.home = "local:test".to_owned();
+        h.feed.post(item);
+    }
+    let ids: Vec<String> = local.iter().chain(&cloud).cloned().collect();
+    let reply = h.feed.intent("k", &json!({"kind": "read", "items": ids})).unwrap();
+    // The local owner committed every one of its items at once.
+    let read = |items: &[Value]| items.iter().filter(|item| !item["read_at"].is_null()).count();
+    assert_eq!(read(&h.feed.items(&local, true)), 300);
+    // Every id shows read until its owner commits.
+    assert_eq!(read(&h.feed.items(&ids, false)), 600);
+    wait_until("the cloud ops", || sent_ops(&wire).len() == 2);
+    let ops = sent_ops(&wire);
+    let sizes: Vec<usize> =
+        ops.iter().map(|op| op["params"]["items"].as_array().map_or(0, Vec::len)).collect();
+    assert_eq!(sizes, [256, 44], "{ops:?}");
+    assert_eq!(ops[0]["idempotency_key"], "k");
+    assert_eq!(ops[1]["idempotency_key"], "k:2");
+    assert!(ops.iter().all(|op| op["op"] == "feed.read" && op["origin"] == "user"));
+    wire.push_text(json!({"t": "request-settled", "idempotency_key": "k"}).to_string());
+    wire.push_text(json!({"t": "request-settled", "idempotency_key": "k:2"}).to_string());
+    assert_eq!(reply.wait(), Some(Ok(())));
 }
 
 fn search(pulls: Value) -> Vec<u8> {

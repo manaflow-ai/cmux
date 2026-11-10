@@ -101,8 +101,6 @@ export interface FeedStoreOptions {
 }
 
 const NO_SET: ReadonlySet<string> = new Set();
-/** The owner reads at most this many ids per intent (FeedWireEncode). */
-const INTENT_IDS = 256;
 
 export class FeedStore {
   private snapshot: FeedSnapshot;
@@ -452,9 +450,9 @@ export class FeedStore {
       const item = this.item(id);
       return item !== undefined && isUnread(item);
     });
-    // The owner takes at most 256 ids per op, so a longer list goes as several intents: every shown item is read.
-    for (let start = 0; start < unread.length; start += INTENT_IDS)
-      void this.intent({ kind: "read", items: unread.slice(start, start + INTENT_IDS) }, []);
+    // One intent of every id, however many: the page spends one gesture per call, and the daemon
+    // sends the cloud owner ops of its own size.
+    if (unread.length) void this.intent({ kind: "read", items: unread }, []);
   }
 
   /** The Inbox's Mark All Read: the items it shows. */

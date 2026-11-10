@@ -478,11 +478,13 @@ impl FeedClient {
             }
             if let Some(cloud) = routed.cloud {
                 match state.stream.send(&cloud) {
-                    Ok(Some(frame)) => {
-                        state.outbox.push(frame);
+                    Ok(frames) if frames.is_empty() => {
+                        events.extend(Inner::settle(&mut state, key, None, now));
+                    }
+                    Ok(frames) => {
+                        state.outbox.extend(frames);
                         Inner::wake_wire(&state);
                     }
-                    Ok(None) => events.extend(Inner::settle(&mut state, key, None, now)),
                     Err(reject) => events.extend(Inner::settle(&mut state, key, Some(reject), now)),
                 }
             }
@@ -513,16 +515,19 @@ impl FeedClient {
                 .map(str::to_owned)
                 .ok_or_else(|| invalid("item is required"))
         };
-        let items = || {
+        // A read takes every item the view shows (the Inbox's Mark All Read is one call, one
+        // gesture); the cloud gets it as ops of at most MAX_INTENT_IDS ids (`CloudStream::send`).
+        // Archive and snooze act on one row at a time and keep the one-op bound.
+        let items = |most: usize| {
             let ids = strings(params.get("items"))
                 .ok_or_else(|| invalid("items must be a list of item ids"))?;
-            // The cloud owner takes at most 256 ids per op (FeedWireEncode), so the intent does too:
-            // a longer one would show every id changed and send only the first 256.
-            if ids.is_empty() || ids.len() > cmux_feed_core::client::MAX_INTENT_IDS {
-                return Err(invalid("items takes 1 to 256 item ids"));
+            if ids.is_empty() || ids.len() > most {
+                return Err(FeedError::Invalid(format!("items takes 1 to {most} item ids")));
             }
             Ok(ids)
         };
+        let (read_ids, row_ids) =
+            (cmux_feed_core::client::MAX_READ_IDS, cmux_feed_core::client::MAX_INTENT_IDS);
         let request = |id: &str| -> Result<&FeedItem, FeedError> {
             let item = state.mirror.visible(id).ok_or_else(|| invalid("no such item"))?;
             if !item.is_request() {
@@ -557,9 +562,11 @@ impl FeedClient {
                 request(&id)?;
                 IntentKind::Decline { item: id }
             }
-            "read" => IntentKind::Read { items: shown(items()?, &FeedItem::is_unread) },
+            "read" => IntentKind::Read { items: shown(items(read_ids)?, &FeedItem::is_unread) },
             "archive" => IntentKind::Archive {
-                items: shown(items()?, &|item| !item.is_open_request() && !item.is_archived()),
+                items: shown(items(row_ids)?, &|item| {
+                    !item.is_open_request() && !item.is_archived()
+                }),
             },
             "snooze" => {
                 let until = params
@@ -567,7 +574,7 @@ impl FeedClient {
                     .and_then(Value::as_i64)
                     .ok_or_else(|| invalid("until (Unix ms) is required"))?;
                 IntentKind::Snooze {
-                    items: shown(items()?, &|item| !item.is_open_request()),
+                    items: shown(items(row_ids)?, &|item| !item.is_open_request()),
                     until,
                 }
             }

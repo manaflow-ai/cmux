@@ -455,7 +455,9 @@ fn the_stream_subscribes_takes_the_snapshot_and_resends_unsettled_intents() {
         serde_json::from_str::<Value>(presence).unwrap(),
         json!({"t": "presence.set", "stream": "feed:usr_me", "state": {"active": false, "client": "mac"}})
     );
-    let frame = stream.send(&intent).unwrap().unwrap();
+    let mut frames = stream.send(&intent).unwrap();
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    let frame = frames.remove(0);
     assert_eq!(
         serde_json::from_str::<Value>(&frame).unwrap(),
         json!({"t": "op", "op": "feed.read", "params": {"items": ["fi_1"]}, "idempotency_key": "k", "origin": "user"})
@@ -513,13 +515,61 @@ fn an_event_names_removed_items_by_what_is_still_present() {
     read.read_at = Some(NOW);
     stream.on_text(&json!({"t": "event", "seq": 3, "items": [read.to_value()]}).to_string());
     let all = Intent::new("m", IntentKind::MarkAllRead { before: NOW }, NOW);
-    assert_eq!(stream.send(&all), Ok(None));
+    assert_eq!(stream.send(&all), Ok(Vec::new()));
     stream.on_text(
         &json!({"t": "event", "seq": 4, "items": [notice("fi_3", 1).to_value()]}).to_string(),
     );
-    let frame = stream.send(&all).unwrap().unwrap();
-    assert!(frame.contains("\"params\":{\"all\":true}"));
+    let frames = stream.send(&all).unwrap();
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    assert!(frames[0].contains("\"params\":{\"all\":true}"));
     assert_eq!(stream.reset(), vec!["m".to_owned()]);
+}
+
+/// cmux#37378 review: the Inbox's Mark All Read is one intent (one gesture) of every shown id;
+/// the cloud owner takes at most MAX_INTENT_IDS per op, so the stream sends it as several ops
+/// and settles the intent once, when every op settled, with the first refusal.
+#[test]
+fn a_long_read_goes_as_ops_of_the_owners_size_and_settles_once() {
+    let mut stream = CloudStream::new();
+    stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
+    stream.on_text(&json!({"t": "snapshot", "seq": 1, "state": {"items": {}}}).to_string());
+    let ids: Vec<String> = (0..300).map(|n| format!("fi_{n}")).collect();
+    let read = Intent::new("k", IntentKind::Read { items: ids.clone() }, NOW);
+    let frames: Vec<Value> = stream
+        .send(&read)
+        .unwrap()
+        .iter()
+        .map(|frame| serde_json::from_str(frame).unwrap())
+        .collect();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(frames[0]["idempotency_key"], "k");
+    assert_eq!(frames[1]["idempotency_key"], "k:2");
+    let sent: Vec<String> = frames
+        .iter()
+        .flat_map(|frame| frame["params"]["items"].as_array().unwrap().clone())
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(frames[0]["params"]["items"].as_array().unwrap().len(), MAX_INTENT_IDS);
+    assert_eq!(sent, ids, "every id goes out once, in order");
+    // A reconnect names both pending ops.
+    let actions = stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
+    let CloudAction::Send(subscribe) = &actions[1] else { panic!("{actions:?}") };
+    assert!(subscribe.contains("\"pending\":[\"k\",\"k:2\"]"), "{subscribe}");
+    // The first op's refusal waits for the second op; the intent settles once, refused.
+    stream.on_text(
+        &json!({"t": "reject", "idempotency_key": "k", "code": "feed.moving", "message": "m"})
+            .to_string(),
+    );
+    let settled = |key: &str| json!({"t": "request-settled", "idempotency_key": key}).to_string();
+    assert!(stream.on_text(&settled("k")).is_empty());
+    assert_eq!(
+        stream.on_text(&settled("k:2")),
+        vec![CloudAction::Settled { key: "k".into(), reject: Some(Reject::Moving) }]
+    );
+    // An unsettled split intent is refused once on reset.
+    stream.on_text(&json!({"t": "snapshot", "seq": 2, "state": {"items": {}}}).to_string());
+    assert_eq!(stream.send(&Intent::new("r", read.kind.clone(), NOW)).unwrap().len(), 2);
+    assert_eq!(stream.reset(), vec!["r".to_owned()]);
 }
 
 #[test]
