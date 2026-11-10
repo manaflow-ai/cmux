@@ -133,10 +133,14 @@ FAKE = textwrap.dedent(
         out("test a ... ok\\ntest b_hangs ... ")
         time.sleep(30)
     if mode == "escaped-pass":
-        # app::tests write terminal escapes before libtest's own result line.
+        # app::tests write terminal escapes before libtest's own result line. The result comes before the
+        # deadline; the binary then stays quiet past it (other output, no summary yet), so only a read result
+        # line keeps the finished test from looking hung.
         out("test slow has been running for over 60 seconds\\n")
-        time.sleep(3)
-        out("\\x1b]12;#ffffff\\x07\\x1b[1 qtest slow ... ok\\n\\ntest result: ok. 1 passed; 0 failed\\n")
+        time.sleep(0.5)
+        out("\\x1b]12;#ffffff\\x07\\x1b[1 qtest slow ... ok\\n")
+        time.sleep(4)
+        out("\\ntest result: ok. 1 passed; 0 failed\\n")
         sys.exit(0)
     if mode == "crash-then-next":
         # Binary 1 crashes in a parallel run (its test has a 60 s notice, then no result line); cargo goes on
@@ -209,7 +213,8 @@ class ProcessTests(unittest.TestCase):
         self.assertGreaterEqual(took, 2.5, out)
 
     def test_escapes_before_a_result_line_do_not_end_a_run_at_a_false_deadline(self):
-        # The notice dates the test 60 s back; a 62 s deadline would end it at about 2 s if its result were missed.
+        # The notice dates the test 60 s back, so a 62 s deadline falls at about 2 s: after the escaped result
+        # (0.5 s), before the summary (4.5 s). A missed result line ends the run there.
         code, out, _ = self.run_script("escaped-pass", "--deadline-seconds", "62")
         self.assertEqual(code, 0, out)
         self.assertNotIn("deadline", out)
