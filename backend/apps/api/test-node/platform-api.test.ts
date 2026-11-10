@@ -39,6 +39,17 @@ describe("platformRead", () => {
     expect(primitiveRefusal).toMatchObject({ ok: false, status: 403, code: "platform.refused", retryable: false })
   })
 
+  it("keeps a timeout, a rate limit and a server error retryable whatever their body says", async () => {
+    for (const status of [408, 425, 429, 500, 502, 503, 504]) {
+      const r = await platformRead(fake(() => Response.json({ _tag: "X", code: "internal.error", message: "busy" }, { status })).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
+      expect(r, String(status)).toMatchObject({ ok: false, status, retryable: true })
+      const bare = await platformRead(fake(() => new Response("", { status })).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
+      expect(bare, `${status} bare`).toMatchObject({ ok: false, status, code: "owner.unreachable", retryable: true })
+    }
+    const refused = await platformRead(fake(() => Response.json({ code: "auth.forbidden", message: "no" }, { status: 403 })).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
+    expect(refused).toMatchObject({ ok: false, retryable: false })
+  })
+
   it("answers a retryable outage, never a TypeError, when unbound or unreachable", async () => {
     expect(await platformRead(undefined, ORIGIN, "Bearer t", "cloud.vm.self.get", {})).toMatchObject({ ok: false, code: "owner.unreachable", retryable: true })
     const throws = { fetch: async () => { throw new Error("network") } } as unknown as Fetcher

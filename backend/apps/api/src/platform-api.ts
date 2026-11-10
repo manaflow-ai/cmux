@@ -7,6 +7,9 @@ export type PlatformRead =
   | { readonly ok: true; readonly value: unknown; readonly revision: string }
   | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retryable: boolean }
 
+/** Statuses below 500 that a retry can clear. */
+const TRANSIENT: ReadonlySet<number> = new Set([408, 425, 429])
+
 const outage = (message: string): PlatformRead => ({ ok: false, status: 503, code: "owner.unreachable", message, retryable: true })
 
 /** POST /v1/read {op, params} on cmux-platform, answering as `authorization` (the caller's `Bearer ...` header). */
@@ -37,12 +40,14 @@ export const platformRead = async (
   }
   // An HttpApi error is {_tag, code, message, retryable?}; the forwarder's outage nests it under `error`.
   const e = (body && typeof body.error === "object" && body.error !== null ? body.error : body) as Record<string, unknown> | null
-  const code = typeof e?.code === "string" ? e.code : response.status >= 500 ? "owner.unreachable" : "platform.refused"
+  // A timeout (408), too early (425), rate limit (429) or server error (5xx) is transient whatever its body says.
+  const transient = TRANSIENT.has(response.status) || response.status >= 500
+  const code = typeof e?.code === "string" ? e.code : transient ? "owner.unreachable" : "platform.refused"
   return {
     ok: false,
     status: response.status,
     code,
     message: typeof e?.message === "string" ? e.message : `platform answered ${response.status}`,
-    retryable: e?.retryable === true || code === "owner.unreachable",
+    retryable: transient || e?.retryable === true || code === "owner.unreachable",
   }
 }
