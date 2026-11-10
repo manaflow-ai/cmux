@@ -300,14 +300,34 @@ fn machine_of(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The other account a `cloud start-chat --account` refusal found the app on (`app_account`),
-/// once its start answered a machine (`machine_id`): the start may have made the Run's machine
-/// there. A refusal before the start made nothing anywhere.
+/// An account no list can name: the Run's start answered a machine its own account never listed.
+/// No list clears it, so that Run's cleanup never reads `destroyed` (only `abandoned` once given up),
+/// while a list of any account the app is on still deletes the Run's machine by its own name.
+const UNKNOWN_ACCOUNT: &str = "unknown";
+
+/// Whether a `cloud start-chat` answer says its start-session ran: a start the app took
+/// (`cloud.start_pending` before any send) or a machine it answered.
+fn reached_start(result: &Result<Value, Value>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(error) => {
+            text(error, "code") == "cloud.start_pending"
+                || error.pointer("/details/machine_id").and_then(Value::as_str).is_some()
+        }
+    }
+}
+
+/// `cloud start-chat --account`'s refusal of a started machine its account's list never showed.
+fn refused_unlisted(result: &Result<Value, Value>) -> bool {
+    matches!(result, Err(error) if text(error, "code") == "cloud.account_changed"
+        && error.pointer("/details/machine_id").and_then(Value::as_str).is_some())
+}
+
+/// The other account a `cloud start-chat --account` refusal found the app on (`app_account`): the
+/// Run's machine may be there once a start of the Run reached start-session ([`reached_start`]).
 fn app_account(result: &Result<Value, Value>) -> Option<String> {
     let Err(error) = result else { return None };
-    if text(error, "code") != "cloud.account_changed"
-        || error.pointer("/details/machine_id").and_then(Value::as_str).is_none()
-    {
+    if text(error, "code") != "cloud.account_changed" {
         return None;
     }
     error.pointer("/details/app_account").and_then(Value::as_str).map(str::to_owned)
@@ -411,6 +431,8 @@ impl Steps for AppVerbs {
     }
 
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {
+        // Whether a start of this Run reached the app's start-session, so a machine may exist.
+        let mut reached = false;
         start_until(task.timeout, cancel, START_AGAIN_PAUSE, |left| {
             let seconds = left.as_secs().max(1).to_string();
             let words = [
@@ -429,16 +451,25 @@ impl Steps for AppVerbs {
                 task.account.as_str(),
             ];
             let ran = self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel));
-            // A start cut off (a cancel, its bound) answers nothing: the account the app is on
-            // now is where it may have made the machine.
-            let other = match ran.code {
-                None => self.scope().filter(|now| *now != task.account),
-                Some(_) => app_account(&answer(&ran)),
-            };
-            if let Some(other) = other {
+            let result = answer(&ran);
+            let started = reached_start(&result);
+            reached |= started || ran.code.is_none();
+            let mut others = Vec::new();
+            // Once a start may have made the machine (this attempt or an earlier one): the account
+            // the refusal found the app on, and the one it is on now, are where it may be.
+            if reached {
+                others.extend(app_account(&result));
+                others.extend(self.scope().filter(|now| *now != task.account));
+            }
+            // A refusal for a machine the Run's own account never listed, the app on that account
+            // again (a switch there and back during the start): made where no list can say.
+            if started && app_account(&result).is_none() && refused_unlisted(&result) {
+                others.push(UNKNOWN_ACCOUNT.to_owned());
+            }
+            if !others.is_empty() {
                 let mut seen =
                     self.elsewhere.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                seen.entry(task.run.clone()).or_default().push(other);
+                seen.entry(task.run.clone()).or_default().extend(others);
             }
             ran
         })
@@ -676,11 +707,20 @@ mod tests {
                                   "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal",
                                                "machine_id": "vm-1" } }));
         assert_eq!(app_account(&refusal).as_deref(), Some("user:u2|personal"));
-        // A refusal before any start answered a machine: nothing was made on that account.
+        assert!(reached_start(&refusal) && refused_unlisted(&refusal));
+        // A refusal before any start answered a machine reached nothing.
         let before = Err(json!({ "code": "cloud.account_changed", "message": "x",
                                  "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal",
                                               "machine_id": null } }));
-        assert_eq!(app_account(&before), None);
+        assert!(!reached_start(&before) && !refused_unlisted(&before));
+        assert!(reached_start(&Err(json!({ "code": "cloud.start_pending" }))));
+        // The account no list names is never cleared.
+        let empty = list(true, Some("u2"), None, json!([]), json!([]));
+        let unknown = [UNKNOWN_ACCOUNT.to_owned()];
+        assert!(matches!(
+            judge_everywhere(&empty, NAME, None, U1_T1, &unknown),
+            Judgement::Wait(_)
+        ));
         assert_eq!(app_account(&Err(json!({ "code": "cloud.start_pending" }))), None);
     }
 

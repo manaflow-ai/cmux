@@ -686,7 +686,10 @@ impl Engine {
             };
             let removal =
                 self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere);
-            if let Removal::Cleared(other) = &removal {
+            // Before the settle time a create there may still be on its way into that list.
+            if let Removal::Cleared(other) = &removal
+                && now_ms() >= settle
+            {
                 let mut state = self.lock();
                 if let Some(run) = state.runs.get_mut(id) {
                     run.elsewhere.retain(|kept| kept != other);
