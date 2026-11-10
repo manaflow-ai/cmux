@@ -475,7 +475,9 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
         let mut fake = Fake::new(vec![
             signed_in(),
             started(),
-            exec_out("@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n"),
+            exec_out(
+                "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
+            ),
         ]);
         let mut words = vec!["--login", "machine"];
         if wait {
@@ -504,7 +506,9 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
         // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
         // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
         assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
-        assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+        assert!(
+            fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd")
+        );
         assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
         assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
         assert_eq!(answer["folder"], "fresh");
