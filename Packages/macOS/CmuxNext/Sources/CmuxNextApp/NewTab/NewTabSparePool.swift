@@ -313,7 +313,7 @@ final class NewTabSparePool {
             slot.parked(view)
         }
         schedulePrepare()
-        snapshotParked(view)
+        if !refills.isOpening { snapshotParked(view) } // never a capture while an open settles (as `fitParked`)
         scheduleWarm()
         return true
     }
@@ -395,7 +395,7 @@ final class NewTabSparePool {
         inputMonitor = nil
         warmNative()
         guard services.agentTabs.canHostChat else { return }
-        returns.expire(after: .seconds(2), in: parking)
+        returns.expire(after: AgentPaneSpareReturns.limit, in: parking)
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard wantsPage, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)

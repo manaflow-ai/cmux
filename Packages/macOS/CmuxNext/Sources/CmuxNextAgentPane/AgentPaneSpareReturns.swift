@@ -26,9 +26,9 @@ public final class AgentPaneSpareReturns {
     /// no move) for a page of another window or a parking view that is not in `window`: that page leaves its window.
     public func keep(_ view: AgentPaneView, in parking: NSView, of window: NSWindow?) -> Bool {
         guard let window, view.window === window, parking.window === window else { return false }
+        expire(after: Self.limit, in: parking)
         waiting.removeAll { $0.view == nil || $0.view === view }
-        // A page out of sight never holds the keyboard (as `AgentPageRetirer`'s parking; the removal took it away too).
-        if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { window.makeFirstResponder(nil) }
+        yieldKeyboard(of: view, in: window)
         parking.addSubview(view)
         waiting.append(Waiting(view: view, since: .now))
         return true
@@ -42,12 +42,22 @@ public final class AgentPaneSpareReturns {
         waiting.removeAll { $0.view == nil || $0.view === view }
         if view.superview !== parking {
             guard let window, view.window === window, parking.window === window else { return false }
+            yieldKeyboard(of: view, in: window)
             parking.addSubview(view)
         }
         if view.frame != parking.bounds { view.frame = parking.bounds }
         view.autoresizingMask = [.width, .height]
         return true
     }
+
+    /// A page out of sight never holds the keyboard (as `AgentPageRetirer`'s parking): the removal from the window
+    /// that these moves replace took it away too. Without this, keys go into a hidden spare, and the next Cmd-T shows it.
+    private func yieldKeyboard(of view: AgentPaneView, in window: NSWindow) {
+        if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { window.makeFirstResponder(nil) }
+    }
+
+    /// How long a kept page waits for its tab's release before it leaves the window.
+    public static let limit: Duration = .seconds(2)
 
     /// A page kept more than `limit` ago that the pool did not take (its tab's release never came, or the pane went
     /// away with a tab that lives on) leaves `parking`, as a dropped page did before.
