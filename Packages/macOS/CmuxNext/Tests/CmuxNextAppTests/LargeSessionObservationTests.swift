@@ -141,4 +141,40 @@ struct LargeSessionObservationTests {
         let moved = feed.workspaces(showing: ["s-7-moved", "s-7"])
         #expect(moved == [SidebarWorkspaceID(fixture.store.workspaces[6].id): "s-7-moved"])
     }
+    /// O3 `AttentionTabsWatch.swift:87`: Needs you's marked tabs walked every tab of every workspace (twice: the marks and
+    /// the launch baseline) in one observation, so an agent's mark on any tab ran the whole walk under tracking again.
+    /// Each workspace's marks are their own observation now; the watch observes only each machine's readiness and its
+    /// workspace list.
+    @Test(.timeLimit(.minutes(2)))
+    func o3AttentionTabsObservesEachWorkspacesMarksOnItsOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        store.session.apply(.snapshot(SessionStateMirror()), in: store)
+        let tabs = AgentPaneAttentionTabs()
+        var changes = 0
+        let watch = AttentionTabsWatch(tabs: tabs, machines: { [store] in [(machine: "local", store: store)] },
+                                       onChange: { _, _ in changes += 1 })
+        defer { withExtendedLifetime(watch) {} }
+        await LargeSessionFixture.until { changes > 0 }
+        try #require(changes > 0, "fixture: the watch never delivered")
+
+        // The probe: an agent marks the first terminal of each workspace in turn (tab-attention-v1).
+        func mark(_ workspace: Int) {
+            let attention = TabAttention(reason: "Sign in \(workspace)", atMs: UInt64(1_000 + workspace),
+                                         requestID: String(format: "%032llx", UInt64(workspace)))
+            store.session.apply(.delta([.tab(ResourceID(rawValue: "tab_\(workspace)_0"), .init(attention: attention))]), in: store)
+        }
+        let probes = (1...LargeSessionFixture.workspaces).map { workspace -> (workspace: Int, change: @MainActor () -> Void) in
+            (workspace, { mark(workspace) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAgentPane/AttentionTabsWatch", changes: probes)
+        #expect(!woken.isEmpty, "fixture: no attention observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "attention observers woken by more than one workspace: \(wide)")
+
+        // The list still follows every mark, newest first.
+        await LargeSessionFixture.until { tabs.items.count == LargeSessionFixture.workspaces }
+        #expect(tabs.items.count == LargeSessionFixture.workspaces)
+        #expect(tabs.items.first?.reason == "Sign in 60")
+    }
 }
