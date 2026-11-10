@@ -199,13 +199,14 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     /// Folds a Worker answer into the ABI body: `{ok: true, value,
     /// revision?, replayed?}` keeps `value`, `revision` and `replayed`; an
     /// `{ok: false, error}` answer gives its error as is; a non-200 answer
-    /// its `{code, message}` (retryable on 503).
+    /// its `{code, message}`, retryable as its body says (cmux-platform#1192 sends
+    /// `retryable` on every refusal; an answer without one: a 503).
     static func answer(status: Int, body: Data) -> Answer {
         let reply = try? JSONDecoder().decode(JSONValue.self, from: body)
         guard status == 200 else {
             let code = reply?["code"]?.stringValue ?? "http_\(status)"
             let message = reply?["message"]?.stringValue ?? "the cmux API answered HTTP \(status)"
-            return failure(code, message, retryable: status == 503)
+            return failure(code, message, retryable: reply?["retryable"]?.boolValue ?? (status == 503))
         }
         guard let reply, case .object = reply else {
             return failure("owner.bad_reply", "the cmux API answered no JSON object", retryable: true)

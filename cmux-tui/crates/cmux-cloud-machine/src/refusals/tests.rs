@@ -173,17 +173,17 @@ fn the_vm_limit_names_its_limit_and_the_vms_that_hold_it() {
             oldest_vm_age_s: Some(259_200),
         }
     );
-    let reason = reason("cloud.quota.vm_limit", &facts).unwrap();
-    assert!(reason.contains("20 of 20 machines"), "{reason}");
-    assert!(reason.contains("3 of them left over"), "{reason}");
-    assert!(reason.contains("delete one"), "{reason}");
+    let why = reason("cloud.quota.vm_limit", &facts).unwrap();
+    assert!(why.contains("20 of 20 machines"), "{why}");
+    assert!(why.contains("3 of them left over"), "{why}");
+    assert!(why.contains("delete one"), "{why}");
     // A census that failed sends nulls: the reason still says what to do.
     let unread = Facts::read(
         Some(&json!({"details": {"limit": 20, "team_vms": null, "orphans": null}})),
         None,
     );
-    let reason = reason("cloud.quota.vm_limit", &unread).unwrap();
-    assert!(reason.contains("its limit is 20 machines"), "{reason}");
+    let why = reason("cloud.quota.vm_limit", &unread).unwrap();
+    assert!(why.contains("its limit is 20 machines"), "{why}");
 }
 
 #[test]
@@ -194,8 +194,8 @@ fn a_rate_limit_waits_its_window() {
     let ms = json!({"error": {"code": "cloud.rate_limited", "details": {"retry_after_ms": 1500}}});
     assert_eq!(Facts::read(Some(&ms), None).retry_after_s, Some(2), "the window, rounded up");
     assert_eq!(Facts::read(None, None).wait_s(), DEFAULT_RETRY_AFTER_SECONDS);
-    let reason = reason("cloud.rate_limited", &Facts::read(Some(&body), None)).unwrap();
-    assert!(reason.contains("42 s"), "{reason}");
+    let why = reason("cloud.rate_limited", &Facts::read(Some(&body), None)).unwrap();
+    assert!(why.contains("42 s"), "{why}");
 }
 
 #[test]

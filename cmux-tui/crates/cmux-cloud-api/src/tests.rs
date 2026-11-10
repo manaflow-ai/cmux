@@ -213,6 +213,8 @@ fn the_action_and_trace_id_follow_the_message() {
             message: Some("It failed.".into()),
             action: Some("Run `cmux vm ls`.".into()),
             trace_id: Some("t-1".into()),
+            retryable: None,
+            retry_after_s: None,
         }
     );
     // A blank action is none; the ui block's message and trace id win or fill in.
@@ -1866,5 +1868,15 @@ mod turn_checkpoints {
             "retryable": true, "cause": "cloud.provider.unavailable: down",
         });
         assert!(retryable(&refusal(503, Some(&outage))));
+        // A rate limit waits its own window, not the pace's pause.
+        let limited = refusal(
+            429,
+            Some(&json!({
+                "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "message": "m",
+                "retryable": true, "retryAfterSeconds": 3,
+            })),
+        );
+        assert_eq!(turns::wait(&limited, fast()), Duration::from_secs(3));
+        assert_eq!(turns::wait(&Failure::http(503, None, None), fast()), fast().pause);
     }
 }

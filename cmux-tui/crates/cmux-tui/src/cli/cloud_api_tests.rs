@@ -234,6 +234,8 @@ fn a_resource_error_reads_back_every_failure_kind() {
             message: Some("m".into()),
             action: Some("a".into()),
             trace_id: Some("t".into()),
+            retryable: Some(true),
+            retry_after_s: Some(5),
         },
         Failure::PlanRequired { message: None, upgrade_url: None, plan: "max".into() },
         Failure::Decoding("d".into()),
