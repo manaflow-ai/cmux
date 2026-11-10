@@ -4407,17 +4407,36 @@ KIT_FILES = {
 }
 
 
+KIT_BUILD = "Build package and tests"
+KIT_SIM = "xcodebuild test (iOS simulator)"
+# (step, conclusion, started second, completed second) and (step, second, text): framed_steps and framed_log's form.
+KIT_STEPS = [(KIT_BUILD, "success", 3, 9), (KIT_STEP, "failure", 10, 20)]
+
+
+def kit_lines(*after):
+    return [(KIT_BUILD, 3, "##[group]Run swift build --package-path cmux-next-ios/CmuxMobileKit --build-tests"),
+            (KIT_STEP, 10, "##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit"),
+            (KIT_STEP, 19, KIT_TEST),
+            (KIT_STEP, 19, "✘ Test silentDropDetectionBenchmark() failed after 13.4 seconds with 1 issue."),
+            (KIT_STEP, 19, "##[error]Process completed with exit code 1."), *after]
+
+
 class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
-    """CmuxMobileKit's job red on the head (cmux#36988 at d286aa2f); the newest base run passes it."""
+    """CmuxMobileKit's job red on the head (cmux#36988 at d286aa2f); the newest base run passes it. Its log is framed
+    like the job-log endpoint's: "Set up job", a STEP_START line per step, "Complete job" (step_owners)."""
 
     def __init__(self, changed=("cmux-tui/crates/cmux-agent-pane-policy/policy.json",
                                 "cmux-next-ios/verify/parity-mac.md", "webviews/src/App.tsx"), files=None):
         super().__init__(changed=changed)
-        self.jobs = {1: failed_job(1, 10, HEAD, name=KIT, step=KIT_STEP),
+        self.jobs = {1: dict(failed_job(1, 10, HEAD, name=KIT, step=KIT_STEP), steps=framed_steps(KIT_STEPS)),
                      2: dict(failed_job(2, 20, BASE_SHA, name=KIT, step=KIT_STEP), conclusion="success")}
-        self.logs = {1: log(KIT, KIT_STEP, KIT_TEST, "✘ Test silentDropDetectionBenchmark() failed after 13.4 "
-                            "seconds with 1 issue.", "##[error]Process completed with exit code 1."), 2: ""}
+        self.logs = {1: framed_log(kit_lines(), KIT), 2: ""}
         self.files = dict(KIT_FILES if files is None else files)
+
+    def frame(self, steps, lines):
+        """The head job's STEPS and its log of LINES, as framed_steps and framed_log write them."""
+        self.jobs[1]["steps"] = framed_steps(steps)
+        self.logs[1] = framed_log(lines, KIT)
 
     def blob(self, repo, ref, path):
         assert ref == HEAD, ref
@@ -4468,19 +4487,27 @@ class PackageFixedOnBase(unittest.TestCase):
         # the post steps after it (cmux#36988 at d8cb4c44, job 128332980232): the test lines are still its own.
         github = KitFixedOnBaseGitHub()
         github.jobs[1]["steps"] = [
-            {"name": "Build CmuxMobileLinkFFI.xcframework", "status": "completed", "conclusion": "success",
+            {"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:02:19Z", "completed_at": "2026-11-07T07:02:21Z"},
+            {"number": 2, "name": "Build CmuxMobileLinkFFI.xcframework", "status": "completed", "conclusion": "success",
              "started_at": "2026-11-07T07:02:21Z", "completed_at": "2026-11-07T07:06:53Z"},
-            {"name": KIT_STEP, "status": "completed", "conclusion": "failure",
+            {"number": 3, "name": KIT_STEP, "status": "completed", "conclusion": "failure",
              "started_at": "2026-11-07T07:06:53Z", "completed_at": "2026-11-07T07:08:54Z"},
-            {"name": "xcodebuild test (iOS simulator)", "status": "completed", "conclusion": "skipped",
+            {"number": 4, "name": "xcodebuild test (iOS simulator)", "status": "completed", "conclusion": "skipped",
              "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:54Z"},
-            {"name": "Post Run actions/checkout", "status": "completed", "conclusion": "success",
-             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:55Z"}]
+            {"number": 5, "name": "Post Run actions/checkout", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:55Z"},
+            {"number": 6, "name": "Complete job", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:08:55Z", "completed_at": "2026-11-07T07:08:55Z"}]
         github.logs[1] = "\n".join([
+            "2026-11-07T07:02:19.4000000Z Current runner version: '2.338.2'",
+            "2026-11-07T07:02:21.3000000Z ##[group]Run bash cmux-next-ios/rust/scripts/build-xcframework.sh",
             "2026-11-07T07:06:53.1000000Z ##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit",
             "2026-11-07T07:08:54.5717620Z " + KIT_TEST,
             "2026-11-07T07:08:54.5718210Z ✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue.",
-            "2026-11-07T07:08:54.9000000Z ##[error]Process completed with exit code 1."])
+            "2026-11-07T07:08:54.9000000Z ##[error]Process completed with exit code 1.",
+            "2026-11-07T07:08:54.9500000Z Post job cleanup.",
+            "2026-11-07T07:08:55.2000000Z Cleaning up orphan processes"])
         self.assertIn(f"excused '{KIT}': fixed on base", self.judge(github))
 
     def test_a_swift_path_package_behind_comments_is_still_followed(self):
@@ -4541,12 +4568,47 @@ class PackageFixedOnBase(unittest.TestCase):
     def test_a_test_step_without_a_failing_test_of_its_own_is_not_excused(self):
         # One step's failing test never covers another test step's compile error (review F2).
         github = KitFixedOnBaseGitHub()
-        sim = "xcodebuild test (iOS simulator)"
-        github.jobs[1]["steps"].append({"name": sim, "status": "completed", "conclusion": "failure"})
-        github.logs[1] += "\n" + log(KIT, sim, "error: cannot find 'LinkTestClock' in scope",
-                                    "##[error]Process completed with exit code 65.")
+        sim = KIT_SIM
+        github.frame(KIT_STEPS + [(sim, "failure", 20, 30)],
+                     kit_lines((sim, 21, "##[group]Run xcodebuild test -scheme CmuxMobileKit"),
+                               (sim, 25, "error: cannot find 'LinkTestClock' in scope"),
+                               (sim, 29, "##[error]Process completed with exit code 65.")))
         with self.assertRaisesRegex(excuse.Refused, re.escape(f"step '{sim}' names no failing test of its own")):
             self.judge(github)
+
+    def test_a_passing_test_steps_line_in_the_next_steps_first_second_never_names_its_test(self):
+        # Name-and-window placement (step_lines before it shared step_owners) put a line in the failed step when its
+        # stamp fell in that step's [started_at, completed_at + 1s): the macOS step, which passed (its known-issue
+        # wrapper), printed its recorded issue at 12:00:20.2, the second the iOS step started in, so the iOS step's
+        # compile error read as that test's failure and the red was excused as fixed on the base. The log's order
+        # gives the line to the macOS step: the iOS step names no failing test of its own.
+        github = KitFixedOnBaseGitHub()
+        sim = KIT_SIM
+        github.frame([(KIT_BUILD, "success", 3, 9), (KIT_STEP, "success", 10, 20), (sim, "failure", 20, 30),
+                      ("Post Run actions/checkout", "success", 30, 31)],
+                     [(KIT_BUILD, 3, "##[group]Run swift build --package-path cmux-next-ios/CmuxMobileKit"),
+                      (KIT_STEP, 10, "##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit"),
+                      (KIT_STEP, 20.2, KIT_TEST),
+                      (KIT_STEP, 20.3, "✘ Test silentDropDetectionBenchmark() failed after 13.4 seconds with 1 issue."),
+                      (sim, 20.6, "##[group]Run xcodebuild test -scheme CmuxMobileKit"),
+                      (sim, 25, "error: cannot find 'LinkTestClock' in scope"),
+                      (sim, 29, "##[error]Process completed with exit code 65."),
+                      ("Post Run actions/checkout", 30.2, "Post job cleanup.")])
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"step '{sim}' names no failing test of its own")):
+            self.judge(github)
+
+    def test_a_kit_log_with_a_composite_action_is_still_read(self):
+        # cmux-next-ios kit's "Set up pinned Rust" is a composite action: one STEP_START line per inner step (job
+        # 129951569749 printed 13 for 10 steps). step_owners gives each run of blocks to its step by the steps'
+        # times, so the failed test step's own lines are still told.
+        github = KitFixedOnBaseGitHub()
+        rust = "Set up pinned Rust"
+        github.frame([(rust, "success", 2, 2), ("Cache cargo", "success", 2, 3)] + KIT_STEPS,
+                     [(rust, 2.1, "##[group]Run ./.github/actions/setup-cmux-tui-rust"),
+                      (rust, 2.2, "##[group]Run set -euo pipefail"),
+                      (rust, 2.8, "##[group]Run bash \"$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh\""),
+                      ("Cache cargo", 2.9, "##[group]Run Swatinem/rust-cache@v2"), *kit_lines()])
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(github))
 
     def test_an_unreadable_manifest_is_refused(self):
         for path in ("cmux-next-ios/rust/Cargo.lock", "Packages/iOS/CmuxTabsKit/Package.swift",
@@ -6476,15 +6538,17 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "92055ebb7410ff5c7b34e20a7cc9459ff3ce981959ffe08ef019491f381d72d8"
+    VENDORED_FINGERPRINT = "1eb5dd98a4a2bf533a2f72d1f2cb5e29f42456f2bcd89102d50a5d1a5227141a"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
         import inspect
         parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "STEP_START")]
-        parts += [inspect.getsource(getattr(excuse, name)) for name in ("lines_of", "_stamp_time", "failed_steps_log")]
+        parts += [inspect.getsource(getattr(excuse, name))
+                  for name in ("lines_of", "_stamp_time", "step_owners", "failed_steps_log")]
         self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
-                         "failed_steps_log changed: copy it to cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py "
+                         "step_owners or failed_steps_log changed: copy them to cmuxterm-hq "
+                         "tools/fleet-reconcilers/failed_steps_log.py "
                          "and leo-workspace tools/failed_steps_log.py, and update the fingerprint in all three")
 
     def adjacent_steps(self):
@@ -6623,12 +6687,30 @@ STEP_OWNERSHIP = {
          ("Check", 21, "##[error]Process completed with exit code 1.")],
         [NEW_RED, "##[error]Process completed with exit code 1."],
         [NEGATIVE_CASE]),
-    # A composite action prints a `Run` line per inner step: the sections no longer count one per step, so nothing
-    # can be placed and the whole log is kept.
-    "composite_action_keeps_the_whole_log": (
+    # A composite action prints a `Run` line per inner step (cmux-next-ios kit's "Set up pinned Rust", job
+    # 129951569749: 13 STEP_START lines for 10 steps). Only one placement of the blocks fits the steps' times.
+    "composite_action": (
         [("Licenses", "success", 10, 12), ("Strings", "failure", 20, 22)],
         [("Licenses", 10, "##[group]Run ./.github/actions/licenses"), ("Licenses", 10.2, "##[group]Run python3 a.py"),
          ("Licenses", 11, NEGATIVE_CASE),
+         ("Strings", 20, "##[group]Run node gen-strings.mjs"), ("Strings", 21, "settings: 42 strings missing"),
+         ("Strings", 21, "##[error]Process completed with exit code 1.")],
+        ["settings: 42 strings missing", "##[error]Process completed with exit code 1."],
+        [NEGATIVE_CASE]),
+    # A composite action's inner `Run` line in the second its step ends and the failing step starts: it may open the
+    # failing step or be the composite's own, so the lines up to the next `Run` line have both steps and are kept.
+    "composite_action_in_a_shared_second": (
+        [("Licenses", "success", 10, 12), ("Strings", "failure", 12, 14)],
+        [("Licenses", 10, "##[group]Run ./.github/actions/licenses"), ("Licenses", 11, NEGATIVE_CASE),
+         ("Licenses", 12.2, "##[group]Run python3 b.py"), ("Licenses", 12.3, "licenses: b ok"),
+         ("Strings", 12.4, "##[group]Run node gen-strings.mjs"), ("Strings", 13, "settings: 42 strings missing"),
+         ("Strings", 13, "##[error]Process completed with exit code 1.")],
+        ["licenses: b ok", "settings: 42 strings missing", "##[error]Process completed with exit code 1."],
+        [NEGATIVE_CASE]),
+    # A step printed no `Run` line: fewer blocks than steps, so nothing can be placed and the whole log is kept.
+    "fewer_step_starts_than_steps_keeps_the_whole_log": (
+        [("Licenses", "success", 10, 12), ("Strings", "failure", 20, 22)],
+        [("Licenses", 11, NEGATIVE_CASE),
          ("Strings", 20, "##[group]Run node gen-strings.mjs"), ("Strings", 21, "settings: 42 strings missing"),
          ("Strings", 21, "##[error]Process completed with exit code 1.")],
         [NEGATIVE_CASE, "settings: 42 strings missing"],
@@ -6672,8 +6754,14 @@ class StepOwnership(unittest.TestCase):
     def test_duplicate_names(self):
         self.check("duplicate_names")
 
-    def test_composite_action_keeps_the_whole_log(self):
-        self.check("composite_action_keeps_the_whole_log")
+    def test_composite_action(self):
+        self.check("composite_action")
+
+    def test_composite_action_in_a_shared_second(self):
+        self.check("composite_action_in_a_shared_second")
+
+    def test_fewer_step_starts_than_steps_keeps_the_whole_log(self):
+        self.check("fewer_step_starts_than_steps_keeps_the_whole_log")
 
     def test_a_section_outside_its_steps_times_keeps_the_whole_log(self):
         self.check("a_section_outside_its_steps_times_keeps_the_whole_log")
@@ -6696,6 +6784,231 @@ class StepOwnership(unittest.TestCase):
         github.logs = {1: framed_log(lines, name), 2: framed_log(old, name)}
         with self.assertRaisesRegex(excuse.Refused, "New.swift"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+
+# The STEP_OWNERSHIP cases through step_lines' callers. Every step gets a test-named name (" tests"), each line a
+# passing step printed (a `dropped` text, or the negative case) becomes a quarantined test's failure, FLAKE, and, with
+# OWN, the failed step's own section ends with another test's failure, OWN. With OWN the steps whose lines step_lines
+# can tell (STEP_LINES_TOLD) name OWN alone and every other case is refused; without it the failed step names no
+# test, so the passing steps' FLAKE never explains it.
+FLAKE = "✘ Test sometimes() recorded an issue at A.swift:1:2: Expectation failed: ready == true"
+OWN = "✘ Test own() recorded an issue at B.swift:3:4: Expectation failed: done == true"
+STEP_LINES_TOLD = {"same_second_ending", "short_continue_on_error", "exit_line_across_the_boundary",
+                   "duplicate_names", "composite_action"}
+
+
+def callers_case(case, columns=False, own=True):
+    """(job, log, package) for STEP_OWNERSHIP[CASE] as described above."""
+    steps, lines, _, dropped = STEP_OWNERSHIP[case]
+    steps = [(f"{name} tests", conclusion, start, end) for name, conclusion, start, end in steps]
+    lines = [(f"{step} tests", second, FLAKE if text in dropped or text == NEGATIVE_CASE else text)
+             for step, second, text in lines]
+    assert [conclusion for _, conclusion, _, _ in steps][-1] == "failure", case  # the failed step is the last
+    if own:
+        lines.append((lines[-1][0], lines[-1][1], OWN))
+    job = {"name": "package tests", "steps": framed_steps(steps)}
+    return job, framed_log(lines, columns=columns), {"steps": tuple(name for name, _, _, _ in steps)}
+
+
+class StepOwnershipCallers(unittest.TestCase):
+    """package_tests and quarantined_only read a failed step's lines through step_lines, which shares failed_steps_log's
+    owner (step_owners): never a step's name, never whole-second windows alone. Fail closed: package_tests refuses (the
+    package red is not excused) and quarantined_only answers False (not excused by quarantine) whenever the failed
+    step's own lines cannot be told."""
+
+    def test_every_step_ownership_case_through_package_tests(self):
+        for case in STEP_OWNERSHIP:
+            for columns in (False, True):
+                job, log_text, package = callers_case(case, columns)
+                with self.subTest(case=case, columns=columns):
+                    if case in STEP_LINES_TOLD:
+                        self.assertEqual(excuse.package_tests(package, job, log_text), ["own()"])
+                    else:
+                        with self.assertRaises(excuse.Refused):
+                            excuse.package_tests(package, job, log_text)
+
+    def test_every_step_ownership_case_through_quarantined_only(self):
+        # The passing steps' quarantined failure never explains the failed step, whose own lines name no test.
+        for case in STEP_OWNERSHIP:
+            for columns in (False, True):
+                job, log_text, _ = callers_case(case, columns, own=False)
+                with self.subTest(case=case, columns=columns):
+                    self.assertFalse(excuse.quarantined_only(job, log_text, {"sometimes()": "hq#1"}))
+
+    def test_step_lines_gives_the_failed_step_its_own_lines_only(self):
+        for case in STEP_OWNERSHIP:
+            job, log_text, _ = callers_case(case)
+            placed = excuse.step_lines(job, log_text)
+            with self.subTest(case=case):
+                if case not in STEP_LINES_TOLD:
+                    self.assertTrue(placed is None or any(lines is None for step, lines in placed
+                                                          if step["conclusion"] == "failure"))
+                    continue
+                [mine] = [lines for step, lines in placed if step["conclusion"] == "failure"]
+                self.assertTrue(any(OWN in line for line in mine))
+                self.assertFalse(any(FLAKE in line for line in mine))
+
+    def test_a_quarantined_failure_in_its_own_step_is_still_excused(self):
+        # The positive side: the failed test step's own section names only quarantined tests.
+        steps = [("Build", "success", 3, 9), ("Unit tests", "failure", 10, 20)]
+        lines = [("Build", 3, "##[group]Run swift build"), ("Unit tests", 10, "##[group]Run swift test"),
+                 ("Unit tests", 19, FLAKE), ("Unit tests", 19, "##[error]Process completed with exit code 1.")]
+        for columns in (False, True):
+            with self.subTest(columns=columns):
+                self.assertTrue(excuse.quarantined_only({"name": "swift", "steps": framed_steps(steps)},
+                                                        framed_log(lines, columns=columns), {"sometimes()": "hq#1"}))
+
+
+# The step-name detector. A line of step_lines' callers and owner, or of anything else in base_red_excuse.py and
+# test_reds.py, never places or looks up a log line by a step's name: a read of a jobs-API step's "name" (`step["name"]`,
+# `step.get("name")`, on a step or a name bound from a job's steps[]) and a read of `gh run view --log`'s step column
+# (index 1 of a line split on tabs) each need a marker on their line naming why the name is read:
+#   `# step-name: display`   a message or audit line names the step;
+#   `# step-name: classify`  which declared workflow step this is (SETUP_STEPS, COMPILE_STEPS, PACKAGE_JOBS' steps,
+#                            GUARD_GROUP_STEP, the gallery and webview steps, the failed steps signature compares).
+# Placing a line in a step is step_owners' alone, by the log's order.
+STEP_NAME_FILES = ("scripts/ci/base_red_excuse.py", "scripts/ci/test_reds.py")
+STEP_NAME_MARKER = re.compile(r"#\s*step-name:\s*([\w-]+)")
+STEP_NAME_USES = ("display", "classify")
+
+
+def by_name_step_lookups(source, path="<source>"):
+    """Each line of SOURCE that reads a step's name or `gh run view --log`'s step column without a STEP_NAME_USES
+    marker, as `PATH:LINE: why: text`."""
+    import ast
+    tree = ast.parse(source)
+    text = source.splitlines()
+
+    def root(node):
+        while isinstance(node, (ast.Subscript, ast.Attribute, ast.Call)):
+            node = node.func if isinstance(node, ast.Call) else node.value
+        return node.id if isinstance(node, ast.Name) else ""
+
+    def targets(node):
+        return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+    def steps_key(node):
+        return isinstance(node, ast.Constant) and node.value == "steps"
+
+    def yields_steps(node, tainted):
+        """NODE is a job's steps[] or a step of it: `X["steps"]`, `X.get("steps")`, a name bound from one, or a list,
+        sort, item or comprehension of those."""
+        if isinstance(node, ast.Name):
+            return node.id in tainted
+        if isinstance(node, ast.Subscript):
+            return steps_key(node.slice) or yields_steps(node.value, tainted)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            return bool(node.args) and steps_key(node.args[0])
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in (
+                "sorted", "list", "reversed", "next", "iter", "enumerate", "zip"):
+            return any(yields_steps(arg, tainted) for arg in node.args)
+        if isinstance(node, ast.BoolOp):
+            return any(yields_steps(value, tainted) for value in node.values)
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            bound = set(tainted)
+            for generator in node.generators:
+                if yields_steps(generator.iter, bound):
+                    bound |= targets(generator.target)
+            return yields_steps(node.elt, bound)
+        return False
+
+    def tab_split(node):
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "split"
+                and bool(node.args) and isinstance(node.args[0], ast.Constant) and node.args[0].value == "\t")
+
+    def own(scope):
+        """The nodes of SCOPE outside the functions it defines."""
+        stack = list(ast.iter_child_nodes(scope))
+        while stack:
+            node = stack.pop()
+            yield node
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                stack.extend(ast.iter_child_nodes(node))
+
+    def a_step(node, tainted):
+        return yields_steps(node, tainted) or root(node) in tainted or "step" in root(node).lower()
+
+    found = {}
+    for scope in [tree, *(n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                                                        ast.Lambda)))]:
+        tainted, columns = set(), set()
+        changed = True
+        while changed:
+            changed = False
+            for node in own(scope):
+                pairs = []
+                if isinstance(node, ast.Assign):
+                    pairs = [(target, node.value) for target in node.targets]
+                elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+                    pairs = [(node.target, node.value)]
+                elif isinstance(node, (ast.For, ast.comprehension)):
+                    pairs = [(node.target, node.iter)]
+                for target, value in pairs:
+                    if yields_steps(value, tainted) and not targets(target) <= tainted:
+                        tainted |= targets(target)
+                        changed = True
+                    if tab_split(value):
+                        columns |= targets(target)
+        for node in own(scope):
+            why = None
+            if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+                if node.slice.value == "name" and a_step(node.value, tainted):
+                    why = "reads a step's name"
+                elif node.slice.value == 1 and (tab_split(node.value) or (isinstance(node.value, ast.Name)
+                                                                         and node.value.id in columns)):
+                    why = "reads `gh run view --log`'s step column"
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
+                  and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == "name"
+                  and a_step(node.func.value, tainted)):
+                why = "reads a step's name"
+            if why is None:
+                continue
+            marker = STEP_NAME_MARKER.search(text[node.lineno - 1])
+            if marker and marker.group(1) in STEP_NAME_USES:
+                continue
+            found[node.lineno] = f"{path}:{node.lineno}: {why}: {text[node.lineno - 1].strip()}"
+    return [found[line] for line in sorted(found)]
+
+
+class NoStepLookupByName(unittest.TestCase):
+    """Detector: no by-name step lookup in base_red_excuse.py or test_reds.py (STEP_NAME_FILES). Every log line's step is
+    step_owners' (by the log's order); a step's name is read only for display or to classify a declared step, each
+    marked on its line. cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md."""
+
+    def test_no_step_is_looked_up_by_name(self):
+        found = [line for path in STEP_NAME_FILES for line in by_name_step_lookups((ROOT / path).read_text(), path)]
+        self.assertEqual(found, [], "a step's name placed or looked up a line; place lines with step_owners, or mark "
+                                    "a display or classify read `# step-name: display|classify`:\n" + "\n".join(found))
+
+    def test_it_finds_name_and_window_placement(self):
+        # The shapes step_lines had before it shared step_owners.
+        source = "\n".join([
+            "def step_lines(job, head_log, only=None):",
+            "    metadata = [step for step in job.get('steps') or [] if step.get('conclusion') != 'skipped'",
+            "                and (only is None or step.get('name') in only)]",
+            "    names = [found.get('name') for found in metadata]",
+            "    by_step = {}",
+            "    for line in head_log.splitlines():",
+            "        parts = line.split('\\t', 2)",
+            "        by_step.setdefault(parts[1], []).append(parts[2])",
+            "    first = job['steps'][0]['name']",
+            "    column = head_log.split('\\t')[1]",
+            "    windows = [(item['name'], 0) for item in sorted(job.get('steps'), key=len)]",
+            "    return by_step"])
+        self.assertEqual([line.split(":")[1] for line in by_name_step_lookups(source)],
+                         ["3", "4", "8", "9", "10", "11"])
+
+    def test_it_allows_marked_reads_and_other_names(self):
+        source = "\n".join([
+            "def ok(job, check, crates):",
+            "    said = job['steps'][0].get('name')  # step-name: display",
+            "    setup = [step.get('name') for step in job.get('steps')]  # step-name: classify",
+            "    other = job.get('name'), check['name'], [crate.get('name') for crate in crates]",
+            "    stamp = job['line'].split('\\t', 2)[2]",
+            "    wrong = job['steps'][0]['name']  # step-name: placement",
+            "    return said, setup, other, stamp, wrong"])
+        self.assertEqual([line.split(":")[1] for line in by_name_step_lookups(source)], ["6"])
 
 
 if __name__ == "__main__":
