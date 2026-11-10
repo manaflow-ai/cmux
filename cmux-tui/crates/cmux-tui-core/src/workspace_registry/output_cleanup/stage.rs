@@ -14,8 +14,8 @@ use anyhow::Context as _;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::super::{
-    open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
-    required_meta,
+    meta_value, open_registry_database, open_registry_database_read_only,
+    open_registry_database_with_flags, required_meta,
 };
 use super::build::{Build, BuildControl, CaughtUp, build, catch_up, ensure_build_state, set_state};
 use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
@@ -137,7 +137,10 @@ fn stage_registry_until_stopped(
         .with_context(|| format!("open workspace registry {}", db_path.display()))?;
     source.busy_timeout(Duration::from_secs(5))?;
     stop_reads_on(&source, control.stopped.clone())?;
-    if let Some(reason) = refusal_memo(db_path, journal_head(&source)?) {
+    // The memo is of one registry: another one at this path (restored,
+    // rehomed) is not covered by it.
+    let identity = meta_value(&source, "registry_id")?;
+    if let Some(reason) = refusal_memo(db_path, identity.as_deref(), journal_head(&source)?) {
         return Ok(StageOutcome::Skipped(reason));
     }
     if !output_present(&source)? && !session_puts_present(&source)? {
@@ -186,7 +189,7 @@ fn stage_registry_until_stopped(
     if let Some(reason) = abandoned {
         drop(staging);
         remove_staging(db_path)?;
-        write_refusal_memo(db_path, journal_head(&source)?, &reason);
+        write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
         return Ok(StageOutcome::Skipped(reason));
     }
     // Until the owner stops: the records it appends go into the built
@@ -198,7 +201,7 @@ fn stage_registry_until_stopped(
             CaughtUp::Abandoned(reason) => {
                 drop(staging);
                 remove_staging(db_path)?;
-                write_refusal_memo(db_path, journal_head(&source)?, &reason);
+                write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
                 return Ok(StageOutcome::Skipped(reason));
             }
         }
@@ -334,25 +337,28 @@ fn journal_head(source: &Connection) -> anyhow::Result<u64> {
     Ok(u64::try_from(head)?)
 }
 
-/// Records that staging finished and was refused at journal head `head`,
-/// so later starts do not stage the same journal again (each would copy it
-/// all and be refused the same way). Best effort: without the memo the next
-/// start stages again.
-fn write_refusal_memo(db_path: &Path, head: u64, reason: &str) {
-    let memo = format!("format {STAGING_FORMAT}\nhead {head}\n{reason}\n");
+/// Records that staging of registry `registry_id` finished and was refused
+/// at journal head `head`, so later starts do not stage the same journal
+/// again (each would copy it all and be refused the same way). Best effort:
+/// without the memo the next start stages again.
+fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str) {
+    let memo = format!("format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\n");
     if let Err(error) = std::fs::write(refused_path(db_path), memo) {
         eprintln!("cmux-tui: output cleanup: could not record the refusal: {error}");
     }
 }
 
 /// `Some(reason)` while a refusal memo covers this journal: same staging
-/// format, and the journal head below twice the head it was refused at. A
-/// memo past that (or unreadable) is removed and the cleanup runs again.
-fn refusal_memo(db_path: &Path, head: u64) -> Option<String> {
+/// format, the same registry (`registry_id`; a memo of another registry, or
+/// one written before memos named it, covers nothing), and the journal head
+/// below twice the head it was refused at. A memo past that (or unreadable)
+/// is removed and the cleanup runs again.
+fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<String> {
     let path = refused_path(db_path);
     let text = std::fs::read_to_string(&path).ok()?;
     let mut lines = text.lines();
     let format = lines.next().and_then(|line| line.strip_prefix("format "));
+    let registry = lines.next().and_then(|line| line.strip_prefix("registry "));
     let refused_at = lines
         .next()
         .and_then(|line| line.strip_prefix("head "))
@@ -360,6 +366,8 @@ fn refusal_memo(db_path: &Path, head: u64) -> Option<String> {
     let reason = lines.next().unwrap_or_default();
     if let Some(refused_at) = refused_at
         && format == Some(STAGING_FORMAT)
+        && registry.is_some()
+        && registry == registry_id
         && head < refused_at.saturating_mul(2)
     {
         return Some(format!(

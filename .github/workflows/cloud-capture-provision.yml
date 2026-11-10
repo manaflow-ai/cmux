@@ -15,6 +15,10 @@ name: Cloud capture account provision
 # hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production). The log names the
 # account's Stack user id (not a secret). grant_email never runs against production.
 #
+# With `target: production-team`, the same for a second production account (cmux-cloud-capture-prod-team@manaflow.dev),
+# sealed to cmuxterm-hq cloud-capture as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the probe's shared-team
+# row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team the probe account must stay out of.
+#
 # With `target: journey-production`, the same for the production Cloud journey's own account
 # (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 # CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml and backend.yml journey-production).
@@ -39,9 +43,9 @@ on:
         required: false
         default: ""
       target:
-        description: "capture: the staging capture account. production: the production probe account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests. platform-staging, platform-production: cmux-platform's deploy journeys"
+        description: "capture: the staging capture account. production: the production probe account. production-team: the production probe's shared-team account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests. platform-staging, platform-production: cmux-platform's deploy journeys"
         type: choice
-        options: [capture, production, journey-production, journey-guest, platform-staging, platform-production]
+        options: [capture, production, production-team, journey-production, journey-guest, platform-staging, platform-production]
         default: capture
 
 permissions:
@@ -57,7 +61,7 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each target's own server key: the script refuses a key whose project is not the target's.
-    environment: ${{ (inputs.target == 'production' || inputs.target == 'journey-production' || inputs.target == 'platform-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
+    environment: ${{ (inputs.target == 'production' || inputs.target == 'production-team' || inputs.target == 'journey-production' || inputs.target == 'platform-production') && 'cloud-vm-production' || 'cloud-vm-staging' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -79,7 +83,7 @@ jobs:
           fi
 
       - name: Grant the operator plan only
-        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'journey-production' && inputs.target != 'platform-production'
+        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'production-team' && inputs.target != 'journey-production' && inputs.target != 'platform-production'
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
