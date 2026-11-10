@@ -43,8 +43,8 @@ extension AppServices {
                                 actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
         }
         // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
-        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, snapshots: { [weak self] in
-            self?.machines.daemons.filter { $0.supports(DaemonCapability.tabAttentionRequestID.rawValue) }.map { AttentionTabsWatch.Snapshot(machine: $0.machineID, store: $0.store) }
+        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, machines: { [weak self] in
+            self?.machines.daemons.filter { $0.supports(DaemonCapability.tabAttentionRequestID.rawValue) }.map { (machine: $0.machineID, store: $0.store) }
         }, onChange: { [weak self] items, eligibleRequests in
             self?.notifications.attention.marksChanged(items, eligibleRequests: eligibleRequests)
         })

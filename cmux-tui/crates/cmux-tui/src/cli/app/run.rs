@@ -61,8 +61,9 @@ pub(in crate::cli) const NOT_RUN_DEADLINE_FLOOR: Duration = Duration::from_secs(
 /// refuses forever ends in milliseconds.
 pub(in crate::cli) fn not_run_deadline(timeout: Option<Duration>) -> Duration {
     #[cfg(debug_assertions)]
-    if let Some(ms) =
-        std::env::var("CMUX_TEST_NOT_RUN_DEADLINE_MS").ok().and_then(|value| value.parse::<u64>().ok())
+    if let Some(ms) = std::env::var("CMUX_TEST_NOT_RUN_DEADLINE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
     {
         return Duration::from_millis(ms);
     }
@@ -80,7 +81,26 @@ pub(in crate::cli) fn request_with_retry(
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
-    request_with_retry_until(stream, method, params, timeout, Instant::now() + not_run_deadline(timeout))
+    request_with_retry_until(
+        stream,
+        method,
+        params,
+        timeout,
+        Instant::now() + not_run_deadline(timeout),
+    )
+}
+
+/// [`request_with_retry`] for a caller with its own shorter budget (an MCP tool call, which its client times
+/// out): not-run refusals are asked again only until `timeout` from now, never the
+/// [`NOT_RUN_DEADLINE_FLOOR`] a person's command waits.
+pub(in crate::cli) fn request_with_retry_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let budget = timeout.min(not_run_deadline(Some(timeout)));
+    request_with_retry_until(stream, method, params, Some(timeout), Instant::now() + budget)
 }
 
 /// [`request_with_retry`] against one absolute `deadline` that a caller's reconnects share. The last wait is cut
@@ -102,7 +122,10 @@ pub(in crate::cli) fn request_with_retry_until(
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
                     if let Some(data) = error.get_mut("data").and_then(Value::as_object_mut) {
-                        data.insert("not_run_waited_ms".into(), json!(started.elapsed().as_millis()));
+                        data.insert(
+                            "not_run_waited_ms".into(),
+                            json!(started.elapsed().as_millis()),
+                        );
                         data.insert("not_run_retries".into(), json!(retries));
                     }
                     return Ok(Err(error));
@@ -119,7 +142,10 @@ pub(in crate::cli) fn request_with_retry_until(
 /// [`MAX_RETRY_WAIT`].
 pub(in crate::cli) fn retry_wait(error: &Value, retries: u32) -> Duration {
     // A floor keeps an app that asks for 0 ms from turning the wait into a spin.
-    busy_retry_delay(error).max(MIN_RETRY_WAIT).saturating_mul(2u32.saturating_pow(retries.min(16))).min(MAX_RETRY_WAIT)
+    busy_retry_delay(error)
+        .max(MIN_RETRY_WAIT)
+        .saturating_mul(2u32.saturating_pow(retries.min(16)))
+        .min(MAX_RETRY_WAIT)
 }
 
 /// Whether a request may be sent again on a new connection after the app

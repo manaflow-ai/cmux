@@ -520,7 +520,7 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
                              [--cwd DIR | --from-folder PATH]
                              [--login pass|machine|none] [--environment ENV]
                              [--name VM | --target vm:VM_ID]
-                             [--wait] [--timeout SECONDS] [--json]
+                             [--wait] [--timeout SECONDS] [--make-room] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
@@ -552,6 +552,9 @@ older name; both run the same start.
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
+  --make-room        At a machine cap, free the machine the refusal offers
+                     (a leftover it names is deleted; else the paused one
+                     used longest ago is archived and deleted) and start again
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
 plus reply with --wait, or sent: false and ready_ms with no prompt, and
@@ -569,6 +572,27 @@ Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
 app ask first with a card in that chat (Start, Not now); `cmux agents dialog
 list` lists it.
+";
+
+/// The CLI's own cleanup verbs, not app actions (cloud_retention.rs runs them).
+pub(super) const KEEP: &str = "keep-machine";
+pub(super) const ARCHIVE: &str = "archive-machine";
+
+pub(super) const KEEP_USAGE: &str = "\
+usage: cmux vm keep-machine --target vm:VM_ID [--off] [--json]
+
+Keeps a machine: nothing deletes it automatically, whatever the plan's
+cleanup. --off lets the plan's cleanup apply again. The machine's creator or
+a team admin only.
+";
+
+pub(super) const ARCHIVE_USAGE: &str = "\
+usage: cmux vm archive-machine --target vm:VM_ID --confirm [--json]
+
+Archives a paused machine's disk, then deletes the machine. The archive is a
+snapshot kept for the plan's archive days; the Cloud page's Archives list it
+and restore it as a new machine. It needs a person: when the CLI may not run
+it, it says where the app offers it.
 ";
 
 /// The new spelling of a hidden old verb.
@@ -615,6 +639,11 @@ pub(super) fn overview(japanese: bool) -> String {
     } else {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
+    text.push_str(if japanese {
+        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --confirm  一時停止中のマシンをアーカイブして削除 (--confirm)\n"
+    } else {
+        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --confirm  Archive a paused machine's disk, then delete it (--confirm)\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     // `cmux cloud` is now `cmux vm` (vm.rs `cloud_alias`); the texts keep one spelling.
@@ -630,6 +659,12 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == START_CHAT {
         return Some(START_CHAT_USAGE.to_owned());
+    }
+    if name == KEEP {
+        return Some(KEEP_USAGE.to_owned());
+    }
+    if name == ARCHIVE {
+        return Some(ARCHIVE_USAGE.to_owned());
     }
     let verb = find(name)?;
     let usage = usage_line(verb);
