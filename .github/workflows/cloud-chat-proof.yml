@@ -484,6 +484,9 @@ jobs:
           sparse-checkout: scripts
 
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Materialize the production agent profile
         env:
           STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
