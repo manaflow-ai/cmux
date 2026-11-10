@@ -24,7 +24,13 @@ impl PtySurface {
         bytes: &[u8],
         history: Option<crate::output_store::HistoryRows>,
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
+        mux.output_store.append_cached(
+            &self.output_log,
+            &terminal_id,
+            &self.journal_generation,
+            bytes,
+            history,
+        );
     }
 
     /// Journals an accepted geometry change without a wait: callers hold the
