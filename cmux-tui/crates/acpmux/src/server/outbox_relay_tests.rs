@@ -296,3 +296,32 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
     assert_eq!(d.state, State::Delivering);
     assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
 }
+
+/// A send whose record cannot be written is refused, so the sender knows to send it again, and
+/// nothing of it is kept: no delivery from memory, no attachments beside the file.
+#[tokio::test]
+async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
+    let (hub, fake) = setup(FakeHub::default());
+    let dir = std::env::temp_dir().join(format!("outbox-not-saved-{}", uuid::Uuid::now_v7()));
+    // A folder where `outbox.json` should be: its write fails, also for root, while the
+    // attachments beside it can still be written.
+    let path = dir.join("outbox.json");
+    std::fs::create_dir_all(&path).unwrap();
+    hub.outbox.open(&path);
+    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let mut params = request("huge-blue/lane", "prompt-not-saved");
+    params["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
+    let error = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap_err();
+    assert_eq!(error["data"]["reason"], "outbox.not_saved", "{error}");
+    assert_eq!(error["data"]["retryable"], true, "{error}");
+    assert!(hub.outbox.list(None, 10).0.is_empty(), "kept in memory only");
+    let kept: Vec<_> = std::fs::read_dir(dir.join("outbox-attachments"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert!(kept.is_empty(), "attachments of a refused send are left: {kept:?}");
+    assert!(fake.sent.lock().unwrap().is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

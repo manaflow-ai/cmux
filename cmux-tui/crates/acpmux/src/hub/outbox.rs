@@ -723,6 +723,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// An add whose write fails is not kept: the sender is told so, and neither this daemon nor
+    /// a restart delivers it. Nor does a later write that succeeds bring it back.
+    #[test]
+    fn an_add_whose_write_fails_is_not_kept() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A regular file where the folder should be fails the write, also for root.
+        let blocked = dir.join("blocked");
+        std::fs::write(&blocked, b"block").unwrap();
+        let path = blocked.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        outbox.open(&path);
+        outbox.add(delivery(1));
+        assert!(outbox.get("d-1").is_none(), "a delivery not on disk is still in memory");
+        // Adds that share one failed write all fail, the same prompt id again among them.
+        let held = outbox.saved.lock().unwrap();
+        let adds: Vec<_> = [2, 3, 2]
+            .into_iter()
+            .enumerate()
+            .map(|(n, d)| {
+                let outbox = outbox.clone();
+                let mut d = delivery(d);
+                d.id = format!("d-{n}-again");
+                std::thread::spawn(move || {
+                    outbox.add(d);
+                })
+            })
+            .collect();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        drop(held);
+        for add in adds {
+            add.join().unwrap();
+        }
+        assert_eq!(outbox.list(None, 10).0.len(), 0, "a delivery not on disk is still in memory");
+        std::fs::remove_file(&blocked).unwrap();
+        std::fs::create_dir(&blocked).unwrap();
+        outbox.add(delivery(4));
+        let restarted = Outbox::default();
+        let pending: Vec<_> = restarted.open(&path).into_iter().map(|d| d.id).collect();
+        assert_eq!(pending, ["d-4"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A retry of a prompt whose first add is still writing answers only once the file holds it.
     #[test]
     fn a_duplicate_add_returns_once_the_first_is_on_disk() {
