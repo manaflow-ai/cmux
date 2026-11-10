@@ -329,9 +329,21 @@ SIGNING_JOB = re.compile(
     r"|softprops/action-gh-release", re.IGNORECASE)
 
 
+SIGNING_SECRET_PREFIXES = ("APPLE", "SIGN", "CMUX_RELEASE", "NOTARY")
+
+
 def holds_signing_material(job) -> bool:
+    """A signing tool or upload in the job, or a signing secret read in any form workflow_jobs knows
+    (`secrets['APPLE_X']`, lowercase, `toJSON(secrets)`, `secrets: inherit`), not only `secrets.APPLE_X`."""
+    import sys
     import yaml
-    return SIGNING_JOB.search(yaml.safe_dump(job)) is not None
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import workflow_jobs
+    if SIGNING_JOB.search(yaml.safe_dump(job)) is not None:
+        return True
+    names = workflow_jobs.secret_names(job)
+    return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
 
 
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:

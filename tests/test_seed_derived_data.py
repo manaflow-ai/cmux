@@ -18,6 +18,9 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import seed_derived_data as seed  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+from workflow_jobs import holds_secret  # noqa: E402
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
 FAKE_R2 = """#!/usr/bin/env bash
@@ -679,7 +682,7 @@ class SeedDerivedData(unittest.TestCase):
 
 
 def load(workflow):
-    return yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+    return workflow_jobs.document(ROOT / ".github/workflows" / workflow)
 
 
 def steps(workflow, job):
@@ -718,11 +721,6 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
                                      "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
-
-
-def holds_secret(job):
-    """secrets.* anywhere, `secrets: inherit`, or an environment (tests/test_ci_runner_pool_reconcile.py)."""
-    return "secrets." in yaml.safe_dump(job) or job.get("secrets") == "inherit" or bool(job.get("environment"))
 
 
 def signing_nightly_jobs(jobs):
@@ -994,8 +992,8 @@ class Wiring(unittest.TestCase):
         probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
         self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
         self.assertNotIn("cache-save", probe)
-        self.assertNotIn("secrets.", probe)
-        self.assertNotIn("secrets.", json.dumps(adopt))
+        self.assertEqual(workflow_jobs.secret_names(workflow_jobs.document(probe)), set())
+        self.assertEqual(workflow_jobs.secret_names(adopt), set())
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
         workflow = load("seed-derived-data.yml")
@@ -1326,7 +1324,7 @@ class Wiring(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True)
         self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
         self.assertIn("matrix.pool == needs.decide.outputs.publisher", package["if"])
-        self.assertNotIn("secrets.", json.dumps([package, upload]))
+        self.assertEqual(workflow_jobs.secret_names([package, upload]), set())
 
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
@@ -1510,8 +1508,11 @@ class Wiring(unittest.TestCase):
         side = "glaeda-side-std-xcode-26.6"
         runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.owned "
                    + OWNED_ONLY_NIGHTLY_FALLBACK)
-        for name in ("staple-fixture-nightly", "verify-signed-nightly"):
-            job = {"runs-on": runs_on, "steps": [{"run": "codesign", "env": {"P": "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"}}]}
+        for name, secret in (("staple-fixture-nightly", "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"),
+                             ("verify-signed-nightly", "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}"),
+                             # Read only by bracket: no `secrets.` anywhere in the job (Codex, #40754 review).
+                             ("staple-bracket-fixture-nightly", "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}")):
+            job = {"runs-on": runs_on, "steps": [{"run": "codesign", "env": {"P": secret}}]}
             with self.subTest(job=name):
                 jobs = {**load("nightly.yml")["jobs"], name: job}
                 self.assertIn(name, signing_nightly_jobs(jobs))
@@ -1522,6 +1523,15 @@ class Wiring(unittest.TestCase):
         # The same job without the secret keeps the owned-only route it is exempt for.
         clean = {"runs-on": runs_on, "steps": [{"run": "true"}]}
         self.assertIsNone(late_attempt_failure("nightly.yml", "verify-signed-nightly", clean, runs_on, [side], side))
+        # The positive half: a bracket-secret job on the signer's label alone passes.
+        signer_route = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                        "needs.pick-nightly-sign-runner.outputs.owned " + SIGNING_NIGHTLY_FALLBACK)
+        signed = {"runs-on": signer_route,
+                  "steps": [{"run": "codesign", "env": {"P": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}]}
+        jobs = {**load("nightly.yml")["jobs"], "staple-signer-fixture-nightly": signed}
+        self.assertIn("staple-signer-fixture-nightly", signing_nightly_jobs(jobs))
+        self.assertIsNone(late_attempt_failure("nightly.yml", "staple-signer-fixture-nightly", signed, signer_route,
+                                               ["glaeda-trusted-next-signing"], side))
 
     def test_no_retry_attempt_of_any_workflow_takes_an_owned_label(self):
         # Every macOS job an owned mini may take, in every workflow: with the

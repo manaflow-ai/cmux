@@ -14,9 +14,12 @@ import subprocess
 import tempfile
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+import workflow_jobs  # noqa: E402
+from workflow_jobs import holds_secret  # noqa: E402
 
 import yaml
 
@@ -25,7 +28,7 @@ from test_ci_fork_runner_routing import parse_expression
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
-DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
+DOC = workflow_jobs.document(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu on every attempt, never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 # They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
@@ -80,14 +83,6 @@ SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'p
 CONTROL_ANCHORS = {'decide', 'route-visual-gate-nightly', 'attest-nightly-remote-daemon', 'published-in'}
 
 
-def holds_secret(job):
-    """A job holds a secret if it reads secrets.* anywhere, passes them all on with `secrets: inherit`, or runs
-    under an environment (which carries its own secrets): tests/test_ci_runner_pool_reconcile.py's is_credentialed,
-    over the parsed job."""
-    return ('secrets.' in yaml.safe_dump(job) or job.get('secrets') == 'inherit'
-            or bool(job.get('environment')))
-
-
 def holds_credential(job):
     """A secret, or a token that can write: id-token, attestations, pull requests, issues, actions or contents."""
     permissions = job.get('permissions')
@@ -97,7 +92,7 @@ def holds_credential(job):
 
 
 def secret_jobs(doc):
-    return {name for name, job in doc['jobs'].items() if holds_secret(job)}
+    return {name for name, job in workflow_jobs.jobs(doc).items() if holds_secret(job)}
 
 
 def unclassified_secret_jobs(doc):
@@ -109,7 +104,7 @@ def credentialed_control_jobs(doc):
     """Every Linux control that holds a credential, outside the hosted secret jobs and the signer route (whose
     jobs end on the signer's label, test_nightly_sign_runner.py and the publish tests): derived, not kept by hand."""
     found = set()
-    for name, job in doc['jobs'].items():
+    for name, job in workflow_jobs.jobs(doc).items():
         runs_on = job.get('runs-on', '')
         if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
             continue
@@ -583,12 +578,25 @@ class NightlyTrustedRouting(unittest.TestCase):
             ('matrix-fixture-nightly', matrix, {'strategy': {'matrix': {'pool': [NIGHTLY_ONLY]}},
                                                 'steps': [{'run': 'true', 'env': {'T': '${{ secrets.SENTRY_AUTH_TOKEN }}'}}]}),
             ('inherit-fixture-nightly', None, {'uses': './.github/workflows/x.yml', 'secrets': 'inherit'}),
+            # Read only by bracket: no `secrets.` anywhere in the job (Codex, #40754 review).
+            ('bracket-fixture-nightly', hosted,
+             {'steps': [{'run': 'sentry-cli upload', 'env': {'T': "${{ secrets['SENTRY_AUTH_TOKEN'] }}"}}]}),
         ):
             with self.subTest(job=name):
                 doc = copy.deepcopy(DOC)
                 doc['jobs'][name] = {**({'runs-on': runs_on} if runs_on else {}), **extra}
                 self.assertIn(name, secret_jobs(doc))
                 self.assertEqual(unclassified_secret_jobs(doc), {name})
+
+    def test_a_new_secret_job_named_owned_stays_green(self):
+        """The positive half: the same bracket-secret job, once OWNED_SECRET_JOBS names it, is classified."""
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['bracket-fixture-nightly'] = {
+            'runs-on': f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{NIGHTLY_ONLY}' }}}}",
+            'steps': [{'run': 'sentry-cli upload', 'env': {'T': "${{ secrets['SENTRY_AUTH_TOKEN'] }}"}}]}
+        self.assertIn('bracket-fixture-nightly', secret_jobs(doc))
+        with mock.patch.dict(OWNED_SECRET_JOBS, {'bracket-fixture-nightly': 'fixture'}):
+            self.assertEqual(unclassified_secret_jobs(doc), set())
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_the_nightly_only_builder(self):
         cases = [
@@ -821,7 +829,7 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         for job in self.LIGHT:
             with self.subTest(job=job):
                 self.assertNotIn('environment', DOC['jobs'][job])
-                self.assertNotIn('secrets.', json.dumps(DOC['jobs'][job]))
+                self.assertEqual(workflow_jobs.secret_names(DOC['jobs'][job]), set())
                 self.assertNotIn('id-token', DOC['jobs'][job].get('permissions', {}))
 
     def test_only_the_light_jobs_read_the_placement(self):
@@ -1161,12 +1169,23 @@ class CredentialedControls(unittest.TestCase):
             ('comment-fixture-nightly', pool, {'permissions': {'contents': 'read', 'pull-requests': 'write'}}),
             ('dispatch-fixture-nightly', hosted_fallback, {'permissions': {'actions': 'write'}}),
             ('routing-fixture-nightly', hosted_fallback, {'environment': {'name': 'ci-routing-agent'}}),
+            ('bracket-fixture-nightly', hosted_fallback,
+             {'env': {'K': "${{ secrets[\"GLAEDA_ROUTE_APP_KEY\"] }}"}}),
         ):
             with self.subTest(job=name):
                 doc = copy.deepcopy(DOC)
                 doc['jobs'][name] = {'runs-on': runs_on, 'steps': [{'run': 'true'}], **extra}
                 self.assertIn(name, credentialed_control_jobs(doc))
                 self.assertEqual(set(control_route_failures(doc)), {name})
+
+    def test_a_new_credentialed_control_on_the_nightly_pool_stays_green(self):
+        """The positive half: a bracket-secret control on published-in's route takes no failure."""
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['bracket-control-fixture-nightly'] = {
+            'runs-on': DOC['jobs']['published-in']['runs-on'], 'steps': [{'run': 'true'}],
+            'env': {'K': "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}}
+        self.assertIn('bracket-control-fixture-nightly', credentialed_control_jobs(doc))
+        self.assertEqual(control_route_failures(doc), {})
 
     def test_credential_permissions_remain_scoped_to_each_control(self):
         for job, (field, expected) in CONTROL_SCOPES.items():
