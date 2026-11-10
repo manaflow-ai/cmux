@@ -117,8 +117,44 @@ struct TerminalRevealReportTests {
         watch.watch(probe: { waiting }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
         try await clock.waitForSleeper()
         clock.advance(by: TerminalBlankWatch.limit)
+        // The timer stops watching before its check runs on the main actor: yield all 50 times, so that a report
+        // of the waiting layer scale has the time to arrive.
         for _ in 0..<50 { await Task.yield() }
+        #expect(!watch.isWatching, "the check at the limit did not run")
         #expect(mismatch.items.isEmpty && blank.items.isEmpty, "a kept frame at its own scale, no frame since the reveal, was reported")
+    }
+
+    /// Review of #40174 (finding 3 of the second review): the session's own wiring of that check. A real terminal
+    /// shown again whose window then has another scale than Ghostty draws at (the terminal never took the new scale),
+    /// and that still has it at the limit: the session reports its reveal a second time, with the scales
+    /// disagreeing, and no blank pane. Without the session's `onScaleMismatch` the delegate gets nothing.
+    @Test func aRealTerminalWhoseScalesStillDisagreeAtTheLimitReportsItsRevealAgain() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        let view = fixture.session.surfaceView
+        fixture.session.view.isHidden = true
+        fixture.session.view.isHidden = false
+        let atReveal = try #require(fixture.recorder.revealed.last, "showing the terminal again reported nothing")
+        try #require(atReveal.scalesAgree, "the scales disagree at the reveal already: \(atReveal.message)")
+        fixture.recorder.revealed.removeAll()
+        // The window's scale changes and the terminal does not take it: Ghostty still draws at the old one.
+        let drawn = try #require(atReveal.contentScale, "the terminal has no content scale")
+        view.backingScaleOverride = drawn == 2 ? 1 : 2
+        // The check's task reads the clock when it starts, and an earlier reveal's cancelled check may still sleep:
+        // advance until the check of this reveal ran.
+        for _ in 0..<8 where fixture.recorder.revealed.isEmpty && fixture.session.blankWatch.isWatching {
+            guard (try? await fixture.clock.waitForSleeper(within: .milliseconds(500))) != nil else { break }
+            fixture.clock.advance(by: TerminalBlankWatch.limit)
+            for _ in 0..<50 where fixture.recorder.revealed.isEmpty { await Task.yield() }
+        }
+        // The timer may be taken in the last yield above: its report still needs its turn on the main actor.
+        for _ in 0..<50 where fixture.recorder.revealed.isEmpty { await Task.yield() }
+        #expect(!fixture.session.blankWatch.isWatching, "the check of this reveal did not run")
+        let again = try #require(fixture.recorder.revealed.last, "the scales still disagreed at the limit and the session reported nothing")
+        #expect(fixture.recorder.revealed.count == 1, "\(fixture.recorder.revealed.count) reports for one check")
+        #expect(!again.scalesAgree, "\(again.message)")
+        #expect(again.contentScale == drawn && again.windowScale == view.backingScaleOverride, "\(again.message)")
+        #expect(fixture.recorder.blank.isEmpty, "a terminal that shows a frame was reported blank")
     }
 
     // MARK: A real terminal shown again
@@ -176,6 +212,8 @@ struct TerminalRevealReportTests {
         let session: TerminalSession
         let window: NSWindow
         let recorder = Recorder()
+        /// The clock of the session's check after a reveal: a test advances it by hand.
+        let clock = ManualClock()
         private let drew: Bool
 
         init() async throws {
@@ -183,7 +221,7 @@ struct TerminalRevealReportTests {
             // The runner's window may report itself occluded (an app never in front): draw anyway.
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
-            session = TerminalSession(io: io, blankClock: ManualClock())
+            session = TerminalSession(io: io, blankClock: clock)
             session.delegate = recorder
             window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 640, height: 320), styleMask: [.borderless],
                               backing: .buffered, defer: false)

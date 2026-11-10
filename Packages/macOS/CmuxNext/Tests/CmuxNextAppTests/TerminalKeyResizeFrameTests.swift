@@ -49,10 +49,12 @@ import Testing
 /// - its pixel size is a size its pane had in this press, this frame or earlier (never a size of a later frame);
 /// - it is drawn 1:1 from the layer's top-left (`contentsGravity` top-left, the layer at the window's scale): an older
 ///   frame is cut or leaves the pane's ground at the right and the bottom, it is never stretched;
-/// - it took a new size in at least half of the spring frames (the layer's size no longer shows that: it is the
-///   area's), and it is the frame of an earlier size than its pane's ("behind") in at most 1 frame of 4. Both bounds
-///   are this port's choice, not a measured limit: aws-m4pro-3 (no display, load 6 to 40) gave a new size in 18 of
-///   27 spring frames (the spring's last frames move less than a device pixel) and 0 of 33 frames behind.
+/// - it took a new size in at least half of the frames in which its pane's area changed in device pixels (the
+///   layer's size no longer shows that: it is the area's; the spring's last frames move less than a device pixel, and
+///   fewer frames change a pixel at 1x than at 2x), and it has another pixel size than its pane's AREA ("behind") in
+///   at most a quarter of the sampled frames (the spring's and the landing's). Both bounds are this port's choice,
+///   not a measured limit: aws-m4pro-3 (no display, 2x, load 6 to 40) gave a new size in 18 of 27 spring frames and
+///   0 of 33 frames behind its layer.
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
@@ -84,11 +86,18 @@ struct TerminalKeyResizeFrameTests {
         // Review of #35470 (T1): the sizes allowed include the start size, so count the frames in which each terminal
         // showed a frame of a new size: a terminal that keeps one frame through the spring (the defect) fails here.
         var changes = Array(repeating: 0, count: before.count)
-        // Frames in which a terminal showed a frame of an earlier size of its pane: for the PR's numbers, not asserted.
+        // Frames in which a terminal showed a frame of another pixel size than its pane's area (the same rule as the
+        // divider drag test's): asserted below.
         var behind = Array(repeating: 0, count: before.count)
+        // Frames in which a terminal's area changed by a device pixel or more: what `changes` is compared with.
+        var moved = Array(repeating: 0, count: before.count)
         for index in 1..<frames.count {
-            for terminal in frames[index].indices where frames[index][terminal].shownPixels != frames[index - 1][terminal].shownPixels {
-                changes[terminal] += 1
+            for terminal in frames[index].indices {
+                let sample = frames[index][terminal], earlier = frames[index - 1][terminal]
+                if sample.shownPixels != earlier.shownPixels { changes[terminal] += 1 }
+                if abs(sample.area.width - earlier.area.width) * sample.scale >= 1 || abs(sample.area.height - earlier.area.height) * sample.scale >= 1 {
+                    moved[terminal] += 1
+                }
             }
         }
         for index in 1..<frames.count {
@@ -110,8 +119,8 @@ struct TerminalKeyResizeFrameTests {
                 if !had.contains(where: { abs($0.width * scale - shown.width) <= 1 && abs($0.height * scale - shown.height) <= 1 }) {
                     unsized.append("frame \(index) p\(terminal + 1): frame \(Self.text(shown)) px, area \(Self.text(sample.area)) at \(scale)x")
                 }
+                if abs(sample.area.width * scale - shown.width) > 1 || abs(sample.area.height * scale - shown.height) > 1 { behind[terminal] += 1 }
                 if abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
-                    behind[terminal] += 1
                     // A frame of another size than its layer is drawn 1:1 from the top-left, or it is stretched.
                     if !sample.drawnUnscaled {
                         stretched.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)) at \(scale)x, frame \(Self.text(shown)) px, gravity \(sample.gravity.rawValue)")
@@ -129,7 +138,7 @@ struct TerminalKeyResizeFrameTests {
         let sorted = intervals.sorted()
         let p = { (q: Double) in sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
         print("S4 key resize: \(steps) spring frames, one per refresh; main ms per frame (step + layout) p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
-              "PTY grids per terminal \(resizes); frames of a new size per terminal \(changes), frames behind their pane \(behind) of \(frames.count - 1); " +
+              "PTY grids per terminal \(resizes); frames of a new size per terminal \(changes) of \(moved) with a new area, frames behind their pane \(behind) of \(frames.count - 1); " +
               "misplaced \(misplaced.count), unsized \(unsized.count), stretched \(stretched.count), no frame \(frameless.count)")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
@@ -139,7 +148,9 @@ struct TerminalKeyResizeFrameTests {
         #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
-        #expect(changes.allSatisfy { $0 >= steps / 2 }, "a terminal showed a frame of a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+        try #require(moved.allSatisfy { $0 >= 4 }, "a terminal's area changed by a device pixel in only \(moved) frames: no spring to follow")
+        #expect(zip(changes, moved).allSatisfy { $0 * 2 >= $1 },
+                "a terminal showed a frame of a new size in only \(changes) of the \(moved) frames that changed its area: it did not follow its pane")
         #expect(behind.allSatisfy { $0 * 4 <= frames.count - 1 },
                 "a terminal showed the frame of an earlier size than its pane's in \(behind) of \(frames.count - 1) frames: it is behind its pane")
     }
@@ -202,6 +213,10 @@ struct TerminalKeyResizeFrameTests {
     /// steps faster than a display (its grid rule counts refreshes of the clock), so at this pace neither terminal
     /// shows a frame of a new size (27 of 27 for p1 at d703d217459e), and "p1 waited in more than 1 frame" proved
     /// nothing about the hold. The frames give no fact about mode 2026 here: the test sends it, and checks the grids.
+    /// What this test decides is the LAST grid: each PTY ends at its view's grid. Its "one grid per refresh" bound
+    /// counts the refreshes up to the rest (300 ms or more after the landing: 38 or more), which a spring of 27
+    /// frames cannot pass, so it is no check of "final, stale, final" here (review of #40174); the paced first test
+    /// has the binding bound.
     @Test func aTerminalWhoseFrameWaitsAtTheLandingEndsAtTheLandingsGrid() async throws {
         let screen = try await PaneScreen()
         defer { screen.close() }

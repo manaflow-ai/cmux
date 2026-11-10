@@ -5,8 +5,8 @@ public import CoreGraphics
 ///
 /// Reported once per reveal (``TerminalSessionDelegate/terminalSession(_:revealed:)``) and, when the
 /// pane still shows no frame 500 ms later, again as a blank pane
-/// (``TerminalSessionDelegate/terminalSession(_:blankAfterReveal:)``), or, when it drew and its layer's
-/// scale is still not the one Ghostty draws at, as a second reveal report with ``framesSinceReveal`` above 0.
+/// (``TerminalSessionDelegate/terminalSession(_:blankAfterReveal:)``), or, when it shows a frame and its
+/// scales disagree then (``scalesAgree``), as a second reveal report.
 /// It holds numbers only, never terminal text, so it may go to logs and crash telemetry as is.
 ///
 /// ```swift

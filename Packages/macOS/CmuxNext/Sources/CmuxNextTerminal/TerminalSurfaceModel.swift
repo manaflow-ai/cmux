@@ -69,8 +69,9 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// Copy/Paste/Select All menu.
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu?
     /// The terminal was shown again (``TerminalRevealReport``): numbers only, for logs and crash telemetry. Called
-    /// once more 500 ms later (``TerminalRevealReport/framesSinceReveal`` above 0) when the terminal drew and its
-    /// layer still shows frames at another scale than Ghostty draws at (tiny or huge text).
+    /// once more 500 ms later when the terminal is not blank and its scales disagree then
+    /// (``TerminalRevealReport/scalesAgree``: Ghostty draws at another scale than the window's, or a frame showed
+    /// since the reveal and the layer still has another scale than Ghostty draws at; tiny or huge text).
     func terminalSession(_ session: TerminalSession, revealed report: TerminalRevealReport)
     /// The terminal's pane still showed nothing 500 ms after it was shown again.
     func terminalSession(_ session: TerminalSession, blankAfterReveal report: TerminalRevealReport)
