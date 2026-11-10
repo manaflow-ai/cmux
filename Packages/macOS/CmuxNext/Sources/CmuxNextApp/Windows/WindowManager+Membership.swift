@@ -78,9 +78,8 @@ extension WindowManager {
             }
             var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
-            // or empty room keeps that room.
-            let waiting = claims.pending.values.contains(window.id)
-            if visible.isEmpty, !waiting,
+            // or empty room keeps that room (asked only when the room shows nothing).
+            if visible.isEmpty, !claims.pending.values.contains(window.id),
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
                 visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
