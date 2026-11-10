@@ -168,6 +168,7 @@ mod live {
                     count: 1,
                     modifiers: vec![],
                     delivery: Delivery::Background,
+                    gap: std::time::Duration::ZERO,
                 };
                 Ok(json(
                     &d.click(&PointerTarget::Element { window_id: w.id, element_id: id }, &spec)?,
@@ -181,6 +182,7 @@ mod live {
                     count: 1,
                     modifiers: vec![],
                     delivery: delivery(cmd.get(4)),
+                    gap: std::time::Duration::ZERO,
                 };
                 Ok(json(&d.click(&PointerTarget::Point { window_id: w.id, point }, &spec)?))
             }

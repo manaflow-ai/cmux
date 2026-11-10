@@ -165,6 +165,7 @@ fn live_desktop_end_to_end() {
         count: 1,
         modifiers: vec![],
         delivery: Delivery::Background,
+        gap: std::time::Duration::ZERO,
     };
     d.click(&PointerTarget::Point { window_id: w.id.clone(), point: center }, &spec)
         .expect("click");
@@ -178,6 +179,7 @@ fn live_desktop_end_to_end() {
         label: "live test".into(),
         at: center,
         button: "left".into(),
+        count: 1,
     });
     std::thread::sleep(Duration::from_millis(400));
     png("notepad-after.png", &d.capture(&CaptureTarget::Window(w.id.clone())).expect("capture"));

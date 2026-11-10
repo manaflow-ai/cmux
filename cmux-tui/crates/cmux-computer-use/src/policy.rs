@@ -57,6 +57,41 @@ impl Mode {
     }
 }
 
+/// How an acting call waits before it reports the window after acting.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SettleMode {
+    /// A fixed floor, then a check for change, with a ceiling (cmux).
+    #[default]
+    Adaptive,
+    /// Anthropic's computer-use reference tool: a fixed 2.0 s after every
+    /// action but typing, then a screenshot; typing in groups of 50
+    /// characters, 12 ms per key, then a screenshot at once.
+    Anthropic,
+    /// OpenAI's computer tool: the actions run, then the screenshot is taken
+    /// at once.
+    Openai,
+}
+
+impl SettleMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "adaptive" => Some(Self::Adaptive),
+            "anthropic" => Some(Self::Anthropic),
+            "openai" => Some(Self::Openai),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Adaptive => "adaptive",
+            Self::Anthropic => "anthropic",
+            Self::Openai => "openai",
+        }
+    }
+}
+
 /// The machine's Computer Use policy, from the cmux settings
 /// (`computerUse.*`) or, on a cloud VM, from its image.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -75,6 +110,9 @@ pub struct PolicyConfig {
     pub show_cursor: bool,
     /// A disposable cloud VM: unrestricted, no default deny list.
     pub cloud_vm: bool,
+    /// How acting calls wait before they report the window (a call's own
+    /// `settle` argument wins).
+    pub settle: SettleMode,
 }
 
 impl Default for PolicyConfig {
@@ -87,6 +125,7 @@ impl Default for PolicyConfig {
             allow_foreground: false,
             show_cursor: true,
             cloud_vm: false,
+            settle: SettleMode::Adaptive,
         }
     }
 }
@@ -103,6 +142,7 @@ impl PolicyConfig {
             allow_foreground: true,
             show_cursor: true,
             cloud_vm: true,
+            settle: SettleMode::Adaptive,
         }
     }
 }

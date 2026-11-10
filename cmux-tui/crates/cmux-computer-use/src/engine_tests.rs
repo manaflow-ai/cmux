@@ -546,3 +546,188 @@ fn a_replayed_action_makes_the_next_screenshot_carry_the_image() {
     assert_eq!(shot.body["unchanged"], false);
     assert!(shot.png_base64.is_some());
 }
+
+fn settled(mode: &str) -> (Arc<FakeDesktop>, Engine, Arc<Slept>) {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d.clone());
+    let mut config = e.config();
+    config.settle = SettleMode::parse(mode).unwrap();
+    e.set_config(config);
+    (d, e, slept)
+}
+
+#[test]
+fn anthropic_waits_two_seconds_then_always_returns_the_image() {
+    let (_, e, slept) = settled("anthropic");
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert_eq!(out.body["state"]["settle"], "anthropic");
+    assert_eq!(out.body["state"]["waited_ms"], 2000);
+    // Unchanged pixels still come back as an image, as Anthropic's tool returns one.
+    assert!(out.png_base64.is_some());
+    assert_eq!(*slept.0.lock().unwrap(), vec![ANTHROPIC_SCREENSHOT_DELAY]);
+}
+
+#[test]
+fn anthropic_types_12_ms_per_key_and_screenshots_at_once() {
+    let (d, e, slept) = settled("anthropic");
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "abcd"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    // The 12 ms keys come before the state; the state itself does not wait.
+    assert_eq!(out.body["state"]["waited_ms"], 0);
+    assert_eq!(*slept.0.lock().unwrap(), vec![ANTHROPIC_TYPING_DELAY; 3]);
+    let typed: Vec<_> =
+        d.events().into_iter().filter(|e| matches!(e, Event::Type { .. })).collect();
+    assert_eq!(typed.len(), 4);
+    // 120 characters: three groups of at most 50; 12 ms between keys inside a group only.
+    let (_, e, slept) = settled("anthropic");
+    e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x".repeat(120)}));
+    assert_eq!(slept.0.lock().unwrap().len(), 49 + 49 + 19);
+}
+
+#[test]
+fn openai_captures_at_once() {
+    let (_, e, slept) = settled("openai");
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(out.body["state"]["settle"], "openai");
+    assert_eq!(out.body["state"]["waited_ms"], 0);
+    assert!(out.png_base64.is_some());
+    assert!(slept.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_calls_settle_argument_wins_over_the_setting() {
+    let (_, e, _) = settled("anthropic");
+    let out = e.call(
+        &ctx(None),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "settle": "openai"}),
+    );
+    assert_eq!(out.body["state"]["settle"], "openai");
+}
+
+#[test]
+fn wait_defaults_to_two_seconds_and_caps_at_100() {
+    let (_, e, slept) = settled("adaptive");
+    let out = e.call(&ctx(None), "wait", &json!({"window_id": "1"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["waited_ms"], 2000);
+    assert!(out.body["state"].is_object() && out.png_base64.is_some());
+    assert_eq!(slept.0.lock().unwrap()[0], WAIT_DEFAULT);
+    let out = e.call(&ctx(None), "wait", &json!({"window_id": "1", "duration": 1.5}));
+    assert_eq!(out.body["waited_ms"], 1500);
+    let out = e.call(&ctx(None), "wait", &json!({"ms": 100001}));
+    assert_eq!(out.code.as_deref(), Some("invalid_arguments"));
+    // No window: a display screenshot.
+    let out = e.call(&ctx(None), "wait", &json!({"ms": 0}));
+    assert!(!out.is_error && out.png_base64.is_some(), "{:?}", out.body);
+}
+
+#[test]
+fn batch_runs_in_order_and_returns_one_state() {
+    let (d, e, _) = settled("adaptive");
+    let out = e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "type_text", "text": "hi"},
+            {"action": "wait", "ms": 50},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["completed"], 4);
+    assert_eq!(out.body["stopped"], false);
+    assert!(out.body["state"].is_object() && out.png_base64.is_some());
+    let events = d.events();
+    assert!(matches!(events[0], Event::Click { .. }));
+    assert!(matches!(events[1], Event::Type { .. }));
+    assert!(matches!(events[2], Event::Keys { .. }));
+    // A retried batch runs nothing again.
+    e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "actions": [{"action": "click", "element_id": "e1"}]}),
+    );
+    assert_eq!(d.events().len(), 3);
+}
+
+#[test]
+fn batch_stops_at_the_first_failure_and_refuses_what_cannot_batch() {
+    let (d, e, _) = settled("adaptive");
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "cmd+nonsense"},
+            {"action": "type_text", "text": "never"}
+        ]}),
+    );
+    assert_eq!(out.body["completed"], 1);
+    assert_eq!(out.body["stopped"], true);
+    assert_eq!(out.body["results"][1]["code"], "invalid_arguments");
+    assert_eq!(d.events().len(), 1);
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [{"action": "launch_app", "app_id": "x"}]}),
+    );
+    assert_eq!(out.body["completed"], 0);
+    let too_many: Vec<Value> = (0..21).map(|_| json!({"action": "wait", "ms": 0})).collect();
+    let out = e.call(&ctx(None), "batch", &json!({"window_id": "1", "actions": too_many}));
+    assert_eq!(out.code.as_deref(), Some("invalid_arguments"));
+}
+
+#[test]
+fn a_batch_on_a_denied_app_is_refused_like_a_single_call() {
+    let (d, e, _) = settled("adaptive");
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "2", "actions": [{"action": "click", "x": 1, "y": 1}]}),
+    );
+    assert_eq!(out.body["results"][0]["code"], "app_denied");
+    assert!(d.events().is_empty());
+}
+
+#[test]
+fn the_cursor_shows_a_refusal_and_a_wait_for_the_person() {
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+    instant_time(&mut parts);
+    parts.cursor = rec.clone();
+    let e = Engine::new(parts);
+    // A denied app: refused, and the cursor says why.
+    e.call(&ctx(None), "click", &json!({"window_id": "2", "x": 1, "y": 1}));
+    assert!(rec.0.lock().unwrap().iter().any(
+        |e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "App is on the deny list")
+    ));
+    // A bad argument is an ordinary error, not a refusal.
+    rec.0.lock().unwrap().clear();
+    e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "cmd+nonsense"}));
+    assert!(!rec.0.lock().unwrap().iter().any(|e| matches!(e, CursorEvent::Refused { .. })));
+
+    // The person keeps typing in the frontmost app: Paused first, then refused.
+    let mut fake = FakeDesktop::standard();
+    fake.apps[0].frontmost = true;
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(Arc::new(fake));
+    instant_time(&mut parts);
+    parts.cursor = rec.clone();
+    parts.takeover = Arc::new(Busy);
+    let e = Engine::new(parts);
+    e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
+    let ev = rec.0.lock().unwrap();
+    let paused = ev.iter().position(|e| matches!(e, CursorEvent::Paused { .. })).expect("paused");
+    let refused = ev
+        .iter()
+        .position(|e| matches!(e, CursorEvent::Refused { reason, .. } if reason == "You're in control"))
+        .expect("refused");
+    assert!(paused < refused);
+    assert!(!ev.iter().any(|e| matches!(e, CursorEvent::Typing { .. })), "{ev:?}");
+    let v = serde_json::to_value(&ev[refused]).unwrap();
+    assert_eq!((v["kind"].as_str(), v["reason"].as_str()), (Some("refused"), Some("You're in control")));
+}

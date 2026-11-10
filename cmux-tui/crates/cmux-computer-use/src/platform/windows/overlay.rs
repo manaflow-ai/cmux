@@ -276,8 +276,15 @@ impl Cursor {
         self.session = event.session().to_string();
         self.last_event = Instant::now();
         let at = match &event {
-            CursorEvent::Move { at, .. } | CursorEvent::Click { at, .. } => Some(*at),
-            CursorEvent::Typing { at, .. } | CursorEvent::Look { at, .. } => *at,
+            CursorEvent::Move { at, .. }
+            | CursorEvent::Click { at, .. }
+            | CursorEvent::Scroll { at, .. }
+            | CursorEvent::Drag { to: at, .. } => Some(*at),
+            CursorEvent::Typing { at, .. }
+            | CursorEvent::Keys { at, .. }
+            | CursorEvent::Look { at, .. }
+            | CursorEvent::Paused { at, .. }
+            | CursorEvent::Refused { at, .. } => *at,
             CursorEvent::Hide { .. } => None,
         };
         match at {

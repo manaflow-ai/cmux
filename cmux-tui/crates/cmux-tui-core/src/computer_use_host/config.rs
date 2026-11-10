@@ -78,6 +78,13 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     if let Some(list) = section.get("deniedApps").and_then(Value::as_array) {
         config.denied_apps = list.iter().filter_map(Value::as_str).map(str::to_string).collect();
     }
+    if let Some(settle) = section
+        .get("settle")
+        .and_then(Value::as_str)
+        .and_then(cmux_computer_use::policy::SettleMode::parse)
+    {
+        config.settle = settle;
+    }
     let flag = |key: &str| section.get(key).and_then(Value::as_bool);
     if let Some(value) = flag("allowOwnMachines") {
         config.allow_own_machines = value;

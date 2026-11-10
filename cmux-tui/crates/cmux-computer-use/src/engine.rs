@@ -36,7 +36,7 @@ use crate::desktop::{
 use crate::frame::{self, Geometry};
 use crate::keys::KeyCombo;
 use crate::policy::{
-    self, Access, Decision, OriginKind, PolicyConfig, Refusal, Request, TargetApp,
+    self, Access, Decision, OriginKind, PolicyConfig, Refusal, Request, SettleMode, TargetApp,
 };
 use crate::session::{Prior, Sessions};
 use crate::tools;
@@ -109,6 +109,23 @@ impl ToolOutput {
             png_base64: v.get("png").and_then(Value::as_str).map(str::to_string),
         })
     }
+}
+
+/// The cursor's caption for an acting call that was refused, or None for an
+/// ordinary failure (a bad argument, a missing window).
+fn refusal_caption(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "computer_use_off" => "Computer Use is off",
+        "app_protected" => "Protected app",
+        "app_denied" => "App is on the deny list",
+        "look_only" => "Look only",
+        "app_never_allowed" => "Not allowed",
+        "remote_not_allowed" | "foreign_account" => "Not allowed from there",
+        "foreground_not_allowed" => "Foreground input is off",
+        "person_in_control" => "You're in control",
+        "approval_denied" | "approval_unavailable" => "Not approved",
+        _ => return None,
+    })
 }
 
 /// A question for the person.
@@ -185,6 +202,24 @@ impl Default for Settle {
         }
     }
 }
+
+/// Anthropic's computer-use reference tool (`BaseComputerTool`): the fixed
+/// wait before the screenshot after an action, and typing in groups of
+/// [`ANTHROPIC_TYPING_GROUP`] characters at [`ANTHROPIC_TYPING_DELAY`] per key.
+pub const ANTHROPIC_SCREENSHOT_DELAY: Duration = Duration::from_millis(2000);
+pub const ANTHROPIC_TYPING_DELAY: Duration = Duration::from_millis(12);
+pub const ANTHROPIC_TYPING_GROUP: usize = 50;
+/// Anthropic's double and triple clicks (`--repeat N --delay 10`).
+pub const ANTHROPIC_CLICK_GAP: Duration = Duration::from_millis(10);
+/// The `wait` tool: OpenAI's handlers wait 2000 ms; Anthropic's `wait` takes
+/// a duration of at most 100 s.
+pub const WAIT_DEFAULT: Duration = Duration::from_millis(2000);
+pub const WAIT_MAX: Duration = Duration::from_secs(100);
+/// The most actions one `batch` runs.
+pub const BATCH_MAX: usize = 20;
+/// The tools a `batch` may run.
+const BATCHABLE: &[&str] =
+    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait"];
 
 pub struct EngineParts {
     pub desktop: Arc<dyn Desktop>,
@@ -390,15 +425,28 @@ impl Engine {
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
         }
+        if tool.acts()
+            && let Some(reason) = out.code.as_deref().and_then(refusal_caption)
+        {
+            self.cursor.show(CursorEvent::Refused {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: None,
+                reason: reason.to_string(),
+            });
+        }
         // After the record: a retry returns the action's result, and the agent
         // takes a fresh screenshot for the state then.
+        // A batch attaches its own state, once, at its end.
         if !out.is_error
             && tools::OBSERVES.contains(&name)
+            && name != "batch"
             && args.get("observe").and_then(Value::as_bool) != Some(false)
             && let Some(window_id) = args_str(&args, "window_id")
             && let Some(app) = &app
         {
-            self.attach_state(ctx, window_id, app, &mut out);
+            let mode = self.settle_mode(&args);
+            self.attach_state(ctx, window_id, app, &mut out, mode, name == "type_text");
         }
         self.write_audit(ctx, name, app.as_ref(), &out);
         out
@@ -479,6 +527,7 @@ impl Engine {
                     session: ctx.session.clone(),
                     label: ctx.label.clone(),
                     at: Some(center(&window.frame)),
+                    rect: Some(window.frame),
                 });
                 let max_nodes = args
                     .get("max_nodes")
@@ -516,10 +565,14 @@ impl Engine {
                     at: None,
                     text: caption(text),
                 });
-                let out = self
-                    .desktop
-                    .type_text(&window.id, args_str(args, "element_id"), text, delivery)
-                    .map_err(|e| ToolOutput::desktop(&e))?;
+                let element = args_str(args, "element_id");
+                let out = if self.settle_mode(args) == SettleMode::Anthropic {
+                    self.type_paced(&window.id, element, text, delivery)?
+                } else {
+                    self.desktop
+                        .type_text(&window.id, element, text, delivery)
+                        .map_err(|e| ToolOutput::desktop(&e))?
+                };
                 Ok((self.outcome(ctx, out), Some(app)))
             }
             "press_key" => {
@@ -528,11 +581,11 @@ impl Engine {
                     .map_err(|e| ToolOutput::error("invalid_arguments", e))?;
                 let delivery = parse_delivery(args)?;
                 let app = self.act_on(&config, ctx, &window, delivery, false)?;
-                self.cursor.show(CursorEvent::Typing {
+                self.cursor.show(CursorEvent::Keys {
                     session: ctx.session.clone(),
                     label: ctx.label.clone(),
                     at: None,
-                    text: need(args, "keys")?.to_string(),
+                    keys: need(args, "keys")?.to_string(),
                 });
                 let out = self
                     .desktop
@@ -551,6 +604,19 @@ impl Engine {
                 }
                 let out =
                     self.desktop.scroll(&target, dx, dy).map_err(|e| ToolOutput::desktop(&e))?;
+                let at = match &target {
+                    PointerTarget::Point { point, .. } => Some(*point),
+                    PointerTarget::Element { .. } => out.cursor_at,
+                };
+                if let Some(at) = at {
+                    self.cursor.show(CursorEvent::Scroll {
+                        session: ctx.session.clone(),
+                        label: ctx.label.clone(),
+                        at,
+                        dx,
+                        dy,
+                    });
+                }
                 Ok((self.outcome(ctx, out), Some(app)))
             }
             "drag" => {
@@ -565,7 +631,12 @@ impl Engine {
                     .desktop
                     .drag(&window.id, from, to, parse_button(args)?, delivery)
                     .map_err(|e| ToolOutput::desktop(&e))?;
-                self.glide(ctx, to);
+                self.cursor.show(CursorEvent::Drag {
+                    session: ctx.session.clone(),
+                    label: ctx.label.clone(),
+                    from,
+                    to,
+                });
                 Ok((self.outcome(ctx, out), Some(app)))
             }
             "set_value" => {
@@ -617,6 +688,8 @@ impl Engine {
                     Some(app),
                 ))
             }
+            "wait" => self.wait(&config, ctx, args),
+            "batch" => self.batch(ctx, args),
             other => Err(ToolOutput::error("unknown_tool", format!("unknown tool {other:?}"))),
         }
     }
@@ -780,6 +853,15 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
+        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+            // The person is using the mouse or keyboard right now: show that the
+            // agent waits for them before it waits.
+            self.cursor.show(CursorEvent::Paused {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: Some(center(&window.frame)),
+            });
+        }
         if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",
@@ -902,7 +984,20 @@ impl Engine {
         }
         let out = self
             .desktop
-            .click(&target, &ClickSpec { button, count, modifiers, delivery })
+            .click(
+                &target,
+                &ClickSpec {
+                    button,
+                    count,
+                    modifiers,
+                    delivery,
+                    gap: if self.settle_mode(args) == SettleMode::Anthropic {
+                        ANTHROPIC_CLICK_GAP
+                    } else {
+                        Duration::ZERO
+                    },
+                },
+            )
             .map_err(|e| ToolOutput::desktop(&e))?;
         let at = out.cursor_at.or(match &target {
             PointerTarget::Point { point, .. } => Some(*point),
@@ -914,6 +1009,7 @@ impl Engine {
                 label: ctx.label.clone(),
                 at,
                 button: format!("{button:?}").to_lowercase(),
+                count,
             });
         }
         Ok((ToolOutput::ok(serde_json::to_value(&out).unwrap_or(Value::Null)), Some(app)))
@@ -934,31 +1030,256 @@ impl Engine {
     /// `app` still allowed before every capture and the tree; a window that
     /// closed, changed app or became denied leaves the action's result as it
     /// is, with the reason.
+    /// Types `text` the way Anthropic's reference tool does: in groups of
+    /// [`ANTHROPIC_TYPING_GROUP`] characters, [`ANTHROPIC_TYPING_DELAY`]
+    /// between keys. The first character goes to `element` (it focuses it);
+    /// the rest follow at the caret.
+    fn type_paced(
+        &self,
+        window_id: &str,
+        element: Option<&str>,
+        text: &str,
+        delivery: Delivery,
+    ) -> Result<crate::desktop::ActionOutcome, ToolOutput> {
+        let chars: Vec<char> = text.chars().collect();
+        let mut last = crate::desktop::ActionOutcome::default();
+        for (group_index, group) in chars.chunks(ANTHROPIC_TYPING_GROUP).enumerate() {
+            for (i, c) in group.iter().enumerate() {
+                if i > 0 {
+                    (self.sleep)(ANTHROPIC_TYPING_DELAY);
+                }
+                let first = group_index == 0 && i == 0;
+                last = self
+                    .desktop
+                    .type_text(
+                        window_id,
+                        if first { element } else { None },
+                        &c.to_string(),
+                        delivery,
+                    )
+                    .map_err(|e| ToolOutput::desktop(&e))?;
+            }
+        }
+        Ok(last)
+    }
+
+    /// `wait`: sleeps `ms` (default [`WAIT_DEFAULT`], at most [`WAIT_MAX`];
+    /// `duration` in seconds is read too, as Anthropic's tool takes it), then
+    /// returns the window's state, or a display screenshot without a window.
+    fn wait(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        args: &Value,
+    ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
+        let wanted = match (args_f64(args, "ms"), args_f64(args, "duration")) {
+            (Some(ms), _) => ms,
+            (None, Some(seconds)) => seconds * 1000.0,
+            (None, None) => WAIT_DEFAULT.as_millis() as f64,
+        };
+        if wanted < 0.0 {
+            return Err(ToolOutput::error("invalid_arguments", "the wait cannot be negative"));
+        }
+        if wanted > WAIT_MAX.as_millis() as f64 {
+            return Err(ToolOutput::error(
+                "invalid_arguments",
+                format!("a wait is at most {} s", WAIT_MAX.as_secs()),
+            ));
+        }
+        let waited = Duration::from_millis(wanted.round() as u64);
+        let target = match args_str(args, "window_id") {
+            Some(id) => {
+                let window = self.window(id)?;
+                let app = self.app_of(&window);
+                self.authorize(config, ctx, Access::Observe, Some(&app), false)?;
+                Some((id.to_string(), app))
+            }
+            None => {
+                self.authorize(config, ctx, Access::Observe, None, false)?;
+                None
+            }
+        };
+        (self.sleep)(waited);
+        let mut out = ToolOutput::ok(json!({"waited_ms": waited.as_millis() as u64}));
+        match target {
+            Some((id, app)) => {
+                self.attach_state(ctx, &id, &app, &mut out, SettleMode::Openai, false);
+                Ok((out, Some(app)))
+            }
+            None => {
+                let (shot, _) = self.capture_for(
+                    config,
+                    ctx,
+                    &json!({"force": true}),
+                    false,
+                    Check::Authorize,
+                )?;
+                out.body["state"] = shot.body;
+                out.png_base64 = shot.png_base64;
+                Ok((out, None))
+            }
+        }
+    }
+
+    /// `batch`: OpenAI's `actions` array. Runs up to [`BATCH_MAX`] actions on
+    /// one window in order, each checked like its own call, stops at the first
+    /// failure, and returns one state at the end (the batch's `settle`). The
+    /// batch is one call: a retried `call_id` runs none of it again.
+    fn batch(
+        &self,
+        ctx: &CallContext,
+        args: &Value,
+    ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
+        let window_id = need(args, "window_id")?.to_string();
+        let actions = args
+            .get("actions")
+            .and_then(Value::as_array)
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| ToolOutput::error("invalid_arguments", "actions is required"))?;
+        if actions.len() > BATCH_MAX {
+            return Err(ToolOutput::error(
+                "invalid_arguments",
+                format!("a batch runs at most {BATCH_MAX} actions"),
+            ));
+        }
+        let mut results = Vec::new();
+        let mut acted_on: Option<TargetApp> = None;
+        let mut failed: Option<ToolOutput> = None;
+        for (index, action) in actions.iter().enumerate() {
+            let Some(name) = action.get("action").and_then(Value::as_str) else {
+                failed = Some(ToolOutput::error(
+                    "invalid_arguments",
+                    format!("action {index} has no \"action\""),
+                ));
+                break;
+            };
+            let Some(tool) = tools::find(name).filter(|_| BATCHABLE.contains(&name)) else {
+                failed = Some(ToolOutput::error(
+                    "invalid_arguments",
+                    format!("action {index}: {name:?} cannot run in a batch"),
+                ));
+                break;
+            };
+            let mut step = action.clone();
+            if let Some(map) = step.as_object_mut() {
+                map.remove("action");
+                map.insert("window_id".into(), json!(window_id));
+                if name == "wait" {
+                    // A wait inside a batch only waits; the state comes once, at the end.
+                    let ms = map
+                        .get("ms")
+                        .and_then(Value::as_f64)
+                        .or_else(|| map.get("duration").and_then(Value::as_f64).map(|s| s * 1000.0))
+                        .unwrap_or(WAIT_DEFAULT.as_millis() as f64)
+                        .clamp(0.0, WAIT_MAX.as_millis() as f64);
+                    (self.sleep)(Duration::from_millis(ms.round() as u64));
+                    results
+                        .push(json!({"action": name, "ok": true, "waited_ms": ms.round() as u64}));
+                    continue;
+                }
+                if let Some(settle) = args.get("settle") {
+                    map.entry("settle").or_insert(settle.clone());
+                }
+            }
+            match self.dispatch(tool, ctx, &step) {
+                Ok((done, app)) => {
+                    self.write_audit(ctx, name, app.as_ref(), &done);
+                    if done.is_error {
+                        failed = Some(done);
+                        break;
+                    }
+                    results.push(json!({"action": name, "ok": true, "result": done.body}));
+                    acted_on = app.or(acted_on);
+                }
+                Err(refused) => {
+                    self.write_audit(ctx, name, None, &refused);
+                    failed = Some(refused);
+                    break;
+                }
+            }
+        }
+        let completed = results.len();
+        if let Some(failure) = &failed {
+            results.push(json!({
+                "action": actions.get(completed).and_then(|a| a.get("action")).cloned(),
+                "ok": false,
+                "code": failure.code,
+                "message": failure.body.get("message").cloned(),
+            }));
+        }
+        let mut out = ToolOutput::ok(json!({
+            "completed": completed,
+            "of": actions.len(),
+            "stopped": failed.is_some(),
+            "results": results,
+        }));
+        if let Some(app) = &acted_on
+            && args.get("observe").and_then(Value::as_bool) != Some(false)
+        {
+            let mode = self.settle_mode(args);
+            self.attach_state(ctx, &window_id, app, &mut out, mode, false);
+        }
+        Ok((out, acted_on))
+    }
+
+    /// The call's `settle` argument, else the setting.
+    fn settle_mode(&self, args: &Value) -> SettleMode {
+        args_str(args, "settle").and_then(SettleMode::parse).unwrap_or(self.config().settle)
+    }
+
+    /// Waits as `mode` says after an acting call and adds the window's
+    /// screenshot and tree to `out` as `state`:
+    /// - adaptive: [`Settle`]: a floor, then a screenshot every step until it
+    ///   differs from what the agent last saw, up to the ceiling (elapsed
+    ///   time, captures included); an unchanged window returns no image.
+    /// - anthropic: [`ANTHROPIC_SCREENSHOT_DELAY`] (none after typing), then
+    ///   the screenshot, always with its image.
+    /// - openai: the screenshot at once, always with its image.
+    ///
+    /// The window must still be `app`'s and `app` still allowed before every
+    /// capture and the tree; a window that closed, changed app or became
+    /// denied leaves the action's result as it is, with the reason.
     fn attach_state(
         &self,
         ctx: &CallContext,
         window_id: &str,
         app: &TargetApp,
         out: &mut ToolOutput,
+        mode: SettleMode,
+        typed: bool,
     ) {
         let s = self.settle;
         let start = (self.clock)();
-        (self.sleep)(s.floor);
         let args = json!({"window_id": window_id});
+        let forced = json!({"window_id": window_id, "force": true});
         let mut captures = 0u32;
-        let shot = loop {
-            let config = self.config();
-            captures += 1;
-            match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
-                Ok((shot, _)) => {
-                    let changed = shot.body["unchanged"] != json!(true);
-                    let elapsed = (self.clock)().saturating_sub(start);
-                    if changed || elapsed >= s.ceiling {
-                        break Ok((shot, elapsed));
+        let shot = match mode {
+            SettleMode::Adaptive => {
+                (self.sleep)(s.floor);
+                loop {
+                    let config = self.config();
+                    captures += 1;
+                    match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
+                        Ok((shot, _)) => {
+                            let changed = shot.body["unchanged"] != json!(true);
+                            let elapsed = (self.clock)().saturating_sub(start);
+                            if changed || elapsed >= s.ceiling {
+                                break Ok((shot, elapsed));
+                            }
+                            (self.sleep)(s.step.min(s.ceiling - elapsed));
+                        }
+                        Err(e) => break Err(e),
                     }
-                    (self.sleep)(s.step.min(s.ceiling - elapsed));
                 }
-                Err(e) => break Err(e),
+            }
+            SettleMode::Anthropic | SettleMode::Openai => {
+                if mode == SettleMode::Anthropic && !typed {
+                    (self.sleep)(ANTHROPIC_SCREENSHOT_DELAY);
+                }
+                captures = 1;
+                let config = self.config();
+                self.capture_for(&config, ctx, &forced, false, Check::StillAllowed(app))
+                    .map(|(shot, _)| (shot, (self.clock)().saturating_sub(start)))
             }
         };
         let (shot, elapsed) = match shot {
@@ -973,6 +1294,7 @@ impl Engine {
             }
         };
         let mut state = shot.body.clone();
+        state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
         state["captures"] = json!(captures);
         let config = self.config();
@@ -1045,7 +1367,7 @@ impl Engine {
             }
             None => (self.windows()?, self.app_names()),
         };
-        let (target, key, app, focus) = match args_str(args, "window_id") {
+        let (target, key, app, look_rect) = match args_str(args, "window_id") {
             Some(id) => {
                 let window = windows.iter().find(|w| w.id == id).ok_or_else(|| {
                     ToolOutput::error("target_not_found", format!("no window {id:?}"))
@@ -1063,7 +1385,7 @@ impl Engine {
                     CaptureTarget::Window(id.to_string()),
                     format!("w:{id}"),
                     Some(app),
-                    Some(center(&window.frame)),
+                    Some(window.frame),
                 )
             }
             None => {
@@ -1085,7 +1407,8 @@ impl Engine {
             self.cursor.show(CursorEvent::Look {
                 session: ctx.session.clone(),
                 label: ctx.label.clone(),
-                at: focus,
+                at: look_rect.as_ref().map(center),
+                rect: look_rect,
             });
         }
         // Denied, protected and Never apps never reach an agent's screenshot.

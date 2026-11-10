@@ -215,6 +215,9 @@ pub struct ClickSpec {
     pub count: u8,
     pub modifiers: Vec<crate::keys::Modifier>,
     pub delivery: Delivery,
+    /// Between the clicks of a double or triple click (Anthropic's reference
+    /// tool: 10 ms; zero: back to back).
+    pub gap: std::time::Duration,
 }
 
 /// What an action did, as far as the desktop could tell.

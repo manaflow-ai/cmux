@@ -144,8 +144,42 @@ import Testing
         let typing = try #require(AgentCursorEvent(json: Data(#"{"kind":"typing","session":"s","label":"C","at":null,"text":"hi"}"#.utf8)))
         #expect(typing.at == nil && typing.text == "hi")
         #expect(try #require(AgentCursorEvent(json: Data(#"{"kind":"hide","session":"s"}"#.utf8))).kind == .hide)
+        #expect(try #require(AgentCursorEvent(json: Data(#"{"kind":"paused","session":"s","label":"C","at":null}"#.utf8))).kind == .paused)
+        let refused = try #require(AgentCursorEvent(json: Data(#"{"kind":"refused","session":"s","label":"C","at":null,"reason":"Look only"}"#.utf8)))
+        #expect(refused.kind == .refused && refused.text == "Look only")
         #expect(AgentCursorEvent(json: Data(#"{"kind":"warp","session":"s"}"#.utf8)) == nil)
         #expect(AgentCursorEvent(json: Data(#"{"kind":"move"}"#.utf8)) == nil)
+    }
+
+    @Test func everyInteractionDecodesFromTheEnginesJSON() throws {
+        let click = try #require(AgentCursorEvent(json: Data(#"{"kind":"click","session":"s","label":"C","at":{"x":1,"y":2},"button":"right","count":2}"#.utf8)))
+        #expect(click.button == "right" && click.count == 2 && click.at == CGPoint(x: 1, y: 2))
+        let old = try #require(AgentCursorEvent(json: Data(#"{"kind":"click","session":"s","label":"C","at":{"x":1,"y":2},"button":"left"}"#.utf8)))
+        #expect(old.count == 1)
+        let keys = try #require(AgentCursorEvent(json: Data(#"{"kind":"keys","session":"s","label":"C","at":null,"keys":"cmd+shift+s"}"#.utf8)))
+        #expect(keys.kind == .keys && keys.text == "cmd+shift+s")
+        let scroll = try #require(AgentCursorEvent(json: Data(#"{"kind":"scroll","session":"s","label":"C","at":{"x":3,"y":4},"dx":0,"dy":-3}"#.utf8)))
+        #expect(scroll.scroll == CGVector(dx: 0, dy: -3))
+        let drag = try #require(AgentCursorEvent(json: Data(#"{"kind":"drag","session":"s","label":"C","from":{"x":1,"y":1},"to":{"x":9,"y":9}}"#.utf8)))
+        #expect(drag.from == CGPoint(x: 1, y: 1) && drag.at == CGPoint(x: 9, y: 9))
+        let look = try #require(AgentCursorEvent(json: Data(#"{"kind":"look","session":"s","label":"C","at":{"x":5,"y":5},"rect":{"x":0,"y":0,"width":10,"height":10}}"#.utf8)))
+        #expect(look.rect == CGRect(x: 0, y: 0, width: 10, height: 10))
+        let empty = try #require(AgentCursorEvent(json: Data(#"{"kind":"look","session":"s","rect":{"x":0,"y":0,"width":0,"height":10}}"#.utf8)))
+        #expect(empty.rect == nil)
+    }
+
+    @Test func combosShowAsMacKeyCaps() {
+        #expect(AgentCursorEvent.keyCaps("cmd+shift+s") == ["\u{2318}", "\u{21E7}", "S"])
+        #expect(AgentCursorEvent.keyCaps("Return") == ["\u{21A9}"])
+        #expect(AgentCursorEvent.keyCaps("ctrl+alt+Tab") == ["\u{2303}", "\u{2325}", "\u{21E5}"])
+        #expect(AgentCursorEvent.keyCaps("F5") == ["F5"])
+        #expect(AgentCursorEvent.clickTitle(button: "left", count: 2) == "Double-click")
+        #expect(AgentCursorEvent.clickTitle(button: "right", count: 1) == "Right-click")
+    }
+
+    @Test func desktopRectsFlipToAppKit() {
+        let geometry = AgentCursorGeometry(primaryHeight: 1000)
+        #expect(geometry.appKit(CGRect(x: 10, y: 100, width: 50, height: 200)) == CGRect(x: 10, y: 700, width: 50, height: 200))
     }
 
     @Test func theCaptionIsOneShortLine() {

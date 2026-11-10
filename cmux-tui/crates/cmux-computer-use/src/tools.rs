@@ -28,7 +28,7 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 
 /// The acting tools whose result carries the window's state after acting.
 pub const OBSERVES: &[&str] =
-    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action"];
+    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
 
 /// One tool.
 pub struct Tool {
@@ -43,6 +43,10 @@ impl Tool {
         let mut schema = (self.schema)();
         if let Some(props) = schema.get_mut("properties").and_then(Value::as_object_mut) {
             if OBSERVES.contains(&self.name) {
+                props.insert(
+                    "settle".into(),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                );
                 props.insert(
                     "observe".into(),
                     json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it."}),
@@ -223,6 +227,35 @@ pub static TOOLS: &[Tool] = &[
             obj(
                 json!({"window_id": window_id(), "element_id": {"type": "string"}, "action": {"type": "string"}}),
                 &["window_id", "element_id", "action"],
+            )
+        },
+    },
+    Tool {
+        name: "wait",
+        access: Access::Observe,
+        description: "Wait for slow work (a page load, a build, an animation), then return the window's state (or a display screenshot without window_id). ms defaults to 2000, at most 100000; duration in seconds also works.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "ms": {"type": "number", "minimum": 0, "maximum": 100000},
+                    "duration": {"type": "number", "minimum": 0, "maximum": 100}
+                }),
+                &[],
+            )
+        },
+    },
+    Tool {
+        name: "batch",
+        access: Access::Act,
+        description: "Run several actions on one window in order (at most 20), stopping at the first failure, and get one state at the end. Each action is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\" | \"wait\", ...that tool's arguments without window_id}. Use it for steps you are sure of, such as click a field, type, press Return.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "actions": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}}
+                }),
+                &["window_id", "actions"],
             )
         },
     },

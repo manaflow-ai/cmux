@@ -1310,6 +1310,105 @@
           }
         }
       }
+    },
+    "computerUse.cursor.click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.doubleClick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-click"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.tripleClick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triple-click"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.rightClick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.middleClick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middle-click"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.scroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused \u00b7 you\u2019re in control"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.looking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
