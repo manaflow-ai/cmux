@@ -1,4 +1,4 @@
-import { PrefixFilter } from "../conversation/prefixFlatMap";
+import { PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
 import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
@@ -25,18 +25,21 @@ export function subagentsIn(
   views: Record<string, AcpmuxRow[]> = {},
 ): Map<string, Subagent> {
   const found = new Map<string, Subagent>();
-  // The chat calls this on every snapshot: the group rows come from a pass that reads only the rows
-  // the snapshot changed (prefixFlatMap.ts), and a view's from the last read of that same view.
-  const scan = (groups: readonly AcpmuxRow[]) => {
-    for (const row of groups) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
-  };
-  scan(groupReads.read(rows).items);
-  for (const view of Object.values(views)) scan(viewGroups(view));
+  // The chat calls this on every snapshot: its agents come from a pass that reads only the rows the
+  // snapshot changed (prefixFlatMap.ts), and a view's from the last read of that same view.
+  for (const agent of agentReads.read(rows).items) found.set(agent.id, agent);
+  for (const view of Object.values(views)) {
+    for (const row of viewGroups(view)) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
+  }
   return found;
 }
 
+const NO_AGENTS: readonly Subagent[] = [];
 const isGroupRow = (row: AcpmuxRow) => row.kind === SUBAGENTS;
-const groupReads = new PrefixFilter<AcpmuxRow>(isGroupRow, 6);
+const agentReads = new PrefixFlatCache<AcpmuxRow, Subagent>(
+  (row) => (row.kind === SUBAGENTS ? (row.subagents ?? NO_AGENTS) : NO_AGENTS),
+  6,
+);
 /// A subagent view's group rows, by the view's array: an unchanged view is not read again.
 const viewGroupCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
 function viewGroups(view: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
