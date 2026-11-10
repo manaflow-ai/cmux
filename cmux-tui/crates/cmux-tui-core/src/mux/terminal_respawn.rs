@@ -83,11 +83,12 @@ const LAUNCH_FAILURES_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES";
 const LAUNCH_ERRORS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS";
 
 /// The respawn gate: first respawn attempts take turns in the order they
-/// were scheduled, at most one per CPU at once. A respawn replays its seed
-/// (the previous screen, up to several MB) in the daemon's mirror and in
-/// its new host; after a kill of everything all of them used to start at
-/// once and the visible terminals waited behind the hidden ones for the
-/// CPU (STATUS 5931).
+/// were scheduled, at most one per CPU at once. A terminal the person sees
+/// or asked for does not wait for that line (`terminal_respawn/worker.rs`).
+/// A respawn replays its seed (the previous screen, up to several MB) in
+/// the daemon's mirror and in its new host; after a kill of everything all
+/// of them used to start at once and the visible terminals waited behind
+/// the hidden ones for the CPU (STATUS 5931).
 pub(in crate::mux) fn respawn_gate() -> startup_adoption_gate::StartupAdoptionGate {
     let slots = std::env::var(SLOTS_ENV)
         .ok()
@@ -296,6 +297,10 @@ pub(super) struct RespawnPlan {
     /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
     /// the incarnation reopens, not only a host loss.
     pub(super) user_restart: bool,
+    /// A `restart-tab` that is not the restore of a session (`manual.rs`,
+    /// `Mux::restart_dead_tab`): the person asked for this terminal, so it
+    /// does not wait for the respawn gate's line, in a hidden workspace too.
+    pub(super) asked: bool,
     /// The keep-layout rows (`kept_tabs`, `tab-restart-kept-layout-v1`) of
     /// the terminal's tabs when a user restart reopens a kept tab, the
     /// restarted tab's first: the new shell starts in its directory, and once
@@ -480,6 +485,7 @@ impl Mux {
             delay,
             recorded: end.exit().clone(),
             user_restart: false,
+            asked: false,
             kept: Vec::new(),
             failed_launches: 0,
         })))

@@ -43,9 +43,11 @@ impl Mux {
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
             // A terminal the person sees (shown when it took its place,
             // selected while it waits, or lost while hidden respawns still
-            // wait) takes the next free slot before the hidden ones. It still
-            // takes a slot: the cap bounds it too.
-            let shown_now = || mux.respawn_slot_shown(plan.slot);
+            // wait) or asked for (`RespawnPlan::asked`) does not wait for the
+            // hidden ones in line or for their turns to end. The slots still
+            // bound such terminals among themselves.
+            let asked = plan.asked;
+            let shown_now = || asked || mux.respawn_slot_shown(plan.slot);
             // A try after a backoff waits it out with no place in the line,
             // then takes its place at the end, as a try with no wait does.
             // It used to take no turn at all: it launched when its wait

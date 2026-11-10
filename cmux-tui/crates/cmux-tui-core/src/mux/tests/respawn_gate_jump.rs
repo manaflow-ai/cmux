@@ -1,18 +1,22 @@
-//! The respawn gate lets a waiter whose terminal the person now sees take
-//! the next free slot before the tickets in line
-//! (`StartupAdoptionGate::turn_first_if`), and still bounds it by the slots.
+//! The respawn gate lets a waiter of the person (its terminal is shown, or
+//! the person asked for its restart) take its turn with no wait for the
+//! tickets in line or for their turns to end
+//! (`StartupAdoptionGate::turn_first_if`), and still bounds such waiters by
+//! the slots among themselves.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
 use crate::mux::startup_adoption_gate::StartupAdoptionGate;
 
-/// Shown terminals go before hidden ones, but they still take slots: the
-/// cap bounds them too (review of #32288: a visible workspace with many
-/// tabs must not bring back the all-at-once respawn of STATUS 5931). One
-/// slot, held; one hidden waiter, then three shown waiters, queue behind
-/// it. None may run while the slot is held; when it frees, one shown waiter
-/// runs, and the hidden one, first in line, runs only after every shown one.
+/// Shown terminals go before hidden ones, but the slots still bound them
+/// among themselves (review of #32288: a visible workspace with many tabs
+/// must not bring back the all-at-once respawn of STATUS 5931). One slot,
+/// held by a turn of the line; one hidden waiter, then three shown waiters,
+/// queue behind it. One shown waiter runs at once (it does not wait for the
+/// line's turn), the other two wait for it; the end of the line's turn lets
+/// nobody in, and the hidden one, first in line, runs only after every
+/// shown one.
 #[test]
 fn shown_waiters_go_first_but_still_take_the_slots() {
     let gate = Arc::new(StartupAdoptionGate::with_slots(1));
@@ -42,17 +46,17 @@ fn shown_waiters_go_first_but_still_take_the_slots() {
         threads.push(run("shown", ticket, true));
     }
     std::thread::sleep(Duration::from_millis(300));
-    assert!(
-        order.lock().unwrap().is_empty(),
-        "a waiter ran while the only slot was held: {:?}",
-        order.lock().unwrap()
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec!["shown"],
+        "not exactly one shown waiter ran beside the turn of the line"
     );
     drop(held);
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(
         *order.lock().unwrap(),
         vec!["shown"],
-        "one freed slot let in more than one waiter, or the hidden one first"
+        "the end of the line's turn let in a second shown waiter, or the hidden one"
     );
     {
         let (released, changed) = &*release;
@@ -67,8 +71,9 @@ fn shown_waiters_go_first_but_still_take_the_slots() {
 }
 
 /// A waiter that becomes shown while it waits (the person selects its
-/// workspace) is woken and goes before the ticket in line ahead of it; its
-/// place is stepped over, so the line keeps moving after it.
+/// workspace) is woken and goes before the ticket in line ahead of it, with
+/// no wait for the turn that holds the slot; its place is stepped over, so
+/// the line keeps moving after it.
 #[test]
 fn a_waiter_shown_while_it_waits_takes_the_next_slot_before_the_line() {
     let gate = Arc::new(StartupAdoptionGate::with_slots(1));

@@ -8,10 +8,13 @@
 //! keep-layout. The user asked, so any end of the terminal's last
 //! incarnation qualifies, no backoff applies, and the supervisor's attempt
 //! count starts over (`supervisor.rs`). The restart runs the L2 worker
-//! (`spawn_respawn_worker`), so it takes a turn in the respawn gate (the
-//! terminal the person sees first) and a failed launch is tried again
-//! (`retry.rs`): the same terminal id gets a new shell and
-//! incarnation in its tabs, below the previous screen and the marker line.
+//! (`spawn_respawn_worker`), so it takes a turn in the respawn gate and a
+//! failed launch is tried again (`retry.rs`). The restore of a session (the
+//! tabs kept for a start at a frontend's connect) waits in the gate's line,
+//! the terminal the person sees first; any other restart is one the person
+//! asked for and does not wait for that line. The same terminal id gets a
+//! new shell and incarnation in its tabs, below the previous screen and the
+//! marker line.
 //! The tab id, placement, name, pin and group stay. A restarted keep-layout
 //! tab starts in its recorded directory and stops being kept
 //! (`tab-restart-kept-layout-v1`).
@@ -85,7 +88,14 @@ impl Mux {
         if let Some(recovered) = self.recover_failed_link_tab(surface) {
             return Ok(recovered);
         }
-        let plan = self.plan_user_restart(surface)?;
+        let mut plan = self.plan_user_restart(surface)?;
+        // A frontend restores a session with one `restart-tab` per tab kept
+        // for a start at its connect (the terminals that ran an agent):
+        // those take their turns in line. Any other restart is one the
+        // person waits for (Restart Shell Here, the first show of a parked
+        // tab's workspace, `cmux tab restart`): it goes before each restore
+        // start that has not begun, in a hidden workspace too.
+        plan.asked = !plan.kept.iter().any(|kept| !kept.on_show);
         let accepted = TabRestart {
             terminal: plan.public_id.as_str().to_string(),
             previous_incarnation: plan.old_incarnation.clone(),
@@ -241,6 +251,7 @@ impl Mux {
             delay: Duration::ZERO,
             recorded,
             user_restart: true,
+            asked: false,
             kept,
             failed_launches: 0,
         })

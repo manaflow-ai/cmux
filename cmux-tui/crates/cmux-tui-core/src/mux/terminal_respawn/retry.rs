@@ -48,6 +48,7 @@ impl RespawnPlan {
             delay: Duration::ZERO,
             recorded: self.recorded.clone(),
             user_restart: self.user_restart,
+            asked: self.asked,
             kept: self.kept.clone(),
             screen_incarnation: self.screen_incarnation.clone(),
             failed_launches: self.failed_launches.saturating_add(1),

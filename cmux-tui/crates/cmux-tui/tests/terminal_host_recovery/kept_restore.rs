@@ -236,9 +236,10 @@ fn every_kept_terminal_is_alive_after_a_restore_whose_launches_failed_one_time()
 /// all started at once, so the person's terminal competed with every hidden
 /// one for the CPU and the PTY opens.
 ///
-/// 12 kept tabs in 12 workspaces, the middle one selected, a restart with 2
-/// slots and each launch held 1 s in its turn: the first wave has at most 2
-/// terminals and the selected workspace's is one of them.
+/// 12 kept agent tabs in 12 workspaces, the middle one selected, a restart
+/// with 2 slots and each launch held 1 s in its turn: the first wave has at
+/// most 2 hidden terminals, and the selected workspace's terminal is in it
+/// too (it does not wait for a turn of the hidden ones to end).
 #[test]
 fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
     const TABS: usize = 12;
@@ -248,6 +249,9 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
     let mut harness = RecoveryHarness::start("kept-restore-turns");
     let shown_index = TABS / 2;
     let terminals = create_workspaces(&harness, "turn", TABS);
+    // The tabs a frontend restarts at its connect: any other kept tab is a
+    // restart the person asked for, and those do not wait in the line.
+    run_agent_sessions(&harness, &all_tabs(&harness));
     request(
         &harness.socket,
         serde_json::json!({"id": 300, "cmd": "select-workspace", "index": shown_index}),
@@ -296,21 +300,21 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
         .filter(|(_, at)| **at < first + HOLD_MS / 2)
         .map(|(terminal, _)| terminal.clone())
         .collect::<Vec<_>>();
+    let hidden_in_first_wave = first_wave.iter().filter(|terminal| **terminal != shown).count();
     assert!(
-        first_wave.len() <= SLOTS,
-        "{} of {TABS} kept terminals restarted at the same moment; the respawn gate allows {SLOTS}",
-        first_wave.len()
+        hidden_in_first_wave <= SLOTS,
+        "{hidden_in_first_wave} of {TABS} hidden kept terminals restarted at the same moment; \
+         the respawn gate allows {SLOTS}"
     );
-    // The app asks in tree order, so the first slots may be taken when the
-    // shown tab's request arrives: it takes the next free slot, before the
-    // hidden ones in line (wave 1 or 2 of 6).
+    // The app asks in tree order, so the slots are taken when the shown
+    // tab's request arrives: it does not wait for one of them.
     let mut order = restarted_at.iter().collect::<Vec<_>>();
     order.sort_by_key(|(_, at)| **at);
     let place = order.iter().position(|(terminal, _)| **terminal == shown).unwrap();
     assert!(
-        place < 2 * SLOTS,
-        "the shown workspace's terminal restarted as number {} of {TABS}: it waited behind \
-         hidden terminals, not for the next free slot",
+        first_wave.contains(&shown),
+        "the shown workspace's terminal restarted as number {} of {TABS}: it waited for a \
+         turn of a hidden terminal to end",
         place + 1
     );
 }
