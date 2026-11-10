@@ -15,7 +15,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -1351,19 +1351,44 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    request_by(stream, method, params, timeout, None)
+}
+
+/// [`request`] that gives up at `deadline`, however long the app keeps answering its liveness
+/// ping: past it the answer is a `timeout` refusal ([`deadline_passed`]) and nothing is resent.
+/// `None` waits as long as the app lives.
+pub(super) fn request_by(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+    deadline: Option<Instant>,
+) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let (with, added) = with_caller(method, params.clone());
-    let mut response = exchange(stream, method, with_read_barrier(method, with.clone()), timeout)?;
+    let mut response =
+        exchange_by(stream, method, with_read_barrier(method, with.clone()), timeout, deadline)?;
     // On a loaded machine the app's 2 s request deadline (mostly its daemon
     // read barrier) can pass while both are healthy. A read changes nothing,
     // so it is asked once more; a mutation is never resent.
-    if is_retryable_read(method) && timed_out(&response) {
-        response = exchange(stream, method, with_read_barrier(method, with), timeout)?;
+    if is_retryable_read(method) && timed_out(&response) && !passed(deadline) {
+        response =
+            exchange_by(stream, method, with_read_barrier(method, with), timeout, deadline)?;
     }
-    if added && refused_caller(&response) {
-        return exchange(stream, method, with_read_barrier(method, params), timeout);
+    if added && refused_caller(&response) && !passed(deadline) {
+        return exchange_by(stream, method, with_read_barrier(method, params), timeout, deadline);
     }
     Ok(response)
+}
+
+fn passed(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+/// The answer to a request whose caller's deadline passed before the app replied: the same
+/// `timeout` refusal the app gives when its own request deadline passes.
+fn deadline_passed(method: &str) -> Value {
+    json!({ "code": "timeout", "message": format!("no reply to {method} before the deadline") })
 }
 
 /// An app method that only reads state: safe to send again after a timeout.
@@ -1386,10 +1411,20 @@ pub(super) fn exchange(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    exchange_by(stream, method, params, timeout, None)
+}
+
+fn exchange_by(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+    deadline: Option<Instant>,
+) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
-    read_reply(stream, method, timeout, app_answers_ping)
+    read_reply(stream, method, timeout, deadline, app_answers_ping)
 }
 
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
@@ -1397,22 +1432,39 @@ pub(super) fn exchange(
 /// and failing the request then shows the caller a timeout for an app that was only busy. While
 /// `alive` says the app answers, the read goes on, with a note on stderr for a person; an app
 /// that does not answer ends it as before. The same request keeps waiting: nothing is resent.
+/// A `deadline` ends the wait however the app answers pings: past it the reply is the
+/// [`deadline_passed`] refusal.
 fn read_reply(
     stream: &UnixStream,
     method: &str,
     timeout: Option<Duration>,
+    deadline: Option<Instant>,
     alive: impl Fn(&UnixStream, Duration) -> bool,
 ) -> Result<Result<Value, Value>, String> {
-    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     loop {
+        // Each read waits one window, or less when the deadline is nearer.
+        let window = match (timeout, deadline) {
+            (_, Some(deadline)) => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Ok(Err(deadline_passed(method)));
+                }
+                Some(timeout.map_or(left, |window| window.min(left)))
+            }
+            (timeout, None) => timeout,
+        };
+        stream.set_read_timeout(window).map_err(|error| error.to_string())?;
         match reader.read_until(b'\n', &mut response) {
             Ok(_) => break,
+            Err(error) if is_read_timeout(&error) && passed(deadline) => {
+                return Ok(Err(deadline_passed(method)));
+            }
             Err(error) => match timeout {
                 Some(window) if is_read_timeout(&error) && alive(stream, window) => {
                     note_busy(method, started.elapsed());
