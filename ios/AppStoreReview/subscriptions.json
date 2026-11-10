@@ -9,5 +9,8 @@
     "com.cmux.app.go.monthly": "cmux Go is release-gated by the goPlan flag (web/services/billing/goPlanFlag.ts); the review account is not in the rollout, so the reviewer cannot find it",
     "com.cmux.app.pro.trial.monthly": "the Pro trial is not offered by this app version (its client and server flow is not on main)"
   },
+  "listing_must_not_name": {
+    "cmux Go": "the store description of every locale must not name a plan the reviewer cannot find (sync-listing fails on it)"
+  },
   "promotional_images": "subscription-images/<product id>.png, 1024x1024, uploaded when the product has none"
 }

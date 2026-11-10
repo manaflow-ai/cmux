@@ -34,7 +34,9 @@ code to the public inbox) and a monitored contact name, email and phone.
 
 The same step sets the Support URL of every locale of the version to the one in
 `metadata/version/<version>/en-US.json` (`https://cmux.com/support`), reads them
-back, and fails on any locale that still differs (`sync-support-url`).
+back, and fails on any locale that still differs (`sync-listing`). It also
+writes the en-US description and fails on any locale whose description names a
+plan in `subscriptions.json` `listing_must_not_name` (today cmux Go).
 
 ## Subscriptions in the submission
 

@@ -8,11 +8,12 @@ Subcommands, all through the public App Store Connect API with the CI key
                       live values App Store Connect already holds (demo account,
                       public inbox, contact) and write it to the version's App
                       Review notes. Live values never live in git.
-  sync-support-url    Set every locale of the version to the Support URL in
-                      metadata/version/<version>/en-US.json, then read them
-                      back and fail on any locale that still differs (a
-                      locale left on the home page is a Guideline 1.5
-                      rejection).
+  sync-listing        Set every locale of the version to the Support URL in
+                      metadata/version/<version>/en-US.json, and en-US to its
+                      description, then read them back and fail on any locale
+                      that still differs (a locale left on the home page is a
+                      Guideline 1.5 rejection) or whose description names a
+                      plan in the manifest's listing_must_not_name.
   upload-images       Upload subscription-images/<product id>.png as the
                       promotional image of each subscription that has none.
   gate                Read `asc validate --output json` reports and fail on every
@@ -153,6 +154,9 @@ def load_manifest(path: Path) -> dict:
     excluded = set(manifest.get("not_in_this_version") or {})
     if not manifest.get("group_id") or not submit:
         raise PackageError(f"{path}: group_id and submit_with_version are required")
+    for name in manifest.get("listing_must_not_name") or {}:
+        if not isinstance(name, str) or len(name.strip()) < 4:
+            raise PackageError(f"{path}: listing_must_not_name entries must be plan names, got {name!r}")
     if submit & excluded:
         raise PackageError(f"{path}: {sorted(submit & excluded)} both submitted and excluded")
     return manifest
@@ -209,21 +213,40 @@ def sync_notes(api: Api, app: str, version: str, template_path: Path, dry_run: b
     return True
 
 
-# --- sync-support-url --------------------------------------------------------
+# --- sync-listing ------------------------------------------------------------
 
 
-def expected_support_url(version: str, metadata_dir: Path = VERSION_METADATA_DIR) -> str:
+def version_listing(version: str, metadata_dir: Path = VERSION_METADATA_DIR) -> dict:
+    """The en-US listing in git: its supportUrl applies to every locale."""
     path = metadata_dir / version / "en-US.json"
     try:
-        url = (json.loads(path.read_text(encoding="utf-8")).get("supportUrl") or "").strip()
+        listing = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise PackageError(f"{path}: cannot read supportUrl ({error})") from None
+        raise PackageError(f"{path}: cannot read the listing ({error})") from None
+    url = (listing.get("supportUrl") or "").strip()
     if not url.startswith("https://"):
         raise PackageError(f"{path}: supportUrl must be an https URL, got {url!r}")
-    return url
+    if not (listing.get("description") or "").strip():
+        raise PackageError(f"{path}: description is empty")
+    return listing
 
 
-def sync_support_url(api: Api, app: str, version: str, expected: str, dry_run: bool) -> list[str]:
+def listing_problems(item: dict, support_url: str, banned: list[str]) -> list[str]:
+    attrs = item.get("attributes") or {}
+    locale = attrs.get("locale") or item["id"]
+    problems = []
+    if (attrs.get("supportUrl") or "").strip() != support_url:
+        problems.append(f"{locale} supportUrl is {attrs.get('supportUrl')!r}, not {support_url}")
+    description = attrs.get("description") or ""
+    for name in banned:
+        if name.casefold() in description.casefold():
+            problems.append(f"{locale} description names {name}, which this version does not offer")
+    return problems
+
+
+def sync_listing(api: Api, app: str, version: str, listing: dict, banned: list[str], dry_run: bool) -> list[str]:
+    support_url = listing["supportUrl"].strip()
+    description = listing["description"]
     vid = version_id(api, app, version)
     path = f"/v1/appStoreVersions/{vid}/appStoreVersionLocalizations?limit=50"
     localizations = api.get_all(path)
@@ -231,26 +254,34 @@ def sync_support_url(api: Api, app: str, version: str, expected: str, dry_run: b
         raise PackageError(f"version {version} has no localizations")
     for item in localizations:
         attrs = item.get("attributes") or {}
-        if (attrs.get("supportUrl") or "").strip() == expected:
-            continue
         locale = attrs.get("locale") or item["id"]
+        changes = {}
+        if (attrs.get("supportUrl") or "").strip() != support_url:
+            changes["supportUrl"] = support_url
+        if locale == "en-US" and (attrs.get("description") or "") != description:
+            changes["description"] = description
+        if not changes:
+            continue
         if dry_run:
-            note(f"{locale}: supportUrl is {attrs.get('supportUrl')!r} (dry run, not written)")
+            note(f"{locale}: {', '.join(sorted(changes))} differ from the repository (dry run, not written)")
             continue
         api.request("PATCH", f"/v1/appStoreVersionLocalizations/{item['id']}", {
-            "data": {"type": "appStoreVersionLocalizations", "id": item["id"], "attributes": {"supportUrl": expected}},
+            "data": {"type": "appStoreVersionLocalizations", "id": item["id"], "attributes": changes},
         })
-        note(f"{locale}: supportUrl set to {expected}")
-    wrong = [
-        f"{(item.get('attributes') or {}).get('locale') or item['id']} supportUrl is "
-        f"{(item.get('attributes') or {}).get('supportUrl')!r}, not {expected}"
-        for item in api.get_all(path)
-        if ((item.get("attributes") or {}).get("supportUrl") or "").strip() != expected
-    ]
+        note(f"{locale}: {', '.join(sorted(changes))} written from the repository")
+    current = localizations if dry_run else api.get_all(path)
+    wrong = [line for item in current for line in listing_problems(item, support_url, banned)]
+    if dry_run:
+        wrong += [
+            f"{(item.get('attributes') or {}).get('locale')} description differs from the repository"
+            for item in current
+            if (item.get("attributes") or {}).get("locale") == "en-US"
+            and (item.get("attributes") or {}).get("description") != description
+        ]
     for line in wrong:
         note("BLOCKING: " + line)
     if not wrong:
-        note(f"all {len(localizations)} locale(s) of {version} use Support URL {expected}")
+        note(f"all {len(current)} locale(s) of {version} use Support URL {support_url} and name only offered plans")
     return wrong
 
 
@@ -421,7 +452,7 @@ def main(argv: list[str] | None = None) -> int:
     notes_p.add_argument("--version", required=True)
     notes_p.add_argument("--template", type=Path, default=DEFAULT_NOTES_TEMPLATE)
     notes_p.add_argument("--dry-run", action="store_true")
-    support_p = sub.add_parser("sync-support-url")
+    support_p = sub.add_parser("sync-listing")
     support_p.add_argument("--version", required=True)
     support_p.add_argument("--dry-run", action="store_true")
     images_p = sub.add_parser("upload-images")
@@ -442,9 +473,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync-notes":
             sync_notes(api, args.app, args.version, args.template, args.dry_run)
             return 0
-        if args.command == "sync-support-url":
-            expected = expected_support_url(args.version)
-            return 1 if sync_support_url(api, args.app, args.version, expected, args.dry_run) else 0
+        if args.command == "sync-listing":
+            listing = version_listing(args.version)
+            banned = sorted(manifest.get("listing_must_not_name") or {})
+            return 1 if sync_listing(api, args.app, args.version, listing, banned, args.dry_run) else 0
         if args.command == "upload-images":
             upload_images(api, manifest, args.dir)
             return 0

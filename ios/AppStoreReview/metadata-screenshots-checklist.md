@@ -59,7 +59,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] `/app-pricing?cmux_app=1&cmux_distribution=appstore` renders without `/api/billing/checkout`, `/api/billing/portal`, or enterprise sales CTAs.
 - [ ] `/api/billing/checkout?cmux_distribution=appstore` redirects before creating Stack or Stripe checkout state.
 - [ ] `/api/billing/portal?cmux_distribution=appstore` redirects before resolving Stack users or creating Stripe portal state.
-- [ ] iOS purchases use StoreKit only (Go, Pro, Max in "cmux Plans") and the plans screen has Restore Purchases, Manage Subscription, auto-renewal terms, and working Terms of Use (`https://cmux.com/terms-of-service`) and Privacy Policy (`https://cmux.com/privacy-policy`) links.
+- [ ] iOS purchases use StoreKit only (Pro and Max in "cmux Plans"; Go only once `subscriptions.json` submits it) and the plans screen has Restore Purchases, Manage Subscription, auto-renewal terms, and working Terms of Use (`https://cmux.com/terms-of-service`) and Privacy Policy (`https://cmux.com/privacy-policy`) links.
 - [ ] The App Store description names the subscriptions and links the Terms of Use and Privacy Policy (Guideline 3.1.2).
 - [ ] Each subscription the app offers has an App Review screenshot of the plans screen and is attached to the version submission. `subscriptions.json` lists the submitted products; Go joins only when the production Go flag shows it to the review account, since a product the reviewer cannot find is a rejection. `verify-submission` checks exactly those entered review.
 - [ ] The demo account has no Stripe or team billing, so the plans screen offers purchases to the reviewer.
