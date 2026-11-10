@@ -591,12 +591,49 @@ jobs:
       # "Check the app FFI pin" for about the build time, not until someone
       # notices (#32305, #31927 and #32436 each
       # left it red for about an hour on 2026-11-02 while #32121 waited).
+      # The base autofix's push identity (manaflow-cmux-pr-autofix, the bypass
+      # actor of feat-cmux-next's required check), for the pin on the base below.
+      - name: Mint the base pin token
+        id: base-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      # First the pin straight on feat-cmux-next, as the base autofix pins
+      # GhosttyKit (scripts/cmux-next/pin-app-ffi-on-base.sh): when the tip has
+      # this release's FFI sources and its headers only add to the current
+      # pin's, the pin lands minutes after the release, with no pull request
+      # whose hour of CI a newer FFI merge outruns (cmux#39863, 2026-11-10).
+      # Anything else (newer sources, changed headers, no token, a dry run, a
+      # failure) falls through to the pull request below, as before.
       - name: Pin the new release and open or update the pull request
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           READ_TOKEN: ${{ github.token }}
+          BASE_TOKEN: ${{ steps.base-token.outputs.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' && steps.base-token.outputs.token != '' }}
+          SOURCE_SHA: ${{ github.sha }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
-        run: bash scripts/cmux-next/publish-app-ffi-repin.sh
+        run: |
+          set -euo pipefail
+          result=""
+          if out="$(TOKEN="$BASE_TOKEN" GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" \
+              bash scripts/cmux-next/pin-app-ffi-on-base.sh "$SOURCE_SHA" "$CHECKSUM")"; then
+            result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+          fi
+          echo "$out"
+          git checkout --quiet --force feat-cmux-next
+          case "$result" in
+            pinned|already) exit 0 ;;
+          esac
+          echo "app FFI pin on feat-cmux-next: ${result:-failed}; the re-pin pull request carries it"
+          bash scripts/cmux-next/publish-app-ffi-repin.sh
