@@ -108,6 +108,10 @@ pub enum Removal {
     /// Not yet: the machine is still listed (a delete was asked for, or is under way), or no list
     /// could say (the app not running, signed out, not loaded, another team). Read again later.
     Later(String),
+    /// A list of this other account, one the app was on during the Run's start
+    /// ([`Steps::elsewhere`]), shows no machine and no create of the Run's name: the start made
+    /// none there (or its delete is done).
+    Cleared(String),
 }
 
 /// What a Run does on Cloud. Each call may block for its whole bound; `cancel` set means stop now.
@@ -117,8 +121,20 @@ pub trait Steps: Send + Sync {
     fn scope(&self) -> Option<String>;
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome;
     /// Asks for the machine's delete when it is still listed; [`Removal::Gone`] only once an
-    /// authoritative list for `scope` no longer shows it.
-    fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal;
+    /// authoritative list for `scope` no longer shows it, [`Removal::Cleared`] when a list of one
+    /// of the `elsewhere` accounts shows none of it.
+    fn remove(
+        &self,
+        machine_name: &str,
+        machine: Option<&str>,
+        scope: Option<&str>,
+        elsewhere: &[String],
+    ) -> Removal;
+    /// The other accounts the app was on while the Run `run`'s task started (a switch during the
+    /// start), each one where its machine may have been made; asked once, after the task.
+    fn elsewhere(&self, _run: &str) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// The engine's pauses and ages.
@@ -169,6 +185,10 @@ struct Run {
     /// An incognito send's Run: what it answered is never written to the store.
     #[serde(default)]
     incognito: bool,
+    /// Other accounts the app was on during the start ([`Steps::elsewhere`]): the cleanup ends
+    /// only once a list of each has shown no machine of the Run's name ([`Removal::Cleared`]).
+    #[serde(default)]
+    elsewhere: Vec<String>,
     exit_code: Option<i64>,
     created_ms: i64,
     updated_ms: i64,
@@ -495,6 +515,7 @@ impl Engine {
             settle_ms: now,
             scope: Some(account),
             incognito: args.get("incognito").and_then(Value::as_bool).unwrap_or(false),
+            elsewhere: Vec::new(),
         };
         let answer = created(&run);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -551,7 +572,22 @@ impl Engine {
             }
         };
         let outcome = match (&task, refused) {
-            (Some(task), _) => self.steps.run(task, cancel),
+            (Some(task), _) => {
+                let outcome = self.steps.run(task, cancel);
+                // A switch of account during the start: the machine may be that account's.
+                let others = self.steps.elsewhere(&task.run);
+                let mut state = self.lock();
+                if let Some(run) = state.runs.get_mut(id) {
+                    for other in others {
+                        if run.scope.as_deref() != Some(other.as_str())
+                            && !run.elsewhere.contains(&other)
+                        {
+                            run.elsewhere.push(other);
+                        }
+                    }
+                }
+                outcome
+            }
             (None, Some(refused)) => refused,
             (None, None) => Outcome::Cancelled { machine: None },
         };
@@ -632,18 +668,34 @@ impl Engine {
     fn clean(&self, id: &str) {
         let mut pause = self.timing.retry_first;
         loop {
-            let (name, machine, scope, settle, finished) = {
+            let (name, machine, scope, settle, finished, elsewhere) = {
                 let state = self.lock();
                 let Some(run) = state.runs.get(id) else { return };
                 if run.cleanup != "pending" {
                     return;
                 }
                 let run = run.clone();
-                (run.machine_name, run.machine, run.scope, run.settle_ms, run.finished_ms)
+                (
+                    run.machine_name,
+                    run.machine,
+                    run.scope,
+                    run.settle_ms,
+                    run.finished_ms,
+                    run.elsewhere,
+                )
             };
-            let removal = self.steps.remove(&name, machine.as_deref(), scope.as_deref());
+            let removal =
+                self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere);
+            if let Removal::Cleared(other) = &removal {
+                let mut state = self.lock();
+                if let Some(run) = state.runs.get_mut(id) {
+                    run.elsewhere.retain(|kept| kept != other);
+                }
+                self.save(&state);
+            }
             let now = now_ms();
-            let done = removal == Removal::Gone && now >= settle;
+            // Gone from the Run's own account's list, and no other account left to hear from.
+            let done = removal == Removal::Gone && elsewhere.is_empty() && now >= settle;
             let given_up = finished.is_some_and(|at| now - at >= ms(self.timing.give_up));
             if done || given_up {
                 let mut state = self.lock();
@@ -658,9 +710,13 @@ impl Engine {
             }
             let wait = match removal {
                 // Gone before the settle time: read again then.
-                Removal::Gone => Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
-                    .min(self.timing.retry_max),
-                Removal::Later(_) => {
+                Removal::Gone if elsewhere.is_empty() => {
+                    Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
+                        .min(self.timing.retry_max)
+                }
+                // Another account's list is still to say: read again soon.
+                Removal::Cleared(_) => self.timing.retry_first,
+                Removal::Gone | Removal::Later(_) => {
                     let wait = pause;
                     pause = (pause * 2).min(self.timing.retry_max);
                     wait

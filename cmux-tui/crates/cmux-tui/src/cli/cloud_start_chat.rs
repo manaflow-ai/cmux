@@ -972,12 +972,7 @@ fn steps(
         return outcome;
     }
     // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
-    // A `--name` that a loaded list shows no machine or create of is fresh too: start-session makes it (a Run's
-    // `sandbox-run_…`), so a failure after names it as this run's for its caller to delete.
-    let mut fresh = match (&request.environment, &wanted) {
-        (None, Machine::Named(name)) if name_is_free(&listed, name) => Some(name.clone()),
-        _ => None,
-    };
+    let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
             let name = match unused_name(runner, &listed) {
@@ -1095,26 +1090,10 @@ fn steps(
     });
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
-    // With `--account`: the machine is that account's before anything is sent to it. One this run
-    // made under another account is deleted here: the caller's cleanup trusts only its own
-    // account's list, which never shows it.
-    if let Err(mut outcome) = machine_on_account(runner, request, machine_id, deadline) {
-        if progress.made.as_deref() == Some(machine_id) {
-            let target = format!("machine:{machine_id}");
-            let killed = runner.cmux(&words(&[
-                "cloud",
-                "kill-machine",
-                "--target",
-                &target,
-                "--confirm",
-                "--json",
-            ]));
-            if let Outcome::Failed { error, .. } = &mut outcome
-                && let Some(details) = error.get_mut("details").and_then(Value::as_object_mut)
-            {
-                details.insert("delete_asked".to_owned(), json!(step_result(&killed).is_ok()));
-            }
-        }
+    // With `--account`: the machine is that account's before anything is sent to it. A refusal names
+    // the account the app is on (`app_account`); start-chat deletes nothing, since it cannot prove it
+    // made the machine: the caller (a Run's cleanup) deletes its own machine by its own name there.
+    if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
         return outcome;
     }
 
@@ -1615,20 +1594,6 @@ fn new_machine(
 /// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
 /// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
 /// `new-machine --name`.
-/// Whether a loaded `cloud list-machines` answer shows no machine titled `name` and no create of it.
-fn name_is_free(listed: &Value, name: &str) -> bool {
-    let has = |key: &str, field: &str| {
-        at(listed, key)
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|row| at(row, field).as_str() == Some(name))
-    };
-    at(listed, "loaded").as_bool() == Some(true)
-        && !has("machines", "title")
-        && !has("creating", "name")
-}
-
 fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcome> {
     if at(listed, "loaded").as_bool() == Some(false) {
         return Err(failed(

@@ -22,6 +22,9 @@ struct Fake {
     account: Mutex<Option<String>>,
     accounts: Mutex<Vec<Option<String>>>,
     removes: AtomicUsize,
+    /// What [`Steps::elsewhere`] answers, and each remove's `elsewhere`.
+    others: Mutex<Vec<String>>,
+    elsewheres: Mutex<Vec<Vec<String>>>,
 }
 
 impl Fake {
@@ -35,6 +38,8 @@ impl Fake {
             account: Mutex::new(Some("user:u1|team:team_1".into())),
             accounts: Mutex::new(Vec::new()),
             removes: AtomicUsize::new(0),
+            others: Mutex::new(Vec::new()),
+            elsewheres: Mutex::new(Vec::new()),
         })
     }
 }
@@ -58,7 +63,18 @@ impl Steps for Fake {
         Outcome::Cancelled { machine: Some("m-1".into()) }
     }
 
-    fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal {
+    fn elsewhere(&self, _run: &str) -> Vec<String> {
+        self.others.lock().unwrap().clone()
+    }
+
+    fn remove(
+        &self,
+        machine_name: &str,
+        machine: Option<&str>,
+        scope: Option<&str>,
+        elsewhere: &[String],
+    ) -> Removal {
+        self.elsewheres.lock().unwrap().push(elsewhere.to_vec());
         self.removes.fetch_add(1, Ordering::AcqRel);
         self.scopes.lock().unwrap().push(scope.map(str::to_owned));
         self.removed.lock().unwrap().push((machine_name.to_owned(), machine.map(str::to_owned)));
@@ -508,4 +524,48 @@ fn a_runs_reply_outlives_a_restart_but_an_incognito_ones_never_reaches_the_file(
     let snapshot = settled(&reopened, &hidden, "destroyed");
     assert_eq!(snapshot["receipt"]["reply"], Value::Null);
     assert_eq!(snapshot["receipt"]["error"], Value::Null);
+}
+
+/// Codex's review of #39022 at 8c2c83b0 (F1, after 551a7dca's F3): when the app switched account
+/// during a Run's start, the machine may be the other account's. The cleanup ends only once a
+/// list of that account has shown none of it too, never on the Run's own account's list alone.
+#[test]
+fn a_start_that_saw_another_account_cleans_up_there_too() {
+    let other = "user:u1|team:team_2".to_owned();
+    let fake = Fake::new(
+        Some(Outcome::Failed {
+            code: "cloud.account_changed".into(),
+            message: "the app is on another account".into(),
+            reply: None,
+            machine: None,
+        }),
+        vec![Removal::Gone, Removal::Gone, Removal::Cleared(other.clone())],
+    );
+    *fake.others.lock().unwrap() = vec![other.clone(), "user:u1|team:team_1".into()];
+    let engine = Engine::open(None, fake.clone(), quick());
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed");
+    let seen = fake.elsewheres.lock().unwrap().clone();
+    // The own account's Gone twice did not end it; team_2's list clearing did, then Gone again.
+    assert_eq!(seen.len(), 4, "{seen:?}");
+    assert_eq!(seen[0], vec![other.clone()], "the Run's own account is never its elsewhere");
+    assert_eq!(seen[2], vec![other]);
+    assert!(seen[3].is_empty());
+}
+
+#[test]
+fn a_start_that_saw_another_account_is_never_destroyed_on_its_own_list_alone() {
+    let fake = Fake::new(Some(Outcome::TimedOut { machine: None }), vec![]);
+    *fake.others.lock().unwrap() = vec!["user:u2|personal".into()];
+    let engine = Engine::open(None, fake.clone(), quick());
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let began = Instant::now();
+    while fake.removes.load(Ordering::Acquire) < 4 && began.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let snapshot =
+        engine.perform("runs.wait", &args(json!({ "id": id, "timeoutMs": 10 }))).unwrap();
+    assert_eq!(snapshot["receipt"]["cleanup"], "pending");
+    assert!(fake.removes.load(Ordering::Acquire) >= 4);
 }

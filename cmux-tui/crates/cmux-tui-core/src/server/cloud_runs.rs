@@ -25,10 +25,11 @@
 //! Stop conditions: a task's child is killed at a cancel or at its bound (the task's timeout and
 //! [`START_MARGIN`]); every other child at [`STEP_BOUND`]. The engine's own bounds are its module's.
 
+use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use cmux_cloud_api::sandbox::{Engine, Outcome, Removal, Steps, Task, Timing, account_scope};
@@ -62,7 +63,12 @@ pub(super) fn engine(mux: &Mux) -> &'static Arc<Engine> {
         let store = mux.session_state_directory().map(|dir| dir.join(STORE_FILE));
         let app_socket =
             std::env::var_os("CMUX_SOCKET_PATH").filter(|path| !path.is_empty()).map(PathBuf::from);
-        let steps = Arc::new(AppVerbs { exe: std::env::current_exe().ok(), socket, app_socket });
+        let steps = Arc::new(AppVerbs {
+            exe: std::env::current_exe().ok(),
+            socket,
+            app_socket,
+            elsewhere: Mutex::new(HashMap::new()),
+        });
         Engine::open(store, steps, Timing::default())
     })
 }
@@ -81,6 +87,9 @@ struct AppVerbs {
     exe: Option<PathBuf>,
     socket: PathBuf,
     app_socket: Option<PathBuf>,
+    /// Per Run: the other accounts a start found the app on (`cloud.account_changed`'s
+    /// `app_account`), taken once by [`Steps::elsewhere`].
+    elsewhere: Mutex<HashMap<String, Vec<String>>>,
 }
 
 /// A child's leading words: `--json`, and the app's control socket when it is known.
@@ -174,6 +183,8 @@ pub(super) enum Judgement {
     Kill(String),
     /// Read again later, for this reason.
     Wait(String),
+    /// A list of this other account, one the app was on during the start, shows none of it.
+    Cleared(String),
 }
 
 /// Judges a `cloud list-machines` answer (`CloudHandlers.machineListFields`: `loaded`,
@@ -185,6 +196,19 @@ pub(super) fn judge(
     machine: Option<&str>,
     scope: Option<&str>,
 ) -> Judgement {
+    judge_everywhere(list, machine_name, machine, scope, &[])
+}
+
+/// [`judge`], and for a list of another account: the Run's machine (its title, `sandbox-run_<id>`,
+/// is the Run's own, made by no one else) is deleted there too, and a list of one of the
+/// `elsewhere` accounts that shows none of it clears that account ([`Judgement::Cleared`]).
+pub(super) fn judge_everywhere(
+    list: &Value,
+    machine_name: &str,
+    machine: Option<&str>,
+    scope: Option<&str>,
+    elsewhere: &[String],
+) -> Judgement {
     if list.get("loaded").and_then(Value::as_bool) != Some(true) {
         return Judgement::Wait("the app's machine list has not loaded".into());
     }
@@ -195,11 +219,29 @@ pub(super) fn judge(
     let Some(scope) = scope else {
         return Judgement::Wait("the Run has no account to match a list to".into());
     };
-    if scope != listed_scope {
-        return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
-    }
     let rows = |name: &str| list.get(name).and_then(Value::as_array).into_iter().flatten();
     let field = |row: &Value, name: &str| row.get(name).and_then(Value::as_str).map(str::to_owned);
+    if scope != listed_scope {
+        let titled =
+            rows("machines").find(|row| field(row, "title").as_deref() == Some(machine_name));
+        if let Some(id) =
+            titled.and_then(|row| field(row, "machine_id")).filter(|id| !id.is_empty())
+        {
+            let deleting = titled.and_then(|row| field(row, "status"));
+            return match deleting.as_deref() {
+                Some("deleting" | "deleted") => {
+                    Judgement::Wait(format!("machine {id} is being deleted"))
+                }
+                _ => Judgement::Kill(id),
+            };
+        }
+        let creating =
+            rows("creating").any(|row| field(row, "name").as_deref() == Some(machine_name));
+        if !creating && elsewhere.iter().any(|other| *other == listed_scope) {
+            return Judgement::Cleared(listed_scope);
+        }
+        return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
+    }
     let found = rows("machines").find(|row| {
         let id = field(row, "machine_id");
         (machine.is_some() && id.as_deref() == machine)
@@ -255,6 +297,16 @@ fn machine_of(value: &Value) -> Option<String> {
         .find_map(|path| value.pointer(path).and_then(Value::as_str))
         .filter(|id| !id.is_empty())
         .map(str::to_owned)
+}
+
+/// The other account a `cloud start-chat --account` refusal found the app on (`app_account`):
+/// the start may have made the Run's machine there.
+fn app_account(result: &Result<Value, Value>) -> Option<String> {
+    let Err(error) = result else { return None };
+    if text(error, "code") != "cloud.account_changed" {
+        return None;
+    }
+    error.pointer("/details/app_account").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// Whether a `cloud start-chat` answer is a start the app has not finished with nothing sent yet
@@ -372,17 +424,38 @@ impl Steps for AppVerbs {
                 "--account",
                 task.account.as_str(),
             ];
-            self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel))
+            let ran = self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel));
+            if let Some(other) = app_account(&answer(&ran)) {
+                let mut seen =
+                    self.elsewhere.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                seen.entry(task.run.clone()).or_default().push(other);
+            }
+            ran
         })
     }
 
-    fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal {
+    fn elsewhere(&self, run: &str) -> Vec<String> {
+        self.elsewhere
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(run)
+            .unwrap_or_default()
+    }
+
+    fn remove(
+        &self,
+        machine_name: &str,
+        machine: Option<&str>,
+        scope: Option<&str>,
+        elsewhere: &[String],
+    ) -> Removal {
         let list = match self.list() {
             Ok(list) => list,
             Err(message) => return Removal::Later(message),
         };
-        let id = match judge(&list, machine_name, machine, scope) {
+        let id = match judge_everywhere(&list, machine_name, machine, scope, elsewhere) {
             Judgement::Gone => return Removal::Gone,
+            Judgement::Cleared(other) => return Removal::Cleared(other),
             Judgement::Wait(reason) => return Removal::Later(reason),
             Judgement::Kill(id) => id,
         };
@@ -553,6 +626,46 @@ mod tests {
         // A scope stored before scopes named the person matches no list.
         let t1 = list(true, Some("u1"), Some("t1"), json!([]), json!([]));
         assert!(matches!(judge(&t1, NAME, None, Some("team:t1")), Judgement::Wait(_)));
+    }
+
+    /// Codex's review of #39022 at 8c2c83b0 (after 551a7dca's F3): a machine of the Run's own name
+    /// on another account (a switch during its start) is deleted there, and only a list of an
+    /// account the start found the app on, showing none of it, clears that account.
+    #[test]
+    fn the_runs_machine_on_another_account_is_deleted_there_and_its_list_clears_it() {
+        let elsewhere = ["user:u2|personal".to_owned()];
+        let theirs =
+            list(true, Some("u2"), None, json!([listed("m-b", NAME, "running")]), json!([]));
+        assert_eq!(
+            judge_everywhere(&theirs, NAME, None, U1_T1, &elsewhere),
+            Judgement::Kill("m-b".into())
+        );
+        // Another machine's id on that account is never the Run's: only its own name.
+        let id_only =
+            list(true, Some("u2"), None, json!([listed("m-9", "dev", "running")]), json!([]));
+        assert!(matches!(
+            judge_everywhere(&id_only, NAME, Some("m-9"), U1_T1, &elsewhere),
+            Judgement::Cleared(_)
+        ));
+        let empty = list(true, Some("u2"), None, json!([]), json!([]));
+        assert_eq!(
+            judge_everywhere(&empty, NAME, None, U1_T1, &elsewhere),
+            Judgement::Cleared("user:u2|personal".into())
+        );
+        // An account the start never found the app on clears nothing.
+        assert!(matches!(judge_everywhere(&empty, NAME, None, U1_T1, &[]), Judgement::Wait(_)));
+        // A create of the name still on its way there clears nothing.
+        let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
+        let on_its_way = list(true, Some("u2"), None, json!([]), creating);
+        assert!(matches!(
+            judge_everywhere(&on_its_way, NAME, None, U1_T1, &elsewhere),
+            Judgement::Wait(_)
+        ));
+        // A start-chat refusal names that account.
+        let refusal = Err(json!({ "code": "cloud.account_changed", "message": "x",
+                                  "details": { "account": "user:u1|team:t1", "app_account": "user:u2|personal" } }));
+        assert_eq!(app_account(&refusal).as_deref(), Some("user:u2|personal"));
+        assert_eq!(app_account(&Err(json!({ "code": "cloud.start_pending" }))), None);
     }
 
     #[test]
