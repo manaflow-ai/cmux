@@ -27,7 +27,25 @@ nonisolated enum PaletteStrings {
     static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
+    /// A title with its state at the end ("Toggle Left Sidebar · On").
+    static func titleWithState(_ title: String, _ state: String) -> String {
+        String(localized: "palette.toggle.titleWithState", defaultValue: "\(title) · \(state)", bundle: .module)
+    }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
+    static var create: String { String(localized: "palette.command.create", defaultValue: "Create", bundle: .module) }
+    static var sectionNoMatch: String { String(localized: "palette.section.noMatch", defaultValue: "Use What You Typed", bundle: .module) }
+    static func noMatchAskAgent(_ text: String) -> String {
+        String(localized: "palette.noMatch.askAgent", defaultValue: "Ask Agent “\(text)”", bundle: .module)
+    }
+    static func noMatchSearchWeb(_ text: String) -> String {
+        String(localized: "palette.noMatch.searchWeb", defaultValue: "Search the Web for “\(text)”", bundle: .module)
+    }
+    static func noMatchNewWorkspace(_ text: String) -> String {
+        String(localized: "palette.noMatch.newWorkspace", defaultValue: "New Workspace “\(text)”", bundle: .module)
+    }
+    static func noMatchRunCommand(_ text: String) -> String {
+        String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .module)
+    }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }
@@ -50,6 +68,9 @@ nonisolated enum PaletteStrings {
     }
     static var submit: String { String(localized: "palette.command.submit", defaultValue: "Submit", bundle: .module) }
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
+    /// The mark on a choice list's value in effect (a team, a theme, a setting's option): a
+    /// checkmark, as a menu marks its chosen row. A glyph, not a word, so it needs no translation.
+    static let chosenMark = "\u{2713}"
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
     static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }
@@ -92,6 +113,16 @@ nonisolated enum PaletteStrings {
     static var kindMarkdown: String { String(localized: "palette.kind.markdown", defaultValue: "Markdown", bundle: .module) }
     static var kindFile: String { String(localized: "palette.kind.file", defaultValue: "File", bundle: .module) }
     static var kindPage: String { String(localized: "palette.kind.page", defaultValue: "Page", bundle: .module) }
+    static var kindWorkspace: String { String(localized: "palette.kind.workspace", defaultValue: "Workspace", bundle: .module) }
+    /// A row's kind with its state after it ("Agent Chat · Current"), the kind alone without one.
+    static func kindWithState(_ kind: String, state: String?) -> String {
+        guard let state else { return kind }
+        return String(localized: "palette.kind.withState", defaultValue: "\(kind) · \(state)", bundle: .module)
+    }
+    /// A tab that only repeats its workspace's name, told apart by its kind and place ("Agent Chat 2").
+    static func numberedKind(_ kind: String, _ number: Int) -> String {
+        String(localized: "palette.kind.numbered", defaultValue: "\(kind) \(number)", bundle: .module)
+    }
     static var switchToWorkspace: String { String(localized: "palette.command.switchToWorkspace", defaultValue: "Switch to Workspace", bundle: .module) }
     static var renameWorkspace: String { String(localized: "palette.command.renameWorkspace", defaultValue: "Rename Workspace…", bundle: .module) }
     static var closeWorkspace: String { String(localized: "palette.command.closeWorkspace", defaultValue: "Close Workspace", bundle: .module) }
@@ -124,6 +155,10 @@ nonisolated enum PaletteStrings {
     }
     static func chooseArgument(_ name: String) -> String {
         String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)
+    }
+    /// The empty prompt of an optional argument the palette asks for (`isAskedInPalette`).
+    static func optionalArgument(_ name: String) -> String {
+        String(localized: "palette.optionalArgument", defaultValue: "\(name) (optional)", bundle: .module)
     }
     static func submitTextFormat(title: String, text: String) -> String {
         String(localized: "palette.submitText", defaultValue: "\(title) “\(text)”", bundle: .module)

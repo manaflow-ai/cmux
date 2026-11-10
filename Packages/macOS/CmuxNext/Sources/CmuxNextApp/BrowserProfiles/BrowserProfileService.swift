@@ -126,6 +126,9 @@ final class BrowserProfileService {
         return book.engineProfile(for: services.cache.tabModel(key)?.browserProfileID)
     }
 
+    /// `engineProfile(forTab:)` when the caller knows whether `tab` is incognito (no lookup of its workspace).
+    func engineProfile(for tab: TabModel, incognito: Bool) -> BrowserProfileID { incognito ? services.windows.incognitoProfile() : book.engineProfile(for: tab.browserProfileID) }
+
     /// The wire id of a tab's profile (nil record = `default`).
     func profileID(ofTab tab: TabModel) -> String {
         tab.browserProfileID ?? BrowserProfileRecord.defaultID

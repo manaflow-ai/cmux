@@ -6,6 +6,8 @@
 // or resizes by more than `tolerance` px, or appears only later, is reported. Leo 2026-10-18: "we
 // know the final layout", so after first paint nothing may jump.
 
+import { chatSnapshotReport } from "./chatSnapshot/live";
+
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -71,13 +73,26 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   const ms = Math.max(100, Math.min(options.ms ?? 1500, 10_000));
   const tolerance = options.tolerance ?? 1;
   const start = performance.now();
+  // When the watch began on the wall clock, so a caller times its frames from its own action: the call may
+  // reach the page well after it was asked (a Chromium page still starting, PageWebView.callPageScript).
+  // Date.now(), not timeOrigin + now(): a page that lived through a sleep has a monotonic clock behind the wall.
+  const startedWallMs = Date.now();
   const frames: Frame[] = [];
   while (performance.now() - start < ms) {
     frames.push(read(start));
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   const first = frames.findIndex(shown);
-  if (first < 0) return { frames: frames.length, first_content_ms: null, shifts: [], appeared: [], scroll_jumps: [] };
+  if (first < 0)
+    return {
+      frames: frames.length,
+      started_wall_ms: startedWallMs,
+      first_content_ms: null,
+      first_rows: 0,
+      shifts: [],
+      appeared: [],
+      scroll_jumps: [],
+    };
   const base = frames[first]!;
   const shifts: Record<string, unknown>[] = [];
   const appeared: Record<string, unknown>[] = [];
@@ -111,8 +126,15 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     .map((frame) => ({ at_ms: Math.round(frame.at), scroll_top: frame.scrollTop }));
   return {
     frames: frames.length,
+    started_wall_ms: startedWallMs,
     first_content_ms: Math.round(base.at),
+    // The transcript rows the first paint drew: 0 when it was the empty chat (or a page still loading its
+    // transcript, which reads the same), so a caller that opened a chat with messages can tell them apart.
+    first_rows: [...base.boxes.keys()].filter((name) => name.startsWith("row#")).length,
     elements: base.boxes.size,
+    // The chat's drawn copy (chatSnapshot/): when it painted and when the live page took over, in
+    // the page's own clock (ms since the document began), or why none drew, and the page's writes.
+    snapshot: chatSnapshotReport(),
     shifts,
     appeared,
     scroll_jumps: scrollJumps,

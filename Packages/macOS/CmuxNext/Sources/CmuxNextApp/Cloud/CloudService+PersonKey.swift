@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextRemote
 import Foundation
 
 /// cx-0q7o slices 2d (cx-psxg) and 2e (cx-kvmz): remote approvals for a Cloud machine. The app
@@ -24,7 +25,18 @@ extension CloudService {
 
     /// Restarts `session`'s acpmux with a new key; nil on success, else what failed.
     func restartWithApprovals(_ session: CloudMachineSession) async -> AgentPaneRemoteApprovals.Failure? {
-        await restartWithApprovals(machine: session.machineID, route: session.appLink != nil ? workerApprovalsRoute() : legacyApprovalsRoute())
+        await restartWithApprovals(machine: session.machineID, route: workerApprovalsRoute())
+    }
+
+    /// Prepares a Cloud machine's acpmux for a new chat when the remote daemon has said that a
+    /// keyed restart is safe, or when an older daemon's status shows it is idle. The shared
+    /// preparation actor serializes starts per machine; a busy or failed machine quietly falls
+    /// back to the unkeyed chat start so the user's Allow flow can show its normal restart notice; `proceed` and cancellation are checked right before the restart.
+    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation, proceed: @escaping @MainActor @Sendable () -> Bool = { true }) async -> Bool {
+        await RemoteApprovalPreparations.shared.prepare(machine: session.machineID, daemonSaidSafe: preparation == .daemonSaidSafe,
+                                                        held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil,
+                                                        idle: { [machineAPI] in await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart == true },
+                                                        restart: { [self] in guard !Task.isCancelled, await proceed() else { return false }; return await restartWithApprovals(session) == nil })
     }
 
     /// The shared verifier: new key, keyed start, a fresh nonce, the proof checked against the key, bind.
@@ -50,15 +62,6 @@ extension CloudService {
         }
     }
 
-    private func legacyApprovalsRoute() -> ApprovalsRoute {
-        let api = api
-        return ApprovalsRoute(
-            keyedStart: { machine, length, write in try await api.acpmuxKeyedStart(machine, keyLineLength: length, writeKey: write) },
-            personHolds: { machine, nonce in try await api.acpmuxPersonHolds(machine, nonce: nonce) },
-            failure: Self.approvalsFailure
-        )
-    }
-
     /// The API Worker with the person's Stack session; the team is the install token's team claim
     /// (the team whose CloudDO holds the app server's machines).
     private func workerApprovalsRoute() -> ApprovalsRoute {
@@ -73,19 +76,6 @@ extension CloudService {
             personHolds: { machine, nonce in try await owner.acpmuxPersonHolds(machine, nonce: nonce) },
             failure: Self.workerApprovalsFailure
         )
-    }
-
-    /// The pane's reason for a refused or failed keyed start (the web route's `vm_acpmux_*` codes).
-    nonisolated static func approvalsFailure(_ error: CloudAPIError) -> AgentPaneRemoteApprovals.Failure {
-        guard case let .http(_, code, _, _, _) = error else { return .failed(CloudStrings.apiErrorText(error)) }
-        switch code {
-        case "vm_acpmux_unsupported": return .daemonTooOld
-        case "vm_acpmux_not_running": return .machineNotRunning
-        case "vm_acpmux_not_single_owner", "vm_acpmux_team_vm": return .notSingleOwner
-        case "vm_acpmux_start_failed": return .daemonTookNoKey(nil)
-        case "vm_acpmux_holds_failed": return .keyNotHeld
-        default: return .failed(CloudStrings.apiErrorText(error))
-        }
     }
 
     /// The pane's reason for a refused or failed keyed start (the API Worker's codes, backend cloud-acpmux.ts).

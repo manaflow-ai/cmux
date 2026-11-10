@@ -115,7 +115,7 @@ const stackResized = (height: number) =>
     for (const { callback, self } of observers) callback([], self);
   });
 
-test("a composer that grows over the view, or a tray that opens in the stack, leaves the rail's box as it was", async () => {
+test("a composer that grows over the view, or a tray that opens in the stack, never moves the rail or changes its height", async () => {
   stack = 120;
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
@@ -134,14 +134,17 @@ test("a composer that grows over the view, or a tray that opens in the stack, le
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("120px");
     const rest = railBox();
-    expect(Number.parseFloat(rest.height)).toBeGreaterThan(0);
-    // Three more composer lines, then a background-task bar on top of them.
+    // Forty prompts at the 10 px pitch.
+    expect(Number.parseFloat(rest.height)).toBe(400);
+    const restBottom = Number.parseFloat(rest.top) + Number.parseFloat(rest.height);
+    // Leo, 2026-11-04: "the height of the left scroll rail should never be affected by anything", and
+    // 2026-11-03: "i just don't like it when the thing shifts". Three more composer lines, then a stack
+    // that reaches past the rail's foot: the box stays where it rests, and the stack lays over its foot.
     await stackResized(188);
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("188px");
     expect(railBox()).toEqual(rest);
-    await stackResized(236);
+    await stackResized(VIEWPORT - restBottom - 22 + 40);
     expect(railBox()).toEqual(rest);
-    // Back to rest: still the same box.
     await stackResized(120);
     expect(railBox()).toEqual(rest);
   } finally {
@@ -150,10 +153,10 @@ test("a composer that grows over the view, or a tray that opens in the stack, le
 });
 
 test("the rail's inset is the same at every pane width that leaves its gutter room (the sidebar toggle)", () => {
-  const insets = [900, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
+  const insets = [980, 1000, 1040, 1200, 1600, 2400].map((width) => railPlacement(width).left);
   expect(new Set(insets)).toEqual(new Set([16]));
   // Only a gutter too short for the widest step shrinks it.
-  expect(railPlacement(800).left).toBe(8);
+  expect(railPlacement(880).left).toBe(8);
   // Session Info pushing the chat's column (a smaller text inset) never moves it: it reads the pane.
   expect(railPlacement(1084, 32).left).toBe(railPlacement(1084).left);
 });
@@ -169,8 +172,9 @@ test("the transcript's mask leaves the rail's lane in full ink", () => {
     )?.[1];
   expect(rule).toBeDefined();
   // The view's mask, the scrollbar's lane, and the rail's lane: the gutter the rows never reach.
+  // Find in Chat's full-ink box may follow as a fourth layer (ChatFindBar).
   expect(rule).toContain("var(--acpmux-view-mask)");
   expect(rule).toMatch(
-    /mask-size:\s*100% 100%,\s*var\(--acpmux-scrollbar-lane, 16px\) 100%,\s*var\(--cv-inset\) 100%;/,
+    /mask-size:\s*100% 100%,\s*var\(--acpmux-scrollbar-lane, 16px\) 100%,\s*var\(--cv-inset\) 100%(,\s*var\(--acpmux-find-hole-size, 0px 0px\))?;/,
   );
 });

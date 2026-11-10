@@ -30,6 +30,16 @@ pub(super) fn subscribe_activity(
     mux.activity.subscribe(mux, client, writer)
 }
 
+/// A connection that has no use for `scroll-changed` on its event stream (the Mac app: its terminals' scrollbars come
+/// from its own surfaces; a terminal's attach stream still carries the event) says this in
+/// `set-client-info`: its `subscribe` carries no `scroll-changed` (SWITCH FRAMES SF-5: every hidden busy terminal
+/// woke the app's event pump about 15 times a second for an event its store ignores).
+pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll-on-attach-v1";
+/// A delta subscriber that says this in `set-client-info` gets a selection change that rides with a
+/// tree delta as `selection-changed` (the changed workspace's whole selection) instead of a
+/// `tree-changed` that makes it read the whole tree again (#32408).
+pub(crate) const TREE_SELECTION_DELTAS_CAPABILITY: &str = "tree-selection-deltas-v1";
+
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
     client: u64,
@@ -50,6 +60,11 @@ pub(super) fn subscribe_command(
     };
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
+    // Read once: the handshake sends `set-client-info` before `subscribe`.
+    let scroll_on_attach =
+        mux.control_clients.supports_capability(client, SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY);
+    let selection_deltas =
+        mux.control_clients.supports_capability(client, TREE_SELECTION_DELTAS_CAPABILITY);
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
@@ -93,6 +108,8 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
             let mut value = match &event {
+                // The client applies none (SWITCH FRAMES SF-5); attach streams still carry it.
+                MuxEvent::ScrollChanged { .. } if scroll_on_attach => continue,
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {
@@ -198,6 +215,13 @@ pub(super) fn subscribe_command(
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
+                // The person's feed only to their own clients, as for the
+                // cloud conversations.
+                MuxEvent::FeedViewChanged { .. } | MuxEvent::FeedReportsChanged { .. }
+                    if !conversation_client =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(event)
                     if !host_replica_needed(event)
                         && !super::cloud_conversations::delivers(&event_mux, client) =>
@@ -269,10 +293,35 @@ pub(super) fn subscribe_command(
                 }),
                 MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta, &event_mux),
                 MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
-                MuxEvent::TreeSelectionChanged if tree_deltas => {
+                // Read when written: a screen or pane added since is unknown to the client until its
+                // own delta, which carries its selection; the client skips it here.
+                MuxEvent::TreeSelectionChanged(Some(workspace))
+                    if tree_deltas && selection_deltas =>
+                {
+                    event_mux
+                        .with_state(|state| {
+                            crate::server::selection_changed_json(state, *workspace)
+                        })
+                        .unwrap_or_else(|| json!({"event": "tree-changed"}))
+                }
+                MuxEvent::TreeSelectionChanged(_) if tree_deltas => {
                     json!({"event": "tree-changed"})
                 }
-                MuxEvent::TreeSelectionChanged => continue,
+                MuxEvent::TreeSelectionChanged(_) => continue,
+                MuxEvent::WorkspacePresentationChanged(workspace)
+                    if tree_deltas && selection_deltas =>
+                {
+                    event_mux
+                        .with_state(|state| {
+                            crate::server::workspace_presentation_changed_json(
+                                state,
+                                &event_mux.tree_decorations_in_state(state),
+                                *workspace,
+                            )
+                        })
+                        .unwrap_or_else(|| json!({"event": "tree-changed"}))
+                }
+                MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
                 MuxEvent::SizeStateChanged { surface, runtime, state } => {
                     if !event_mux
                         .control_clients
@@ -288,6 +337,11 @@ pub(super) fn subscribe_command(
                 // Apps clients already hear it on their own sink; only a page
                 // relay (whose page names it) gets it from the event stream.
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
+                // Other clients hear a stash change as a `stash` resource on
+                // `session.events`; only the Stashed Tabs page's relay gets it here.
+                MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
+                // Only the Tasks page hears its owner's changes.
+                MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
             if incognito.hides(&event_mux, client, &event, &mut value) {
@@ -451,7 +505,8 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "at_bottom": at_bottom,
         }),
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
-        MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
+        MuxEvent::TreeSelectionChanged(_) => json!({"event": "tree-changed"}),
+        MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
         MuxEvent::FrontendProjectionChanged {
             frontend,
@@ -480,10 +535,23 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::StashChanged { revision } => json!({
+            "event": "stash-changed",
+            "revision": revision,
+        }),
         MuxEvent::HistoryChanged { revision, kinds } => json!({
             "event": "history-changed",
             "revision": revision,
             "kinds": kinds,
+        }),
+        MuxEvent::FeedViewChanged { revision, changed } => json!({
+            "event": "feed-view-changed",
+            "revision": revision,
+            "changed": changed.as_ref(),
+        }),
+        MuxEvent::FeedReportsChanged { revision } => json!({
+            "event": "feed-reports-changed",
+            "revision": revision,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
@@ -551,6 +619,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             json!({"event": "pairing-resolved", "request": request})
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
+        MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
         MuxEvent::Empty => json!({"event": "empty"}),
     }
 }

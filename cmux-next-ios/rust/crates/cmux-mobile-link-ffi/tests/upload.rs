@@ -56,6 +56,7 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let handle = connect_inner(
@@ -71,6 +72,7 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
+            ultra_on_cellular: false,
         },
         None,
     )

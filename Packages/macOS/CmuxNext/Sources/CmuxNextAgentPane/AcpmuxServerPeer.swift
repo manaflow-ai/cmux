@@ -254,15 +254,48 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+    /// DEV is ad-hoc and has no team to require. The verdict is kept while the file is unchanged
+    /// (``StrictVerdicts``).
+    ///
+    /// A Mach-O whose signature makes the kernel kill it on a page that does not match its code
+    /// directory (hardened runtime or kill flag, as every Team-signed nightly binary has) is checked
+    /// without hashing its pages: the signature, the code directory and the team requirement are
+    /// still checked, strictly, for every architecture, and the kernel checks each page against that
+    /// code directory when it runs it. Hashing every page of the bundled `cmux` (148 MB, which acpmux
+    /// links to) read the whole file on the main thread at launch: 2.5 s on a cold disk cache.
+    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam,
+                                          verdicts: StrictVerdicts = .shared) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
-        var code: SecStaticCode?
         let path = executable.resolvingSymlinksInPath()
-        guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
-        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        return verdicts.verdict(path: path.path, team: team) {
+            var code: SecStaticCode?
+            guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
+            return SecStaticCodeCheckValidity(code, strictFlags(for: code), requirement) == errSecSuccess
+        }
+    }
+
+    /// The strict check's flags for `code`: every architecture, strict, and the pages hashed only
+    /// when the kernel would not kill a process of it at a bad page (``kernelKillsOnInvalidPages(_:)``).
+    static func strictFlags(for code: SecStaticCode) -> SecCSFlags {
+        var flags = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        if kernelKillsOnInvalidPages(code) { flags |= kSecCSDoNotValidateExecutable }
+        return SecCSFlags(rawValue: flags)
+    }
+
+    /// Whether `code` is a Mach-O whose signature has the hardened runtime or the kill flag, so the
+    /// kernel ends a process of it at the first page that does not match its code directory. Reads
+    /// only the signature, never the pages. A signed script (format "generic", its signature in
+    /// extended attributes) can carry those flags too, but the kernel never checks a script's
+    /// contents, so it is hashed in full.
+    static func kernelKillsOnInvalidPages(_ code: SecStaticCode) -> Bool {
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let info = information as? [String: Any],
+              (info[kSecCodeInfoFormat as String] as? String)?.hasPrefix("Mach-O") == true,
+              let raw = info[kSecCodeInfoFlags as String] as? UInt32 else { return false }
+        let flags = SecCodeSignatureFlags(rawValue: raw)
+        return flags.contains(.runtime) || flags.contains(.forceKill)
     }
 
     private static func requirement(team: String) -> SecRequirement? {

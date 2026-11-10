@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 
@@ -14,13 +15,14 @@ extension AppActions {
         let registry = services.registry
         registry.bind("home.conversationInfo", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
+            guard services.home.groupActions.info(id) != nil else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
             guard services.home.dock.isClassic else {
                 return withDock(services) { dock in
                     guard let page = dock.messages else { return services.registry.refuse(RefusalStrings.homeNotReady) }
-                    page.presentGroupInfo(id)
+                    page.present(.groupInfo, conversation: id)
                 }
             }
-            homePage(services)?.presentGroupInfo(id)
+            homePage(services)?.present(.groupInfo, conversation: id)
         })
         registry.bind("home.renameConversation", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
@@ -39,12 +41,12 @@ extension AppActions {
         })
         registry.bind("home.leaveConversation", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
-            // The page showing it moves to its neighbor once the owner took the leave.
-            let page = shownPage(services)
+            // The page showing it moves to its neighbor once the owner took the leave (the same rule as Delete).
+            let page = listedPage(services)
             let next = page.flatMap { $0.shown == id ? $0.sidebar.model().neighbor(of: id, offset: 1) : nil }
             runGroup(services) { actions in
                 let outcome = await actions.leave(id)
-                if outcome == .left, let page, page.shown == id { page.conversationLeft(id, next: next) }
+                if outcome == .left, let page { page.conversationLeft(id, next: next) }
                 return outcome
             }
         })
@@ -89,8 +91,10 @@ extension AppActions {
             }
             runGroup(services) { await $0.setChiefReplies(policy, id) }
         })
-        HomeListActions(page: { shownPage(services) }, source: { pinSource(services) }, conversation: { conversation($0, services) },
+        HomeListActions(page: { listedPage(services) }, source: { pinSource(services) }, conversation: { conversation($0, services) },
                         notReady: RefusalStrings.homeNotReady, pinTitles: (PinStrings.pinConversation, PinStrings.unpinConversation)).bind(into: registry)
+        HomeChannelActions(directory: services.home.directory, contact: { services.home.groupActions.contact($0) }, enableBrain: { _ = await services.home.hostedChief.enableBrain(of: $0) },
+                           show: { services.home.pendingSelection = $0 }).bind(into: registry)  // New Channel (chief-channels-DESIGN.md)
         // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
         registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
             guard let id = conversation(invocation, services) else { return .done }
@@ -112,23 +116,29 @@ extension AppActions {
         if let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
             return ConversationID(text)
         }
-        guard let shown = shownPage(services)?.shown else {
+        guard let shown = shownConversation(services) else {
             services.registry.refuse(RefusalStrings.homeNotReady)
             return nil
         }
         return shown
     }
 
-    /// The native Home page of the active window (classic) or of the docked Home, without showing it.
-    static func shownPage(_ services: AppServices) -> TopHomePageView? {
-        if services.home.dock.isClassic { return services.windows.active?.topPages.views[.home] as? TopHomePageView }
-        return HomeDockTab.view(services)?.messages
+    /// Home's Messages page of the active window, without showing it: classic Home's top page, else
+    /// the docked Home's Messages view.
+    static func listedPage(_ services: AppServices) -> HomeMessagesPage? {
+        guard services.home.dock.isClassic else { return HomeDockTab.view(services)?.messages }
+        return services.windows.active?.topPages.views[.home] as? HomeMessagesPage
     }
 
-    /// The pins a Home pin change goes to: the shown page's sidebar (its list redraws), else a
-    /// source over the same stores (pins live with the owner or in this account's store, not in a page).
+    /// The conversation Home shows: the Messages page's, as it last said.
+    static func shownConversation(_ services: AppServices) -> ConversationID? {
+        listedPage(services)?.shown
+    }
+
+    /// The pins a Home pin change goes to: a source over the owner's stores (pins live with the
+    /// owner or in this account's store, not in a page; the Messages page hears the change from its owner).
     private static func pinSource(_ services: AppServices) -> HomeSidebarSource {
-        shownPage(services)?.sidebar ?? services.home.makeSidebarSource()
+        listedPage(services)?.sidebar ?? services.home.makeSidebarSource()
     }
 
     /// Runs a group action; the caller that waits (socket, CLI) gets its refusal as the failure.

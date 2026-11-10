@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use cmux_remote_protocol::{CircuitId, RelaySocketAttachment};
 use serde::{Deserialize, Serialize};
 
+use crate::park::ParkedConnect;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum SlotPhase {
@@ -18,6 +20,31 @@ pub(crate) struct SlotAttachment {
     pub generation: u64,
     pub expires_at: u64,
     pub idle_deadline_ms: u64,
+    /// A client Connect waiting for the daemon to register (`crate::park`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parked: Option<ParkedConnect>,
+    /// When a registered daemon's control socket last spoke (its Register or
+    /// a Ping), in ms. Zero on client sockets and on an attachment written
+    /// before this field existed (`crate::daemon`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub last_seen_ms: u64,
+    /// A daemon owed the slot's unjoined circuits: it resumed after silence
+    /// past the liveness window while its registration wasn't current
+    /// (`crate::daemon::record_ping`), a Connect fell back to another legacy
+    /// registration (`crate::daemon::owed_handover_after_fallback`), or
+    /// another legacy registration closed
+    /// (`crate::daemon::owed_handover_after_close`). Its first Ping once it
+    /// is current is handed them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_handover: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +150,9 @@ mod tests {
             generation: 9,
             expires_at: 1_000,
             idle_deadline_ms: 2_000,
+            parked: None,
+            last_seen_ms: 0,
+            pending_handover: false,
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();

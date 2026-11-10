@@ -272,10 +272,13 @@ impl Reads {
 /// One connection, followed until it ends.
 fn follow(mux: &Weak<Mux>, stream: UnixStream, imported: &mut Imported) -> std::io::Result<()> {
     let mut writer = stream.try_clone()?;
+    // `observer`: this connection only watches, like the chat notices one, so it keeps no acpmux
+    // daemon whose app has quit (acpmux `daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
     let initialize = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": 1,
         "clientInfo": {"name": "cmux-tui-project-chats", "version": "1"},
         "clientCapabilities": {},
+        "_meta": {"acpmux": {"observer": true}},
     }});
     let watch = json!({"jsonrpc": "2.0", "id": WATCH_ID, "method": "_acpmux/chats_watch",
         "params": {"enabled": true, "limit": 1}});

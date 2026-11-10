@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -37,6 +38,137 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
         #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
+        withExtendedLifetime(drafts) {}
+    }
+
+    @Test func aMultiMegabyteDraftComesBackAfterARelaunch() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        let large = String(repeating: "x", count: 2 * 1024 * 1024)
+        AgentUnsentDrafts(file: file, files: files).set(large, for: "tab-large")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-large") == large)
+    }
+
+    /// A Cloud start's sending tab: what its page typed while the chat started is read back by tab and
+    /// machine (CloudStartChat `openUploaded` seeds the started chat's composer with it), and each tab
+    /// reads only its own, so two starts of the same prompt never swap their text.
+    @Test func aSendingTabsTypedTextIsReadBackByItsTab() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let first = AgentPaneModel(host: MockAgentPaneHost()), second = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(first) { "tab-1" }
+        drafts.wire(second) { "tab-2" }
+        _ = await first.respond(to: Self.request("chat.unsentDraft", ["text": "first tab's note"]))
+        _ = await second.respond(to: Self.request("chat.unsentDraft", ["text": "second tab's note"]))
+        #expect(drafts.draft(forTab: "tab-1", machine: "this-mac") == "first tab's note")
+        #expect(drafts.draft(forTab: "tab-2", machine: nil) == "second tab's note")
+        #expect(drafts.draft(forTab: "tab-1", machine: "other-mac") == nil)
+        withExtendedLifetime((first, second)) {}
+    }
+
+    /// A Cloud start's chat takes the sending tab's text as it is at the hand-off, not as it was when the
+    /// chat's tab was made: the sending composer stays open while the App still awaits the tab and the
+    /// folder's trust, and what is typed then goes too (cmux#39913 review at c29c9b11). The page asking
+    /// for its seed meanwhile waits for the hand-off; reading where the chat starts (`peek`) never does.
+    @Test func aCloudStartsChatTakesTheSendingTabsTextAsItIsAtTheHandOff() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        #expect(await source.peek()?.cwd == "/w")
+        // The started chat's page asks for its seed while the start still awaits its tab and the trust.
+        let taking = Task { @MainActor in await source.take() }
+        for _ in 0..<5 { await Task.yield() }
+        // The person keeps typing on the sending tab meanwhile.
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
+        handOff(true)
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "too late"]))
+        handOff(false)
+        let seed = await taking.value
+        #expect(seed?.draft == "and the nightly")
+        #expect(seed?.prompt == "fix the build")
+        withExtendedLifetime(sender) {}
+    }
+
+    /// However long the folder's trust runs, the page's seed waits for the hand-off and gets the text
+    /// as it is then, typed after any wait included (cmux#39913 review at 7f5a1b22): no snapshot is
+    /// taken early and dropped. A start that fails hands off none.
+    @Test func aCloudStartsChatWaitsForTheHandOffHoweverLongTheTrustRuns() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (late, give) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        let taking = Task { @MainActor in await late.take() }
+        // A long trust: the page has waited a while, and the person typed on through it.
+        try await Task.sleep(for: .milliseconds(200))
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly, after the wait"]))
+        give(true)
+        let seed = await taking.value
+        #expect(seed?.prompt == "fix the build")
+        #expect(seed?.draft == "and the nightly, after the wait")
+        let (failed, fail) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) { "never read" }
+        fail(false)
+        #expect(await failed.take()?.draft == nil)
+        withExtendedLifetime(sender) {}
+    }
+
+    /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
+    /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
+    /// window's next new chat takes it once, and nothing sends it.
+    @Test func aNewChatsTextLeftWhenItsTabOpensAnotherChatWaitsForTheWindowsNextNewChat() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        let drafts = AgentUnsentDrafts(file: file, files: files)
+        drafts.windowOfTab = { key, _ in key == "tab-1" || key == "tab-2" ? "window-1" : nil }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(model) { "tab-1" }
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed here"]))
+        _ = await model.respond(to: Self.request("chat.leftover", ["text": "held prompt\n\ntyped here"]))
+        // The tab opens chat B: its own copy goes, the window's slot stays.
+        _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-b"]))
+        // A chat with a session leaves nothing.
+        _ = await model.respond(to: Self.request("chat.leftover", ["text": "not a new chat's"]))
+        // Another new chat of the same window leaves its own: it adds to the first.
+        let other = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(other) { "tab-2" }
+        _ = await other.respond(to: Self.request("chat.leftover", ["text": "second"]))
+
+        // After a quit: the window's next New Tab page gets both; no other window has any.
+        let relaunched = AgentUnsentDrafts(file: file, files: files)
+        #expect(relaunched.seed(for: "tab-1", session: nil) == nil, "the left text is no tab's draft")
+        #expect(relaunched.leftover(inWindow: "window-2") == nil)
+        #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
+        // A page that never shows (its tab failed to open) gives nothing up: the next page gets it.
+        #expect(relaunched.leftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
+        // A page reports it showed the first part; what was left after it was read stays. Another
+        // window's slot with the same text is never its to give up.
+        relaunched.leave("second", inWindow: "window-2")
+        let page = AgentPaneModel(host: MockAgentPaneHost())
+        relaunched.windowOfTab = { key, _ in key == "tab-5" ? "window-2" : "window-1" }
+        relaunched.wire(page) { "tab-3" }
+        #expect(page.newTabForPage == nil, "only a New Tab page gets it")
+        // A New Tab page its host gave none (a workspace's first page, a restored one) reads its window's.
+        let first = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        relaunched.wire(first) { "tab-4" }
+        #expect(first.newTabForPage?.draft == "held prompt\n\ntyped here\n\nsecond")
+        _ = await page.respond(to: Self.request("chat.leftoverTaken", ["text": "held prompt\n\ntyped here"]))
+        #expect(relaunched.leftover(inWindow: "window-1") == "second")
+        _ = await page.respond(to: Self.request("chat.leftoverTaken", ["text": "second"]))
+        #expect(relaunched.leftover(inWindow: "window-1") == nil, "a leftover seeds one new chat")
+        #expect(relaunched.leftover(inWindow: "window-2") == "second", "window 2's slot is its own")
+        #expect(AgentUnsentDrafts(file: file, files: files).leftover(inWindow: "window-1") == nil)
+        let elsewhere = AgentPaneModel(host: MockAgentPaneHost())
+        relaunched.wire(elsewhere) { "tab-5" }
+        _ = await elsewhere.respond(to: Self.request("chat.leftoverTaken", ["text": "second"]))
+        #expect(relaunched.leftover(inWindow: "window-2") == nil)
+        withExtendedLifetime(relaunched) {}
         withExtendedLifetime(drafts) {}
     }
 
@@ -159,28 +291,31 @@ struct UnsentDraftTests {
         #expect(try Data(contentsOf: directory.appending(path: aside)) == readable)
     }
 
-    /// A text past the limit is refused, as acpmux refuses one: the saved draft stays, never nil.
-    @Test func aTextPastTheLimitKeepsTheSavedDraft() throws {
+    /// A draft larger than the former limit is retained and merged without loss.
+    @Test func aLargeTypedMergeKeepsTheSavedDraft() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
-        let saved = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters - 1)
+        let saved = String(repeating: "s", count: 2 * 1024 * 1024)
         AgentUnsentDrafts(file: file, files: files).set(saved, for: "tab-1")
 
         let drafts = AgentUnsentDrafts(file: file, files: files)
-        // Typed before the page was handed it: the merge is past the limit, so nothing changes.
         drafts.typed("x", for: "tab-1")
-        #expect(drafts.draft(for: "tab-1") == saved)
-        // The refused merge left the draft undelivered: the page's empty text (it has not been
-        // handed the draft yet) does not clear it.
-        drafts.typed("", for: "tab-1")
-        #expect(drafts.draft(for: "tab-1") == saved)
-        drafts.set(saved + "\n\nx", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved)
-        // At the limit it is kept.
-        let atLimit = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters)
-        drafts.set(atLimit, for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == atLimit)
+        #expect(drafts.draft(for: "tab-1") == saved + "\n\nx")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved + "\n\nx")
+    }
+
+    /// Another machine's tab whose id a tab of this Mac also has keeps its own draft: closing it
+    /// clears that one only, never this Mac's (#36767 review at a3fa88d2: the close cleared by bare id).
+    @Test func closingAnotherMachinesTabWithTheSameIDKeepsThisMacsDraft() {
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        tabs.unsentDrafts.typed("local draft", for: "tab-1")
+        tabs.unsentDrafts.set("remote draft", for: "tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.hasDraft("tab-1", machine: "this-mac"), "this Mac's tab keeps the bare id")
+        tabs.release("tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.draft(for: "tab-1") == "local draft")
+        #expect(!tabs.unsentDrafts.hasDraft("tab-1", machine: "other-mac"))
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

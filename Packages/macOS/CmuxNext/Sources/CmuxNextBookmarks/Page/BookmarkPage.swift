@@ -1,0 +1,285 @@
+public import AppKit
+import CmuxNextCompat
+public import CmuxNextPages
+public import CmuxNextSettings
+import Foundation
+
+/// What the Bookmarks page needs from the app (``BookmarkPageHostProvider``): the profile a tab
+/// shows, the tree the app mirrors, icons and opening a page.
+@MainActor
+public protocol BookmarkPageHost: AnyObject, Sendable {
+    func bookmarkProfile(ofTab key: String) -> String
+    func bookmarkTree(_ profile: String) -> BookmarkTree
+    /// `profile`'s tree as the home daemon stores it now (the app's tree may lag a change).
+    func bookmarkOwnerTree(_ profile: String) async throws -> BookmarkTree
+    var bookmarkFolderIconsSupported: Bool { get }
+    /// A URL bookmark's favicon (fetched when missing), nil while it loads or without one.
+    func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage?
+    /// A folder's own icon at `side` points; nil without one or while a stored one loads.
+    func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage?
+    /// Read under observation: changes when a favicon or a stored folder icon lands.
+    var bookmarkIconRevision: Int { get }
+    func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String)
+}
+
+public extension PageDescriptor {
+    /// The Bookmarks manager page (`webviews/src/pages/bookmarks`): the tree is the daemon's
+    /// routed `bookmarks.*` namespace (`cmux.bookmarks.`, through the page relay); the app serves
+    /// only the profile, the root titles, the icons and opening a page (`cmux.bookmarkPage.`,
+    /// ``BookmarkPageHostProvider``), and the file and icon steps run as registry actions.
+    static let bookmarks = PageDescriptor(
+        id: "cmux.bookmarks", resource: "bookmarks", namespaces: ["cmux.bookmarks.", BookmarkPageHostProvider.prefix],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        actions: ["bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "bookmark.setIcon", "bookmark.clearIcon"],
+        commands: PageNativeOp.commands.union([BookmarkPageHostProvider.revealCommand]), ownsSearchField: true)
+}
+
+/// Serves `cmux.bookmarkPage.*` to one Bookmarks page:
+///
+/// - `state {}`: `{browser_profile_id, bar_title, other_title, can_set_folder_icons}`.
+/// - stream `changed`: `{reason: "state"}` when the page's profile changed (re-read the state, then
+///   the tree), `{reason: "icons"}` when a favicon or stored folder icon landed (ask again for the
+///   icons that were missing). One event per main-actor turn.
+/// - `icons {ids}`: `{icons: {id: dataURL}, masks: [id]}`, the favicons and folder icons of the rows
+///   on screen; an id in `masks` is a symbol drawn as a template the page tints.
+/// - `open {bookmark, url?, disposition}` and `openAll {folder}`: as from the bookmarks bar, on the
+///   daemon's row (the app's tree serves `open` only when it holds the same row the page shows).
+@MainActor
+public final class BookmarkPageHostProvider: PageProvider {
+    public static let prefix = "cmux.bookmarkPage."
+    public static let changedStream = "cmux.bookmarkPage.changed"
+    /// The page command that shows one bookmark (`{bookmark}`).
+    public static let revealCommand = "reveal"
+    /// Most icons one `icons` call answers (the rows on screen).
+    private static let maxIcons = 200
+    /// Icon edge in pixels (rows draw 16 pt at 2x).
+    private static let iconSide: CGFloat = 32
+
+    private weak var host: (any BookmarkPageHost)?
+    /// The tab the page serves; a bookmarks bar page moves between tabs (``BookmarksBarPages``),
+    /// and re-reads its state when the new tab's profile differs.
+    public var tabKey: String {
+        didSet {
+            lendGeneration &+= 1
+            post("lend")
+            if tabKey != oldValue { pageShown() }
+        }
+    }
+    /// Bumped on every move of the page to a tab or back to the pool (``relend()``, `tabKey`): a
+    /// call accepted before it acts for nobody.
+    public private(set) var lendGeneration = 0
+
+    /// Who a host call acts for: the page's tab and profile, and the lend, when it was accepted.
+    public struct Lease: Equatable, Sendable {
+        public let generation: Int
+        public let tabKey: String
+        public let profile: String
+    }
+    /// A top page names its profile (its window's workspace); a tab page uses the tab's.
+    public var profileOverride: (@MainActor () -> String)?
+    private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var pending: Set<String> = []
+    private var servedProfile: String?
+    /// The gesture the last open spent (`PageCallContext.gestureEvent`).
+    private var spentGesture: TimeInterval?
+    private var iconObservation: Task<Void, Never>?
+
+    public init(host: any BookmarkPageHost, tabKey: String) {
+        self.host = host
+        self.tabKey = tabKey
+    }
+
+    public var profile: String { profileOverride?() ?? host?.bookmarkProfile(ofTab: tabKey) ?? "default" }
+
+    /// The lease of a call accepted now. Every host op that awaits takes one first and acts only
+    /// while ``isCurrent(_:)`` holds, so no answer lands in a tab the page has left.
+    public func lease() -> Lease { Lease(generation: lendGeneration, tabKey: tabKey, profile: profile) }
+
+    /// Whether the page still serves `lease`'s tab and profile, on the same lend.
+    public func isCurrent(_ lease: Lease) -> Bool { lease == self.lease() }
+
+    /// The page was lent again or given back (even to the same tab): earlier calls act for nobody.
+    public func relend() {
+        lendGeneration &+= 1
+        post("lend")
+    }
+
+    /// Throws when the page moved on since `lease` was taken.
+    func requireCurrent(_ lease: Lease, _ op: String) throws {
+        guard isCurrent(lease) else { throw PageError(code: "cmux.bookmarkPage.moved", message: "\(op): the page moved to another tab") }
+    }
+
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let host else { throw PageError.closed }
+        switch op {
+        case Self.prefix + "state":
+            let profile = profile
+            servedProfile = profile
+            return .object([
+                "browser_profile_id": .string(profile), "bar_title": .string(BookmarkStrings.barTitle),
+                "other_title": .string(BookmarkStrings.otherBookmarks),
+                "can_set_folder_icons": .bool(host.bookmarkFolderIconsSupported),
+                "lend": .number(Double(lendGeneration)),
+            ])
+        case Self.prefix + "icons":
+            return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        case Self.prefix + "open":
+            try spendGesture(context)
+            let lease = lease()
+            // The page shows the daemon's rows: the app's tree serves only when it has the same row.
+            let id = params["bookmark"]?.stringValue ?? ""
+            let shown = params["url"]?.stringValue
+            var node = host.bookmarkTree(lease.profile).node(id)
+            if node == nil || (shown != nil && node?.url?.absoluteString != shown) {
+                node = try await ownerTree(host, profile: lease.profile).node(id)
+                try requireCurrent(lease, op)
+            }
+            guard let node else { throw PageError(code: "cmux.bookmarkPage.not_found", message: op) }
+            let disposition: BookmarkOpenDisposition = switch params["disposition"]?.stringValue {
+            case "newTab": .newTab
+            case "backgroundTab": .backgroundTab
+            default: .currentTab
+            }
+            host.openBookmark(node, profile: lease.profile, disposition: disposition, fromTab: lease.tabKey)
+            return .object([:])
+        case Self.prefix + "openAll":
+            try spendGesture(context)
+            let lease = lease()
+            // Open All reads the folder's children from the daemon, never a lagging copy.
+            let tree = try await ownerTree(host, profile: lease.profile)
+            try requireCurrent(lease, op)
+            guard let id = params["folder"]?.stringValue, let folder = tree.node(id), folder.isFolder else {
+                throw PageError(code: "cmux.bookmarkPage.not_found", message: op)
+            }
+            // The first in a new tab, the rest behind it, as the bar's Open All.
+            for (index, node) in tree.children(of: folder.id).filter({ !$0.isFolder }).enumerated() {
+                host.openBookmark(node, profile: lease.profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: lease.tabKey)
+            }
+            return .object([:])
+        default:
+            throw PageError.unknownOp(op)
+        }
+    }
+
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                   onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream == Self.changedStream else { throw PageError.unknownOp(stream) }
+        let id = UUID()
+        listeners[id] = onEvent
+        followIcons()
+        return PageSubscription { [weak self] in
+            guard let self else { return }
+            listeners[id] = nil
+            if listeners.isEmpty { stopFollowingIcons() }
+        }
+    }
+
+    public func pageDidClose() {
+        listeners.removeAll()
+        stopFollowingIcons()
+    }
+
+    /// The page shows again: a top page whose window moved to a workspace of another profile
+    /// re-reads its state.
+    public func pageShown() {
+        guard let servedProfile, servedProfile != profile else { return }
+        post("state")
+    }
+
+    /// Opening a bookmark (a saved privileged URL, its last-used time) is the person's own act:
+    /// each real click or key in the page view opens once; page script alone, or a second call on
+    /// the same gesture, opens nothing.
+    private func spendGesture(_ context: PageCallContext) throws {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: BookmarkStrings.personOnlyFromPage)
+        }
+        spentGesture = event
+    }
+
+    private func ownerTree(_ host: any BookmarkPageHost, profile: String) async throws -> BookmarkTree {
+        do { return try await host.bookmarkOwnerTree(profile) } catch {
+            throw PageError(code: "cmux.bookmarkPage.unavailable", message: String(describing: error))
+        }
+    }
+
+    private func icons(_ ids: [String]) -> JSONValue {
+        guard let host else { return .null }
+        let tree = host.bookmarkTree(profile)
+        var icons: [String: JSONValue] = [:]
+        var masks: [JSONValue] = []
+        for id in ids.prefix(Self.maxIcons) {
+            guard let node = tree.node(id) else { continue }
+            if node.isFolder {
+                guard let image = host.bookmarkFolderIcon(node, side: Self.iconSide) else { continue }
+                guard let url = Self.dataURL(image) else { continue }
+                icons[id] = .string(url)
+                if image.isTemplate { masks.append(.string(id)) }
+            } else if let url = host.bookmarkFavicon(node, profile: profile).flatMap(Self.dataURL) {
+                icons[id] = .string(url)
+            }
+        }
+        return .object(["icons": .object(icons), "masks": .array(masks)])
+    }
+
+    private static func dataURL(_ image: NSImage) -> String? {
+        var rect = CGRect(origin: .zero, size: image.size)
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil).flatMap(dataURL)
+    }
+
+    private static func dataURL(_ image: CGImage) -> String? {
+        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return nil }
+        return "data:image/png;base64," + png.base64EncodedString()
+    }
+
+    /// What the page follows while it listens: its profile (a top page's follows its window's
+    /// workspace), the icon revision, and the app tree's row count.
+    private struct Followed: Equatable, Sendable {
+        var profile: String
+        var iconRevision: Int
+        var rows: Int
+    }
+
+    /// Tells the page when its profile changes (it re-reads its state) and when a favicon or a
+    /// stored folder icon lands, while it listens (no polling).
+    private func followIcons() {
+        guard iconObservation == nil, let host else { return }
+        // task-owner: lives while the page listens (stopFollowingIcons); event-driven (Observation)
+        iconObservation = Task { [weak self] in
+            var first = true
+            // A row the app's tree gets after the page listed it has its icon now: the tree's
+            // count is followed too, so the page asks again for the icons it was told were missing.
+            for await followed in ObservationStream({ [weak self, weak host] in
+                let profile = self?.profile ?? ""
+                return Followed(profile: profile, iconRevision: host?.bookmarkIconRevision ?? 0,
+                                rows: host?.bookmarkTree(profile).count ?? 0)
+            }) {
+                guard let self else { return }
+                let moved = servedProfile.map { $0 != followed.profile } ?? false
+                // The stream's first value is the state at subscribe: only a profile the page did
+                // not read yet is news then.
+                if first { first = false; if moved { post("state") }; continue }
+                post(moved ? "state" : "icons")
+            }
+        }
+    }
+
+    private func stopFollowingIcons() {
+        iconObservation?.cancel()
+        iconObservation = nil
+    }
+
+    private func post(_ reason: String) {
+        guard !listeners.isEmpty, pending.insert(reason).inserted, pending.count == 1 else { return }
+        // task-owner: one coalesced event per main-actor turn; ends at once
+        Task { [weak self] in
+            guard let self else { return }
+            let reasons = pending
+            pending.removeAll()
+            for reason in reasons.sorted() {
+                // Every event names the current lend, so a page knows when it moved (`lend`).
+                let event = JSONValue.object(["reason": .string(reason), "lend": .number(Double(lendGeneration))])
+                for listener in listeners.values { listener(event) }
+            }
+        }
+    }
+}

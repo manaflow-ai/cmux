@@ -20,7 +20,7 @@ API key and no app; see [headless.md](headless.md).
   are menu-only: the CLI never writes the clipboard.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
-  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  `stderr`; `cmux machine new` (the `new-machine` action) returns `machine_id` and `target` (or `pending: true` while
   the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
   `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
@@ -40,7 +40,7 @@ API key and no app; see [headless.md](headless.md).
 
 `cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
-already exists before it runs `new-machine`. It takes no target. Run by a person from
+already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash
@@ -78,11 +78,11 @@ cmux cloud list-machines --json
 
 ```bash
 cmux cloud list-machines                                    # the app's Cloud machines
-cmux cloud new-machine                                      # answers machine_id (or pending)
-cmux cloud new-workspace                                    # New Cloud Workspace
+cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
+cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
+cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
 cmux cloud open-machine --target machine:vm-…
-cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
-cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
+cmux cloud open-desktop --target machine:vm-…                # its desktop as a live video stream over the carrier (your own cmux NEXT machine only)
 cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspace with a terminal
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
@@ -111,10 +111,13 @@ sidebar and palette run them, the CLI has no verb for them. From the CLI, open a
 `cmux cloud machine-status --target machine:vm-…`, and check its tools with
 `cmux cloud exec --target machine:vm-… --command '…'`.
 
-cmux Cloud pauses a machine after 30 idle minutes by default (no attached terminal, ssh or app,
-no running agent turn, no command still running in a terminal, no forwarded port). The
-machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
-resumes it. `set-idle-pause` changes the timeout per machine.
+cmux Cloud pauses an idle machine (no attached terminal, ssh or app, no running agent turn, no
+command still running in a terminal, no forwarded port). Production pauses it after 2 idle
+minutes, counted from 10 minutes after a chat's last turn; a machine whose daemon does not count
+agent turns falls back to its own idle policy (30 minutes unless set). The machine's record says
+`pauseReason: "idle"`; opening a workspace or terminal on it, or ssh, resumes it.
+`set-idle-pause` changes the timeout per machine; `--minutes off` (or `cmux vm new --persistent`)
+keeps it running, with only a 24-hour backstop.
 
 A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
 restart: `trusted` allows only GitHub, the package registries and the model providers the server
@@ -195,7 +198,7 @@ cmux cloud ssh --target machine:vm-… --json
 ```bash
 cmux cloud network-list
 cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # --path <rule-id>, or JSON for create
-cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: a public key (see cmux action describe); this Mac
+cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: no arguments (this Mac's team network; a --path id must be that team's); rotate-key: no arguments, the agent daemon makes the new key; this Mac
 cmux cloud domain-list
 cmux cloud publication-list
 cmux cloud provision-api --target machine:vm-… --port 3000 [--name ci]   # URL + API key, one call
@@ -223,23 +226,32 @@ authorization for the target and effect.
 ## Agent sessions on a machine
 
 ```bash
+cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
+cmux cloud start-chat --name dev --prompt '…' --json                       # on machine "dev" (created when missing); answers once sent
 cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
-cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
+cmux cloud start-session --name dev --agent codex                          # take machine "dev", or create it
 ```
+
+`start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
+answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`
+and `follow_up`, the `cloud exec` commands that send, wait and read on
+that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
 
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
 tab opens in the machine's first workspace. Without `--cwd` the session starts
-in that workspace's folder. An agent's run asks the person first with a card in
-its own chat (Start, Not now), like an agent's `cloud move`. It waits up to 2
-minutes for an answer and then refuses. Each refusal names the machine and gives
-the command to run again.
+in a new folder of its own, `~/chats/<chat-id>`, on the machine. An agent's run starts at once, as the person's own
+would; only the Cloud plan's limits refuse it. When the person turned off
+`cloud.agentsStartWithoutAsking`, an agent's run asks them first with a card in
+its own chat (Start, Not now), like an agent's `cloud move`, and waits up to 2
+minutes for an answer. Each refusal names the machine and gives the command to
+run again.
 
 ## Account and diagnostics
 
 ```bash
-cmux cloud sign-in
-cmux cloud sign-out
+cmux login
+cmux logout
 cmux cloud team-picker
 cmux cloud diagnostics
 cmux cloud open-mobile-pairing
@@ -279,6 +291,6 @@ and `vm ls`. See [guest operations](guest.md).
 | `cloud domains list` | `cmux cloud domain-list`, `cmux cloud publication-list` |
 | `cloud domains publish` (protected, for an API) | `cmux cloud provision-api --target machine:vm-… --port <port>` |
 | `cloud domains publish\|verify\|access\|rm\|zones` (public or custom domains) | none |
-| `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach --path <network-id>` (no machine target) |
+| `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach` (this Mac's team network; no machine target) |
 | `vpn status`, `ai-accounts`, `auth login\|logout` | none on the CLI; use the app |
 | `capabilities`, `rpc <method>` | `cmux app capabilities`, `cmux action list` |

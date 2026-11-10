@@ -101,6 +101,12 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     }
 }
 
+/// [`valid_name`] for `cmux machine vault`: the same names, so a vault var can always be set on a
+/// machine.
+pub(super) fn check_name(name: &str) -> Result<(), UsageError> {
+    valid_name(name)
+}
+
 /// The machine config's own name rules (`[A-Za-z_][A-Za-z0-9_]*`, at most 128, not a name the
 /// machine's shell or cmux owns), so a stored secret can always be delivered.
 fn valid_name(name: &str) -> Result<(), UsageError> {
@@ -295,7 +301,7 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             secrets.insert(account.clone(), json!(mark));
             write_index(&path, secrets)
                 .map_err(|e| fail(format!("stored, but the index was not written: {e}")))?;
-            json!({"stored": account, "next": "cmux cloud deliver-secrets --target machine:<id>"})
+            json!({"stored": account, "next": "cmux vm deliver-secrets --target vm:<id>"})
         }
         Command::Rm { account } => {
             let (path, _lock, mut secrets) = load_index()?;

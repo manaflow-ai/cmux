@@ -22,18 +22,20 @@ import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Either, Option, Schema } from "effect";
+import { Clock, Effect, Either, Exit, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
 import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
+import { allowVmPublicEgress, getVmPublicEgress } from "./public-egress.ts";
 import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
-import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
+import { MeshStore } from "../db/mesh.ts";
+import { agentBudgetAllows, agentSlotOwner, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -64,10 +66,10 @@ import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
 const onVm =
   (conflictMessage: string) =>
   (error: UpstreamError): NotFound | Conflict | ServiceUnavailable =>
-    error.status === 404 ? vmNotFound() : error.status === 409 ? conflict(conflictMessage) : unavailable();
+    error.status === 404 ? vmNotFound() : error.status === 409 ? conflict(conflictMessage) : unavailable(error);
 
 /** Provider failures reading a VM: 404 means it is gone; anything else is ours. */
-const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.status === 404 ? vmNotFound() : unavailable());
+const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.status === 404 ? vmNotFound() : unavailable(error));
 
 /** Provider failures on a create. */
 const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | QuotaExceeded | ServiceUnavailable => {
@@ -76,7 +78,7 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
   if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" });
-  return unavailable();
+  return unavailable(error);
 };
 
 const forbidAllowlisted = (principal: Principal) =>
@@ -122,7 +124,7 @@ interface NewVm {
  */
 const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: TenantMayCreate<C, "vm">) => Effect.Effect<A, E, R>, resume?: { readonly key: string; readonly vmId: string }) =>
   Effect.gen(function* () {
-    const decision = yield* tenantMayCreate(caller, "vm", resume).pipe(Effect.mapError(() => unavailable()));
+    const decision = yield* tenantMayCreate(caller, "vm", resume).pipe(Effect.mapError(unavailable));
     if (decision._tag === "not_entitled") {
       return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include VMs" }));
     }
@@ -148,13 +150,16 @@ const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: Tena
 const settleDeletedCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, vmId: string) =>
   Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
-    const key = yield* (yield* OwnershipStore).creationKey(tenantId, vmId).pipe(Effect.mapError(() => unavailable()));
-    if (key === null) return;
+    const key = yield* (yield* OwnershipStore).creationKey(tenantId, vmId).pipe(Effect.mapError(unavailable));
     const limits = yield* TenantLimits;
-    const progress = (yield* limits.inspect(tenantId, key).pipe(Effect.mapError(() => unavailable())))?.progress;
+    // A deleted VM, or its cancelled create, no longer counts against an agent key's budget. Best effort: the
+    // delete already happened, and a slot left behind lapses on its own.
+    yield* limits.forgetAgentVm(tenantId, vmId, key).pipe(Effect.ignore);
+    if (key === null) return;
+    const progress = (yield* limits.inspect(tenantId, key).pipe(Effect.mapError(unavailable)))?.progress;
     if ((progress?.phase !== "creating" && progress?.phase !== "cancelled") || progress.vmId !== vmId) return;
     const settle = progress.phase === "cancelled" || progress.cancelRequested === true ? limits.settleCancellation : limits.settleCreation;
-    yield* settle(tenantId, key, vmId).pipe(Effect.mapError(() => unavailable()));
+    yield* settle(tenantId, key, vmId).pipe(Effect.mapError(unavailable));
     if (progress.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, progress.snapshotId);
   });
 
@@ -245,19 +250,19 @@ const createRecorded = <C, S>(
         // too; any other answer keeps it pending. Then tombstone it and settle its intent once, so the retry
         // answers like any deleted allocation and nothing new is created.
         const vanished = yield* name(cmuxId, (vm) => Effect.gen(function* () {
-          const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+          const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(unavailable));
           if (owns === null) return false;
           return yield* upstream.getVmForWrite(vm, { owns, scope: proofs.scope }).pipe(
             Effect.as(false),
-            Effect.catchAll((failure) => failure.status === 404 ? Effect.succeed(true) : Effect.fail(unavailable())),
+            Effect.catchAll((failure) => failure.status === 404 ? Effect.succeed(true) : Effect.fail(unavailable(failure))),
           );
         }));
         if (!vanished) return yield* Effect.fail(unavailable());
-        yield* store.markDeleted(caller.value.tenantId, "vm", cmuxId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
+        yield* store.markDeleted(caller.value.tenantId, "vm", cmuxId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
         yield* settleDeletedCreation(caller, proofs.scope, cmuxId);
         return yield* Effect.fail(vmNotFound());
       }
-      return yield* Effect.fail(proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable() : onCreate(error));
+      return yield* Effect.fail(proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable(error) : onCreate(error));
     }
     const created = attempted.right;
     const grown = spec.size === undefined ? Either.right(created.vm) : yield* Effect.either(created.grow(spec.size));
@@ -279,9 +284,9 @@ const createRecorded = <C, S>(
       yield* record(false).pipe(Effect.ignore);
       return yield* Effect.fail(grown.left.status === 429
         ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
-        : unavailable());
+        : unavailable(grown.left));
     }
-    yield* record(true).pipe(Effect.mapError(() => unavailable()));
+    yield* record(true).pipe(Effect.mapError(unavailable));
     return toVm(cmuxId, spec, grown.right);
     // Uninterruptible: a client that disconnects mid-create must not leave an
     // upstream VM that is neither recorded nor discarded.
@@ -293,14 +298,68 @@ const createRecorded = <C, S>(
  */
 const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, prior: IdempotencyProgress | null, key: string | null) => Effect.gen(function* () {
   if (prior?.phase !== "creating" || key === null) return null;
-  const status = yield* (yield* OwnershipStore).allocationStatus(caller.value.tenantId, prior.vmId).pipe(Effect.mapError(() => unavailable()));
+  const status = yield* (yield* OwnershipStore).allocationStatus(caller.value.tenantId, prior.vmId).pipe(Effect.mapError(unavailable));
   if (status === "absent" || status === "pending") return null;
-  yield* (yield* TenantLimits).advance(caller.value.tenantId, key, { phase: "done", vmId: prior.vmId }).pipe(Effect.mapError(() => unavailable()));
+  yield* (yield* TenantLimits).advance(caller.value.tenantId, key, { phase: "done", vmId: prior.vmId }).pipe(Effect.mapError(unavailable));
   if (status === "deleted") return yield* Effect.fail(vmNotFound());
   return yield* replayVm(caller, scope, prior.vmId);
 });
 
+/**
+ * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
+ * create whose send began (its intent is `creating`, not rejected) may exist upstream unrecorded, so the slot stays, naming the
+ * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
+ * gives the slot back. Best effort: a slot left unsettled
+ * lapses on its own, after the longest create.
+ */
+const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agent: string; readonly slotId: string }, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const tenantId = caller.value.tenantId;
+    if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
+    const progress = (yield* limits.inspect(tenantId, key))?.progress;
+    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
+    const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
+      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
+      : "released" as const;
+    return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
+  }).pipe(Effect.ignore);
+
+/**
+ * A resumed agent create: one that recorded its VM binds the slot its first attempt held to that VM; one whose send
+ * the provider definitely rejected made nothing, so that held slot goes back.
+ */
+const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const tenantId = caller.value.tenantId;
+    if (Exit.isSuccess(exit)) return yield* limits.bindAgentCreation(tenantId, agentSlotOwner(caller.value), key, exit.value.id);
+    const progress = (yield* limits.inspect(tenantId, key))?.progress;
+    if (progress?.phase === "creating" && progress.dispatch?.state === "rejected") yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
+  }).pipe(Effect.ignore);
+
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
+
+/**
+ * A CI job's VMs pause within its run cap and the provider deletes them once stopped, so a job cancelled before its
+ * cleanup leaves a row the provider no longer has. Before a CI principal creates, each of its own VMs the provider
+ * answers 404 for goes through the ordinary delete (which forgets a gone VM), so those rows stop holding its quota.
+ */
+const reclaimGoneCiVms = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">) =>
+  Effect.gen(function* () {
+    const budget = caller.value.agent;
+    if (caller.value.maxRunSeconds === undefined || budget === undefined) return;
+    const upstream = yield* UpstreamClient;
+    const page = yield* visitOwnedVms(caller, { limit: budget.maxVms + 5, after: null, labels: null }, (vm, owns) =>
+      upstream.getVmForWrite(vm, { owns, scope }).pipe(
+        Effect.as(Option.none<string>()),
+        Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(Option.some<string>(vm.value)) : Effect.fail(unavailable(error)))),
+      ),
+    ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
+    for (const gone of page.results) {
+      if (Option.isSome(gone)) yield* deleteVmById(gone.value);
+    }
+  });
 
 const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
@@ -308,7 +367,9 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       // An agent key's VMs get its labels without asking; a label naming another agent is refused.
-      const payload = yield* withAgentLabels(principal, requested);
+      // A CI trust row's VMs pause within its run cap and are deleted once stopped, whatever was asked.
+      const payload = withRunCap(principal, yield* withAgentLabels(principal, requested));
+      yield* ciSizeAllowed(principal, payload);
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
@@ -355,21 +416,34 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
-            if (resumeSlot(key, prior) === undefined) yield* agentBudgetAllows(caller, scope, payload.resources);
-            const attempt = { key, prior };
-            if (payload.snapshotId === undefined) {
-              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
+            // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
+            let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
+            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
+            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
+            if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
+              yield* reclaimGoneCiVms(caller, scope);
+              agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
             }
-            return yield* name(payload.snapshotId, (snapshot) =>
-              Effect.gen(function* () {
-                const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
-                if (owns === null) return yield* Effect.fail(snapshotNotFound());
-                return yield* withCreateSlot(caller, (mayCreate) =>
-                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }, attempt),
-                  resumeSlot(key, prior),
-                );
-              }),
-            );
+            const attempt = { key, prior };
+            const create = payload.snapshotId === undefined
+              ? withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior))
+              : name(payload.snapshotId, (snapshot) =>
+                Effect.gen(function* () {
+                  const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(unavailable));
+                  if (owns === null) return yield* Effect.fail(snapshotNotFound());
+                  return yield* withCreateSlot(caller, (mayCreate) =>
+                    createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }, attempt),
+                    resumeSlot(key, prior),
+                  );
+                }),
+              );
+            if (agentSlot === undefined) {
+              // A resumed agent create recorded its VM: the slot held for it now names that VM.
+              if (caller.value.agent === undefined) return yield* create;
+              return yield* create.pipe(Effect.onExit((exit) => resumedAgentCreate(caller, key, exit)));
+            }
+            const slot = agentSlot;
+            return yield* create.pipe(Effect.onExit((exit) => settleAgentCreate(caller, slot, key, exit)));
           }),
         (vmId) => replayVm(caller, scope, vmId),
         clientFingerprint,
@@ -419,9 +493,9 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
         // Never turn that missing capture receipt into permission to take another one.
         if (principal.resourceAllowlist === null) {
           const priorKey = yield* scopedCreationKey(principal, effectiveKey);
-          const prior = yield* limits.inspect(principal.tenantId, priorKey).pipe(Effect.mapError(() => unavailable()));
+          const prior = yield* limits.inspect(principal.tenantId, priorKey).pipe(Effect.mapError(unavailable));
           if ((prior?.progress.phase === "claimed" || prior?.progress.phase === "pending")
-            && (yield* limits.quarantineForkClaim(principal.tenantId, priorKey).pipe(Effect.mapError(() => unavailable()))))
+            && (yield* limits.quarantineForkClaim(principal.tenantId, priorKey).pipe(Effect.mapError(unavailable))))
             return yield* Effect.fail(conflict("This fork has no durable capture receipt; its earlier outcome needs reconciliation"));
         }
         return yield* creationResult(principal, effectiveKey, idempotent(
@@ -433,7 +507,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
             // Once a snapshot is retained, the source is no longer an input to this attempt.
             // Completed retries authorize the destination above; fresh forks still prove the source.
             const retainedSnapshot = resumeFrom?.phase === "snapshotted" || resumeFrom?.phase === "creating" || resumeFrom?.phase === "capturing";
-            const sourceOwns = retainedSnapshot ? null : yield* tenantOwnsVm(caller, source).pipe(Effect.mapError(() => unavailable()));
+            const sourceOwns = retainedSnapshot ? null : yield* tenantOwnsVm(caller, source).pipe(Effect.mapError(unavailable));
             if (!retainedSnapshot && sourceOwns === null) return yield* Effect.fail(vmNotFound());
             yield* forbidAllowlisted(principal);
             yield* requireServiceLabels(principal, payload.labels ?? {});
@@ -469,7 +543,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                       captureKey: yield* scopedForkSnapshotKey(keyed), reservationId: mayCreate.reservationId,
                       createdBy: actorRef(principal.actor), createdAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
                       receipt: { id: vmId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds } };
-                    yield* limits.advance(principal.tenantId, keyed, parent).pipe(Effect.mapError(() => unavailable()));
+                    yield* limits.advance(principal.tenantId, keyed, parent).pipe(Effect.mapError(unavailable));
                   }
                   snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent, generated !== undefined);
                   resumeFrom = parent;
@@ -478,7 +552,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                 if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
                 return yield* name(parsed.value, (snapshot) =>
                   Effect.gen(function* () {
-                    const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
+                    const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(unavailable));
                     if (owns === null) {
                       return yield* Effect.fail(conflict("The snapshot from the first attempt is gone; retry with a new Idempotency-Key"));
                     }
@@ -565,9 +639,9 @@ const listVms = (params: {
             (error) => error.status === 404,
             () => Effect.succeed(Option.none<Vm>()),
           ),
-          Effect.mapError(() => unavailable()),
+          Effect.mapError(unavailable),
         ),
-      ).pipe(Effect.catchTag("StoreError", () => Effect.fail(unavailable())));
+      ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
       const items = page.results.flatMap((item) =>
         Option.isSome(item) && (params.state === undefined || item.value.state === params.state) ? [item.value] : [],
       );
@@ -588,7 +662,7 @@ const deletedEarlier = (rawId: string) =>
     const parsed = parseVmId(rawId);
     if (Option.isNone(parsed)) return false;
     return yield* name(principal, parsed.value, (caller, vm) => Effect.gen(function* () {
-      const gone = yield* tenantDeletedVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      const gone = yield* tenantDeletedVm(caller, vm).pipe(Effect.mapError(unavailable));
       const scope = keyHasScope(caller, "vm:write");
       if (gone && scope !== null) yield* settleDeletedCreation(caller, scope, vm.value);
       return gone;
@@ -612,14 +686,21 @@ export const deleteVmById = (rawVmId: string) =>
         const limits = yield* TenantLimits;
         const tenantId = TenantId.make(caller.value.tenantId);
         // Deleting an uncommitted VM cancels its creation: fence the intent first so a retry cannot commit it.
-        const pending = proofs.owns.committed ? null : yield* store.creationKey(tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
-        if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(() => unavailable()));
+        const pending = proofs.owns.committed ? null : yield* store.creationKey(tenantId, vm.value).pipe(Effect.mapError(unavailable));
+        if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(unavailable));
         // "gone" (already deleted upstream) still forgets the VM here.
-        yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(() => unavailable()));
+        yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(unavailable));
         const now = new Date(yield* Clock.currentTimeMillis);
         yield* store
           .markDeleted(tenantId, "vm", vm.value, now)
-          .pipe(Effect.mapError(() => unavailable()));
+          .pipe(Effect.mapError(unavailable));
+        // A deleted VM leaves its mesh: a member row left behind would make every later ACL reconcile name a
+        // VM that is gone, and every attach to that mesh would answer 409.
+        const meshes = yield* MeshStore;
+        const membership = yield* meshes.memberOf(tenantId, vm.value).pipe(Effect.mapError(unavailable));
+        if (Option.isSome(membership)) {
+          yield* meshes.detachMember(tenantId, membership.value.meshId, vm.value, now).pipe(Effect.mapError(unavailable));
+        }
         yield* settleDeletedCreation(caller, proofs.scope, vm.value);
         // Its client-session tokens die with it; a failed revoke is retried by the reaper.
         yield* revokeVmClientSessions(tenantId, vm.value).pipe(Effect.ignore);
@@ -639,7 +720,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       const fingerprint = yield* upstream.instanceFingerprint(vm, proofs);
       const presence = urlParams.checkPresence === "true" ? yield* upstream.getVm(vm, proofs).pipe(
         Effect.map(() => "present" as const),
-        Effect.catchAll((error) => error.status === 404 ? Effect.succeed("missing" as const) : Effect.fail(unavailable())),
+        Effect.catchAll((error) => error.status === 404 ? Effect.succeed("missing" as const) : Effect.fail(unavailable(error))),
       ) : undefined;
       return new VmInstanceIdentity({ id: vm.value, scheme: INSTANCE_IDENTITY_SCHEME, fingerprint, ...(presence === undefined ? {} : { presence }) });
     })))
@@ -660,9 +741,13 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     .handle("resizeVm", ({ path, payload, headers }) =>
       audited("vm.resize", auditableVmId(path.vmId), resizeVm(path.vmId, payload, headers["idempotency-key"])),
     )
-    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ items })))))
+    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ order: "configured", items })))))
     .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
       audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),
+    )
+    .handle("getVmPublicEgress", ({ path }) => getVmPublicEgress(path.vmId))
+    .handle("allowVmPublicEgress", ({ path }) =>
+      audited("vm.public_egress.allow", auditableVmId(path.vmId), allowVmPublicEgress(path.vmId), (receipt) => receipt.id),
     )
     .handle("startVm", ({ path }) =>
       audited(

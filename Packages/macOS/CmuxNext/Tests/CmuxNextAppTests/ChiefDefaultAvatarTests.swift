@@ -2,6 +2,7 @@
 @testable import CmuxNextChiefPetWiring
 import CmuxNextFloating
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import Foundation
@@ -21,9 +22,6 @@ import Testing
         let files = HomeChiefFiles(muxHome: try Self.home())
         // A new Chief has no profile, so the tile falls back to the default: the CH monogram.
         #expect(files.tileAvatar() == nil)
-        #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("CH"))
-        let upload = URL(fileURLWithPath: "/tmp/upload.png")
-        #expect(HomeHostView.defaultTileAvatar(picture: upload) == .picture(upload), "a worn upload still shows")
     }
 
     /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". A Chief given a
@@ -38,7 +36,6 @@ import Testing
         picks.remember("fox", for: "agent_scout01")
         let fox = try #require(ChiefPetMascot.fox.avatarURL)
         #expect(picture("agent_scout01", nil) == fox)
-        #expect(HomeHostView.defaultTileAvatar(picture: picture("agent_scout01", nil)) == .picture(fox))
         #expect(picture("agent_scout02", nil) == nil, "one Chief's pick never shows on another")
         // The default Chief's character is home.chiefPetMascot, picked only when the file sets it.
         #expect(picture(nil, .object([:])) == nil)

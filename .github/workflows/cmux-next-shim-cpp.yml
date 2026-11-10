@@ -36,9 +36,12 @@ on:
       - schemas/agent-url-policy/vectors.json
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/test-shim-helper-signals-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -60,9 +63,12 @@ on:
       - schemas/agent-url-policy/vectors.json
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/test-shim-helper-signals-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -75,11 +81,15 @@ concurrency:
   group: cmux-next-shim-cpp-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   shim-downloads-cpp:
     name: CEF shim download state (C++)
     # Header-only C++ with no CEF and no Apple SDK: Linux, off the Mac pools.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -111,6 +121,12 @@ jobs:
       - name: DevTools message id scanner
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - name: DevTools dock-side values
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - name: DevTools shows only after its frontend reported loadCompleted
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - name: cmux-page:// paths, MIME types and ids
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh
@@ -120,3 +136,6 @@ jobs:
       - name: File chooser requests are answered once and cancelled with their browser
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - name: Helpers obey quit signals only from their browser
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-helper-signals-cpp.sh

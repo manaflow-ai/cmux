@@ -3,7 +3,14 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn publish_resource_event(&self) {
+        // It publishes pending directories, which take the workspace registry: every caller holds
+        // no registry, connection or state lock here, whether or not a directory waits (#32408).
+        crate::lock_rank::HeldRank::check(
+            crate::lock_rank::LockRank::WorkspaceRegistry,
+            "workspace.registry",
+        );
         self.publish_journal_event();
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
@@ -245,6 +252,15 @@ impl Mux {
         self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
     }
 
+    /// The `server-stats` `disk` section, `None` for an in-memory registry.
+    /// Reads on its own read-only connection, never under the registry lock
+    /// (cost: `diagnostics/disk_usage.rs`).
+    pub fn disk_usage_stats(&self) -> Option<crate::diagnostics::DiskUsageSnapshot> {
+        let database_path = self.journal_kernel.database_path()?;
+        let mut cache = self.disk_usage.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(crate::diagnostics::read_disk_usage(database_path, &mut cache))
+    }
+
     /// Resource projection and commit spans, see
     /// [`crate::diagnostics::ResourceProjectionStats`].
     pub fn resource_projection_stats(&self) -> crate::diagnostics::ResourceProjectionSnapshot {
@@ -262,6 +278,9 @@ impl Mux {
         let mut snapshot = self.registry_connection.write_path_stats().snapshot();
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
+        snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
+            self.registry_connection.wal_file_bytes();
         snapshot
     }
 
@@ -436,19 +455,20 @@ impl Mux {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
     }
 
-    /// Records in `(sequence, through]` other than `terminal.output`, at
-    /// most `limit`, and the sequence the read covered through (see
-    /// `WorkspaceRegistry::session_journal_without_output_after`).
-    pub(crate) fn session_journal_without_output_after(
+    /// Records in `(sequence, through]` of the kinds `kinds` accepts, and
+    /// the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_kinds_after`).
+    pub(crate) fn session_journal_kinds_after(
         &self,
         sequence: u64,
         through: u64,
+        kinds: crate::workspace_registry::session_journal::kind_read::JournalKinds,
         limit: usize,
     ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
         self.workspace_registry
             .lock()
-            .unwrap()
-            .session_journal_without_output_after(sequence, through, limit)
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_kinds_after(sequence, through, kinds, limit)
     }
 
     pub(crate) fn session_journal_reader(

@@ -143,6 +143,10 @@ pub fn is_read_scope(scope: &str) -> bool {
 pub struct Mirror {
     pub revision: u64,
     pub apps: BTreeMap<String, Record>,
+    /// Apps installed by the person since automatic sidebar placement shipped.
+    /// Old mirrors default to empty, so an upgrade never opts existing installs in.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub sidebar_auto_place: BTreeSet<String>,
     /// (key, fingerprint) of the latest applied ops, oldest first.
     #[serde(default)]
     pub applied: VecDeque<(String, String)>,
@@ -489,6 +493,9 @@ fn commit(
     }
     let changed = *before != record || !mirror.apps.contains_key(&set.app) && record.installed;
     if changed {
+        if set.origin == Origin::User && !before.installed && record.installed {
+            next.sidebar_auto_place.insert(set.app.clone());
+        }
         next.apps.insert(set.app.clone(), record);
         next.revision += 1;
     }

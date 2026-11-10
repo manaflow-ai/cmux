@@ -31,6 +31,9 @@ extension DaemonLauncher {
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
             + ["--replace-unresponsive"]
+        // The new owner's restore shows as an ensure's does (``EnsureOutcome/restoring``).
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         // No progress line while the old owner is probed and stopped: the
         // silence bound covers that, then restore progress bounds the rest.
         let result = try await ProcessRunner.run(
@@ -38,8 +41,9 @@ extension DaemonLauncher {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: Self.ensureRestoreCap + Self.replaceSilence,
+            timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
             progressIdle: progress ? Self.replaceSilence : nil,
+            stdoutLine: reports?.line,
             clock: clock
         )
         if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
@@ -103,9 +107,17 @@ public final class EnsureOutcome: Sendable {
     private struct State {
         var ownerLooksStuck = false
         var failure: DaemonStartFailure?
+        /// Ensures that failed in a row since the last one that worked.
+        var failedInARow = 0
         var observer: (@MainActor @Sendable () -> Void)?
         /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
         var watch: UnresponsiveOwnerWatch?
+        /// The running ensure's last restore progress line (``restoring``).
+        var restoring: RestoreProgressReport?
+        /// The ensure whose lines ``restoring`` takes: each ``restoreReporter()`` takes the next, so a line
+        /// or an end of an earlier one that lands late changes nothing.
+        var restoreEnsure: UInt64 = 0
+        var restoringObserver: (@MainActor @Sendable () -> Void)?
     }
 
     private let state = Mutex(State())
@@ -118,9 +130,50 @@ public final class EnsureOutcome: Sendable {
     /// Why the last ensure failed; nil after one that succeeded (or before any ran).
     public var failure: DaemonStartFailure? { state.withLock { $0.failure } }
 
-    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck`` or ``failure``.
+    /// How many ensures failed in a row since the last one that worked (0 after one that worked).
+    public var failedInARow: Int { state.withLock { $0.failedInARow } }
+
+    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck``, ``failure`` or
+    /// ``failedInARow`` (so after every failed ensure).
     public func observe(_ observer: @escaping @MainActor @Sendable () -> Void) {
         state.withLock { $0.observer = observer }
+    }
+
+    /// The session owner the running `server ensure` waits for is restoring: its last progress line.
+    /// Nil once that ensure ended (whether or not it worked) and while no ensure reported one.
+    public var restoring: RestoreProgressReport? { state.withLock { $0.restoring } }
+
+    /// Calls `observer` on the main actor after each change of ``restoring`` (every progress line, about every
+    /// 5 s while an owner restores, and once when the ensure ends).
+    public func observeRestoring(_ observer: @escaping @MainActor @Sendable () -> Void) {
+        state.withLock { $0.restoringObserver = observer }
+    }
+
+    /// One `server ensure --restore-progress`: `line` takes each stdout line (``ProcessRunner/run``'s
+    /// `stdoutLine`) and publishes the restore progress lines in ``restoring``; `end` clears it when the
+    /// ensure ends. Only the latest ensure's lines count.
+    func restoreReporter() -> (line: @Sendable (String) -> Void, end: @Sendable () -> Void) {
+        let ensure = state.withLock { state -> UInt64 in
+            state.restoreEnsure &+= 1
+            return state.restoreEnsure
+        }
+        return ({ [weak self] line in
+            guard let report = RestoreProgressReport.parse(line) else { return }
+            self?.noteRestoring(report, ensure: ensure)
+        }, { [weak self] in
+            self?.noteRestoring(nil, ensure: ensure)
+        })
+    }
+
+    private func noteRestoring(_ report: RestoreProgressReport?, ensure: UInt64) {
+        let observer = state.withLock { state -> (@MainActor @Sendable () -> Void)? in
+            guard state.restoreEnsure == ensure, state.restoring != report else { return nil }
+            state.restoring = report
+            return state.restoringObserver
+        }
+        guard let observer else { return }
+        // task-owner: one main-actor hop per progress line (about every 5 s); the observer reads the current value
+        Task { @MainActor in observer() }
     }
 
     /// Feeds every ensure's outcome to `watch`, which restarts an owner that stays stuck.
@@ -134,9 +187,13 @@ public final class EnsureOutcome: Sendable {
         let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
         let failure = error.map { DaemonStartFailure($0, freeBytes: freeBytes) }
         let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
-            guard state.ownerLooksStuck != stuck || state.failure != failure else { return (nil, state.watch) }
+            let failedInARow = failure == nil ? 0 : state.failedInARow + 1
+            guard state.ownerLooksStuck != stuck || state.failure != failure || state.failedInARow != failedInARow else {
+                return (nil, state.watch)
+            }
             state.ownerLooksStuck = stuck
             state.failure = failure
+            state.failedInARow = failedInARow
             return (state.observer, state.watch)
         }
         watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextNotifications
 import CmuxNextSettings
 
 /// `debug.notifications`: unread tabs with their source, the attention marks
@@ -26,9 +27,9 @@ enum DebugNotifications {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
             center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
         }
-        if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
+        if let action = params["action"]?.stringValue, ["allow", "deny", "always_allow"].contains(action) {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
+            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action != "deny", always: action == "always_allow")
         }
         if params["action"]?.stringValue == "mark_read" {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }

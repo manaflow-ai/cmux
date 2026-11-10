@@ -2,11 +2,9 @@ import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
-/// Per-installation Cloud state: the WireGuard key, device id, completed
-/// config, hub socket, and cmux-tui link client state. Owner-only (0700
+/// Per-installation Cloud state: the device id and cmux-tui link client state. Owner-only (0700
 /// directories, 0600 files). Namespaced by bundle id so tagged builds do not
-/// share a WireGuard identity with the stable app (one key = one live
-/// session).
+/// share an identity with the stable app.
 public struct CloudPaths: Sendable {
     public let root: URL
 
@@ -25,37 +23,6 @@ public struct CloudPaths: Sendable {
     /// Where builds before the stdin config wrote the hub's config (with the private key).
     var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
-
-    /// Unix socket paths are limited to 104 bytes; the hub socket lives in
-    /// the per-user temporary directory under a short name.
-    var hubSocket: String {
-        let hash = SHA256.hash(data: Data(root.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash)-\(getpid()).sock")
-    }
-
-    /// A name for the running hub's socket that outlives the app's pid: a symlink the hub moves
-    /// to its socket each time it starts, for callers outside the app (an ssh `ProxyCommand`
-    /// of `cmux wg dial --hub`, which `cloud enroll-machine` writes). Dangling while no hub runs.
-    public var hubLink: String {
-        let hash = SHA256.hash(data: Data(root.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash).sock")
-    }
-
-    /// Present once `cloud enroll-machine` wrote an ssh route through ``hubLink``: the app then
-    /// starts the hub at sign-in, so the route works after a relaunch.
-    public var sshRoutesMarker: URL { root.appendingPathComponent("ssh-routes") }
-
-    /// Writes ``sshRoutesMarker`` (blocking file I/O: call it off the main thread), creating the
-    /// Cloud folder first on a fresh install; throws when it cannot.
-    public func markSSHRoutes() throws {
-        try prepare()
-        guard FileManager.checked.createFile(atPath: sshRoutesMarker.path, contents: Data(), attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: sshRoutesMarker.path])
-        }
-    }
-
-    /// Whether ``sshRoutesMarker`` exists (a file check: call it off the main thread).
-    public func hasSSHRoutes() -> Bool { FileManager.checked.fileExists(atPath: sshRoutesMarker.path) }
 
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
@@ -84,8 +51,7 @@ public struct CloudPaths: Sendable {
         for directory in [root, linkState] {
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
-        // The WireGuard key now lives only in memory and the hub's config travels on stdin; an
-        // earlier build's files of them go, so no other program can start a tunnel on this Mac's key.
+        // An earlier build's WireGuard key and config files go, so no other program can start a tunnel on this Mac's key.
         for legacy in [legacyWireGuardConfig, legacyPrivateKey] { try? FileManager.checked.removeItem(at: legacy) }
     }
 
@@ -113,6 +79,14 @@ public struct CloudPaths: Sendable {
         // An empty file (a write cut short by an older build) is replaced, as before.
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
+    }
+
+    /// The ids in the `device-id` of each folder under ``root`` (`<root>/<backend namespace>`, #35284): the
+    /// install ids launches that selected those backends named this Mac with. Blocking disk I/O: call it off
+    /// the main thread.
+    public func backendDeviceIDs() -> [String] {
+        let folders = (try? FileManager.checked.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return folders.compactMap { CloudPaths(root: $0).readDeviceID() }
     }
 
     /// The id in `device-id`, or nil when there is no file or it is empty.

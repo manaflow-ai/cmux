@@ -13,6 +13,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
+    cloud_mobile: bool,
     author: Option<Value>,
     writer: MessageWriter,
 ) {
@@ -97,6 +98,7 @@ pub(super) fn connect_and_attach(
         session: resolved,
         record_session,
         read_only: AtomicBool::new(read_only),
+        cloud_mobile,
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),
@@ -336,7 +338,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        "_acpmux/prompt_accepted" if same_session => {
+        // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
+        "_acpmux/prompt_accepted" if same_session || attachment.follows_session(&params) => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {

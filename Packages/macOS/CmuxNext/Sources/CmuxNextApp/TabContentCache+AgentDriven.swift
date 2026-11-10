@@ -1,3 +1,4 @@
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextDaemon
 import Foundation

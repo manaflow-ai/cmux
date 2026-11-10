@@ -223,12 +223,17 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                tail_pin: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Exited,
+                ))),
+                input_port: Default::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -288,6 +293,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,

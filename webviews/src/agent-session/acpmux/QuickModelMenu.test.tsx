@@ -5,7 +5,7 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
@@ -1032,7 +1032,7 @@ const familyRail = [
 ];
 
 test("familyTabs: one tab per model family, its routes in rail order", async () => {
-  const { familyTabs } = await import("./QuickModelMenu");
+  const { familyTabs } = await import("./quickModelMenuModel");
   const tabs = familyTabs(familyRail);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
     ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
@@ -1042,7 +1042,7 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
-  const { searchGroups } = await import("./QuickModelMenu");
+  const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [
     { id: "opus", name: "Opus", family: "claude-sr2" },
     { id: "opus", name: "Opus", family: "claude" },
@@ -1129,4 +1129,35 @@ test("the symbols row draws one tab per family and the Account row switches its 
   await settle();
   expect(labels(list())).toContain("Codex model");
   expect(account().textContent).toContain("Codex");
+});
+
+test("ordinary placement changes the open picker and resetting it restores the legacy choice", async () => {
+  const { setComposerSettings } = await import("./composerSettings");
+  const { setChatDisplay } = await import("./chatDisplay");
+  const { HARNESS_PLACEMENT_KEY } = await import("../../ui/harnessPlacement");
+  setComposerSettings({ harnessPlacement: "left" });
+  setChatDisplay({});
+  try {
+    await openMenu(false);
+    const placement = () =>
+      [...(document.querySelector(".acpmux-quick-railed")?.classList ?? [])]
+        .find((name) => name.startsWith("acpmux-quick-placement-"))
+        ?.replace("acpmux-quick-placement-", "");
+    expect(placement()).toBe("left");
+    for (const value of ["symbols", "top", "compact"]) {
+      await act(async () => setChatDisplay({ [HARNESS_PLACEMENT_KEY]: value }));
+      expect(placement()).toBe(value);
+    }
+    await act(async () => setChatDisplay({}));
+    expect(placement()).toBe("left");
+    await act(async () =>
+      setChatDisplay({ [HARNESS_PLACEMENT_KEY]: "left", [`${HARNESS_PLACEMENT_KEY}.managed`]: "top" }),
+    );
+    expect(placement()).toBe("top");
+  } finally {
+    await act(async () => {
+      setChatDisplay({});
+      setComposerSettings({ harnessPlacement: "symbols" });
+    });
+  }
 });

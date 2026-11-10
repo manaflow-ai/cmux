@@ -50,6 +50,16 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+const folderMenuProps = {
+  ...baseProps,
+  summary: {
+    sessionId: "gallery-folder",
+    harness: "claude",
+    cwd: projects[1]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
+};
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
   { id: "vm-build", name: "build box", stage: "paused" },
@@ -99,6 +109,41 @@ const projectIcons = {
   "/Users/you/src/relay":
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iI2Y5NzMxNiIvPjxwYXRoIGQ9Ik04IDIwbDgtOSA4IDkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==",
 };
+
+/// A new chat on `machine` with `folders` added beside its own (ComposerContext `extraFolders`).
+function extraProps(
+  machine: string,
+  folders: string[],
+  extra: Partial<ComponentProps<typeof ComposerContext>> = {},
+): ComponentProps<typeof ComposerContext> {
+  return {
+    ...baseProps,
+    onNoProject: () => undefined,
+    ...extra,
+    extraFolders: {
+      draft: { machine, folders },
+      onChange: () => undefined,
+      ...(machine === "local" ? { onBrowse: () => undefined } : {}),
+    },
+  };
+}
+
+const openFolderMenu: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Folder/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
+};
+
+/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
+const openFolderMenuWithExtraWords =
+  (words: string): Play =>
+  async (ctx) => {
+    await openFolderMenu(ctx);
+    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
+      (node) => node.textContent === "Add another folder…",
+    );
+    const label = row?.querySelector(".acpmux-menu-label");
+    if (label) label.textContent = words;
+  };
 
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
@@ -286,12 +331,255 @@ const openComputer: Play = async (ctx) => {
   );
 };
 
+const openEnvironment: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+};
+
+// Menu-grid experiment arms for the custom environment picker. The shared arm is the shipped
+// choice; the other two keep the old and an over-tight inset visible for side-by-side captures.
+const applyMenuGridArm = (ctx: Parameters<Play>[0], arm: "legacy" | "shared" | "compact") => {
+  const style = ctx.document.createElement("style");
+  const inset =
+    arm === "shared"
+      ? "calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding))"
+      : arm === "compact"
+        ? "var(--cmux-menu-highlight-inset)"
+        : "var(--ui-row-padding-inline)";
+  const gap = arm === "compact" ? "4px" : arm === "shared" ? "var(--cmux-menu-icon-gap)" : "8px";
+  const headingInset =
+    arm === "shared"
+      ? "calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding))"
+      : arm === "compact"
+        ? "var(--cmux-menu-highlight-inset)"
+        : "8px";
+  style.dataset.galleryMenuGridArm = arm;
+  style.textContent = `
+    .acpmux-location-menu .acpmux-menu-item { padding-inline: ${inset}; }
+    .acpmux-location-menu .acpmux-location-row { gap: ${gap}; }
+    .acpmux-location-menu .acpmux-location-name[data-section]::before { left: ${headingInset}; }
+  `;
+  ctx.document.head.append(style);
+};
+
+const openEnvironmentWithInsetArm =
+  (arm: "legacy" | "shared" | "compact"): Play =>
+  async (ctx) => {
+    await openEnvironment(ctx);
+    applyMenuGridArm(ctx, arm);
+  };
+
 /// The environment control's machine list: Machines… on its right-click menu (its main list is This
 /// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
 const openMachineList: Play = async (ctx) => {
   await ctx.contextMenu({ role: "button", name: /^Environment/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
+};
+
+// The strip's layouts (ComposerContext `stripLayout`), Leo 2026-11-03 on Codex desktop's strip:
+// "chatgpt codex has nicer ways to deal with stuff". Each arm draws the same machines: two of the
+// person's SSH machines (connected), a Cloud machine that is not, and Cloud work mode.
+const stripMachines = {
+  ...baseProps,
+  environments: true,
+  localName: "studio-mac",
+  sessions: sessions.filter((session) => session.hostKind !== "cloud"),
+  peers: ["studio-mini", "gpu-box", "Cloud machine"],
+  peerKinds: { "studio-mini": "ssh", "gpu-box": "ssh", "Cloud machine": "cloud" } as Record<string, "ssh" | "cloud">,
+  peerConnected: { "studio-mini": true, "gpu-box": true, "Cloud machine": false },
+  // Signed in, so Where shows its three rows (signed out adds Sign in for Cloud under Cloud).
+  cloudSignedIn: true,
+  runMode: { mode: "persistent" as const, onMode: () => undefined },
+};
+// Leo, 2026-11-09, of the machine chip's list ending in four retired lanes, each "Reconnecting": "Those
+// are being retired; drop retired and unreachable machines from the list, or group them at the bottom."
+// The person's machines, a pool that is busy, and four lanes acpmux has not reached for an hour.
+const UNAVAILABLE_FOR = 60 * 60_000;
+const retiredLanes = ["lane-1", "lane-2", "lane-3", "lane-4"];
+const unavailableMachines = (() => {
+  const live = ["studio-mini", "gpu-box", "swarm-03", "swarm-07", "swarm-11"];
+  const all = [...live, ...retiredLanes];
+  const by = <T,>(value: (name: string) => T) => Object.fromEntries(all.map((name) => [name, value(name)]));
+  return {
+    ...stripMachines,
+    sessions: [],
+    peers: all,
+    peerKinds: by(() => "ssh" as const),
+    peerConnected: by((name) => live.includes(name)),
+    peerStates: by((name) => (live.includes(name) ? "connected" : "reconnecting")),
+    peerLinks: Object.fromEntries(
+      retiredLanes.map((name) => [name, { link: "reconnecting" as const, since: Date.now() - UNAVAILABLE_FOR }]),
+    ),
+  };
+})();
+const onMachine = (peer: string) => ({
+  summary: { sessionId: "", harness: "claude", host: peer, peer },
+});
+const waitRows =
+  (rows: string): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(`.acpmux-env-popover.acpmux-env-rows-${rows} [role="option"]`));
+  };
+const openWhere: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("where")(ctx);
+};
+const openMachineChip: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Machine/ });
+  await waitRows("machines")(ctx);
+};
+const openMachineControl: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("machines")(ctx);
+};
+/// The combined arm's one control: This Mac and Cloud.
+const openCombined: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("combined")(ctx);
+};
+const openRunToggle: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Where should this chat run/ });
+  await waitRows("run")(ctx);
+};
+/// Where > Remote: the first ready machine is the pick and the machine control opens.
+const pickAnother: Play = async (ctx) => {
+  await openWhere(ctx);
+  await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
+  await waitRows("machines")(ctx);
+};
+type StripArm = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
+const STRIP_NOTES: Record<StripArm, string> = {
+  "where-machine":
+    "Arm 1 of 4, shipped (Codex desktop's strip): Project | Where | Machine, three single-purpose chips. The machine chip shows only while the pick is another machine.",
+  "where-machine-always":
+    "Arm 2 of 4: the same three chips, the machine chip always shown (this Mac's own name and its live dot).",
+  "cloud-toggle":
+    'Arm 3 of 4 (ChatGPT Work): Project | Machine, and a cloud toggle at the strip\'s end whose menu asks "Where should this chat run?".',
+  combined:
+    "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
+};
+/// ChatGPT Work's two rows' second lines, copied for the cloud-toggle arm only (rule 0 ships none).
+const chatgptRunDetails = {
+  local: "This chat stays on this computer",
+  cloud: "Available on any device and can access your computer",
+};
+function stripVariants(arm: StripArm) {
+  const props = {
+    ...stripMachines,
+    stripLayout: arm,
+    ...(arm === "cloud-toggle" ? { runDetails: chatgptRunDetails } : {}),
+  };
+  const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
+  const whereOpen = arm === "cloud-toggle" ? openRunToggle : arm === "combined" ? openCombined : openWhere;
+  const machineOpen =
+    arm === "where-machine"
+      ? pickAnother
+      : arm === "where-machine-always"
+        ? openMachineChip
+        : arm === "cloud-toggle"
+          ? openMachineControl
+          : openMachineList;
+  return {
+    [`strip-${arm}`]: { note: note("Closed, on This Mac with no project: nothing is required to start."), props },
+    [`strip-${arm}-where`]: { note: note("Where it runs, open."), props, play: whereOpen },
+    [`strip-${arm}-machines`]: {
+      height: 320,
+      note: note(
+        arm === "where-machine"
+          ? "Remote picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          : "Which machine, open.",
+      ),
+      props,
+      play: machineOpen,
+    },
+    [`strip-${arm}-cloud`]: {
+      note: note(
+        arm === "where-machine" || arm === "where-machine-always"
+          ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
+          : arm === "cloud-toggle"
+            ? "Cloud picked: the machine chip says Cloud, never New machine; Send reuses the person's Cloud machine or makes one, its progress in the chat."
+            : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+      ),
+      props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
+    },
+    ...(arm === "where-machine"
+      ? {
+          [`strip-${arm}-cloud-where`]: {
+            height: 260,
+            note: note(
+              "Cloud picked, Where open: Cloud checked, one line, and nothing to choose after it: no New machine row, no machine chip, no create card on Send.",
+            ),
+            props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
+            play: whereOpen,
+          },
+        }
+      : {}),
+    [`strip-${arm}-machine-picked`]: {
+      note: note(
+        "One of the person's machines picked (gpu-box): the machine chip names it, a server and a green live dot.",
+      ),
+      props: { ...props, ...onMachine("gpu-box") },
+    },
+  };
+}
+
+// A Cloud machine that sleeps (cloudMachines.ts withCloudSleep). Cloud machines pause on their own
+// when idle and between tool calls (cmux-platform docs/agent-turn-sleep.md), so acpmux's lost link
+// to one the account says is paused reads Paused (the quiet ring), a resume a spinner, and only a
+// machine the account knows nothing about keeps Not connected. Leo, 2026-11-03: "it's all still
+// responsive on the ui side".
+const sleepingMachine = (stage?: string) => ({
+  ...stripMachines,
+  stripLayout: "where-machine-always" as const,
+  ...onMachine("Cloud machine"),
+  peerStates: { "studio-mini": "connected", "gpu-box": "connected", "Cloud machine": "reconnecting" },
+  cloudMachines: stage ? [{ id: "vm-cloud", name: "Cloud machine", stage }] : [],
+  onCloudMachine: () => undefined,
+});
+const chipSleep =
+  (sleep: "paused" | "resuming" | "none"): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-button .acpmux-env-live"));
+    const live = ctx.document.querySelector(".acpmux-location-button .acpmux-env-live");
+    const shown = live?.getAttribute("data-sleep") ?? "none";
+    if (shown !== sleep) throw new Error(`the machine chip reads ${shown}, not ${sleep}`);
+    const box = live?.getBoundingClientRect();
+    // The dot's own 6px box in every state: nothing in the strip moves as paused turns to resuming.
+    if (!box || Math.round(box.width) !== 6) throw new Error("the live dot's box changed size");
+    if (sleep === "resuming" && !live?.querySelector(".acpmux-env-live-spinner"))
+      throw new Error("a resuming machine draws no spinner");
+  };
+const sleepVariants = {
+  "machine-sleep-paused": {
+    note: "Picked: a Cloud machine the account says is paused while acpmux has no link to it. The chip keeps the quiet ring and says Paused (to screen readers), never Not connected or Reconnecting; a send wakes it.",
+    props: sleepingMachine("paused"),
+    play: chipSleep("paused"),
+  },
+  "machine-sleep-resuming": {
+    note: "The same machine on its way up (stage booting): a spinner turns in the dot's 6px box, so the strip does not move; it says Resuming.",
+    props: sleepingMachine("booting"),
+    play: chipSleep("resuming"),
+  },
+  "machine-sleep-unknown": {
+    note: "Before / control: a Cloud machine acpmux lost that the account does not list: the ring, Not connected, as before.",
+    props: sleepingMachine(),
+    play: chipSleep("none"),
+  },
+  "machine-sleep-paused-list": {
+    height: 320,
+    note: "Machines… with that machine paused: its row reads Paused · Resume and is a pick (it resumes the machine, and the chat moves there once it links), never a greyed Reconnecting row.",
+    props: { ...sleepingMachine("paused"), stripLayout: "combined" as const },
+    play: async (ctx: Parameters<Play>[0]) => {
+      await openMachineList(ctx);
+      const row = [...ctx.document.querySelectorAll(".acpmux-env-popover .acpmux-env-row")].find((candidate) =>
+        candidate.textContent?.includes("Cloud machine"),
+      );
+      if (!row) throw new Error("the paused machine is not listed");
+      if (row.getAttribute("aria-disabled") === "true") throw new Error("the paused machine is greyed");
+      if (!row.textContent?.includes("Paused")) throw new Error("the paused machine does not say Paused");
+    },
+  },
 };
 
 // Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
@@ -370,9 +658,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
-      props: baseProps,
+      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
+      props: folderMenuProps,
       play: openFolder,
+    },
+    "folder-menu-hover": {
+      note: "Hover uses the neutral menu wash; the current folder keeps only its check.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.hover({ role: "option", name: /atlas-web/ });
+      },
+    },
+    "folder-menu-keyboard": {
+      note: "Arrow navigation uses the same neutral wash as hover.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.press("ArrowDown");
+      },
+    },
+    "menu-grid-legacy": {
+      note: "Experiment arm: the old 8px row inset and icon gap, which leaves environment labels off the shared menu column.",
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("legacy"),
+    },
+    "menu-grid-shared": {
+      note: "Experiment arm: the shared AppKit menu grid (15px icon lead, 35px icon-row text, 6px icon gap); this is the shipped choice.",
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("shared"),
+    },
+    "menu-grid-compact": {
+      note: "Experiment arm: a tighter 5px inset and 4px icon gap, rejected because it crowds icons against the popup edge.",
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("compact"),
     },
     "folder-pinned-search": {
       note: "Typing a project keeps its row active while the actions stay pinned above it.",
@@ -418,7 +737,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-long-list": {
-      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -612,7 +931,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: 'Where a chat runs, as Codex\'s "Where should this chat run?" (Leo, 2026-10-31: "we ideally also can just hide the machines too and it\'s just a cloud button"): This Mac and Cloud, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine. The machines, New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu.',
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Remote, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Remote shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -623,6 +942,38 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-hover": {
+      note: 'Hover is not selection (Austin, 2026-11-02: "This highlighting needs some fix"): the pointer on Cloud draws the neutral menu wash, inset 5 at radius 5 as the model picker\'s rows, while This Mac keeps only its check. Just opened (environment-picker), no row is lit.',
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await openEnvironment(ctx);
+        await ctx.hover({ role: "option", name: /Cloud/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"][data-highlighted]'));
+      },
+    },
+    "environment-picker-keyboard": {
+      note: "The arrow keys move the same wash: Down from the open menu lights Cloud; This Mac keeps its check.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await openEnvironment(ctx);
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-env-popover:not(.acpmux-env-highlight-auto) [data-highlighted]"),
+        );
       },
     },
     "environment-picker-machines": {
@@ -637,7 +988,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: two rows, This Mac and Cloud, as Codex's menu. A person with other machines sees the same two.",
+      note: "Leo's case: This Mac, Cloud and Remote, as Codex's strip. A person with other machines sees the same three; with none, Remote is Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -696,6 +1047,50 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    ...stripVariants("where-machine"),
+    "machines-unavailable-collapsed": {
+      height: 460,
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      props: unavailableMachines,
+      play: pickAnother,
+    },
+    "machines-unavailable-open": {
+      height: 640,
+      note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
+      props: { ...unavailableMachines, unavailableExpanded: true },
+      play: pickAnother,
+    },
+    "machines-unavailable-after-add": {
+      height: 460,
+      note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
+      props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-hidden": {
+      height: 420,
+      note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
+      props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-inline": {
+      height: 640,
+      note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
+      props: { ...unavailableMachines, unavailableGroup: "inline" as const },
+      play: pickAnother,
+    },
+    ...stripVariants("where-machine-always"),
+    ...stripVariants("cloud-toggle"),
+    ...stripVariants("combined"),
+    ...sleepVariants,
+    "strip-cloud-works-on": {
+      note: "ChatGPT Work's model, for comparison only (not built in cmux: a Cloud chat's agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT's \"In the cloud\" chat whose files and shell are on the Mac.",
+      props: {
+        ...stripMachines,
+        stripLayout: "where-machine" as const,
+        runMode: { mode: "cloud" as const, onMode: () => undefined },
+        cloudWorksOn: "works on studio-mac",
       },
     },
     "environment-picker-cloud-chat": {
@@ -775,6 +1170,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
@@ -803,7 +1232,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        // The four machines acpmux cannot reach wait under Unavailable (4), closed.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "computer-menu-fleet": {
@@ -967,6 +1397,73 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ selector: ".acpmux-location-choose:last-child" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
+    },
+    // A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`). Leo, 2026-11-03:
+    // "being able to have chatgpt (and in this case, any harnesses) see whatever folders/files would
+    // be cool" and "and you can also just start with nothing".
+    "extra-folders-no-project": {
+      note: "No project: the chat starts in its private folder and sees the two folders added beside it; the chip reads No project +2, the menu lists them under Also sees with × each.",
+      props: extraProps("local", ["/Users/you/notes", "/Users/you/Downloads/receipts"], { noProject: true }),
+      play: openFolderMenu,
+    },
+    "extra-folders-project": {
+      note: "A project and three folders beside it: the chip reads atlas-web +3, the menu lists the three under Also sees.",
+      props: extraProps("local", ["/Users/you/src/relay", "/Users/you/notes", "/Users/you/design/specs"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "extra-folders-adding": {
+      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
+      props: extraProps("local", ["/Users/you/src/relay"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: async (ctx) => {
+        await openFolderMenu(ctx);
+        await ctx.click({ role: "option", name: "Add another folder…" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
+      },
+    },
+    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
+    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
+    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
+    // in how the one row that is not about the chat's own folder reads.
+    "folder-one-concept": {
+      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "folder-one-concept-also-show": {
+      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Also show a folder…"),
+    },
+    "folder-one-concept-let-see": {
+      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Let it see another folder…"),
+    },
+    "extra-folders-peer": {
+      note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",
+      props: extraProps("gpu-box", ["/home/dev/datasets", "/srv/shared/checkpoints"], {
+        environments: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        summary: { sessionId: "", harness: "claude", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box" },
+        machineFolders: [
+          { cwd: "/home/dev/model", label: "model" },
+          { cwd: "/home/dev/datasets", label: "datasets" },
+          { cwd: "/home/dev/eval", label: "eval" },
+        ],
+      }),
+      play: openFolderMenu,
     },
   },
 });

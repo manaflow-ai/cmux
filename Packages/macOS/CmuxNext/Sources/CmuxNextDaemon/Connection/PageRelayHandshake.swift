@@ -78,6 +78,51 @@ public final class PageRelayIdentity: Sendable {
     }
 }
 
+/// What one page may call (cmux-tui/spec/page-router.json `pages`): reads freely, `gesture`
+/// operations on the person's own key or pointer event, `confirm` operations after a native sheet.
+/// The daemon enforces its own copy on a page relay; the app uses ``spec`` only where nothing
+/// narrows the calls (a daemon without `origin-claim-v1`). PageRouterSpecTests keeps it equal to the spec.
+public struct PageOperations: Sendable, Equatable {
+    public let read: Set<String>
+    public let gesture: Set<String>
+    public let confirm: Set<String>
+
+    public static let spec: [String: PageOperations] = [
+        "agent": PageOperations(read: ["agent_session.trust.get"],
+                              gesture: ["agent_session.trust.set"], confirm: []),
+        "apps": PageOperations(read: ["apps.asset.get", "apps.catalog.get", "apps.catalog.list", "apps.grants.get", "apps.installed.list", "apps.logs"],
+                              gesture: ["apps.grant.revoke", "apps.hidden.set"], confirm: ["apps.grant.set", "apps.install", "apps.set", "apps.uninstall"]),
+        "bookmarks": PageOperations(read: ["bookmarks.list", "bookmarks.search"],
+                              gesture: ["bookmarks.apply"], confirm: []),
+        "bookmarks-bar": PageOperations(read: ["bookmarks.children"], gesture: [], confirm: []),
+        "feed": PageOperations(read: ["feed.github.find_work", "feed.item.get", "feed.items.list", "feed.reports.read", "feed.view.read"],
+                              gesture: ["feed.github.refresh", "feed.intent", "feed.reports.reply"], confirm: []),
+        "history": PageOperations(read: ["history.entries.list", "history.visit.summaries"],
+                              gesture: ["history.clear", "history.entries.remove", "history.site.remove"], confirm: []),
+        "home-channels": PageOperations(read: ["chief.profile.avatar.get", "chief.profile.avatar.set", "chief.profile.get", "chief.profile.history", "chief.profile.list", "chief.profile.update", "palette.rank", "participant.avatar.get"],
+                              gesture: ["chief.profile.create", "chief.profile.delete", "chief.profile.undo", "workspace.open_url"], confirm: []),
+        "stash": PageOperations(read: ["stash.list"],
+                              gesture: ["stash.import"], confirm: []),
+        "tasks": PageOperations(read: ["tasks.snapshot"],
+                              gesture: ["tasks.archive", "tasks.create", "tasks.delegate", "tasks.move", "tasks.update"], confirm: []),
+    ]
+
+    /// Whether `operation` may go out where nothing narrows it: a listed read always, a `gesture`
+    /// operation when `confirmed` or `gesture()` spends the person's event, a `confirm` operation
+    /// only when `confirmed`; anything else never.
+    public func allowsUnnarrowed(_ operation: String, confirmed: Bool, gesture: () -> Bool) -> Bool {
+        if read.contains(operation) { return true }
+        if confirm.contains(operation) { return confirmed }
+        return self.gesture.contains(operation) && (confirmed || gesture())
+    }
+
+    /// ``allowsUnnarrowed(_:confirmed:gesture:)`` for `page` (a relay page id); a page the spec
+    /// does not list may call nothing.
+    public static func allowsUnnarrowed(_ page: String?, _ operation: String, confirmed: Bool, gesture: () -> Bool) -> Bool {
+        page.flatMap { spec[$0] }?.allowsUnnarrowed(operation, confirmed: confirmed, gesture: gesture) ?? false
+    }
+}
+
 extension DaemonEvent {
     /// One subscribe-stream line as the daemon sent it (`.unknown` with its whole object): what a
     /// page relay connection reports, so the relay forwards events without a Swift type for each.

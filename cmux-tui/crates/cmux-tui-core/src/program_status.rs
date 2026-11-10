@@ -12,9 +12,10 @@
 //! keyed by `updated_seq`. A record without `app` shows the app of its
 //! nearest ancestor that has one. A record that starts waiting on the user
 //! (`blocked`), fails (`error`) or finishes (`done`) raises one
-//! [`ProgramStatusAlert`], which the terminal's reader posts as a
-//! rate-limited terminal notification (the client shows a `done` only for a
-//! terminal the user cannot see).
+//! [`ProgramStatusAlert`], which the terminal's reader takes and rate-limits
+//! and the terminal publisher posts as a terminal notification, after the
+//! record's upsert (the client shows a `done` only for a terminal the user
+//! cannot see).
 //!
 //! Text is untrusted program output: display only, never interpreted.
 //! libghostty already removed control characters; this module also removes
@@ -111,6 +112,9 @@ pub(crate) struct ProgramStatusRecords {
     published: u64,
     /// The `shown` value last handed to frontends.
     shown_published: Option<ShownProgramStatus>,
+    /// Whether the agent status last handed to the agent roster
+    /// (`take_blocker_change`) was `blocked`.
+    blocker_published: bool,
 }
 
 impl ProgramStatusRecords {
@@ -299,11 +303,54 @@ impl ProgramStatusRecords {
         })
     }
 
+    /// What the running program reports of itself to the agent roster:
+    /// `blocked` while a record waits on the person, else `working` while one
+    /// works, else `idle` while one sits idle. `None` without such a record.
+    fn agent_status(&self, running: bool) -> Option<ProgramStatusState> {
+        let transient: Vec<ProgramStatusState> = self
+            .records
+            .values()
+            .filter(|record| running && record.is_transient())
+            .map(|record| record.state)
+            .collect();
+        [ProgramStatusState::Blocked, ProgramStatusState::Working, ProgramStatusState::Idle]
+            .into_iter()
+            .find(|state| transient.contains(state))
+    }
+
+    /// The program's agent status when it starts or stops waiting on the
+    /// person, marking it handed to the roster: `Blocked` once a record turns
+    /// blocked, then `Working` or `Idle` once none is blocked. A program can
+    /// end a wait that no agent hook reports (Claude Code fires no hook when
+    /// the person dismisses its permission dialog, but reports `idle`). Only
+    /// a stop that follows a handed `Blocked` is handed, so the roster sees
+    /// pairs; records that went away (a prompt, the exit) hand nothing. A
+    /// daemon that adopts a host whose records wait hands that wait again
+    /// (restoring keeps this mark), so the roster learns of a wait that
+    /// began while no daemon was attached.
+    pub(crate) fn take_blocker_change(&mut self, running: bool) -> Option<ProgramStatusState> {
+        let status = self.agent_status(running);
+        let blocked = status == Some(ProgramStatusState::Blocked);
+        if blocked == self.blocker_published {
+            return None;
+        }
+        self.blocker_published = blocked;
+        status
+    }
+
     /// True once per visible change, marking it published.
     pub(crate) fn take_change(&mut self) -> bool {
         let changed = self.revision != self.published;
         self.published = self.revision;
         changed
+    }
+
+    /// Whether a terminal publication would take something now: a visible
+    /// change (`take_change`) or a new shown value (`take_shown_change`).
+    /// Marks nothing. Alerts are not counted: the output reader takes them
+    /// itself (`Surface::queue_pending_publications`).
+    pub(crate) fn has_publication_change(&self, running: bool) -> bool {
+        self.revision != self.published || self.shown(running) != self.shown_published
     }
 
     /// The records a terminal host hands to the daemon that attaches.

@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
 public import SwiftUI
+import CmuxSpinner
 
 private let theme = CmuxMobileTheme.standard
 
@@ -13,21 +14,33 @@ private let theme = CmuxMobileTheme.standard
 /// phone asks, the Mac shows Allow / Deny.
 public struct ScreenSharingPage: View {
     let service: ScreenSharingService
+    /// A Mac to share as soon as the account lists it (a workspace's + › Screen Sharing names
+    /// its Mac); nil, or no Mac by that name, leaves the choice to the list.
+    let connectTo: String?
+    @State private var connectedOnce = false
 
-    public init(service: ScreenSharingService) {
+    public init(service: ScreenSharingService, connectTo: String? = nil) {
         self.service = service
+        self.connectTo = connectTo
     }
 
     public var body: some View {
         List {
-            statusSection
             macsSection
             ScreenSharingViewerSettings(preferences: service.preferences)
         }
         .navigationTitle("Screen Sharing")
         .navigationBarTitleDisplayMode(.inline)
+        // Its own tint: shown as a workspace's sheet or tab it sat under the app's neutral `label`
+        // tint, and a switch takes its on track from the tint (white under a white knob in Dark
+        // Mode, user 2026-11-05). Pickers follow `label`, switches stay green.
+        .cmuxMobileNeutralControlTint()
         .refreshable { await service.refresh() }
-        .onAppear { service.start() }
+        .onAppear {
+            service.start()
+            connectToNamedMac()
+        }
+        .onChange(of: service.macs.map(\.id)) { connectToNamedMac() }
         .fullScreenCover(item: Binding(get: { service.viewer }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
             ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
                                       close: { service.dismissViewer() })
@@ -35,34 +48,51 @@ public struct ScreenSharingPage: View {
         .accessibilityIdentifier("screenSharing.page")
     }
 
-    @ViewBuilder private var statusSection: some View {
-        switch service.status {
-        case .idle, .starting:
-            Section {
-                HStack(spacing: 12) {
-                    ProgressView()
-                    Text("Connecting to your devices…").foregroundStyle(theme.colors.label2)
-                }
-            }
-        case let .failed(message):
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Your devices can't be reached").font(theme.type.rowTitle)
-                    Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(3)
-                }
-                Button("Try Again") { Task { await service.refresh() } }
-            }
-        case .ready:
-            EmptyView()
-        }
+    /// Once per showing: the Mac named `connectTo`, when exactly one Mac has that name.
+    private func connectToNamedMac() {
+        guard !connectedOnce, service.viewer == nil, let name = Self.normalized(connectTo) else { return }
+        let matches = service.macs.filter { Self.normalized($0.name) == name }
+        guard matches.count == 1, let mac = matches.first else { return }
+        connectedOnce = true
+        service.connect(to: mac, scope: service.preferences.defaultScope)
     }
 
+    static func normalized(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let folded = name.replacingOccurrences(of: "\u{2019}", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return folded.isEmpty ? nil : folded
+    }
+
+    /// One "Your Macs" section holds the one state of the list: finding (a spinner),
+    /// can't reach (why, and Try Again), no Macs (only once the list was read), or the Macs.
     @ViewBuilder private var macsSection: some View {
         let macs = service.macs
         Section {
-            if macs.isEmpty, service.status == .ready {
-                Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
-                    .font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+            switch service.discovery {
+            case .finding:
+                if macs.isEmpty {
+                    HStack(spacing: 12) {
+                        CmuxSpinner()
+                        Text("Finding your Macs…").foregroundStyle(theme.colors.label2)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("screenSharing.finding")
+                }
+            case let .failed(message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your Macs can't be reached").font(theme.type.rowTitle)
+                    Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(3)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("screenSharing.failed")
+                Button("Try Again") { Task { await service.refresh() } }
+            case .listed:
+                if macs.isEmpty {
+                    Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
+                        .font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+                        .accessibilityIdentifier("screenSharing.empty")
+                }
             }
             ForEach(macs) { mac in
                 ScreenSharingMacRow(mac: mac, access: service.access(to: mac)) { scope in

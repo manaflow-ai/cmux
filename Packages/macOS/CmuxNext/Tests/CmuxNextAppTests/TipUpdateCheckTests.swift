@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -64,7 +65,7 @@ import CmuxNextWakeupsTestSupport
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
     static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, downloadAutomatically: Bool = true,
                      held: Bool = false, xml: String = feed) -> Harness {
-        let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
         let sparkle = Base.FakeSparkle()
@@ -81,6 +82,9 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which reads the
+        // feed outside the schedule under test (#32090 found the same in UpdateStagedYieldsToNewerTests).
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -233,7 +237,7 @@ import CmuxNextWakeupsTestSupport
     /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
     @Test func noFastCheckBeforeTheSettingsLoad() {
         let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, clock: ManualClock())
         updater.announcementsFetch = false
         updater.start()
@@ -348,6 +352,6 @@ import CmuxNextWakeupsTestSupport
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "a NIGHTLY probed its staged update at the tip interval")
         h.clock.advance(by: .seconds(3600 - TipUpdateCheck.interval))
-        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran")
+        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran, or ran with another read (\(h.feed.fetches) reads)")
     }
 }

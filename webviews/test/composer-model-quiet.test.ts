@@ -3,7 +3,8 @@
 // ALREADY FIXED THE FONTS. THE BOLT DOESN'T GO THERE"), measured on the real composer in Chromium
 // (the bolt's move into the model button is its own change, with its own tests):
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
-//     keyboard focus (a menu closed with Esc hands it back) draws the soft pill, never the bright ring
+//     keyboard focus (a real Tab: a click, code focus or Esc draws none, FOCUS-RING,
+//     src/ui/focusModality.ts) draws the soft pill, never the bright ring
 //     the capture showed. The gallery stage loads no pages/shared/desktop.css, so that sheet is put in
 //     the page as the app's pane has it, and what the shared ring then draws is measured: a 1 px
 //     hairline at 22%, not its own 1.5 px at 48%;
@@ -21,6 +22,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { gateFocusVisible } from "../scripts/postcss/focusRingGate.mjs";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
@@ -150,11 +153,9 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     const effort = await ink(page, `${BUTTON} .acpmux-model-detail:not(.acpmux-fit-label)`);
     expect(effort, "the effort sits one step back of the model's name").toBeLessThan(name - 8);
 
-    // Keyboard focus, as a menu closed with Esc leaves it: the soft pill, never the bright ring the
-    // shot showed. The gallery stage loads no pages/shared/desktop.css (the app's pane does, from its
+    // Keyboard focus, earned by a real Tab: the soft pill, never the bright ring the shot showed. The gallery stage loads no pages/shared/desktop.css (the app's pane does, from its
     // main.tsx), so no shared ring reaches this page at all and the outline measures 0 here.
-    await page.keyboard.press("Shift");
-    await page.locator(BUTTON).first().focus();
+    await focusByKey(page, BUTTON);
     expect(
       await page
         .locator(BUTTON)
@@ -170,9 +171,12 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
 
     // With that sheet in the page, as in the app, its ring is 1.5 px at 48% with `!important` and drew
     // the bright box around bare text (Leo 2026-10-21). The button narrows the two tokens the ring
-    // reads, so what draws is a hairline in the row's own ink.
-    await page.addStyleTag({ content: readFileSync(path.join(SHEETS, "../../pages/shared/desktop.css"), "utf8") });
-    await page.locator(BUTTON).first().focus();
+    // reads, so what draws is a hairline in the row's own ink. The sheet goes in as the build emits it,
+    // its `:focus-visible` gated (FOCUS-RING, scripts/postcss/focusRingGate.mjs), so its rules weigh
+    // what they weigh in the app against the stage's own gated ones.
+    const desktop = readFileSync(path.join(SHEETS, "../../pages/shared/desktop.css"), "utf8");
+    await page.addStyleTag({ content: gateFocusVisible(desktop) });
+    await focusByKey(page, BUTTON);
     await eased(page);
     const shared = await look(page);
     await page.close();
@@ -306,11 +310,12 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
 
-  // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 268 px; 208 and 168 px). Since #24938
-  // took the harness label out of the row it holds only the mode, the model button and the ring, so
-  // every whole label still fits a 264 px composer and the row has run out by 204 px; the widths
-  // between sit near that boundary, where the fonts decide it, and are left out.
-  for (const width of [520, 446, 300])
+  // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 308 px; 208 and 168 px). Since #24938
+  // took the harness label out of the row it holds only the mode, the model button and the ring; the
+  // model button also draws its provider's logo before the name (cmux#38053, about 22 px), so every
+  // whole label still fits a 308 px composer and the row has run out by 208 px; the widths between
+  // sit near that boundary, where the fonts decide it, and are left out.
+  for (const width of [520, 446, 340])
     test(`a ${width - SIDES} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);

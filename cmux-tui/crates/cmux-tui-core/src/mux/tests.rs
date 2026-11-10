@@ -7,13 +7,23 @@ use std::collections::HashMap;
 mod agent_hook_fences;
 mod agent_hook_retry;
 mod agent_presence;
+mod agent_reply_text;
 mod agent_reports;
 mod agent_roster_catch_up;
+mod agent_roster_fold_lock;
+mod agent_roster_kind_scope;
+mod agent_roster_poison;
 mod agent_roster_restore;
+mod agent_screen_exit;
+mod agent_start_mark;
 mod cell_pixel_fanout;
 mod cell_pixels;
+mod checkpoint_retention;
 mod column_update;
+mod create_entity_cost;
+mod creation_burst;
 mod diagnostics;
+mod disk_budget;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
@@ -21,17 +31,21 @@ mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
+mod layout_sizes;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
+mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
 mod read_paths;
+mod registry_premigrate;
 mod registry_reads;
 mod resource_effects;
 mod resource_restore;
 mod resource_selectors;
+mod respawn_gate_jump;
 mod restart;
 mod rows;
 mod signaled_mutex;
@@ -42,6 +56,7 @@ mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
 mod terminal_moves;
+mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
@@ -494,8 +509,18 @@ fn append_journal_hook(
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
 }
 
+/// `mux` once the agent roster's owner finished the work recorded so far. It
+/// folds after the request that asked for it answered (`agent_roster_worker.rs`),
+/// so a test reads the roster through this.
+#[track_caller]
+fn settled(mux: &Mux) -> &Mux {
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    mux
+}
+
 fn roster_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
-    mux.agent_roster
+    settled(mux)
+        .agent_roster
         .lock()
         .unwrap()
         .roster

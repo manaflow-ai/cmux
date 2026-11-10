@@ -1,13 +1,20 @@
 // An attached video's chip (Leo, 2026-10-25: "also why dont we have previews of videos we should"):
 // its poster in the image chip's tile, a small glass play glyph in its middle and its length in a
-// corner, like a reply's video thumbnail (chips/ReplyMedia.tsx). A click plays it in Quick Look.
+// corner, like a reply's video thumbnail (chips/ReplyMedia.tsx). A click plays it in the pane
+// (Leo, 2026-11-02: "this i can't play a video preview inside cmux next? i feel like i should be able
+// to"): the tile is too small for a player's controls, so the player opens large over the pane
+// (chips/ReplyMedia.tsx VideoViewer), playing, with scrub, mute and pause; the host serves the file in
+// byte ranges, so any size streams. Quick Look plays it only when the host will not grant it.
 // While the host reads it (composer/videoAttachments.ts) the tile spins, in the shape it will have;
 // one the host could not read keeps that square with the play glyph and no poster, never a file
 // chip's long strip (Leo, 2026-10-26: "not for screen recordings. Don't do it for screen
 // recordings. We know it's a video. ... Just do the square. Why do we have these long-ass
-// rectangles anyway?").
-import type { ReactNode } from "react";
-import { formatDuration } from "../chips/ReplyMedia";
+// rectangles anyway?"). One nothing can play (`unplayable`: the host and Quick Look both refused it)
+// says so in its tile instead of its play glyph (Leo, 2026-11-04: "i can neither preview a vid in
+// place nor have it pop up anymore :(").
+import { type ReactNode } from "react";
+
+import { formatDuration } from "../chips/replyMediaModel";
 import { PlayTriangle, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { VideoInfo } from "./videoAttachments";
@@ -19,6 +26,7 @@ export function VideoAttachmentTile({
   reading = !video,
   remove,
   onPlay,
+  unplayable = false,
 }: {
   name: string;
   /// The poster's tooltip: its name, with the line naming where it came from (SourceBadge.tsx).
@@ -29,6 +37,8 @@ export function VideoAttachmentTile({
   reading?: boolean;
   remove: ReactNode;
   onPlay(): void;
+  /// Nothing could play it: the tile says so.
+  unplayable?: boolean;
 }) {
   const t = useT();
   if (!video && reading)
@@ -55,9 +65,13 @@ export function VideoAttachmentTile({
         onClick={onPlay}
       >
         {video && <img alt="" src={video.poster} width={video.width} height={video.height} />}
-        <span className="ui-glass acpmux-attachment-video-play" aria-hidden="true">
-          <PlayTriangle size={12} style={{ color: "inherit" }} />
-        </span>
+        {unplayable ? (
+          <output className="acpmux-attachment-video-unplayable">{t("media.cantPlayHere")}</output>
+        ) : (
+          <span className="ui-glass acpmux-attachment-video-play" aria-hidden="true">
+            <PlayTriangle size={12} style={{ color: "inherit" }} />
+          </span>
+        )}
         {length && (
           <span className="acpmux-attachment-video-length" aria-hidden="true">
             {length}

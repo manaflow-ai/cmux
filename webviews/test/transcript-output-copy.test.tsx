@@ -63,6 +63,11 @@ afterAll(() => {
 
 async function render(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
+  // Each mount starts from no reader choices: a call's open state is kept by its id past an unmount
+  // (transcriptDisclosureModel.ts useRowDisclosure), and these fixtures reuse their call ids.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
   if (root) act(() => root!.unmount());
   root = createRoot(host);
   await act(async () => root!.render(node));
@@ -92,6 +97,14 @@ test("a copy the page was refused never says Copied", async () => {
   await click(button("Copy code"));
   expect(button("Copied")).toBeUndefined();
   expect(button("Copy code")).toBeDefined();
+});
+
+test("a code handoff keeps the hidden highlighted card out of the accessibility tree", async () => {
+  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
+  await render(<CodeHandoff code={"x".repeat(200_001)} lang="text" />);
+  const real = host.querySelector<HTMLElement>(".cv-code-handoff__real");
+  expect(real?.getAttribute("aria-hidden")).toBe("true");
+  expect(real?.hasAttribute("inert")).toBe(true);
 });
 
 test("a code handoff completes immediately when pane animation is disabled", async () => {

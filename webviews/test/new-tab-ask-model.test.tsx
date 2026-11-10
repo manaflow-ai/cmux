@@ -175,6 +175,7 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
               snapshot={noChat()}
               lastAgent="codex"
               cwd="/Users/you/src/app"
+              startCwd="/Users/you/src/app"
               onAsk={(...args) => {
                 asks.push(args);
               }}
@@ -212,6 +213,7 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
 async function newTabPage(
   options: {
     auth?: unknown;
+    startCwd?: string | null;
     signedOut?: Record<string, string>;
     chips?: ComponentProps<typeof NewTabScreen>["chips"];
     onAsk?: (...args: unknown[]) => unknown;
@@ -234,11 +236,13 @@ async function newTabPage(
       <QueryClientProvider client={new QueryClient()}>
         <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
+            template="default"
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
             lastAgent="codex"
             cwd="/Users/you/src/app"
+            startCwd={options.startCwd === null ? undefined : (options.startCwd ?? "/Users/you/src/app")}
             onAsk={(...args) => {
               asks.push(args);
               return options.onAsk?.(...args) as void;
@@ -406,7 +410,9 @@ for (const mode of ["cloud", "sandboxed"] as const) {
       const chip = host.querySelector(".acpmux-model-name")?.closest("button");
       expect(chip).toBeTruthy();
       await act(async () => chip!.click());
-      expect(window.document.querySelectorAll('.acpmux-quick-list [role="menuitemradio"]').length).toBeGreaterThan(0);
+      expect(
+        window.document.querySelectorAll('.acpmux-cols [role="listbox"] [role="option"].acpmux-cols-row').length,
+      ).toBeGreaterThan(0);
     } finally {
       await act(async () => page.root.unmount());
     }
@@ -425,5 +431,31 @@ test("Cloud mode without its launch handler still checks the local fallback", as
     expect(page.field.value).toBe("fix the flaky upload test");
   } finally {
     await act(async () => page.root.unmount());
+  }
+});
+
+test("an inherited page folder is not preflighted before the host names a chat start folder", async () => {
+  const page = await newTabPage({ auth: READY, startCwd: null });
+  try {
+    expect(page.queries).toEqual([{ target: { harness: "codex" } }]);
+    await page.pressReturn();
+    expect(page.asks).toHaveLength(1);
+  } finally {
+    await act(async () => page.root.unmount());
+  }
+});
+
+test("a tilde start folder does not become an invalid target auth cwd", async () => {
+  for (const startCwd of ["~", "~/project"]) {
+    const page = await newTabPage({ auth: { ...READY, state: "expired" }, startCwd });
+    try {
+      expect(page.queries).toEqual([{ target: { harness: "codex" } }]);
+      await page.pressReturn();
+      expect(page.asks).toEqual([]);
+      expect(page.field.value).toBe("fix the flaky upload test");
+      expect(page.alert()).toContain("expired");
+    } finally {
+      await act(async () => page.root.unmount());
+    }
   }
 });

@@ -8,9 +8,6 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
-            // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
-            // setting-driven New Tab stays in the File menu and the palette.
-            "newTab.default",
             // The tab's menu has New Tab to the Right (this, Chrome's name) and, in New, at Start and at End.
             "newTab.afterCurrent",
             // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
@@ -26,10 +23,12 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
             "window.toggleDockOrientation",
+            "home.openChiefDock", "home.undockChief", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+            "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
-            "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
+            "openSettings", "appearance.customize", "appearance.personalize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "closeAllWindows", "window.closeOthers", "window.mergeAll", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
@@ -37,7 +36,7 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.importClassic", "session.moveFromBuild", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "showNotifications", "feed.show", "markAllNotificationsRead",
+            "showNotifications", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
@@ -47,11 +46,11 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart", "computerUseStop",
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
-            "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
+            "accounts.connect", "accounts.remove", "accounts.githubConnect", "reloadConfiguration", "palette.openCmuxSettingsFile",
+            "liveWeb.start", "liveWeb.stop", "liveSwift.start", "liveSwift.stop", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
-            "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "palette.pro.upgrade",
+            "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.pro.upgrade",
             "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.density.ultraCompact", "appearance.density.cozy", "appearance.density.spacious", "appearance.density.set", "appearance.density.create", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none", "appearance.animations.toggle", "appearance.animations.sidebar.toggle", "appearance.animations.tabs.toggle", "appearance.animations.panes.toggle", "appearance.animations.overlays.toggle", "appearance.animations.hoverCards.toggle", "appearance.animations.home.toggle", "appearance.animations.cursor.toggle", "appearance.animations.indicators.toggle", "appearance.animations.feedback.toggle", "appearance.animations.web.toggle",
@@ -71,7 +70,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openVaultPane",
         ],
         .noTargetSurface: [
-            "browserProfile.openLink", "file.open",
+            "browserProfile.openLink", "browserProfile.openLinkInNew", "file.open",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
@@ -161,7 +160,7 @@ nonisolated extension ActionSurfaceCatalog {
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
-            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
+            "workspace.toggleDockFloating", "window.movePaneToDock", "workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost",
             // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.

@@ -23,10 +23,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   plan:
     name: plan (changed Cargo workspaces)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 10
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
@@ -74,7 +78,7 @@ jobs:
     name: ${{ matrix.root }}
     needs: plan
     if: ${{ needs.plan.outputs.jobs != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -134,12 +138,13 @@ jobs:
           ROOT: ${{ matrix.root }}
         run: PATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"
 
-  # One stable check name for the whole matrix (a skipped matrix is green).
+  # One stable check name for the whole matrix (a skipped matrix is green). A plan or matrix that judged nothing
+  # (cancelled, abandoned) is no verdict, never a pass and never this change's red (scripts/ci/needs_verdict.py).
   summary:
     name: rust workspaces
     needs: [plan, workspace]
     if: ${{ always() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 5
     steps:
       - name: Every planned workspace passed
@@ -147,5 +152,22 @@ jobs:
           PLAN: ${{ needs.plan.result }}
           WORKSPACES: ${{ needs.workspace.result }}
         run: |
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
           echo "plan: $PLAN, workspaces: $WORKSPACES"
-          [[ "$PLAN" == success && ( "$WORKSPACES" == success || "$WORKSPACES" == skipped ) ]]
+          needs_verdict "rust workspaces" "plan=$PLAN" "workspace?=$WORKSPACES"

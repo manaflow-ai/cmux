@@ -51,6 +51,8 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let stack: StackClientApp?
     /// The `cmux-mobile-api` base URL (`CMUX_MOBILE_API_BASE`), when configured.
     @ObservationIgnored let apiBase: URL?
+    /// Where Create Team goes (``TeamCreationRoute``): the cmux team API for production accounts.
+    @ObservationIgnored let teamCreationRoute: TeamCreationRoute
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
     private var mockSignedIn: Bool
@@ -60,10 +62,13 @@ public final class CmuxMobileAuthModel {
     /// A display-safe error for the welcome screen, `nil` on cancel.
     public var errorMessage: String?
 
-    init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil, isMock: Bool) {
+    init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
+         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool) {
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
+        self.teamCreationRoute = teamCreationRoute
+            ?? TeamCreationRoute(productionAccount: false, teamAPIBase: nil, mobileServiceBase: apiBase)
         self.isMock = isMock
         self.mockSignedIn = isMock
     }
@@ -155,7 +160,13 @@ public final class CmuxMobileAuthModel {
         let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
         authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
-        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)
+        let teamCreationRoute = TeamCreationRoute(
+            productionAccount: !(isDebug || stagingStack),
+            teamAPIBase: URL(string: config.apiBaseURL),
+            mobileServiceBase: apiBase
+        )
+        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
+                                   teamCreationRoute: teamCreationRoute, isMock: false)
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -352,17 +363,36 @@ public final class CmuxMobileAuthModel {
     }
 
     /// Creates a team and selects it. Stack refuses team creation from the
-    /// client (`client_team_creation_enabled` is off in both projects), so it
-    /// goes through the cmux service (`POST /v1/teams`), which creates it with
-    /// the project's server key; then the team list is read again from Stack.
+    /// client (`client_team_creation_enabled` is off in both projects), so a
+    /// server creates it (``TeamCreationRoute``): the cmux team API
+    /// (`POST <cmux>/api/teams`, as the Mac does) for a production account, the
+    /// dev mobile service (`POST /v1/teams`) for a development one. Then the
+    /// team list is read again from Stack.
     public func createTeam(named name: String) async throws -> AppStore.AccountTeam {
         if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name) }
         guard let coordinator else { throw AuthError.unauthorized }
-        guard let apiBase else { throw ServiceTeamCreation.Failure.unavailable }
-        let creation = ServiceTeamCreation(apiBase: apiBase)
-        let tokens = try await coordinator.currentTokens()
-        let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
-        let team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let team: AppStore.AccountTeam
+        switch teamCreationRoute {
+        case .teamAPI(let base):
+            let api = CmuxTeamsAPI(baseURL: base) {
+                let tokens = try await coordinator.currentTokens()
+                return (tokens.accessToken, tokens.refreshToken)
+            }
+            let created: CMUXAuthTeam
+            do {
+                created = try await api.create(displayName: name)
+            } catch CMUXTeamError.invalidName {
+                throw ServiceTeamCreation.Failure.invalidName
+            }
+            team = AppStore.AccountTeam(id: created.id, name: created.displayName)
+        case .mobileService(let apiBase):
+            let creation = ServiceTeamCreation(apiBase: apiBase)
+            let tokens = try await coordinator.currentTokens()
+            let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+            team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        case .unavailable:
+            throw ServiceTeamCreation.Failure.unavailable
+        }
         // The new membership, then the selection (best effort, as in Stack's own flow).
         await coordinator.refreshTeams()
         try? await coordinator.selectTeam(id: team.id)
@@ -541,6 +571,11 @@ public final class CmuxMobileAuthModel {
             return authError.errorDescription
         }
         if error is CancellationError { return nil }
+        switch error as? ServiceTeamCreation.Failure {
+        case .unavailable: return "Your account can't create teams."
+        case .invalidName: return "Team names are 1 to 120 characters."
+        case .failed, nil: break
+        }
         return "Something went wrong. Try again."
     }
 }

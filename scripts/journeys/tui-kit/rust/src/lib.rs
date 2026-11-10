@@ -3,7 +3,9 @@
 //! seeded style and passes it on the command line); this crate draws and paces.
 
 pub mod args;
+pub mod beacon;
 pub mod gradient;
 pub mod jsonl;
 pub mod pace;
+pub mod storm;
 pub mod sys;

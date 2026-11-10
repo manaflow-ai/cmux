@@ -15,8 +15,31 @@ with examples; `--json` on any command prints the raw response.
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
 | Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
 | Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
+| From an authenticated agent session, race implementations in separate worktrees with a reviewer | `acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "Fix the flaky test"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.
+
+Race CLI commands run inside an authenticated acpmux agent session. Omit `--parent` to use
+that agent's own chat, or name a descendant it can manage. `--parent CHAT` does not authorize
+an ordinary terminal. From an ordinary terminal, use the chat's **menu → Tools → Race models**
+control in cmux NEXT instead.
+
+`race new` starts candidates under that local parent chat and returns a race id. The daemon
+continues the race after the CLI exits; candidates inherit the parent's permission rules and
+sub-session limits. Each candidate works
+in its own Git worktree. The reviewer chooses a winner after the candidate turns finish;
+that choice does not certify passing tests or authorize a merge.
+
+From the same authenticated agent session, use `acpmux race show RACE` to read the replies,
+paths and decision, `race ls` to list races, and `race stats` for wins per model.
+`race stop RACE` cancels the race's sessions. Add the same `--parent` to these commands when
+the race belongs to a descendant. Losing sessions close after
+a successful review; their worktrees remain recoverable under normal retention. A failed
+review keeps the candidates available for inspection.
+
+Racing is available by default. To disable new races for a daemon, start it with
+`ACPMUX_DISABLE_RACES=1`; existing results remain readable and running races can still be
+stopped. Win rates count completed, reviewer-decided races, once per model per race.
 
 ## Talk to one
 
@@ -28,6 +51,8 @@ Running the same `new --worktree ... --prompt-file ...` again reuses the session
 | From an agent session, say what the message asks of the receiver | `acpmux send coord --class block "Base is red; I cannot push"` |
 | Send a file with it | `acpmux send fix-27310 --attach ~/notes/before.png "The caret jumps after paste"` |
 | Check a `--no-wait` delivery | `acpmux send --status DELIVERY_ID` |
+| Every message this daemon still delivers or delivered today | `acpmux send --status` |
+| An agent's send that waits for the reply (it queues and returns by default) | `acpmux send --wait coord "…"` |
 | From an agent session, message several sessions at once | the `send` tool of the `acpmux` MCP server with `messages: [{to, text}, {to, file}]` (or `tag`), not a shell loop of `acpmux send --no-wait` |
 | Retry a failed last turn | `acpmux retry review-27310` |
 | Cancel the running turn | `acpmux session cancel coord` |
@@ -68,6 +93,7 @@ boundary); `--no-steer` queues it instead.
 | The prompts waiting on it | `acpmux session queue list coord` |
 | Take other agents' messages out of its queue | `acpmux session queue clear coord --from-agents` |
 | Follow its raw events | `acpmux session tail coord -f` |
+| Find its messages holding every word, newest first (`--role user\|assistant\|tool`, `--since 24h`, `-n`) | `acpmux session search coord merged sha --role assistant` |
 | Label it | `acpmux session tag review-27310 pr=27310` |
 | How many sub-sessions it runs and queues | `acpmux session limits coord` |
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |

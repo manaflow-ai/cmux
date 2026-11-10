@@ -47,15 +47,19 @@ mod journal_extensions;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
+pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+pub(crate) mod premigrate;
 mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
+mod host_identity;
+pub(crate) use host_identity::StoredIds;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -63,6 +67,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod segment_codec;
 pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
@@ -82,16 +87,20 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
+pub(crate) mod terminal_state_end;
+pub use terminal_state_end::EndedTerminalState;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
 mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
+pub use crate::state::tab_state_store::TabAttentionRecord;
 pub(crate) use effect_store::{
     EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
 };
@@ -103,6 +112,8 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
+#[cfg(test)]
+pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
@@ -121,9 +132,10 @@ pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdat
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
-    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
-    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
+    TAB_GROUP_NO_COLOR, TabGroupRecord, TabGroupState, WorkspaceGroupRecord,
+    WorkspacePresentationUpdate, new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id,
+    validate_presentation_color, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -151,6 +163,7 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
+pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -792,7 +805,11 @@ pub struct FrontendProjection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionCommit {
     pub projection: FrontendProjection,
+    /// No change: a retry of a recorded mutation, or the stored body again.
     pub replayed: bool,
+    /// The commit added a `projection_mutations` ledger row (a new mutation,
+    /// changed or not), which journal maintenance bounds.
+    pub recorded: bool,
 }
 
 /// The sole durable writer for one session. The owning `Mux` serializes all
@@ -817,8 +834,13 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
+    /// This open swapped in a registry without stored output.
+    output_cleanup_swapped: bool,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2406,7 +2428,7 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
-fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
 
@@ -2462,14 +2484,21 @@ impl WorkspaceRegistry {
             session_name.to_string(),
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
-            None,
-            None,
+            &mut None,
+            &mut None,
             None,
             crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_inner(root, session_name, false)
+    }
+
+    /// `roll_back_first`: an owner build on a registry swapped in by output
+    /// cleanup failed before any full start on it; the previous registry is
+    /// put back under this open's locks before the open.
+    fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
         let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -2501,22 +2530,146 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        open_guard::refuse_orphaned_journal(&db_path)?;
-        let connection = open_registry_database(&db_path)
-            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
-        platform::restrict_file(&db_path)?;
-        timings.lap("registry.lock_and_connect");
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            machine_id,
-            resource_effect_pepper,
-            Some(session_guard),
-            Some(lease),
-            Some(db_path),
-            timings,
-        )
+        // A rollback an earlier start could not finish goes first.
+        output_cleanup::finish_pending_rollback(&db_path)?;
+        if roll_back_first && output_cleanup::rollback_possible(&db_path) {
+            output_cleanup::roll_back_swap(
+                &db_path,
+                &anyhow::anyhow!("the owner did not start on the new registry"),
+            )?;
+        }
+        // Before the orphan check: an interrupted swap is put back first.
+        // The swap opens the new file through `initialize` and reads its
+        // layout before the rename, so a file that cannot serve never
+        // replaces the registry.
+        let swapped = output_cleanup::swap_at_open(&db_path, &|staged: &Path| {
+            let connection = open_registry_database(staged)?;
+            let registry = Self::initialize(
+                connection,
+                session_name.to_string(),
+                load_or_create_machine_id(&root)?,
+                load_or_create_resource_effect_pepper(&root)?,
+                &mut None,
+                &mut None,
+                None,
+                crate::startup_timings::StartupTimings::start(),
+            )?;
+            registry.snapshot()?;
+            Ok(())
+        });
+        // A swap that failed after it moved the registry aside left only
+        // the backup: put it back before anything opens db_path. If that
+        // fails, refuse: an open now would create an empty registry beside
+        // the only copy of the session.
+        output_cleanup::restore_interrupted_swap(&db_path);
+        output_cleanup::refuse_open_beside_backup(&db_path)?;
+        // The locks stay held across a failed open and its rollback: no
+        // other owner can open either file in between.
+        let mut session_guard = Some(session_guard);
+        let mut lease = Some(lease);
+        let mut machine_id = Some(machine_id);
+        let mut resource_effect_pepper = Some(resource_effect_pepper);
+        let mut open_once = |session_guard: &mut Option<SessionLease>,
+                             lease: &mut Option<SessionLease>|
+         -> anyhow::Result<Self> {
+            open_guard::refuse_orphaned_journal(&db_path)?;
+            let connection = open_registry_database(&db_path)
+                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+            let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
+            platform::restrict_file(&db_path)?;
+            // A second try (after a rollback) records its own laps.
+            let mut timings = std::mem::take(&mut timings);
+            timings.lap("registry.lock_and_connect");
+            Self::initialize(
+                connection,
+                session_name.to_string(),
+                match machine_id.take() {
+                    Some(id) => id,
+                    None => load_or_create_machine_id(&root)?,
+                },
+                match resource_effect_pepper.take() {
+                    Some(pepper) => pepper,
+                    None => load_or_create_resource_effect_pepper(&root)?,
+                },
+                session_guard,
+                lease,
+                Some(db_path.clone()),
+                timings,
+            )
+        };
+        #[cfg(debug_assertions)]
+        let first =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN").is_some() {
+                Err(anyhow::anyhow!("test: the swapped registry did not open"))
+            } else {
+                open_once(&mut session_guard, &mut lease)
+            };
+        #[cfg(not(debug_assertions))]
+        let first = open_once(&mut session_guard, &mut lease);
+        let registry = match first {
+            Ok(mut registry) => {
+                // Also true on a later start when the swap start never got
+                // through a full start (killed during restore).
+                registry.output_cleanup_swapped =
+                    swapped || output_cleanup::rollback_possible(&db_path);
+                if !registry.output_cleanup_swapped {
+                    output_cleanup::remove_previous_registry_when_started(&db_path);
+                }
+                Ok(registry)
+            }
+            Err(error) if swapped => {
+                // A rollback that cannot put the file back refuses this start.
+                output_cleanup::roll_back_swap(&db_path, &error)?;
+                open_once(&mut session_guard, &mut lease)
+            }
+            Err(error) => Err(error),
+        }?;
+        // A roster the next build folded beside the previous owner.
+        premigrate::adopt(&registry);
+        Ok(registry)
+    }
+
+    /// Opens the registry and builds the owner from it with `load`. When this
+    /// start swapped in a cleaned registry (output cleanup) and `load` fails,
+    /// the previous registry is put back under the session locks and `load`
+    /// runs once more on it. A full start after a swap is recorded, so the
+    /// next start removes the previous file.
+    pub(crate) fn open_with<T>(
+        root: &Path,
+        session_name: &str,
+        mut load: impl FnMut(Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let registry = Self::open(root, session_name)?;
+        let swapped = registry.output_cleanup_swapped;
+        let db_path = registry.database_path.clone();
+        #[cfg(debug_assertions)]
+        let loaded =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD").is_some() {
+                drop(registry);
+                Err(anyhow::anyhow!("test: the owner build failed after the swap"))
+            } else {
+                load(registry)
+            };
+        #[cfg(not(debug_assertions))]
+        let loaded = load(registry);
+        match loaded {
+            Ok(loaded) => {
+                if let Some(db_path) = db_path.as_deref() {
+                    output_cleanup::note_full_start(db_path)?;
+                }
+                Ok(loaded)
+            }
+            Err(error) if swapped && db_path.is_some() => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the owner did not start on the new registry: {error:#}"
+                );
+                // The failed build released its locks with the registry. One
+                // open takes them again and holds them through the rollback
+                // and the open of the restored registry.
+                load(Self::open_inner(root, session_name, true)?)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2525,8 +2678,8 @@ impl WorkspaceRegistry {
         session_name: String,
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
-        session_guard: Option<SessionLease>,
-        lease: Option<SessionLease>,
+        session_guard: &mut Option<SessionLease>,
+        lease: &mut Option<SessionLease>,
         database_path: Option<PathBuf>,
         mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
@@ -2828,6 +2981,7 @@ impl WorkspaceRegistry {
             migrate_resource_agent_hook_state_add_ended_at(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.migrations.columns");
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             if first_state_foreign_key_violation(&connection)?.is_some() {
@@ -2836,6 +2990,7 @@ impl WorkspaceRegistry {
                 );
             }
         }
+        timings.lap("registry.migrations.foreign_key_check");
         if needs_sensitive_receipt_cleanup {
             checkpoint_and_truncate_wal(&connection)?;
             connection.execute_batch("VACUUM;")?;
@@ -2847,6 +3002,7 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        timings.lap("registry.migrations.receipt_cleanup");
         // Existing registries are migrated by the background journal
         // maintenance worker. VACUUM can rewrite a large cloud registry, so
         // startup only stamps fresh databases that already use incremental
@@ -2878,12 +3034,17 @@ impl WorkspaceRegistry {
             // Old page images must not keep the scrubbed values (WAL, main file).
             checkpoint_and_truncate_wal(&connection)?;
         }
+        timings.lap("registry.migrations.schema");
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
+        // A registry copied from another machine gets its own ids first.
+        let mut rehome = crate::startup_timings::StartupTimings::start();
+        host_identity::rehome_registry(&connection, &mut rehome)?;
+        timings.absorb(rehome, "registry.migrations.rehome");
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
@@ -2907,12 +3068,13 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.resource_invariants");
+        let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
             open_timings: timings,
             registry_id,
-            generation: try_new_uuid_v4()?,
+            generation,
             session_name,
             machine_id,
             session_id,
@@ -2921,8 +3083,11 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            session_guard,
-            lease,
+            #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
+            session_guard: session_guard.take(),
+            lease: lease.take(),
+            output_cleanup_swapped: false,
         })
     }
 
@@ -2945,63 +3110,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let next_numeric_id = u64::try_from(max_numeric_id)
-            .context("stored workspace id is negative")?
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
-                    w.name_source, w.name_revision
-             FROM workspaces w
-             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
-             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
-             ORDER BY w.position ASC",
-        )?;
-        let workspaces = statement
-            .query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
-            })?
-            .map(|row| {
-                let (id, key, name, group_key, public_id, (source, revision)): (
-                    i64,
-                    String,
-                    String,
-                    String,
-                    String,
-                    (String, i64),
-                ) = row?;
-                let (name_source, name_revision) =
-                    workspace_name_store::stored_name_provenance(&source, revision)?;
-                Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
-                    id: u64::try_from(id).context("stored workspace id is negative")?,
-                    public_id: WorkspacePublicId::parse(public_id)?,
-                    key,
-                    name,
-                    name_source,
-                    name_revision,
-                    group_key,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(RegistrySnapshot {
-            registry_id: self.registry_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            resource_revision,
-            session_id: self.session_id.clone(),
-            next_numeric_id,
-            workspaces,
-        })
+        registry_snapshot_in(
+            &self.connection.get(),
+            &self.registry_id,
+            &self.generation,
+            &self.session_id,
+        )
     }
 
     /// Read the resource cursor without materializing the workspace graph.
@@ -3231,6 +3345,7 @@ impl WorkspaceRegistry {
         )?;
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement.query_map([sqlite_revision], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -3244,6 +3359,7 @@ impl WorkspaceRegistry {
         })?;
         rows.map(|row| {
             let (revision, kind, terminal_id, workspace_key, origin, mutation_id, result) = row?;
+            let result = ids.text(result);
             Ok(TerminalRegistryEvent {
                 revision: u64::try_from(revision).context("terminal event revision is negative")?,
                 kind,
@@ -3284,13 +3400,15 @@ impl WorkspaceRegistry {
         let Some((stored_fingerprint, stored_result, revision)) = stored else {
             return Ok(None);
         };
-        if stored_fingerprint != fingerprint {
+        let ids = StoredIds::load(&self.connection.get())?;
+        if ids.fingerprint(stored_fingerprint)? != fingerprint {
             anyhow::bail!(
                 "mutation {} from {} was retried with a different payload",
                 mutation.id,
                 mutation.origin
             );
         }
+        let stored_result = ids.text(stored_result);
         Ok(Some(RegistryCommit {
             revision: u64::try_from(revision).context("stored mutation revision is negative")?,
             result: serde_json::from_str(&stored_result)?,
@@ -3418,6 +3536,7 @@ impl WorkspaceRegistry {
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
+        let ids = StoredIds::load(&db)?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
         let rows = statement.query_map([sqlite_revision], |row| {
@@ -3440,7 +3559,7 @@ impl WorkspaceRegistry {
                 workspace_key,
                 origin,
                 mutation_id,
-                result: serde_json::from_str(&result)?,
+                result: serde_json::from_str(&ids.text(result))?,
             })
         })
         .collect()
@@ -3527,6 +3646,9 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
+            let ids = StoredIds::load(&tx)?;
+            let stored_fingerprint = ids.fingerprint(stored_fingerprint)?;
+            let result_json = ids.text(result_json);
             if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
@@ -3536,18 +3658,20 @@ impl WorkspaceRegistry {
             }
             let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
             stored.projection = projection.clone();
-            return Ok(ProjectionCommit { projection: stored, replayed: true });
+            return Ok(ProjectionCommit { projection: stored, replayed: true, recorded: false });
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload),
+                        schema_version = ?4 AND payload = ?5
+                 FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
-                params![frontend, scope, subject_key],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                params![frontend, scope, subject_key, i64::from(schema_version), &payload],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?)),
             )
             .optional()?;
         let current = stored_now
-            .map(|(revision, _)| u64::try_from(revision))
+            .map(|(revision, _, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3556,29 +3680,43 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
-        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
-        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
-        let projection_revision = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
-        tx.execute(
-            "INSERT INTO frontend_projections(
+        // The same body (canonical, so key order does not count) and schema
+        // as stored is no change: the row and its revision stay, and the
+        // commit is `replayed`, so the caller emits no change event. The app
+        // saves its documents again on many events with nothing changed, and
+        // each save woke every subscriber and the launch snapshot of an idle
+        // owner. The ledger still records the mutation, so a retry of it
+        // after another mutation's change replays this answer instead of
+        // writing the old body again.
+        let unchanged = stored_now.is_some_and(|(_, _, same)| same);
+        let projection_revision = if unchanged {
+            current
+        } else {
+            let previous_bytes = stored_now.and_then(|(_, bytes, _)| usize::try_from(bytes).ok());
+            note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
+            let projection_revision = current
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
+            tx.execute(
+                "INSERT INTO frontend_projections(
                frontend, scope, subject_key, schema_version, projection_revision, payload
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(frontend, scope, subject_key) DO UPDATE SET
                schema_version=excluded.schema_version,
                projection_revision=excluded.projection_revision,
                payload=excluded.payload",
-            params![
-                frontend,
-                scope,
-                subject_key,
-                i64::from(schema_version),
-                i64::try_from(projection_revision)
-                    .context("projection revision exceeds SQLite range")?,
-                payload
-            ],
-        )?;
+                params![
+                    frontend,
+                    scope,
+                    subject_key,
+                    i64::from(schema_version),
+                    i64::try_from(projection_revision)
+                        .context("projection revision exceeds SQLite range")?,
+                    payload
+                ],
+            )?;
+            projection_revision
+        };
         let stored = FrontendProjection {
             frontend: frontend.to_string(),
             scope: scope.to_string(),
@@ -3602,7 +3740,7 @@ impl WorkspaceRegistry {
             ],
         )?;
         tx.commit()?;
-        Ok(ProjectionCommit { projection: stored, replayed: false })
+        Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
     }
 }
 
@@ -3826,7 +3964,7 @@ fn migrate_resource_api_frontend_projection_envelopes(
 /// with every terminal output chunk (millions of rows, gigabytes on a
 /// long-lived machine) and are append-only or sealed archives whose records
 /// are validated when they are read, so the open-time check skips them.
-const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+const JOURNAL_HISTORY_TABLES: [&str; 8] = [
     "session_journal",
     "journal_subject_index",
     "journal_event_index",
@@ -3834,6 +3972,7 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "journal_checkpoints",
     "journal_content_blobs",
     "journal_segment_kinds",
+    "journal_segment_reducer_records",
 ];
 
 /// Idempotency ledgers: one row per committed mutation, holding its result
@@ -4867,7 +5006,9 @@ fn terminal_replay(
     let Some((stored_fingerprint, stored_result, revision)) = stored else {
         return Ok(None);
     };
-    if stored_fingerprint != fingerprint {
+    let ids = StoredIds::load(connection)?;
+    let stored_result = ids.text(stored_result);
+    if ids.fingerprint(stored_fingerprint)? != fingerprint {
         anyhow::bail!(
             "terminal mutation {} from {} was retried with a different payload",
             mutation.id,
@@ -4952,6 +5093,72 @@ pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<O
 pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
+}
+
+/// [`WorkspaceRegistry::snapshot`] on `connection`: the registry's own
+/// connection under its lock, or its read-only connection for a read that
+/// must not wait for a writer (`resource_api::read_committed_registry`).
+pub(crate) fn registry_snapshot_in(
+    connection: &Connection,
+    registry_id: &str,
+    generation: &str,
+    session_id: &SessionPublicId,
+) -> anyhow::Result<RegistrySnapshot> {
+    let revision = current_revision(connection)?;
+    let resource_revision = current_resource_revision(connection)?;
+    let max_numeric_id =
+        connection.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let next_numeric_id = u64::try_from(max_numeric_id)
+        .context("stored workspace id is negative")?
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+    let mut statement = connection.prepare(
+        "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                w.name_source, w.name_revision
+         FROM workspaces w
+         JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+         WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+         ORDER BY w.position ASC",
+    )?;
+    let workspaces = statement
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+            Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
+        })?
+        .map(|row| {
+            let (id, key, name, group_key, public_id, (source, revision)): (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                (String, i64),
+            ) = row?;
+            let (name_source, name_revision) =
+                workspace_name_store::stored_name_provenance(&source, revision)?;
+            Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
+                id: u64::try_from(id).context("stored workspace id is negative")?,
+                public_id: WorkspacePublicId::parse(public_id)?,
+                key,
+                name,
+                name_source,
+                name_revision,
+                group_key,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RegistrySnapshot {
+        registry_id: registry_id.to_string(),
+        generation: generation.to_string(),
+        revision,
+        resource_revision,
+        session_id: session_id.clone(),
+        next_numeric_id,
+        workspaces,
+    })
 }
 
 fn current_revision(connection: &Connection) -> anyhow::Result<u64> {
@@ -5058,6 +5265,172 @@ fn acquire_session_guard_from_private_dir(
     .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
     let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
+}
+
+/// Whether a daemon owns another session of `root` now, asked by the session
+/// guard every owner holds from its registry open to its exit
+/// (`mux/unowned_hosts.rs`). `component` is the guard's file stem
+/// ([`session_storage_component`]).
+pub(crate) enum SessionOwnerProbe {
+    /// No daemon holds the guard: the lease is held here until dropped, so
+    /// none can start the session meanwhile.
+    Unowned(SessionLease),
+    /// A daemon holds the guard, or the probe could not tell.
+    Owned,
+    /// The session has no guard file in `root`.
+    NoGuard,
+}
+
+/// Takes the guard of the session whose file stem is `component` when no
+/// daemon holds it, without waiting on a daemon (the coordinator's short
+/// bound). A daemon that starts the session while the lease is held here
+/// fails its start, as it does during a session reset.
+///
+/// The guard file itself is opened, never made: a missing one is
+/// [`SessionOwnerProbe::NoGuard`], and any other doubt (it cannot be opened,
+/// it changed while opening, its lock is taken) is
+/// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
+/// [`SessionLease::still_guards`] before each step that ends a host.
+pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let lock_path = session_guard_lock_component_path(&lock_dir, component);
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = match options.open(&lock_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return SessionOwnerProbe::NoGuard;
+        }
+        Err(_) => return SessionOwnerProbe::Owned,
+    };
+    let Ok(_coordinator) =
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
+    else {
+        return SessionOwnerProbe::Owned;
+    };
+    // Locked first, then checked: the path must still name the locked file.
+    if FileExt::try_lock(&file).is_err() || validate_session_lock_file(&lock_path, &file).is_err() {
+        return SessionOwnerProbe::Owned;
+    }
+    SessionOwnerProbe::Unowned(SessionLease { file, path: lock_path, coordinator_waiter_dir: None })
+}
+
+/// What the last owner run of the session `component` of `root` left in its
+/// session directory: the newest modification time and the total size of
+/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
+/// owner start and every adoption commits there, so a change means an owner
+/// ran in between; nothing else writes there while its guard is free.
+pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
+    let dir = platform::normalize_filesystem_path(root.join(component));
+    let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
+        files += 1;
+        size = size.saturating_add(metadata.len());
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos());
+        newest = newest.max(modified);
+    }
+    format!("{newest}:{size}:{files}")
+}
+
+/// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
+#[cfg(unix)]
+pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let mut components = fs::read_dir(lock_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let stem = name.strip_suffix(".lock")?;
+            (!stem.starts_with('.')).then(|| stem.to_owned())
+        })
+        .collect::<Vec<_>>();
+    components.sort();
+    components
+}
+
+/// The guard file stem of `session` ([`session_storage_component`]).
+#[cfg(any(windows, test))]
+pub(crate) fn session_guard_component(session: &str) -> String {
+    session_storage_component(session)
+}
+
+fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
+    platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
+}
+
+/// A daemon's start of `session` in `root` as a session reset takes it: the
+/// coordinator with its short bound, then the guard.
+#[cfg(test)]
+pub(crate) fn start_session_guard_for_test(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    fs::create_dir_all(root)?;
+    acquire_session_guard_from_private_dir(root, session_name, true)
+}
+
+#[cfg(test)]
+mod session_owner_probe_tests {
+    use super::*;
+
+    #[test]
+    fn a_held_probe_lease_keeps_the_session_from_starting_and_a_missing_guard_is_no_lease() {
+        let root = std::env::temp_dir().join(format!("owner-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let component = session_guard_component("cmux-app-gone");
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::NoGuard));
+
+        // The session ran once: its guard file exists and is free.
+        drop(acquire_session_guard(&root, "cmux-app-gone").unwrap());
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        // A daemon starting now cannot take the session (and adopt its hosts).
+        assert!(acquire_session_guard(&root, "cmux-app-gone").is_err());
+        drop(lease);
+        // A running daemon's guard is never taken.
+        let owner = acquire_session_guard(&root, "cmux-app-gone").unwrap();
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::Owned));
+        drop(owner);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Windows: a held guard renamed away and replaced by another file at
+    /// its path no longer guards the session.
+    #[cfg(windows)]
+    #[test]
+    fn a_guard_replaced_while_held_no_longer_guards_on_windows() {
+        let root = std::env::temp_dir().join(format!("owner-probe-win-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        drop(start_session_guard_for_test(&root, "cmux-app-gone").unwrap());
+        let component = session_guard_component("cmux-app-gone");
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        assert!(lease.still_guards(), "the held guard does not guard");
+        let guard = lease.path.clone();
+        fs::rename(&guard, guard.with_extension("old")).unwrap();
+        fs::write(&guard, b"").unwrap();
+        assert!(!lease.still_guards(), "a replaced guard still counts as held");
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
@@ -5354,13 +5727,16 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
         // handed out (returned only after its fsync), so a new id replaces it.
         Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
             root_identity::create_machine_id(&root, &path, true)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             root_identity::create_machine_id(&root, &path, false)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))
@@ -5453,6 +5829,28 @@ pub(crate) struct SessionLease {
 }
 
 impl SessionLease {
+    /// Whether the guard path still names the file this lease locked: a
+    /// guard deleted (and maybe made again) since is no longer held here,
+    /// and a daemon may own the session through the new file.
+    pub(crate) fn still_guards(&self) -> bool {
+        validate_session_lock_file(&self.path, &self.file).is_ok()
+    }
+
+    /// Runs `act` only while this lease still guards its session, with the
+    /// session-locks coordinator held from that check until `act` returns.
+    /// A daemon makes or replaces a guard file only under that coordinator
+    /// (`acquire_session_guard_from_private_dir` takes it before
+    /// [`SessionLease::acquire`] opens the guard), so none can own the
+    /// session in between. `None`: the coordinator is busy past its short
+    /// bound, or the guard no longer names this lease's file. Keep `act`
+    /// short: a daemon start waits on the coordinator meanwhile.
+    pub(crate) fn while_guarding<T>(&self, act: impl FnOnce() -> T) -> Option<T> {
+        let lock_dir = self.path.parent()?;
+        let _coordinator =
+            SessionLease::acquire_coordinator(&session_guard_coordinator_path(lock_dir)).ok()?;
+        self.still_guards().then(act)
+    }
+
     fn acquire(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -5910,7 +6308,68 @@ fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
             anyhow::bail!("session lock path changed while opening: {}", path.display());
         }
     }
+    // Windows: the held handle and a fresh open of the path must be one file
+    // (volume serial number and file id). The guard is opened with
+    // FILE_SHARE_DELETE (std's default share mode), so it can be deleted or
+    // renamed away while held and another file made at its path.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+
+        let fresh = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        if windows_file_identity(&fresh)? != windows_file_identity(file)? {
+            anyhow::bail!("session lock path changed while opening: {}", path.display());
+        }
+    }
     Ok(())
+}
+
+/// A Windows file's identity: its volume serial number and file id, the
+/// 128-bit `FILE_ID_INFO` where the file system has it (ReFS ids do not fit
+/// in 64 bits), else the 64-bit index of `BY_HANDLE_FILE_INFORMATION`.
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> std::io::Result<(u64, [u8; 16])> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO, FileIdInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+
+    let handle = file.as_raw_handle();
+    // SAFETY: a zeroed plain-old-data struct the call fills.
+    let mut id: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call; `id` is the size passed.
+    let filled = unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            std::ptr::from_mut(&mut id).cast(),
+            u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).unwrap_or(u32::MAX),
+        )
+    };
+    if filled != 0 {
+        return Ok((id.VolumeSerialNumber, id.FileId.Identifier));
+    }
+    // SAFETY: as above.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call.
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut index = [0_u8; 16];
+    let low = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    for (slot, byte) in index.iter_mut().zip(low.to_le_bytes()) {
+        *slot = byte;
+    }
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
 }
 
 #[cfg(unix)]

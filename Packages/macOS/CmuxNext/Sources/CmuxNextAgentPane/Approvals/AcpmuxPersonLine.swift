@@ -19,6 +19,8 @@ public final class AcpmuxPersonLine {
     public private(set) var isPerson = false
     /// The surfaces this acpmux serves (`initialize`'s `_meta.acpmux.capabilities`, e.g. `machine-consent-v1`).
     public private(set) var capabilities: Set<String> = []
+    /// The `error.message` of the last request acpmux refused (its own words, never a secret).
+    public private(set) var lastError: String?
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -72,9 +74,22 @@ public final class AcpmuxPersonLine {
 
     /// The pending prompts of `session` while this daemon holds it itself: empty when `_acpmux/info`
     /// says a peer holds it (`peer`), as ``AgentPanePendingAsks`` reads it.
-    func ownPending(of session: String) async -> [[String: Any]] {
+    func ownPending(of session: String, chiefHomeID: String? = nil) async -> [[String: Any]] {
         guard let info = await call("_acpmux/info", ["sessionId": session]), info["peer"] == nil else { return [] }
+        if let chiefHomeID, !Self.isOwnerSubagent(info, session: session, home: chiefHomeID) { return [] }
         return info["pending"] as? [[String: Any]] ?? []
+    }
+
+    /// Home cards can answer only this home's local owner subagents. Turn sessions,
+    /// another Chief, the ask floor and peers stay outside this surface.
+    nonisolated static func isOwnerSubagent(_ info: [String: Any], session: String, home: String) -> Bool {
+        guard session.hasPrefix("local/"), info["sessionId"] as? String == String(session.dropFirst(6)),
+              info["peer"] == nil, let tags = info["tags"] as? [String: String],
+              tags["mux.parent"] == "optchat-chief:" + home,
+              let subagent = tags["optchat.subagent"], !subagent.isEmpty,
+              tags["optchat.policy"] != "ask", info["policy"] as? String != "ask",
+              tags["cmux.chief.role"] != "turn" else { return false }
+        return true
     }
 
     public func close() {
@@ -96,7 +111,10 @@ public final class AcpmuxPersonLine {
         // line (MainActorLineBatch); the close comes after the last line.
         let batch = MainActorLineBatch<Reply> { [weak self] drain in
             guard let self else { return }
-            for reply in drain.values { waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result) }
+            for reply in drain.values {
+                if let error = reply.error { lastError = error }
+                waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result)
+            }
             if drain.overflowed || drain.closed { close() }
         }
         let reply: ResultBox? = await withCheckedContinuation { waiter in
@@ -112,12 +130,14 @@ public final class AcpmuxPersonLine {
     nonisolated struct Reply: Sendable {
         let id: Int
         let result: ResultBox?
+        var error: String?
     }
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
     nonisolated static func decode(_ data: Data) -> Reply? {
         guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
-        return Reply(id: id, result: message["error"] == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil)
+        let error = message["error"].map { (($0 as? [String: Any])?["message"] as? String) ?? "" }
+        return Reply(id: id, result: error == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil, error: error)
     }
 }

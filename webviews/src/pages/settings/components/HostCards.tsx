@@ -3,6 +3,7 @@
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
 import { useEffect, useId, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
@@ -13,6 +14,7 @@ import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
+import { focusRingShown } from "../../../ui/focusModality";
 
 export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
@@ -206,7 +208,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
+        onFocus={(event) => !pending && focusRingShown(event.currentTarget) && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
@@ -375,9 +377,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   {t("settingsWindow.backdropPicker.usage", formatBytes(usage.bytes, locale()))}
                 </span>
               )}
-              <button type="button" className="button" onClick={() => store.revealBackdropImage()}>
+              <Button type="button" className="button" onClick={() => store.revealBackdropImage()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </div>
           )}
           <div className="backdrop-grid">
@@ -391,7 +393,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     pending: choice.downloaded === false,
                   })}
                   {/* The background in use stays: removing it would leave the window blank. */}
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
                     type="button"
                     className="icon-button backdrop-remove"
                     aria-label={t("settingsWindow.backdropPicker.remove", choice.title)}
@@ -405,7 +410,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     }
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 tile(choice.id, choice.title, choice.attribution, {
@@ -450,9 +455,9 @@ export function AdvancedInfo() {
           <div className="rows">
             <ActionRow title={t("settingsWindow.settingsFile")} help="">
               <span className="row-help selectable">{host.settings_file}</span>
-              <button type="button" className="button" onClick={() => store.revealSettingsFile()}>
+              <Button type="button" className="button" onClick={() => store.revealSettingsFile()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </ActionRow>
           </div>
         </section>

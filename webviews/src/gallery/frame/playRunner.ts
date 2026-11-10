@@ -19,7 +19,8 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
-import { startBoxTracker } from "../shift";
+import { isExpansionShift, startBoxTracker } from "../shift";
+import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -109,6 +110,16 @@ const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(r
 
 let actionSequence = 0;
 
+/** What the play clicked itself (a plain `element.click()` on a toggle, not `ctx.click`) since the
+ *  last step started: those folds play inside the next measured step, often a `waitFor` with no
+ *  target of its own, so they are its targets as well, and the rows they push down are theirs (the
+ *  rules of shift.ts). A step that starts takes them, and what is clicked while it runs joins it. */
+let clicked: Element[] = [];
+const noteClick = (event: Event) => {
+  const element = event.composedPath()[0];
+  if (element instanceof Element) clicked.push(element);
+};
+
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
   await nextFrame();
@@ -121,30 +132,46 @@ async function settle(): Promise<void> {
   ]);
 }
 
-function synthetic(element: Element, kind: string): void {
+/** Whether the shell's pointer is pressed: a person's moves between down and up hold the button. */
+let pointerHeld = false;
+
+export function syntheticPointer(element: Element, kind: string): void {
   const { x, y } = (() => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   })();
-  const init = {
+  const init = (buttons: number) => ({
     bubbles: true,
     cancelable: true,
     composed: true,
     clientX: x,
     clientY: y,
+    // Screen coordinates too: drags that follow the pointer across views read screen deltas.
+    screenX: x + window.screenX,
+    screenY: y + window.screenY,
     button: kind === "contextmenu" ? 2 : 0,
-    buttons: kind === "contextmenu" ? 2 : 0,
+    buttons,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
-  };
-  const fire = (type: string) =>
-    element.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, init) : new MouseEvent(type, init));
+  });
+  const fire = (type: string, buttons = kind === "contextmenu" ? 2 : pointerHeld ? 1 : 0) =>
+    element.dispatchEvent(
+      type.startsWith("pointer") ? new PointerEvent(type, init(buttons)) : new MouseEvent(type, init(buttons)),
+    );
   if (kind === "hover")
-    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach(fire);
-  if (kind === "down" || kind === "click") ["pointerdown", "mousedown"].forEach(fire);
-  if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
-  if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
+    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach((type) =>
+      fire(type),
+    );
+  if (kind === "down" || kind === "click") {
+    pointerHeld = true;
+    ["pointerdown", "mousedown"].forEach((type) => fire(type));
+  }
+  if (kind === "move") ["pointermove", "mousemove"].forEach((type) => fire(type));
+  if (kind === "up" || kind === "click") {
+    pointerHeld = false;
+    ["pointerup", "mouseup"].forEach((type) => fire(type));
+  }
   if (kind === "click") fire("click");
   if (kind === "contextmenu") fire("contextmenu");
 }
@@ -359,12 +386,14 @@ async function measured(
   if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
+  const targets = targeted ? [targeted, ...clicked] : clicked;
+  clicked = targets;
   // A scroll moves every row on purpose; its box shift is not measured.
   const boxes =
     action === "scroll"
       ? undefined
       : startBoxTracker(document, {
-          target: targeted,
+          target: targets,
           extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
           firstMoveFree: action === "resize",
           restedAtStart: true,
@@ -390,6 +419,9 @@ async function measured(
         // ignore it only when every reported source moved by less than half a CSS pixel. Real
         // shifts (including the composer's one-slot Send change) retain their normal CLS value.
         if (isSubpixelLayoutShift(sources)) continue;
+        // What the step opened pushing the rows under it is the step's transition, not a shift
+        // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
+        if (isExpansionShift(sources, targets)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {
@@ -433,6 +465,7 @@ async function measured(
   await run();
   await settle();
   performance.mark(endMark);
+  clicked = [];
   const timing = performance.measure(mark, startMark, endMark);
   const settleMs = Math.round(timing.duration * 10) / 10;
   performance.clearMarks(startMark);
@@ -478,6 +511,10 @@ export async function runPlay(
   play: Play,
   options: { anchors?: PlayTarget[]; checks?: PlayChecks },
 ): Promise<PlayReport> {
+  // A play starts with the pointer up, whatever the last one left.
+  pointerHeld = false;
+  clicked = [];
+  document.addEventListener("click", noteClick, true);
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -501,7 +538,7 @@ export async function runPlay(
     if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
-      else synthetic(element, kind);
+      else syntheticPointer(element, kind);
     }).then(record);
   };
   const gesture = async (
@@ -526,9 +563,12 @@ export async function runPlay(
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       await record(
-        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
-          element.focus(),
-        ),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () => {
+          element.focus();
+          // FOCUS-RING: a staged focus stands in for the person's key, so its ring may show (a
+          // code focus alone earns none, and every "focused" stage would match its rest stage).
+          earnFocusRing(element.ownerDocument);
+        }),
       );
     },
     scroll: async (target, position) => {
@@ -643,5 +683,8 @@ export async function runPlay(
       motion: motion.stop(),
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    document.removeEventListener("click", noteClick, true);
+    clicked = [];
   }
 }

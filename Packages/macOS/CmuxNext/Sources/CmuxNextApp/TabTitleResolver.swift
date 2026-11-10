@@ -28,15 +28,15 @@ struct TabTitleResolver {
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
-    /// An incognito browser tab's live title (its daemon record is a placeholder).
-    var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
+    /// An incognito browser tab's live title (its daemon record is a placeholder); nil `Bool`: look the tab up.
+    var incognitoTitle: @MainActor (TabModel, Bool?) -> String?? = { _, _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
     init(services: AppServices, workspace: WorkspaceHandle? = nil) {
         let agentTabs = services.agentTabs
         showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
-        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
+        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, machine: $0.agentTabs.daemonListing(tab)?.machineID, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }
@@ -44,8 +44,8 @@ struct TabTitleResolver {
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
-        incognitoTitle = { [weak services] tab in
-            guard let services, tab.kind == .browser, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+        incognitoTitle = { [weak services] tab, known in
+            guard let services, tab.kind == .browser, known ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
         }
     }
@@ -87,9 +87,12 @@ struct TabTitleResolver {
     }
 
     /// The name `tab` shows.
-    func title(_ tab: TabModel) -> String {
+    func title(_ tab: TabModel) -> String { title(tab, incognito: nil) }
+
+    /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
+    func title(_ tab: TabModel, incognito: Bool?) -> String {
         if let page = page(tab) { return page.title }
-        if let incognito = incognitoTitle(tab) { return incognito ?? Strings.untitledBrowser }
+        if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }
 }

@@ -177,6 +177,52 @@ async fn new_session(c: &mut Client) -> String {
     created["result"]["sessionId"].as_str().unwrap().to_owned()
 }
 
+#[tokio::test]
+async fn a_prompt_keeps_all_1024_attachment_display_parts() {
+    let hub = hub(&store("many-display-parts"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let mut blocks = Vec::new();
+    let mut display = Vec::new();
+    let mut expected = Vec::new();
+    for index in 0..1_024 {
+        let text = format!("file contents {index}");
+        let name = format!("notes-{index:04}.txt");
+        let source = json!({
+            "name": format!("Editor {index}"),
+            "bundleId": "com.example.Editor",
+            "site": "example.com"
+        });
+        blocks.push(json!({"type": "text", "text": text}));
+        display.push(json!({
+            "kind": "file", "blockIndex": index, "name": name,
+            "mimeType": "text/plain", "size": text.len(), "placed": true, "source": source
+        }));
+        expected.push(json!({
+            "kind": "file", "name": name, "mimeType": "text/plain", "size": text.len(),
+            "text": text, "placed": true, "source": source
+        }));
+    }
+    // Metadata order is not prompt order: each descriptor must stay with its own ACP block.
+    display.reverse();
+    let reply = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"inlineParts": display}}}),
+        )
+        .await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+
+    let sent = user_messages(&mut c, &session).await;
+    assert_eq!(sent.len(), 1);
+    let parts = sent[0]["inlineParts"].as_array().expect("recorded attachment parts");
+    assert_eq!(parts.len(), expected.len());
+    for (index, (part, expected)) in parts.iter().zip(&expected).enumerate() {
+        assert_eq!(part, expected, "attachment {index}");
+    }
+    hub.shutdown_all().await;
+}
+
 /// Waits (test polling) until `session`'s transcript has a record `pred` accepts.
 async fn wait_event(c: &mut Client, session: &str, what: &str, pred: impl Fn(&Value) -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -455,6 +501,42 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     let sent = sent.iter().find(|m| m["promptId"] == "q-paste").expect("the queued prompt ran");
     assert_eq!(sent["text"], "🦀 fix\na log");
     assert_eq!(sent["pasted"], range, "{sent}");
+}
+
+// Review of #38707 (F1): a queued record carries its provenance before its marks, so a prompt
+// no proof attributes (`unverified`) that reads as an agent's handoff gets no `agentText` while it
+// waits, as it gets none once it runs. A local client that claims a harness and names no agent is
+// such a prompt: no `fromAgent`, so only the provenance, read in order, leaves it unnoted.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_queued_daemon_made_prompt_gets_no_agent_text_note() {
+    let name = "queued-agent-text";
+    let hub = hub(&store(name));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let gate = root().join(format!("gate-{name}"));
+    gated_turn(&mut c, &session, &gate).await;
+    let mut q = client(&hub);
+    let handoff = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.";
+    let sent = q
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": handoff}], "_meta": {"acpmux": {"promptId": "q-agent", "fromHarness": "hermes@box"}}}),
+        )
+        .await;
+    wait_event(&mut c, &session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-agent"
+    })
+    .await;
+    let page = c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
+    let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
+    let queued = events.iter().find(|e| e["msg"]["promptId"] == "q-agent").expect("queued");
+    assert_eq!(queued["msg"]["_meta"]["provenance"]["kind"], "unverified", "{queued}");
+    assert!(queued["msg"].get("fromAgent").is_none(), "{queued}");
+    assert!(queued["msg"].get("agentText").is_none(), "{queued}");
+    open(&gate);
+    let answer = q.reply(sent).await;
+    assert_eq!(answer["result"]["stopReason"], "end_turn", "{answer}");
 }
 
 /// A store that counts the records it hands a reader (`scan`, `scan_back`, `scan_kinds`,

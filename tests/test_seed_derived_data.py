@@ -711,11 +711,19 @@ MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml
 # the owned slot, side lane or std pool (this route), never back to the mini that stalled; owned_pool_rescue.py does
 # not re-run them (it judges only build-nightly-app). The exemption holds only while a job keeps exactly this route.
 OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
-                                     "generate-nightly-deltas"})
+                                     "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool",
+                                     "generate-nightly-deltas", "build-sign-notarize-nightly",
+                                     "recover-nightly-next-notarization", "verify-signed-nightly",
+                                     "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
+                                     "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# The secret-bearing ones end on the signer's label alone (signing_runner.SIGNER_LABEL).
+SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
+                                  "recover-nightly-next-notarization"})
+SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
 def evaluate(expression, context):
@@ -755,7 +763,12 @@ def evaluate(expression, context):
 
     def primary():
         value = atom()
-        while peek() == "[":
+        while peek() in ("[", "."):
+            if peek() == ".":
+                take()
+                property_name = take()
+                value = value.get(property_name) if isinstance(value, dict) else None
+                continue
             take()
             index = either()
             if take() != "]":
@@ -887,6 +900,9 @@ def evaluate(expression, context):
 
 
 def github_context(event_name, ref="refs/heads/main", **variables):
+    runner_pools = json.loads((ROOT / ".github/runners.json").read_text())["pools"]
+    runner_pools = json.dumps({name: pool["members"][0] for name, pool in runner_pools.items()
+                               if isinstance(pool, dict) and pool.get("members")})
     return {
         "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
         "env": {"CI_OWNED_HEAD_REPOS": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -895,6 +911,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "MACOS_RUNNER_15": "pool-15-paid",
             "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            "RUNNER_POOLS": runner_pools,
             **variables,
         },
         "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -979,14 +996,14 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        # The nightly cold seed runs on Blacksmith macOS 26, never a GitHub-hosted
-        # Mac (Leo, 2026-10-27; tests/test_ci_nightly_no_hosted_mac.py) and never
-        # macOS 15 (no nightly job runs there), with the per-push seeder's Xcode.
+        # The nightly cold seed runs on our nightly-only minis, never Blacksmith (nightlies never use
+        # Blacksmith, Lawrence 2026-10-30), never a GitHub-hosted Mac (Leo, 2026-10-27;
+        # tests/test_ci_nightly_no_hosted_mac.py) and never macOS 15, with the per-push seeder's Xcode.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
         schedule = github_context("schedule")
         nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
         self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools],
-                         ["blacksmith-6vcpu-macos-26"])
+                         ["glaeda-nightly-only-m4pro"])
         for pool, blacksmith in (("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),
                                  ("macos-26", "blacksmith-6vcpu-macos-26")):
             with self.subTest(pool=pool):
@@ -1048,7 +1065,10 @@ class Wiring(unittest.TestCase):
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
-        self.assertIn(fallback, admission)
+        # Admission's fallback now reads the declared macOS 15 pool; the seed
+        # matrix retains its explicit labels because those values are the
+        # per-width seed inputs, not a job-level runs-on route.
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", admission)
 
     def test_the_trusted_pool_seeds_j14_only_on_a_main_push_with_the_lane_xcode(self):
         """Owned std minis compile at -j14 (cmuxterm-hq#590). Their seed comes
@@ -1498,6 +1518,9 @@ class Wiring(unittest.TestCase):
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
                         if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                        elif path.name == "nightly.yml" and name in SIGNING_NIGHTLY_JOBS:
+                            self.assertTrue(runs_on.endswith(SIGNING_NIGHTLY_FALLBACK), runs_on)
+                            self.assertEqual(labels, ["glaeda-trusted-next-signing"])
                         elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
                             # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
                             self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)
@@ -1693,6 +1716,26 @@ class Wiring(unittest.TestCase):
         self.assertIs(evaluate("${{ vars.MISSING > 0 }}", numbers), False)
         self.assertIs(evaluate("${{ vars.A > 0 || vars.A < 1 }}", numbers), False)
         self.assertIs(evaluate("${{ startsWith(vars.MISSING, 'a') }}", context), False)
+
+    def test_rebuild_mirror_unset_switch_observes_and_zero_restores_existing_reuse(self):
+        workflow = steps("cmux-next.yml", "fast-tier-cargo")
+        key = next(step for step in workflow if step.get("id") == "reuse-key")
+        reuse = next(step for step in workflow if step.get("id") == "reuse")
+        for switch, enabled in ((None, True), ("", True), ("1", True), ("0", False)):
+            for existing_reuse in ("", "1"):
+                with self.subTest(switch=switch, existing_reuse=existing_reuse):
+                    variables = {"CI_NEXT_JOB_REUSE": existing_reuse}
+                    if switch is not None:
+                        variables["CI_REBUILD_MIRROR"] = switch
+                    context = {"vars": variables, "github": {"event_name": "push"},
+                               "runner": {"temp": "/tmp/runner"},
+                               "steps": {"reuse-key": {"outputs": {"key": "job-pass-key"}}},
+                               "inputs": {"no_reuse": False}}
+                    self.assertEqual(bool(evaluate(key["if"], context)), enabled or existing_reuse == "1")
+                    self.assertEqual(evaluate(key["env"]["MIRROR_PLAN"], context),
+                                     "/tmp/runner/ci-rebuild-plan.json" if enabled else "")
+                    self.assertEqual(bool(evaluate(reuse["if"], context)),
+                                     not enabled and existing_reuse == "1")
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
         bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")

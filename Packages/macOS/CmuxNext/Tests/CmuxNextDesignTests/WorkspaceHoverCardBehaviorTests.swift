@@ -86,7 +86,19 @@ struct WorkspaceHoverCardBehaviorTests {
         #expect(Self.hides(machine.reduce(.hit(nil, moved: true))))
         // Back on a row within the reshow window: no second wait.
         let back = machine.reduce(.hit(Self.row(2), moved: true))
-        #expect(back == [.cancelTimer, .show(Self.row(2), sliding: false)], "\(back)")
+        // Another row's content fades in over the card that is fading out.
+        #expect(back == [.cancelTimer, .show(Self.row(2), sliding: true)], "\(back)")
+    }
+
+    /// Leo 2026-11-02: "THE HOVER PREVIEW SHOULD NOT MAKE THE SIDEBAR FLICKER ... THEN I LEAVE IT THEN I GO BACK AND
+    /// IT RE-RENDERS THE SPINNER VIEW". A quick return to the row whose card just hid is the same card again: it shows
+    /// at once with no crossfade (`sliding: false`), so its spinners are never drawn over themselves.
+    @Test func comingBackToTheSameRowShowsTheSameCardWithNoCrossfade() throws {
+        var machine = Self.shownOnRowOne()
+        #expect(Self.hides(machine.reduce(.hit(nil, moved: true))))
+        #expect(machine.lastShownID == Self.row(1).id, "the hidden card's target is kept through its hide")
+        let back = machine.reduce(.hit(Self.row(1), moved: true))
+        #expect(back == [.cancelTimer, .show(Self.row(1), sliding: false)], "\(back)")
     }
 
     @Test func aScrollClosesTheCard() {

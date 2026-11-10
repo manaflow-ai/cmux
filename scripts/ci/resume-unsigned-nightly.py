@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Recover trusted nightly-next compile outputs without running their contents.
 
-plan validates a completed protected push and its exact producer attempt.
+plan validates a completed protected push and its exact producer attempt. A sign
+stage (NIGHTLY_NEXT_SIGN_STAGE=true, dispatched by that push run itself once its
+producers succeeded) may read the push run while it is still finishing: the
+producers below must have succeeded, and the artifacts are immutable and
+digest-checked, so nothing it reads can still change.
 restore repeats that validation, downloads immutable artifact IDs, verifies
 GitHub's SHA256 digests, and restores inputs for the existing signing jobs.
 Only workflow_dispatch on nightly-next may use this path. No signing secret
@@ -34,6 +38,11 @@ ARTIFACTS = {
 
 
 HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
+# A fresh nightly uploads the daemon from its own job (#25935); a resumed one
+# re-uploads it from build-nightly-app, the owner ARTIFACTS names.
+DAEMON_BUILDER = "build-nightly-remote-daemon"
+OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
+                      "cmux-nightly-remote-daemon": DAEMON_BUILDER}
 
 
 def require(condition, message):
@@ -41,15 +50,16 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def validate(run, jobs, artifacts, repo, run_id, attempt):
+def validate(run, jobs, artifacts, repo, run_id, attempt, live_ok=False):
     require(repo == "manaflow-ai/cmux", "unsigned resume is restricted to manaflow-ai/cmux")
     require(run.get("repository", {}).get("full_name") == repo and
             run.get("head_repository", {}).get("full_name") == repo, "source repository mismatch")
     require(run.get("id") == int(run_id) and run.get("run_attempt") == int(attempt), "source run/attempt mismatch")
     require(run.get("path") == ".github/workflows/nightly.yml" and run.get("event") == "push" and
             run.get("head_branch") == "nightly-next", "source must be a protected nightly-next push")
-    require(run.get("status") == "completed" and run.get("conclusion") in {"failure", "success"},
-            "source must have completed; never race a live run")
+    require(run.get("status") == "completed" and run.get("conclusion") in {"failure", "success"} or
+            live_ok and run.get("status") == "in_progress",
+            "source must have completed; never race a live run (only its own sign stage reads it live)")
     producers = {}
     for name in {owner for owner, _ in ARTIFACTS.values()}:
         candidates = [job for job in jobs if job.get("name") == name]
@@ -59,13 +69,13 @@ def validate(run, jobs, artifacts, repo, run_id, attempt):
     # A helper reused from an earlier nightly (nightly_ghostty_helper_reuse.py)
     # is uploaded by the resolver job of the same attempt, not the build job.
     for job in jobs:
-        if (job.get("name") == HELPER_RESOLVER and job.get("conclusion") == "success" and
+        if (job.get("name") in OPTIONAL_PRODUCERS.values() and job.get("conclusion") == "success" and
                 job.get("run_attempt") == int(attempt)):
-            producers[HELPER_RESOLVER] = job
+            producers[job["name"]] = job
     selected = {}
     for name, (owner, _) in ARTIFACTS.items():
-        owners = [owner] + ([HELPER_RESOLVER] if name == "cmux-nightly-ghostty-cli-helper" and
-                            HELPER_RESOLVER in producers else [])
+        extra = OPTIONAL_PRODUCERS.get(name)
+        owners = [owner] + ([extra] if extra in producers else [])
         matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
                    any(producers[o]["started_at"] <= a.get("created_at", "") <= producers[o]["completed_at"]
                        for o in owners)]
@@ -103,7 +113,8 @@ def plan(run_id, attempt):
     artifacts = download.api_json(f"{prefix}/actions/runs/{run_id}/artifacts?per_page=100", token)
     require(jobs.get("total_count", 101) <= 100 and artifacts.get("total_count", 101) <= 100,
             "source exceeds bounded lookup; refusing partial provenance")
-    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt)
+    live_ok = os.environ.get("NIGHTLY_NEXT_SIGN_STAGE") == "true"
+    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt, live_ok=live_ok)
     for base, head in ((result["head_sha"], os.environ["GITHUB_SHA"]),
                        (result["build_sha"], result["head_sha"])):
         comparison = download.api_json(f"{prefix}/compare/{base}...{head}", token)
@@ -139,21 +150,26 @@ def restore(receipt, root):
 
 def bundled_client_commit(root):
     # The uploaded app artifact contains the precompressed unsigned tarball.
-    # Open it only after the authenticated ZIP extraction and reject traversal
-    # or links before deriving the client provenance used by the marker gate.
+    # Open it only after the authenticated ZIP extraction and read the one
+    # cmux-tui.version member, a regular file at a safe path, for the client
+    # provenance the marker gate uses. Nothing is extracted: the app keeps its
+    # framework symlinks (Versions/Current), and the folder is re-uploaded as
+    # the artifact the signers untar, so it must hold only the original archive.
     app_root = root / "app"
     archives = list(app_root.glob("*.tar.gz"))
     require(len(archives) == 1, "resumed unsigned app has no unique app archive")
+    texts = []
     with tarfile.open(archives[0], "r:gz") as archive:
-        for entry in archive.getmembers():
+        for entry in archive:
             path = PurePosixPath(entry.name)
-            require(not path.is_absolute() and ".." not in path.parts and "\\" not in entry.name and
-                    not entry.issym() and not entry.islnk(), "unsafe unsigned app tar member")
-        archive.extractall(app_root)
-    versions = list(app_root.glob("**/Contents/Resources/bin/cmux-tui.version"))
-    require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
+            if path.parts[-4:] != ("Contents", "Resources", "bin", "cmux-tui.version"):
+                continue
+            require(entry.isfile() and not path.is_absolute() and ".." not in path.parts and
+                    "\\" not in entry.name, "unsafe unsigned app tar member")
+            texts.append(archive.extractfile(entry).read().decode())
+    require(len(texts) == 1, "resumed unsigned app has no unique cmux-tui.version")
     fields = {}
-    for line in versions[0].read_text().splitlines():
+    for line in texts[0].splitlines():
         if "=" in line:
             key, value = line.split("=", 1)
             fields[key] = value

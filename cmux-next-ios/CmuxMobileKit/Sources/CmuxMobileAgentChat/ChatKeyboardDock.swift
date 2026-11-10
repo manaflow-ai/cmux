@@ -27,6 +27,9 @@ protocol ChatTranscriptScrolling: AnyObject {
     /// Find in Chat: brings the transcript row that draws the block `findBlock` (an
     /// `AgentChatFind` key) under the header, at `position` (0...1) of its height.
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool)
+    /// Previous/Next Turn: the turn being read among `turnIDs` (its index) and whether its
+    /// prompt is scrolled above the top of the view.
+    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)?
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -138,7 +141,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
             begin: { [weak self] in self?.holdForDisclosure() },
-            end: { [weak self] in self?.endFoldHold() }
+            end: { [weak self] in self?.endFoldHold() },
+            swap: { [weak self] in self?.list.showSettlingRows() },
+            resize: { [weak self] in self?.list.resizeForFold() }
         )
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
@@ -206,6 +211,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addLayoutGuide(dockGuide)
         view.addLayoutGuide(openArea)
 
+        // The person's own text size changed: a chat's zoom steps from the new size.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (controller: ChatTranscriptController, _: UITraitCollection) in
+            if let display = controller.appliedDisplay { controller.applyDisplay(display) }
+        }
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .interactive
@@ -213,6 +222,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
+        // Safari's bottom bar: a tap on the page while the field is being edited ends the
+        // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
+        // tap still reaches the row under it (a disclosure, a link).
+        transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
+        transcriptTap.cancelsTouchesInView = false
+        transcriptTap.delegate = TranscriptTapDelegate.shared
+        scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
@@ -702,6 +718,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
+    /// The tap on the transcript that ends editing (`transcriptTapped`).
+    let transcriptTap = UITapGestureRecognizer()
+
+    @objc private func transcriptTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        endEditingFromTranscriptTap()
+    }
+
+    /// A tap on the transcript while the composer is focused: the composer lets go of focus
+    /// and the keyboard goes down, as Safari's address bar does on a tap on the page. Only
+    /// the composer's focus changes (its binding resigns the field), never a text field in
+    /// a row (the question card's "Other..." answer). Nothing happens when the composer is
+    /// not focused, so a tap while reading moves nothing.
+    func endEditingFromTranscriptTap() {
+        guard surface.composerFocused else { return }
+        surface.composerFocused = false
+    }
+
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
@@ -753,7 +787,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
         guard surface.showJump != shown else { return }
-        withAnimation(.cmuxMobileSnap) { surface.showJump = shown }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
     }
 
@@ -775,6 +809,43 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let wanted = y - headerBottom - Self.findBarClearance
         let target = CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
         scroll(to: target, animated: animated)
+    }
+
+    /// Text and Width (per chat): the text size the transcript's rows draw at, and its column.
+    /// The size is a trait override on the transcript only, so the rows (native and SwiftUI)
+    /// lay out again at it, and the rest of the app keeps the person's own size.
+    func applyDisplay(_ display: ChatDisplaySettings) {
+        appliedDisplay = display
+        let system = traitCollection.preferredContentSizeCategory
+        // Reading an override that was never set raises (UIKit asserts): the category applied is kept here.
+        let category = display.category(system: system)
+        if category != appliedCategory {
+            appliedCategory = category
+            if let category {
+                scrollView.traitOverrides.preferredContentSizeCategory = category
+            } else if scrollView.traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
+                scrollView.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
+            }
+        }
+        list.setColumnCap(display.fullWidth ? nil : ChatDisplaySettings.standardColumn)
+    }
+
+    /// The last display applied, again when the person's own text size changes under it.
+    private var appliedDisplay: ChatDisplaySettings?
+    /// The text size override set on the transcript (nil: none).
+    private var appliedCategory: UIContentSizeCategory?
+
+    /// The prompt row of the turn being read: the last one whose top is at or above the top of
+    /// what shows under the header (the Mac's minimap "current turn"). `turnIDs` in order.
+    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)? {
+        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let visibleTop = scrollView.contentOffset.y + headerBottom + Self.findBarClearance
+        var found: (Int, Bool)?
+        for (index, id) in turnIDs.enumerated() {
+            guard let top = list.layout.top(of: "u-\(id)") else { continue }
+            if top <= visibleTop + 1 { found = (index, top < visibleTop - 1) } else { break }
+        }
+        return found
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
@@ -912,6 +983,21 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
+/// The transcript's end-editing tap runs beside the rows' own taps, and never takes a touch
+/// on a text input in a row (tapping into it must keep the focus it gets).
+private final class TranscriptTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    @MainActor static let shared = TranscriptTapDelegate()
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
+}
+
 /// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
@@ -951,6 +1037,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         controller.isEmpty = isEmpty
         controller.update(store: store, empty: empty, dock: dock, jump: jump)
         configureRows(controller.rowContext)
+        // Read here so SwiftUI calls update when the chat's Text and Width change.
+        controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
     }
 }
 

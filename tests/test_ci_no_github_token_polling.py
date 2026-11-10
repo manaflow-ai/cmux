@@ -95,6 +95,8 @@ ALLOWED: dict[str, str] = {
         'uses the minted App token: its mint has no continue-on-error, so the github.token fallback never applies',
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
+    'nightly.yml: Build the tip while its tree publishes':
+        "the scan reads every loop of a script the step runs; the step reads pin-cmux-tui.sh runs-state once per same-key candidate and active-publisher once, no polling; github_get sleeps only through a rate-limit refusal",
     'nightly.yml: Resolve cmux-tui client commit':
         "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':
@@ -104,7 +106,7 @@ ALLOWED: dict[str, str] = {
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
-        'watches owned-pool runs (up to 5 h for a sweeper): reads on the glaeda-route App token (READ_TOKEN); GITHUB_TOKEN takes cancels, re-runs and a read the App may not make',
+        'watches owned-pool runs (up to 5 h for a sweeper): reads and mutations use the existing cmux-bot token, with github.token fallback; the routing App is never used',
     'cmux-next-batch.yml: Run the batch':
         'a batch, only when CMUX_NEXT_BATCH_ENABLED=1: the flagged loop pages GraphQL with one 10 s retry on a timeout; the batch also waits for its dispatched runs, one read every 15 s to find a run (10 min) and every 90 s for it to finish',
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':

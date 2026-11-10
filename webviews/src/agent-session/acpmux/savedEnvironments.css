@@ -49,7 +49,7 @@
   font: inherit;
   outline: none;
 }
-.acpmux-env-input:focus { border-color: var(--agent-muted); }
+.acpmux-env-input:focus-visible { border-color: var(--agent-muted); }
 
 .acpmux-env-panel .acpmux-env-select {
   display: flex;
@@ -69,6 +69,13 @@
 .acpmux-env-panel .acpmux-location-picker > button { flex: 1; min-width: 0; padding: 0; }
 .acpmux-env-select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-env-select-text[data-placeholder] { color: var(--agent-muted); }
+
+/* The Host field is a compact picker, so a long machine name must not make its menu span the
+   window. Keep the field-width guarantee for wide panels, then use the existing location-menu
+   width (320px) as the cap when the field itself is narrower. */
+.ui-popup.ui-menu.ui-menu-match-trigger.acpmux-env-host-menu {
+  max-width: max(var(--anchor-width, 0px), min(320px, calc(100vw - 16px)));
+}
 
 .acpmux-env-check { display: flex; align-items: center; gap: 6px; width: fit-content; }
 

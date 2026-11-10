@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiff
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -21,8 +22,12 @@ enum ChatNativeRowActions {
                 ]
                 if isLast {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
+                } else if context.canEditEarlier(turnID: turnID) {
+                    // An earlier prompt: edited in its own sheet, sent in a copy of the chat forked before it.
+                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editEarlier(turnID: turnID) })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
+                items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
             }
         case .tool(let call):
@@ -48,7 +53,7 @@ enum ChatNativeRowActions {
                 switch hit {
                 case .openDiff(let file):
                     Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file) }
-                case .toggle(let key): toggleDisclosure(context.foldHold) { disclosures.set(key, true) }
+                case .toggle(let key): toggleDisclosure(context.foldHold, key: key, in: disclosures) { disclosures.set(key, true) }
                 default: break
                 }
             }
@@ -91,6 +96,7 @@ enum ChatNativeRowActions {
                     }
                     items.append(UIMenu(title: RetryModelChoice.title, image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: models))
                 }
+                items += ChatPolishMenus.answerItems(turn: turn, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: items)])
             }
             actions.hit = { hit in
@@ -111,7 +117,7 @@ enum ChatNativeRowActions {
         // SwiftUI row's button does (`toggleDisclosure`): the tapped line stays where it is drawn,
         // and a chat following its newest row does not re-pin to it while the body opens.
         actions.hit = { hit in
-            if case .toggle(let key) = hit { toggleDisclosure(context.foldHold) { disclosures.set(key, true) } }
+            if case .toggle(let key) = hit { toggleDisclosure(context.foldHold, key: key, in: disclosures) { disclosures.set(key, true) } }
         }
     }
 
@@ -127,28 +133,48 @@ enum ChatNativeRowActions {
     }
 }
 
+/// The chat polish rows of the prompt and answer menus: Bookmark (a prompt), Pin (an
+/// answer) and Read Aloud, read when the menu opens.
+@MainActor
+enum ChatPolishMenus {
+    static func promptItems(turnID: String, text: String, store: AgentChatStore) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        if let turn = store.turns.first(where: { $0.id == turnID }), store.canBookmark(turn) {
+            let marked = store.isBookmarked(turn)
+            items.append(UIAction(title: marked ? String(localized: "Remove Bookmark") : String(localized: "Bookmark"),
+                                  image: UIImage(systemName: marked ? "bookmark.slash" : "bookmark")) { _ in store.toggleBookmark(turn) })
+        }
+        items.append(readAloud(ChatReadAloud.id(chat: store.summary.id, turn: turnID, prompt: true), markdown: text))
+        return items
+    }
+
+    static func answerItems(turn: AgentTurn, store: AgentChatStore) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        if store.canPin(turn) {
+            let pinned = store.isPinned(turn)
+            items.append(UIAction(title: pinned ? String(localized: "Unpin") : String(localized: "Pin"),
+                                  image: UIImage(systemName: pinned ? "pin.slash" : "pin")) { _ in store.togglePin(turn) })
+        }
+        if !turn.answerMarkdown.isEmpty {
+            items.append(readAloud(ChatReadAloud.id(chat: store.summary.id, turn: turn.id, prompt: false), markdown: turn.answerMarkdown))
+        }
+        return items
+    }
+
+    private static func readAloud(_ id: String, markdown: String) -> UIAction {
+        let reading = ChatReadAloud.shared.isReading(id)
+        return UIAction(title: reading ? String(localized: "Stop Reading") : String(localized: "Read Aloud"),
+                        image: UIImage(systemName: reading ? "stop.circle" : "speaker.wave.2")) { _ in
+            ChatReadAloud.shared.toggle(id, markdown: markdown)
+        }
+    }
+}
+
 /// The prompt's "Select Text" sheet: the whole text, selectable, at medium and large detents.
 @MainActor
 enum ChatSelectText {
     static func present(_ text: String) {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        var top = window?.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
-        guard let top else { return }
-        let textView = UITextView()
-        textView.text = text
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.isEditable = false
-        textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
-        let controller = UIViewController()
-        controller.view = textView
-        controller.title = "Select text"
-        let navigation = UINavigationController(rootViewController: controller)
-        controller.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
-            navigation?.dismiss(animated: true)
-        })
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
-        top.present(navigation, animated: true)
+        SelectableTextView(text).present()
     }
 }
 #endif

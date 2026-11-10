@@ -22,10 +22,13 @@ final class HomeHeaderButton: ClickableButton {
     /// A right-click menu (compose: New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 
-    /// A toggle's state: the filled glyph in the accent, and the accessibility value.
+    /// A toggle's state: the filled glyph in the accent, the hover fill kept under it (`lit`: on
+    /// glass the lit and rest glyphs are the same ink, so the fill is what shows it is on), and the
+    /// accessibility value.
     var isOn = false {
         didSet {
             guard isOn != oldValue else { return }
+            hover.state.lit = isOn
             applyTint()
             setAccessibilityValue(isOn ? 1 : 0)
         }
@@ -148,18 +151,4 @@ final class HomeHeaderButton: ClickableButton {
         layer.transform = pressed ? shrink : CATransform3DIdentity
         CATransaction.commit()
     }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.home.sidebar_fixture`: whether the glyph can show (shown, a frame, an image and
-    /// its point size, the tint as sRGB components, the backing layer's drawn contents).
-    var debugState: [String: Any] {
-        let tint = contentTintColor?.usingColorSpace(.sRGB)
-        return ["id": accessibilityIdentifier(), "hidden": isHidden,
-                "frame": [frame.minX, frame.minY, frame.width, frame.height].map(Double.init),
-                "image": image != nil, "glyphSize": Double(glyphSize), "glyph": glyphName,
-                "tint": tint.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent].map(Double.init) } ?? NSNull(),
-                "appearance": effectiveAppearance.name.rawValue,
-                "layerContents": layer?.contents != nil, "needsDisplay": needsDisplay]
-    }
-    #endif
 }

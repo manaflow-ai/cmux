@@ -37,13 +37,23 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, openForkMenu, openMessageMenu, setMessageMenuSource } =
-  await import("../src/agent-session/acpmux/conversation/messageMenu");
+const {
+  installMessageMenuReporter,
+  messageMenuSessionMatches,
+  messageMenuTarget,
+  openForkMenu,
+  openMessageMenu,
+  setMessageMenuSource,
+} = await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
 const answer: AcpmuxRow = { id: "answer", version: 1, at: 2, kind: "assistant", text: "Here is **the chart**." };
 const summary: AcpmuxRow = { id: "summary-9", version: 1, at: 3, kind: "turnSummary", seq: 9, durationMs: 1_000 };
-const snapshot = { rows: [prompt, answer, summary], connection: "connected" } as unknown as AcpmuxSnapshot;
+const snapshot = {
+  rows: [prompt, answer, summary],
+  connection: "connected",
+  summary: { sessionId: "chat-a" },
+} as unknown as AcpmuxSnapshot;
 // The footer as the transcript draws it (turns.ts): the answer's text, and the answer's row.
 const footer: AcpmuxRow = { ...summary, text: answer.text, answerId: answer.id };
 
@@ -88,12 +98,19 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(button).not.toBeNull();
   const report = (await press(button!))!;
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
+  expect(typeof report.replyTime).toBe("string");
+  expect(report.replyTime).not.toBe("");
   const { popUp } = report;
   expect(popUp).toBeDefined();
   expect(button!.hasAttribute("data-popup-open")).toBe(true);
   expect(typeof report.popupId).toBe("string");
   doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
   expect(button!.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("only a reply reports a timestamp header to the native menu", () => {
+  expect(messageMenuTarget(snapshot, prompt.id)?.replyTime).toBeUndefined();
+  expect(messageMenuTarget(snapshot, answer.id)?.replyTime).toBeDefined();
 });
 
 test("a stale native dismissal cannot clear a newer More menu", async () => {
@@ -144,8 +161,63 @@ test("reporter teardown clears the open marker", async () => {
   removeReporter = installMessageMenuReporter(doc, handler);
 });
 
+test("an assistant body pins the turn summary row used by the rail", () => {
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, answer.id);
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.sessionId).toBe("chat-a");
+});
+
+test("an older completed assistant body keeps its pin target while a later turn works", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.forkSeq).toBeUndefined();
+});
+
+test("an assistant body without a completed summary has no pin target", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, rows: [prompt, answer], canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBeUndefined();
+});
+
+test("a pin menu becomes a no-op when the chat changes before its action runs", () => {
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-a")).toBe(true);
+  expect(messageMenuSessionMatches("chat-a", "chat-b", "chat-b")).toBe(false);
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-b")).toBe(false);
+});
+
 test("a footer with no answer has no More", async () => {
   await act(async () => root.render(<TurnFooter row={summary} />));
   expect(doc.querySelector('button[aria-label="More"]')).toBeNull();
   await act(async () => root.unmount());
+});
+
+// A subagent's view footer's More (subagents/subagentRows.ts `subagentFooter`): the pane shows the
+// subagent's rows, not the chat's, and its reply is found there, with no Fork and no rail mark.
+test("a subagent view's reply resolves from the view's rows, without Fork or a pin target", () => {
+  const reply: AcpmuxRow = {
+    id: "helper:reply",
+    version: 1,
+    at: 4,
+    kind: "assistant",
+    text: "See https://example.com",
+  };
+  const shown = [reply];
+  expect(messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, reply.id)).toBeUndefined();
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, reply.id, false, shown);
+  expect(target?.text).toBe("See https://example.com");
+  expect(target?.markdown).toBe(reply.text);
+  expect(target?.links).toEqual(["https://example.com"]);
+  expect(target?.forkSeq).toBeUndefined();
+  expect(target?.rowId).toBeUndefined();
+  expect(target?.sessionId).toBe("chat-a");
+});
+
+test("a subagent view's prompt keeps its Markdown source for Copy and Edit and Resend", () => {
+  const sent: AcpmuxRow = { id: "helper:prompt", version: 1, at: 5, kind: "user", text: "Check **every** item" };
+  expect(messageMenuTarget(snapshot, sent.id, false, [sent])?.text).toBe("Check **every** item");
 });

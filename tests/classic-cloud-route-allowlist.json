@@ -1,0 +1,75 @@
+{
+  "about": "Classic Cloud route guard (tests/test_classic_cloud_routes.py). NEXT code (the paths below) adds no call to classic Cloud: /api/vm, /api/runs, or cmux.com / cmux-staging.vercel.app as the Cloud API base; new Cloud work goes to cmux-platform. Each entry is a call NEXT still makes: {file, pattern, count: exact number of matches, reason}. The list only shrinks: removing a call means lowering its count (drop the entry at 0). A new entry or a raised count needs a reason starting \"keep: \" that says why (a move from Swift to Rust, say); existing calls are \"debt: \".",
+  "paths": {
+    "include": [
+      "Packages/macOS/CmuxNext/Sources/",
+      "cmux-tui/",
+      "webviews/src/"
+    ],
+    "exclude": [
+      "cmux-tui/vendor/"
+    ]
+  },
+  "entries": [
+    {
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/SandboxRunNotices.swift",
+      "pattern": "route:/api/runs",
+      "count": 1,
+      "reason": "debt: the sandboxed-run notice's timeout label names the classic /api/runs route it follows"
+    },
+    {
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
+      "pattern": "route:/api/runs",
+      "count": 10,
+      "reason": "debt: the NEXT Cloud REST client's sandboxed-run calls still use classic /api/runs until they move to cmux-platform hand-offs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
+      "pattern": "route:/api/runs",
+      "count": 4,
+      "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's sandboxed-run calls on classic /api/runs, behind the daemon's cloud.runs.* operations (#37350); goes when they move to cmux-platform hand-offs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
+      "pattern": "segments:/api/runs",
+      "count": 3,
+      "reason": "debt: newly counted, not a new call: the daemon cloud.runs.* ops' classic /api/runs paths, built as path-part arrays, the guard missed while it read only \"/api/runs\" strings; goes when they move to cmux-platform"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
+      "pattern": "route:/api/runs",
+      "count": 1,
+      "reason": "keep: moved from SandboxRunFollower.swift (#37291, step A); the sandboxed-run follower's path label names the classic /api/runs wait the app still follows until Runs move to cmux-platform; step B keeps one Swift label"
+    },
+    {
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift",
+      "pattern": "route:/api/runs",
+      "count": 1,
+      "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: moved from CloudConfiguration.swift (#35284 deleted the Swift staging and production origins); the approved-host check for a backend client-config's credential origins, so it may name the staging sign-in, teams and billing origin; not a call; step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: the staging sign-in, teams and billing origin NEXT development builds still use until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux.com",
+      "count": 1,
+      "reason": "keep: the production sign-in, teams and billing origin NEXT still uses until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "webviews/src/agent-session/acpmux/run-board/runApi.ts",
+      "pattern": "route:/api/runs",
+      "count": 3,
+      "reason": "debt: the Run board reads runs and events from classic /api/runs until cmux-platform serves them"
+    }
+  ]
+}

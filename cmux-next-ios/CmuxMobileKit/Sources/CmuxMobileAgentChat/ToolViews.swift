@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 
 /// Opens the diff viewer (`fileID` nil = the file list).
@@ -36,7 +37,7 @@ struct ToolRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                toggleDisclosure(holdFold) {
+                toggleDisclosure(holdFold, key: "tool-\(call.id)", in: disclosures) {
                     if let disclosures { disclosures.set("tool-\(call.id)", !expanded) } else { localExpanded.toggle() }
                 }
             } label: {
@@ -96,7 +97,7 @@ struct ToolRowView: View {
             }
             Spacer(minLength: 4)
             if call.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             } else {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
@@ -146,7 +147,7 @@ struct ToolGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                toggleDisclosure(holdFold) {
+                toggleDisclosure(holdFold, key: key, in: disclosures) {
                     if let disclosures { disclosures.set(key, !expanded) } else { userExpanded = !expanded }
                 }
             } label: {
@@ -205,7 +206,7 @@ struct ToolGroupView: View {
     private var groupDuration: TimeInterval? {
         guard !calls.contains(where: \.isRunning),
               let start = calls.compactMap(\.startedAt).min(), let end = calls.compactMap(\.endedAt).max() else { return nil }
-        return end.timeIntervalSince(start)
+        return wording.shown(end.timeIntervalSince(start))
     }
 }
 
@@ -236,7 +237,7 @@ struct ThoughtRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                toggleDisclosure(holdFold) { choice.toggle(automatic: isLive) }
+                toggleDisclosure(holdFold, key: id.map { "thought-\($0)" }, in: disclosures) { choice.toggle(automatic: isLive) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
@@ -311,7 +312,7 @@ struct DiffSnippet: View {
             Text(added ? "Created" : "Edited").font(.footnote.weight(.medium))
             Text((path as NSString).lastPathComponent).font(.footnote.monospaced().weight(.medium)).foregroundStyle(.primary).lineLimit(1)
             Spacer(minLength: 4)
-            ProgressView().controlSize(.mini)
+            CmuxSpinner().controlSize(.mini)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
@@ -373,7 +374,7 @@ struct DiffSnippet: View {
             .trailingOverflowFade()
             if preview.remaining > 0 {
                 Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
-                    withAnimation(.cmuxMobileSmooth) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                         if let disclosures { disclosures.set("diff-\(call.id)", true) } else { localShowAll = true }
                     }
                 }

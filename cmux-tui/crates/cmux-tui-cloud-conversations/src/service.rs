@@ -88,7 +88,16 @@ pub enum WireRecv {
 pub trait CloudWire: Send {
     fn send(&mut self, text: &str) -> Result<(), TransportError>;
     fn recv(&mut self, timeout: Duration) -> WireRecv;
+    /// Ends a `recv` that waits now (or the next one) early with `Idle`, from
+    /// any thread, so a writer never waits out a receive timeout; `None`
+    /// when this wire cannot (its reader then sends once per receive).
+    fn interrupter(&self) -> Option<WireInterrupt> {
+        None
+    }
 }
+
+/// Wakes one wire's pending receive ([`CloudWire::interrupter`]).
+pub type WireInterrupt = Arc<dyn Fn() + Send + Sync>;
 
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
@@ -137,6 +146,21 @@ pub trait CloudBackend: Send + Sync {
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, headers, body);
         Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// Mint one direct part URL using the slot credential, never the lease bearer.
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        let _ = (url, number);
+        Err(TransportError("direct attachment slots are unsupported".into()))
+    }
+    /// Upload to a presigned part URL and retain its response ETag.
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("direct attachment uploads are unsupported".into()))
     }
     /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
     /// a signed attachment URL is its own credential.
@@ -1668,6 +1692,10 @@ fn valid_selfhost_user(user: &str) -> bool {
         && user.starts_with("user_")
         && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
 }
+
+#[path = "owner_wire.rs"]
+mod owner_wire;
+pub use owner_wire::{OwnerWire, OwnerWireError};
 
 #[cfg(test)]
 mod presence_order_tests {

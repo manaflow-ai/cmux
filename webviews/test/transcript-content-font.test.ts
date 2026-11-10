@@ -65,8 +65,19 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".cv-footnotes").waitFor({ state: "attached" });
-          await page.locator(".cv-diagram").scrollIntoViewIfNeeded();
-          await page.locator(".cv-diagram__error").waitFor();
+          // The play opened a tool output: outside a transcript its fold keeps the clicked line in place
+          // by moving the scroller until the fold and its settle are over (useAnchoredCollapse.ts
+          // keepHeader), which puts back a scroll made sooner. The stage can be ready inside that
+          // window (the edit's placeholder holds its height, #27650), so the diagram is scrolled to
+          // again on each frame until it is on screen and has drawn.
+          await page.waitForFunction(
+            () => {
+              document.querySelector(".cv-diagram")?.scrollIntoView({ block: "nearest" });
+              return Boolean(document.querySelector(".cv-diagram__error"));
+            },
+            null,
+            { polling: "raf" },
+          );
           const diffLine = page.locator(".cv-edit-diff__body [data-line]").first();
           await diffLine.waitFor({ state: "attached" });
           const defaultDiff = await diffLine.evaluate((node) => ({
@@ -115,9 +126,17 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               [390, 1.25],
             ] as const) {
               await page.setViewportSize({ width, height: 1100 });
-              await page.evaluate((zoom) => {
-                document.documentElement.style.zoom = String(zoom);
-              }, zoom);
+              // Measured a frame after the resize: a sideways box takes its thin scrollbar's lane
+              // (`data-cmux-sideways`, sideways.ts) from a ResizeObserver callback, which runs before
+              // the frame paints but after this script; read sooner, its bar sits in the eighth line.
+              await page.evaluate(
+                (zoom) =>
+                  new Promise<void>((done) => {
+                    document.documentElement.style.zoom = String(zoom);
+                    requestAnimationFrame(() => requestAnimationFrame(() => done()));
+                  }),
+                zoom,
+              );
               if (size === 14 && width === 760) {
                 for (const [selector, height] of [
                   [".cv-codeblock__header", 45.5],

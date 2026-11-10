@@ -48,6 +48,8 @@ public final class Events {
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
+    public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
@@ -73,8 +75,10 @@ public final class Events {
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SELECTION_CHANGED = new EventMetadata("selection-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
+    public static final EventMetadata STASH_CHANGED = new EventMetadata("stash-changed", 12, "stash-v1", List.of("subscribe"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
@@ -98,6 +102,7 @@ public final class Events {
     public static final EventMetadata WORKSPACE_CHANGED = new EventMetadata("workspace-changed", 12, "workspace-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_CLOSED = new EventMetadata("workspace-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_MOVED = new EventMetadata("workspace-moved", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata WORKSPACE_PRESENTATION_CHANGED = new EventMetadata("workspace-presentation-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_RENAMED = new EventMetadata("workspace-renamed", 7, null, List.of("subscribe-deltas"), true);
 
     public static final Map<String, EventMetadata> ALL;
@@ -140,6 +145,8 @@ public final class Events {
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
+        values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
+        values.put("feed-view-changed", FEED_VIEW_CHANGED);
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
@@ -165,8 +172,10 @@ public final class Events {
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("selection-changed", SELECTION_CHANGED);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
+        values.put("stash-changed", STASH_CHANGED);
         values.put("status", STATUS);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);
@@ -190,6 +199,7 @@ public final class Events {
         values.put("workspace-changed", WORKSPACE_CHANGED);
         values.put("workspace-closed", WORKSPACE_CLOSED);
         values.put("workspace-moved", WORKSPACE_MOVED);
+        values.put("workspace-presentation-changed", WORKSPACE_PRESENTATION_CHANGED);
         values.put("workspace-renamed", WORKSPACE_RENAMED);
         ALL = Collections.unmodifiableMap(values);
     }

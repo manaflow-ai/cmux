@@ -8,7 +8,8 @@
 // Run. Markdown draws as the transcript draws it. The gallery, which has no native frame, draws
 // passive markup in srcdoc with the nonce'd frame script that refuses link clicks, and a frame that
 // leaves its document anyway shows the source. Other dev pages show their source only.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { SplitEdge } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import {
@@ -20,10 +21,12 @@ import {
 } from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Pin, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { ranRenders, useRenderFrame } from "./renderCardModel";
+import { canRender, RENDER_FRAME_URL } from "./renderCardModel";
 import {
   INLINE_PREVIEW_SANDBOX,
   nativePassiveHtml,
@@ -42,19 +45,6 @@ export type SaveDocument = (
   suggestedName: string,
   kind: ArtifactKind,
 ) => Promise<"saved" | "cancelled" | "unavailable">;
-
-/// Below this pane width the side panel covers the whole pane instead of sitting beside the chat
-/// (conversation.css `@media (max-width: 720px)`): the chat's header, and the Inspector's toggle in
-/// it, are under it, so the Inspector steps aside while it is open (App.tsx `covered`).
-export const ARTIFACT_COVERS_PANE = "(max-width: 720px)";
-const subscribeCovers = (change: () => void) => {
-  const query = globalThis.matchMedia?.(ARTIFACT_COVERS_PANE);
-  query?.addEventListener("change", change);
-  return () => query?.removeEventListener("change", change);
-};
-const coversNow = () => globalThis.matchMedia?.(ARTIFACT_COVERS_PANE).matches ?? false;
-/// Whether an open side panel would cover the whole pane at its current width.
-export const useArtifactCoversPane = (): boolean => useSyncExternalStore(subscribeCovers, coversNow, () => false);
 
 export function ArtifactPanel({
   artifact: opened,
@@ -81,11 +71,25 @@ export function ArtifactPanel({
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
+  const heldChoice = useRef<Artifact | undefined>(undefined);
+  // Only the live choice follows revisions; choosing an older version stays put.
+  const previousOpened = useRef(opened);
+  const previous = previousOpened.current;
+  if (
+    opened.identity &&
+    previous.identity === opened.identity &&
+    (opened.revision ?? -Infinity) > (previous.revision ?? -Infinity)
+  ) {
+    if (shown === previous.code) setShown(opened.code);
+    previousOpened.current = opened;
+  }
+
   // A shown version that left the list falls back to the opened one's place, then to it alone.
   const at = (code: string) => versions.findIndex((version) => version.code === code);
   const found = at(shown) >= 0 ? at(shown) : at(opened.code);
-  const list = found >= 0 ? versions : [opened];
-  const index = Math.max(0, found);
+  const held = opened.identity && at(shown) < 0 && heldChoice.current?.code === shown ? heldChoice.current : undefined;
+  const list = held ? [held, ...versions] : found >= 0 ? versions : [opened];
+  const index = held ? 0 : Math.max(0, found);
   const artifact = list[index]!;
   const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
   const previews =
@@ -94,6 +98,7 @@ export function ArtifactPanel({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const step = (to: number) => {
+    heldChoice.current = list[to]!;
     setShown(list[to]!.code);
     setCopied(false);
     setSaved(false);
@@ -130,6 +135,18 @@ export function ArtifactPanel({
         onClose();
       }}
     >
+      {/* Its left edge is the split's divider and drags as one (ui/SplitEdge.tsx). The width is a share of
+          the pane set on the shell, where the Background tasks column and the header's push read it too,
+          so everything beside the chat moves with the edge. */}
+      <SplitEdge
+        side="left"
+        property="--acpmux-artifact-share"
+        storageKey="cmux.agentPane.artifact.share"
+        unit="vw"
+        min={20}
+        max={80}
+        on="parent"
+      />
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
         {pinned && (
@@ -253,7 +270,7 @@ export function ArtifactPanel({
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
           <ArtifactFrame
-            key={artifact.code}
+            key={artifact.identity ?? artifact.code}
             html={previewHtml(artifact)}
             code={artifact.code}
             lang={artifact.lang}
@@ -267,7 +284,7 @@ export function ArtifactPanel({
   );
 }
 
-function ArtifactFrame({
+export function ArtifactFrame({
   html,
   code,
   lang,
@@ -284,7 +301,10 @@ function ArtifactFrame({
 }) {
   const t = useT();
   const requiresRun = render || jsx || artifactNeedsRun(html);
-  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  // Consent is for one document: a live revision with new script waits for Run again, even though
+  // this frame stays mounted across the fence's revisions.
+  const [allowedHtml, setAllowedHtml] = useState(() => (ranRenders.has(html) ? html : undefined));
+  const allowed = allowedHtml === html || ranRenders.has(html);
   // The passive frame left its document (the gallery's frame counts its loads): show the source.
   const [left, setLeft] = useState(false);
   // Markup with no script, made inert; nil when the rewrite left it needing Run after all
@@ -301,7 +321,7 @@ function ArtifactFrame({
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setAllowed(true);
+            setAllowedHtml(html);
           }}
         >
           {t("render.run")}
@@ -309,9 +329,9 @@ function ArtifactFrame({
       </div>
     );
   return jsx ? (
-    <JsxFrame code={html} title={title} render={render} />
+    <JsxFrame key={html} code={html} title={title} render={render} />
   ) : (
-    <RunningFrame html={html} title={title} render={render} />
+    <RunningFrame key={html} html={html} title={title} render={render} />
   );
 }
 
@@ -386,12 +406,15 @@ function JsxFrame({ code, title, render }: { code: string; title: string; render
 
 function RunningFrame({ html, title, render }: { html: string; title: string; render: boolean }) {
   const { frame } = useRenderFrame(html);
+  // A trusted native origin always uses its endpoint, even on a URL that looks like the gallery's.
+  const endpoint = render ? (canRender() ? RENDER_FRAME_URL : undefined) : artifactFrameURL();
+  const gallery = !endpoint && artifactGallery();
   return (
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
-      src={artifactGallery() ? undefined : render ? RENDER_FRAME_URL : artifactFrameURL()}
-      srcDoc={artifactGallery() ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
+      src={gallery ? undefined : endpoint}
+      srcDoc={gallery ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
       title={title}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"

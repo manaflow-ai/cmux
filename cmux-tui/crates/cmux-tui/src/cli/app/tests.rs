@@ -16,7 +16,10 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
+        | AppCommand::Live(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -192,6 +195,36 @@ fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
     assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
 }
 
+/// `cmux cloud start-session --from-folder DIR` names a folder of this Mac, and a relative one is
+/// of the caller's working directory: the CLI sends it absolute, as `cloud start-chat` makes it
+/// (one path, `caller_absolute`); the app checks the folder. `~/…` and an absolute folder go as
+/// typed, and its `--cwd` stays a folder on the machine.
+#[test]
+fn relative_from_folder_of_cloud_start_session_is_made_absolute() {
+    let cwd = std::env::current_dir().unwrap();
+    for (action, name) in
+        [("cloud start-session", ActionName::Cli), ("cloudStartSession", ActionName::Any)]
+    {
+        let sent = |words: &[&str]| {
+            let (method, params) = call(run_action(action, &args(words), name).unwrap());
+            assert_eq!(method, "action.run");
+            params["args"].clone()
+        };
+        let sent_folder = |words: &[&str]| sent(words)["fromFolder"].clone();
+        assert_eq!(
+            sent_folder(&["--from-folder", "src"]),
+            json!(cwd.join("src").to_string_lossy())
+        );
+        assert_eq!(
+            sent_folder(&["--from-folder=./app/web"]),
+            json!(cwd.join("app/web").to_string_lossy())
+        );
+        assert_eq!(sent_folder(&["--from-folder", "~/app"]), json!("~/app"));
+        assert_eq!(sent_folder(&["--from-folder", "/srv/app"]), json!("/srv/app"));
+        assert_eq!(sent(&["--cwd", "."])["cwd"], json!("."), "{action}");
+    }
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
@@ -307,6 +340,44 @@ fn unknown_words_run_the_action_with_that_cli_name() {
     );
 }
 
+/// `cmux app remote-views` reads the app's release remote view state, all tabs
+/// or one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn remote_views_reads_the_release_remote_view_state() {
+    let (method, params) = call(parse(&args(&["app", "remote-views"])).unwrap().unwrap());
+    assert_eq!(method, "remote_view.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "remote-views", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, REMOTE_VIEWS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
+    assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
+/// `cmux app machines` and `cmux app join-line` call the app's every-build
+/// `machine.list` and `device.join_line`, never `app call` (debug builds only)
+/// and never an `action.run`.
+#[test]
+fn machines_and_join_line_call_the_every_build_methods() {
+    let (method, params) = call(parse(&args(&["app", "machines"])).unwrap().unwrap());
+    assert_eq!(method, MACHINES_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(parse(&args(&["app", "machines", "--no-refresh"])).unwrap().unwrap());
+    assert_eq!(params, json!({ "refresh": false }));
+    let (method, params) = call(parse(&args(&["app", "join-line"])).unwrap().unwrap());
+    assert_eq!(method, JOIN_LINE_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(
+        parse(&args(&["app", "join-line", "--mint", "--name", "e2e-runner", "--no-open"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(params, json!({ "mint": true, "name": "e2e-runner", "open": false }));
+    assert!(parse(&args(&["app", "machines", "list"])).is_err());
+    assert!(parse(&args(&["app", "join-line", "--token", "x"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =
@@ -345,21 +416,62 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
+/// Every action the app's catalog marks `waitsForPerson = true` gets the
+/// person deadline here too: the CLI must not give up before the app does.
+#[test]
+fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
+    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let mut checked = 0;
+    for entry in entries.flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
+            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
+            let variable = line.trim().split('.').next().unwrap_or_default();
+            let declared = format!("var {variable} = ActionDescriptor(");
+            let Some(start) = text.find(&declared) else { continue };
+            let body = &text[start..];
+            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
+            for key in ["id: \"", "cliName: \""] {
+                if let Some(at) = body.find(key) {
+                    let name = &body[at + key.len()..];
+                    let name = &name[..name.find('"').unwrap_or(0)];
+                    assert_eq!(
+                        waiting_run_timeout(name),
+                        PERSON_RUN_TIMEOUT,
+                        "{name} waits for a person in the app"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+}
+
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
 /// when an agent or script asks (#30263), so the CLI waits as long as the app's person deadline:
 /// a late Make Link still reaches the caller instead of a link nobody receives.
+///
+/// `share` is not an app scope ([`parse`] answers None for it): the CLI reaches the action through
+/// `run_app_action_fallback` in `cli.rs`, which leaves `share chat` to the generic path (only
+/// `share revoke|kick` are rewritten, `share_cli::action`) and runs [`run_action`] with the words
+/// before the first flag as the CLI name. This test takes that same path.
 #[test]
 fn share_chat_waits_for_the_owners_answer() {
-    let sent = match parse(&args(&["share", "chat", "--surface", "1"])) {
-        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
-            Some((method, params, timeout))
-        }
+    let words = args(&["share", "chat", "--surface", "1"]);
+    assert!(matches!(parse(&words), Ok(None)), "share is not an app scope");
+    assert_eq!(super::super::share_cli::action(&words), None, "share chat goes on as typed");
+    let sent = match run_action("share chat", &words[2..], ActionName::Cli) {
+        Ok(AppCommand::Call { method, params, timeout, .. }) => Some((method, params, timeout)),
         _ => None,
     };
     assert!(sent.is_some(), "expected one action.run call");
     if let Some((method, params, timeout)) = sent {
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], "share chat");
+        assert_eq!(params["args"], json!({ "surface": "1" }), "{params}");
         assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
     }
     assert_eq!(waiting_run_timeout("share chat"), PERSON_RUN_TIMEOUT);
@@ -392,11 +504,18 @@ fn action_runs_wait_by_default_and_no_wait_opts_out() {
 #[test]
 fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
-    assert!(busy_before_running(&not_run));
-    assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
-    assert!(!busy_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
-    assert!(!busy_before_running(&json!({ "code": "busy" })));
-    assert!(!busy_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&not_run));
+    assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
+    assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
+    assert!(!retry_before_running(&json!({ "code": "busy" })));
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
+    // are asked again too; one that may have started is not.
+    assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(!retry_before_running(
+        &json!({ "code": "timeout", "data": { "state": "in_progress" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "not_found", "data": { "not_run": true } })));
     assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
     let later = json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
     assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
@@ -579,6 +698,19 @@ fn liveness_probes_do_not_wait_for_the_daemon() {
     assert_eq!(with_read_barrier("system.ping", json!({})), json!({}));
     assert_eq!(with_read_barrier("system.capabilities", json!({})), json!({}));
     assert_eq!(with_read_barrier("system.identify", json!({})), json!({ "after": "sync" }));
+}
+
+/// The action catalog and the agent dialogs read nothing a `cmux` call writes
+/// to the daemon: a busy daemon round trip timed them out on a loaded app.
+#[test]
+fn catalog_and_dialog_reads_do_not_wait_for_the_daemon() {
+    assert_eq!(with_read_barrier("action.list", json!({})), json!({}));
+    let describe = json!({ "action": "cloud start-session" });
+    assert_eq!(with_read_barrier("action.describe", describe.clone()), describe);
+    let dialogs = json!({ "pending_only": false });
+    assert_eq!(with_read_barrier("feed.list", dialogs.clone()), dialogs);
+    // A dialog answer changes the app: it keeps the barrier.
+    assert_eq!(with_read_barrier("feed.permission.reply", json!({})), json!({ "after": "sync" }));
 }
 
 #[test]
@@ -1015,6 +1147,12 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
             json!({ "path": "a.b", "confirm": true }),
         ),
         (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
+        // `--yes` is the CLI's confirm word; `--confirm` is its old spelling.
+        (
+            &["settings", "reset", "a.b", "--yes"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
     ];
     for (words, method, params) in cases {
         let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
@@ -1022,7 +1160,7 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
     }
     assert!(parse(&args(&["settings", "set", "a.b"])).is_err());
     assert!(parse(&args(&["settings", "reset"])).is_err());
-    assert!(parse(&args(&["settings", "reset", "a.b", "--yes"])).is_err());
+    assert!(parse(&args(&["settings", "reset", "a.b", "--yeah"])).is_err());
 }
 
 /// RED: a user-only key the app refuses (`setting_user_only`) ends the
@@ -1068,7 +1206,10 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
+        | AppCommand::Live(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1305,6 +1446,31 @@ fn open_dash_reads_urls_from_stdin_and_passes_the_callers_terminal() {
 }
 
 #[test]
+fn open_dash_from_a_program_in_a_terminal_is_interactive() {
+    // gh's "Press Enter to open https://github.com/login/device in your browser" runs
+    // BROWSER (cmux-open-url) with its own stdout, the person's terminal; the shim runs
+    // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
+    // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
+    let link = args(&["--link", "--caller", "gh", "-"]);
+    assert!(open_is_interactive(&link, false, true));
+    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    let mut stdin = "https://github.com/login/device\n".as_bytes();
+    let environment = std::collections::HashMap::new();
+    let AppCommand::Open { requests, .. } =
+        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
+            .unwrap()
+    else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].method, "browser.open_link");
+    assert_eq!(requests[0].params["focus"], true);
+    // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+}
+
+#[test]
 fn open_dash_names_the_bad_line_without_echoing_it() {
     let environment = std::collections::HashMap::new();
     let mut stdin = "https://a.example/\nexample.com/?token=SECRET\n".as_bytes();
@@ -1402,9 +1568,37 @@ fn config_is_the_settings_scope() {
     );
 }
 
+/// `cmux config set on cloud` (Leo's walkthrough): `on` is the CLI's short name for `chat.on`.
+#[test]
+fn on_is_the_default_chat_target_key() {
+    let sent = |words: &[&str]| call(parse(&args(words)).unwrap().unwrap());
+    assert_eq!(
+        sent(&["config", "set", "on", "cloud"]),
+        ("settings.set", json!({ "path": "chat.on", "value": "cloud" }))
+    );
+    assert_eq!(sent(&["settings", "get", "on"]), ("settings.get", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "reset", "on"]), ("settings.reset", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "unset", "on"]), ("settings.unset", json!({ "path": "chat.on" })));
+    // The key itself still works, and an alias never shadows a schema key.
+    assert_eq!(sent(&["config", "get", "chat.on"]), ("settings.get", json!({ "path": "chat.on" })));
+    for (alias, key) in super::super::command::KEY_ALIASES {
+        assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
+        assert_eq!(super::super::command::resolve_alias(alias), *key);
+        // The key is in the embedded export (settings-schema.json), which the CLI's list and
+        // validate and MCP's settings_* tools read; agents may set it (agent-policy.json).
+        let row = cmux_config::Schema::embedded().row(key);
+        assert!(row.is_some_and(|row| row.agent_settable), "{key} is not an agent-settable key");
+    }
+}
+
 #[test]
 fn settings_list_keys_and_schema_answer_without_the_app() {
     let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        local(parse(&args(&["settings", "list", "--keys", "--keys"])).unwrap().unwrap()).unwrap(),
+        keys,
+        "repeated completion flag remains harmless",
+    );
     let keys: Vec<&str> =
         keys.as_array().unwrap().iter().map(|key| key.as_str().unwrap()).collect();
     assert!(keys.contains(&"sidebar.side") && keys.contains(&"appearance.theme"), "{keys:?}");
@@ -1433,35 +1627,11 @@ fn settings_list_keys_and_schema_answer_without_the_app() {
 }
 
 #[test]
-fn settings_list_shows_the_app_settings_as_schema_rows() {
-    let answer = json!({ "id": 1, "ok": true, "result": {
-        "path": [], "exists": true, "file": "/tmp/cmux-next.json",
-        "value": { "sidebar": { "side": "right", "density": "not-a-density" } },
-    } });
-    let (socket, app) = fake_app(vec![answer.clone()]);
-    let command = parse(&args(&["settings", "list", "--section", "appearance"])).unwrap().unwrap();
-    assert_eq!(run(&global_for(&socket), command), 0);
-    let connections = app.join().unwrap();
-    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
-    let mut sent = request["params"].clone();
-    sent.as_object_mut().unwrap().remove("after");
-    assert_eq!((&request["method"], &sent), (&json!("settings.get"), &json!({})));
-
-    let rows = settings::list_rows(&answer["result"], Some("appearance"));
-    let row =
-        |key: &str| rows.as_array().unwrap().iter().find(|row| row["key"] == key).cloned().unwrap();
-    let side = row("sidebar.side");
-    assert_eq!((&side["value"], &side["default"]), (&json!("right"), &json!("left")));
-    // The app reports the effective settings: whether the file sets a key or
-    // a policy manages it is not known here, so the rows do not claim it.
-    assert!(side.get("customized").is_none() && side.get("managed").is_none(), "{side}");
-    // A refused value applies its default, as in the app.
-    let density = row("sidebar.density");
-    assert_eq!(density["value"], density["default"]);
-    assert!(rows.as_array().unwrap().iter().all(|row| row["section"] == "appearance"));
-    let shown = settings::human_rows(&rows);
-    assert_eq!(shown[0].as_object().unwrap().len(), 3, "key, value, default");
-    // A section no row is in names the sections.
+fn settings_list_leaves_value_reads_to_the_daemon() {
+    for scope in ["settings", "config"] {
+        assert!(parse(&args(&[scope, "list"])).unwrap().is_none());
+        assert!(parse(&args(&[scope, "list", "--section", "appearance"])).unwrap().is_none());
+    }
     let error = parse(&args(&["settings", "list", "--section", "nope"])).err().unwrap();
     assert!(error.to_string().contains("appearance"), "{error}");
     assert!(
@@ -1792,4 +1962,269 @@ fn open_as_text_sends_as_text_with_the_files() {
         )
         .is_err()
     );
+}
+
+/// A fake app that serves every connection at once, like the app's control socket: a plain
+/// `ping` gets `PONG`, `slow.get` answers after `slow`, any other method at once (its result
+/// names the method). Returns the socket and a guard that keeps it.
+fn concurrent_fake_app(slow: Duration) -> (PathBuf, cmux_unix_socket::TestDir) {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-busy");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    if line.trim() == "ping" {
+                        let _ = writeln!(writer, "PONG");
+                    } else {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let method = request["method"].as_str().unwrap_or_default().to_owned();
+                        if method == "slow.get" {
+                            std::thread::sleep(slow);
+                        }
+                        let reply = json!({ "id": 1, "ok": true, "result": { "method": method } });
+                        let _ = writeln!(writer, "{reply}");
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    (socket, dir)
+}
+
+/// #32724: a request the app answers after several read windows still gets its answer while
+/// the app is alive (it answers `ping`), and `identify` and the dialog list (`feed.list`) sent
+/// meanwhile complete at once instead of failing or waiting behind it.
+#[test]
+fn a_slow_request_waits_for_a_live_app_while_identify_and_dialog_list_complete() {
+    const WINDOW: Duration = Duration::from_millis(150);
+    const SLOW: Duration = Duration::from_millis(1500);
+    let (socket, _dir) = concurrent_fake_app(SLOW);
+    let slow_socket = socket.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+    let slow = std::thread::spawn(move || {
+        let mut stream = connect(&slow_socket).unwrap();
+        let answer = request(&mut stream, "slow.get", json!({}), WINDOW);
+        done.send("slow").unwrap();
+        answer
+    });
+    // The slow request is on the wire before the quick ones.
+    std::thread::sleep(WINDOW);
+    for method in ["system.identify", "feed.list"] {
+        let mut stream = connect(&socket).unwrap();
+        let answer = request(&mut stream, method, json!({}), WINDOW).unwrap().unwrap();
+        assert_eq!(answer["method"], method);
+        done_before(&finished, method);
+    }
+    let answer = slow.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["method"], "slow.get", "a live app's slow request failed");
+}
+
+fn done_before(finished: &std::sync::mpsc::Receiver<&str>, method: &str) {
+    assert!(finished.try_recv().is_err(), "{method} waited for the slow request");
+}
+
+/// #32724, under artificial CPU starvation (four spinning threads per core): a request whose
+/// answer comes long after its read window is answered, not failed, while the app answers `ping`.
+#[test]
+fn a_request_is_answered_not_failed_under_cpu_starvation() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (socket, _dir) = concurrent_fake_app(Duration::from_millis(1200));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
+    let spinners: Vec<_> = (0..cores * 4)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut spins = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    spins = std::hint::black_box(spins.wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    let mut stream = connect(&socket).unwrap();
+    let slow = request(&mut stream, "slow.get", json!({}), Duration::from_millis(100));
+    let mut stream = connect(&socket).unwrap();
+    let identify = request(&mut stream, "system.identify", json!({}), Duration::from_millis(100));
+    stop.store(true, Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+
+    assert_eq!(slow.unwrap().unwrap()["method"], "slow.get");
+    assert_eq!(identify.unwrap().unwrap()["method"], "system.identify");
+}
+
+/// An app that does not answer `ping` either is gone or wedged: the read still ends at its window.
+#[test]
+fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-silent");
+    let socket = dir.path().join("app.sock");
+    // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let started = Instant::now();
+    let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
+    assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+}
+
+/// #32724: an app that says nothing ran because its daemon connection was reconnecting
+/// (`unavailable`, `not_run`) is asked again by the CLI; the caller sees only the answer.
+#[test]
+fn a_not_run_refusal_is_retried_inside_the_cli() {
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+    let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
+    let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
+    let mut stream = connect(&socket).unwrap();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    drop(stream);
+    let connections = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
+    assert_eq!(connections[0].len(), 3, "{connections:?}");
+}
+
+/// An app whose daemon connection takes 5 s to come back (every answer until then `unavailable`, `not_run`):
+/// the CLI asks again, with backoff, until the request's deadline, and the caller gets the answer. Five fixed
+/// tries (about 3 s) failed this slow-but-working daemon.
+#[test]
+fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-slow");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let back_after = Duration::from_secs(5);
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked, mut first) = (String::new(), 0, None);
+        while reader.read_line(&mut line).unwrap() > 0 {
+            line.clear();
+            asked += 1;
+            let since = *first.get_or_insert_with(Instant::now);
+            let answer = if since.elapsed() < back_after {
+                json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                    "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 100 } } })
+            } else {
+                json!({ "id": 1, "ok": true, "result": { "machines": [] } })
+            };
+            writeln!(writer, "{answer}").unwrap();
+            if answer["ok"] == true {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let started = Instant::now();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    let took = started.elapsed();
+    drop(stream);
+    let asked = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]), "asked {asked} times in {took:?}");
+    assert!(took >= back_after && took < back_after + Duration::from_secs(3), "{took:?}");
+    assert!(asked > 6, "more than the old five retries: {asked}");
+}
+
+/// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.
+#[test]
+fn a_not_run_refusal_that_never_passes_ends_at_the_deadline() {
+    assert_eq!(run::not_run_deadline(None), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(READ_TIMEOUT)), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(WAITING_RUN_TIMEOUT)), WAITING_RUN_TIMEOUT);
+    let refused = json!({ "code": "busy", "data": { "not_run": true, "retry_after_ms": 100 } });
+    let waits: Vec<u128> = (0..6).map(|n| run::retry_wait(&refused, n).as_millis()).collect();
+    assert_eq!(waits, [100, 200, 400, 800, 1600, 2000]);
+}
+
+/// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
+/// new-terminal button opens there; a script's JSON or quiet run, a machine still starting, and
+/// every other action open nothing. The open is `cloud open-machine` on that machine.
+#[test]
+fn a_persons_new_machine_opens_the_machine_it_made() {
+    let params = json!({ "action": "cloud new-machine" });
+    let made = json!({ "result": { "machine_id": "vm_1", "target": "machine:vm_1", "status": "running" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &made).as_deref(), Some("machine:vm_1"));
+    let bare = json!({ "result": { "machine_id": "vm_2" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &bare).as_deref(), Some("machine:vm_2"));
+    assert_eq!(created_target(OutputMode::Json, &params, &made), None);
+    assert_eq!(created_target(OutputMode::Quiet, &params, &made), None);
+    let starting = json!({ "result": { "pending": true, "status": "creating" } });
+    assert_eq!(created_target(OutputMode::Human, &params, &starting), None);
+    assert_eq!(created_target(OutputMode::Human, &json!({ "action": "cloud exec" }), &made), None);
+
+    let (method, open) = call(open_created_command("machine:vm_1".to_owned()).unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(open["action"], "cloud open-machine");
+    assert!(open.to_string().contains("machine:vm_1"), "{open}");
+    assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
+}
+
+/// A reply that trickles in a byte at a time, each inside the read window, still ends at the
+/// request's deadline: every socket read gets only what is left of it, not a fresh window.
+#[test]
+fn a_reply_sent_in_chunks_ends_at_the_deadline() {
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(30));
+            if writer.write_all(b" ").is_err() {
+                return;
+            }
+        }
+        let _ = writer.write_all(b"{\"id\":1,\"ok\":true,\"result\":{}}\n");
+    });
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(100)), deadline, |_, _| true);
+    let waited = started.elapsed();
+    drop(reader);
+    sender.join().unwrap();
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    assert!(waited < Duration::from_millis(700), "{waited:?}");
+}
+
+/// The liveness ping is held to the request's deadline: it gets what is left, not a whole read
+/// window, and one that ends past the deadline gives the deadline refusal, not a transport error.
+#[test]
+fn the_ping_gets_only_what_is_left_of_the_deadline() {
+    let (reader, _writer) = UnixStream::pair().unwrap();
+    let windows = std::cell::RefCell::new(Vec::new());
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(200)), deadline, |_, window| {
+            windows.borrow_mut().push(window);
+            // A probe that takes its whole window and a little more, then finds nobody.
+            std::thread::sleep(window + Duration::from_millis(20));
+            false
+        });
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    let windows = windows.into_inner();
+    assert_eq!(windows.len(), 1, "{windows:?}");
+    assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }

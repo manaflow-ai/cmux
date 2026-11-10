@@ -2194,20 +2194,36 @@ class FleetClientJobs(unittest.TestCase):
         self.assertEqual(self.place().fleet_jobs, ())
         self.assertEqual(self.place(FLEET_CLIENT_JOBS="").fleet_jobs, ())
 
-    def test_nothing_is_listed_while_a_label_can_take_the_job(self):
-        # A Blacksmith label under its declared cap.
+    def listening(self) -> dict:
+        """The side label has a listener, by a fresh health record (a stale record or snapshot reads full)."""
+        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        shot = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
+        shot["generated_at"] = fresh
+        return shot
+
+    def test_a_job_a_blacksmith_label_takes_is_listed_for_the_warm_fleet(self):
+        # cmux#38130 (run 42434830670): no idle mini, so fast-tier queued on Blacksmith 6 vCPU's moving queue,
+        # a cold build, and ran out its 20 minutes compiling on two attempts while the gateway had idle
+        # runners. The label still takes the job, and the job is listed too: side_lane_placement.fleet_gateway()
+        # moves it to the fleet only with an idle gateway runner for its client.
+        placed = self.place(shot=self.listening(), FLEET_CLIENT_JOBS="fast-tier")
+        self.assertIn("fast-tier", placed.jobs[SMALL])
+        self.assertEqual(placed.fleet_jobs, ("fast-tier",))
+        self.assertIn("a warm owned build before a cold Blacksmith macOS one", placed.why)
+        # A job without a fleet client keeps only its Blacksmith slot.
+        placed = self.place(shot=self.listening(), FLEET_CLIENT_JOBS="")
+        self.assertIn("fast-tier", placed.jobs[SMALL])
+        self.assertEqual(placed.fleet_jobs, ())
+
+    def test_nothing_is_listed_while_the_job_waits_on_an_owned_label(self):
+        # A Blacksmith label under its declared cap, but 6 vCPU stalled: the tier waits on the owned label.
         shot = self.shot()
         shot["pools"][LARGE].update(cap=5, running=1)
-        self.assertEqual(self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs,
-                         ())
-        # The side label has a listener, by a fresh health record (a stale record or snapshot reads full).
-        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        listening = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
-        listening["generated_at"] = fresh
-        self.assertEqual(self.place(shot=listening, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ())
-        # No snapshot: nothing is known full.
-        self.assertEqual(cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None,
-                                       saturated=True).fleet_jobs, ())
+        placed = self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier")
+        self.assertEqual((placed.jobs[LARGE], placed.jobs[SMALL], placed.fleet_jobs), ((), (), ()))
+        # No snapshot: nothing is known full, so the tier is listed only because 6 vCPU's queue took it.
+        placed = cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None, saturated=True)
+        self.assertEqual((placed.jobs[SMALL], placed.fleet_jobs), (("fast-tier", "swift-canary"), ("fast-tier",)))
 
     def test_the_output_is_space_delimited_like_the_blacksmith_lists(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2267,6 +2283,56 @@ class GuiOverflow(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(cascade.gui_overflow_label(live, waiting, seen, jobs=3), SMALL)
 
+
+class SharedRunnerStateCascadeTests(unittest.TestCase):
+    def document(self, **updates):
+        return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "repository_runners": [],
+                "runner_groups": {"glaeda-minis": []},
+                "scale_sets": {LARGE: 2, SMALL: 5, MACOS_15: 1}, **updates}
+
+    @staticmethod
+    def encoded(doc):
+        import base64
+        import gzip
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def test_complete_document_supplies_scale_set_counts_without_api_requests(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document())}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=AssertionError("live read")):
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 2, SMALL: 5, MACOS_15: 1})
+
+    def test_partial_scale_sets_retain_live_group_fallback(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {LARGE}", "id": 20},
+                                          {"name": f"Blacksmith scale sets - {SMALL}", "id": 21}]}
+            return {"runners": [{"status": "online"}]}
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document(scale_sets={LARGE: 0}))}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 1, SMALL: 1})
+        self.assertEqual(live.call_count, 3)
+
+    def test_missing_optional_pool_count_rechecks_its_visible_group_live(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {label}", "id": 20 + index}
+                                          for index, label in enumerate(cascade.POOL_LABELS)]}
+            return {"runners": [{"status": "online"}] * 3}
+        document = self.document(scale_sets={LARGE: 2, SMALL: 5})
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(document)}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 3, SMALL: 3, MACOS_15: 3})
+        self.assertEqual(live.call_count, 4)
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,8 +77,16 @@ struct PlacementStaleRowsGalleryTests {
             attempts += 1
             if mode == 'disconnect':
                 sys.exit(0)
+            if mode == 'timeout' and attempts == 1:
+                # A daemon busy past the 2 s deadline (Leo, 2026-11-03): the first placement gets no answer.
+                continue
             if mode == 'fail':
                 print(json.dumps({'id': request['id'], 'ok': False, 'error': 'placement refused'}), flush=True)
+                continue
+            if mode == 'gone' and request['workspace_key'] == 'k2':
+                # k2 closed before its placement ran: the daemon's answer to workspace.place for an id it has no more.
+                print(json.dumps({'id': request['id'], 'ok': False, 'error': {'code': 'selector.not_found', 'message': 'no workspace matches "ws_k2"',
+                                  'details': {'scope': 'workspace', 'selector': 'ws_k2'}}}), flush=True)
                 continue
             key, index = request['workspace_key'], request['index']
             order.remove(key)

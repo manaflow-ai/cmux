@@ -9,12 +9,39 @@ import importlib.util
 import json
 import os
 import re
+import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 spec = importlib.util.spec_from_file_location("perf_budgets", os.path.join(ROOT, "scripts/cmux-next/perf-budgets.py"))
 pb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pb)
+
+
+class ScrollPlanTests(unittest.TestCase):
+    def test_scroll_parameters_reach_both_native_runners_without_running_them(self):
+        for flags, rows, seconds, target in (
+            ([], "5000", "3", None),
+            (["--acp-rows", "3000", "--acp-fling-seconds", "15", "--scroll-target-hz", "120"],
+             "3000", "15.0", "120.0"),
+        ):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as out:
+                args = ["perf-budgets.py", "--tag", "test", "--app", "/unused.app", "--out", out,
+                        "--only", "acp,sidebar", *flags]
+                with patch.object(sys, "argv", args), patch.object(pb, "run_phase") as run, patch.object(pb, "finish"):
+                    pb.main()
+                plan = run.call_args.args[2]
+                acp = plan["acp"][0]
+                self.assertEqual(acp[acp.index("--rows") + 1], rows)
+                self.assertEqual(acp[acp.index("--fling-seconds") + 1], seconds)
+                for name in ("acp", "sidebar"):
+                    command = plan[name][0]
+                    if target is None:
+                        self.assertNotIn("--target-hz", command)
+                    else:
+                        self.assertEqual(command[command.index("--target-hz") + 1], target)
 
 
 class GateTests(unittest.TestCase):
@@ -82,6 +109,36 @@ class MappingTests(unittest.TestCase):
         # An older build's report with another shape (or none) leaves the rows empty, never raises.
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
+
+    def test_tab_churn_report_maps_to_budgeted_rows(self):
+        """ask-8a0837950b: tab-churn-bench.py's summary becomes terminal_burst.* rows, each with a budget and an expected family."""
+        churn_spec = importlib.util.spec_from_file_location("tab_churn", os.path.join(ROOT, "scripts/cmux-next/tab-churn-bench.py"))
+        churn = importlib.util.module_from_spec(churn_spec)
+        churn_spec.loader.exec_module(churn)  # main() runs only as a script: importing launches nothing
+        burst = [{"visible_ms": v} for v in (8, 9, 10, 9, 11, 12, 16, 18, 20)]
+        summary = churn.summarize({"open@1": [{"visible_ms": 7, "key_ms": 1}, {"visible_ms": 9, "key_ms": 2}],
+                                   "close@1": [{"visible_ms": 8}, {"visible_ms": None, "error": "no new tab page"}],
+                                   "new_terminal": burst, "open@31": [{"visible_ms": 12}],
+                                   "close@31": [{"visible_ms": 13}], "close_terminal": [{"visible_ms": 21.5}]})
+        self.assertEqual(summary["close@1"]["visible_ms"]["missed"], 1)
+        self.assertEqual(summary["close@1"]["errors"], ["no new tab page"])
+        self.assertEqual((summary["new_terminal"]["first"]["p50"], summary["new_terminal"]["last"]["p50"]), (9, 18))
+        self.assertEqual(summary["new_terminal"]["growth"], 2.0)  # the last ten open twice as slow as the first
+        rows = pb.rows_terminal_burst({"summary": summary})
+        self.assertEqual(rows, {"terminal_burst.open.1.key_to_visible": (7, 9), "terminal_burst.close.1.key_to_visible": (8, 8),
+                                "terminal_burst.new_terminal.first.key_to_visible": (9, 10),
+                                "terminal_burst.new_terminal.last.key_to_visible": (18, 20), "terminal_burst.new_terminal.growth": (2.0, 2.0),
+                                "terminal_burst.open.31.key_to_visible": (12, 12), "terminal_burst.close.31.key_to_visible": (13, 13),
+                                "terminal_burst.close_terminal.key_to_state": (21.5, 21.5)})
+        budgets = json.load(open(pb.BUDGETS_FILE))
+        for name in rows:
+            self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
+            self.assertTrue(any(re.fullmatch(p, name) for p in budgets["expected"]["terminal_burst"]), name)
+        self.assertEqual(pb.budget_for("terminal_burst.new_terminal.growth", budgets)["unit"], "x")
+        # Opt-in: the default suite is what stable-next's --gate step runs, and this group must not become a gate row.
+        self.assertNotIn("terminal_burst", pb.BENCHES)
+        self.assertIn("terminal_burst", pb.OPT_IN_BENCHES)
+        self.assertEqual(pb.rows_terminal_burst(None), {})
 
     def test_animation_rows_take_their_budgets_from_the_perf_bench_file(self):
         rows = pb.rows_anim({"summary": [{"anim": "tab-new", "p50_ms": 8.3, "p95_ms": 9.0, "dropped": 2, "main_ms_max": 12.5}]})

@@ -1,10 +1,10 @@
 // cmux-web-test-timeout: 300
-// Session Info never moves the chat around it when it does not need to (design/session-info.md rule 1;
-// Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???";
-// where the gutter cannot hold it, it pushes, Leo 2026-11-01). Every element outside
-// the panel keeps its box while the panel opens, while it slides in, while its content changes (a
-// section folds or unfolds), and after it closes again: the transcript, the composer's stack, the
-// header and its tools, the thread rail, the minimap and the scroll bar. Measured in the default
+// Session Info moves nothing around it but the chat's column, and that only sideways (design/session-info.md
+// rule 1; Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need
+// to???"). Wherever the column fits beside the whole panel it pushes, the column centered beside it
+// (Lucas, 2026-11-06); elsewhere it lies over the chat and moves nothing. While its content changes (a
+// section folds or unfolds) nothing outside it moves: the transcript, the composer's stack, the header
+// and its tools, the thread rail, the minimap and the scroll bar. Measured in the default
 // Overlay placement, in the pane's own header and under a native tab row, at a split's width, a
 // narrow window and a wide one.
 //
@@ -140,7 +140,9 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
   const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
-    await toggle(page).click({ force: true });
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
+    // closed already, its card leaving.
+    if ((await toggle(page).getAttribute("aria-pressed")) === "true") await toggle(page).click({ force: true });
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 
@@ -167,7 +169,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       [true, false],
       [false, true],
     ] as const)
-      for (const width of [560, 900, 1200, 1600]) {
+      for (const width of [560, 900, 1100, 1200, 1600]) {
         const where = `${width}px pane${row ? " under a tab row" : ""}${preview ? " beside a computer use card" : ""}`;
         test(`${name}: in a ${where}, opening, folding and closing Session Info moves nothing else`, async () => {
           current = browsers.get(name)!;
@@ -208,12 +210,28 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            // Where the right gutter holds the panel (1600px) nothing else moves at all. Narrower, it
-            // pushes the chat left as it opens and back as it closes (Leo, 2026-11-01: "why does the
-            // session info not push the layout left ever anymore"), and its content changing still
-            // moves nothing.
-            if (width >= 1600) expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
-            else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
+            // Where it lies over the chat (560, 900 and 1100px: Chat Text Width's 800px column does not fit
+            // beside the whole panel; SessionInfo.tsx sessionInfoStage) or floats in a gutter that holds it
+            // (1600px; Leo, 2026-11-09: "if it has enough space, then don't push the layout"), nothing else
+            // moves at all. Where the gutter lacks room and the column fits (1200px) it pushes: the column
+            // moves left as it opens and back as it closes, by what the gutter lacks, only sideways,
+            // nothing resized or moved up or down; its content changing still moves nothing.
+            // The thread rail on the left fits the gutter the column leaves it: where the moved column
+            // takes part of that gutter (1200px), the rail narrows with it (useRailPlacement.ts); that it
+            // stays pinned is thread-minimap-left-rail-stays.test.ts's check, so it is left out here.
+            const rail = (one: Moved) => one.name.includes("acpmux-minimap");
+            // What moved other than sideways, named, so a red says what it was.
+            const offSideways = (list: Moved[]) =>
+              list.filter((one) => !rail(one) && (one.dy !== 0 || one.dw !== 0 || one.dh !== 0)).map((one) => one.name);
+            if (width < 1160 || width >= 1600)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            else
+              expect({
+                pushed: opening.length > 0,
+                opening: offSideways(opening),
+                closing: offSideways(closing),
+                content,
+              }).toEqual({ pushed: true, opening: [], closing: [], content: [] });
           } finally {
             await page.close();
           }

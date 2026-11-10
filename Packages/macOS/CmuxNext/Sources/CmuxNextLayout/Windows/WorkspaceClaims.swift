@@ -16,6 +16,12 @@ public struct WorkspaceClaims: Sendable {
 
     public init() {}
 
+    /// Whether window `window` asked for workspace `id` and waits for it: the store does not list it yet (its create
+    /// replied before the store applied it). The window keeps its request and shows it once the store lists it, never
+    /// its first workspace instead (SHORTCUT-F9: that fallback wrote Home over the request for good). A failed create
+    /// drops the claim (``release(failed:listed:)``), so the window never waits for a workspace that will not come.
+    public func awaits(_ id: String, in window: String) -> Bool { pending[id] == window }
+
     /// The create of workspace `id` failed, or a close cancelled it: its claim
     /// goes, unless the workspace `listed` (reconcile placed it, or holds it for
     /// its claim). Returns whether a window waited for it; that window then

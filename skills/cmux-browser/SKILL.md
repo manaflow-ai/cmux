@@ -157,6 +157,52 @@ masks every browser pane in gray, its toolbar included, and refuses a browser ta
 ([cmux skill](../cmux/SKILL.md)): only the REPL's `page.screenshot()` hides
 the secrets a page shows.
 
+## Prove a local preview
+
+When a web UI change runs on a Cloud machine, use the built-in proof helper so
+the user receives the rendered page and the browser's errors in the same tool
+result:
+
+```js
+await previewProof(5173, { path: "/" });
+```
+
+`previewProof(port, options)` opens `http://127.0.0.1:<port><path>` in the
+machine/workspace browser in its own background tab, waits for the page load, collects `console.error`
+messages and uncaught page errors, and takes a screenshot. Its result includes
+the URL, both error lists, and a temporary PNG path. The transcript recognizes
+that path as an image attachment and renders it with the error report. Pass
+`screenshot: { fullPage: true }` when the whole page is needed; the default is
+the viewport. The helper closes its tab on success or failure, preserving the
+user's active tab and the REPL's current page. The screenshot is taken after
+load. For errors that appear later, pass `settleMs: 1000` to wait that many
+milliseconds after the screenshot before reading errors (default `0`).
+Pass `timeout: 5000` to bound navigation in milliseconds
+(default `30000`, `0` disables the navigation timeout). Both timing options
+must be finite nonnegative numbers.
+
+## Verify a flow before you say done
+
+Before you tell the person a UI change works, click through the flow you
+built and let the chat show the proof:
+
+```js
+await verifyFlow(5173, [
+  { open: "/settings", note: "Open Settings" },
+  { type: "#name", text: "Ada" },
+  { click: "text=Save" },
+  { expect: "Saved", note: "The save confirms" },
+]);
+```
+
+Each step gets a screenshot and one line; the first failure skips the rest.
+The chat draws the result as a pass/fail walkthrough under your final
+message, so say what passed rather than pasting the screenshots. A failed
+step means the change is not done: fix it and run the flow again. With no
+dev server on the port it fails with "No dev server answers at …"; start the
+server with `bg_start` first. Step shapes and limits:
+[references/repl-guide.md](references/repl-guide.md).
+
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console

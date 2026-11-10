@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
+/* cmux-tui mux protocol 12, IR 1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e. */
 
 
 import type * as T from "./types.js";
@@ -277,6 +277,7 @@ export type ConversationTypingEvent = { event: "conversation-typing" } & {
 
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+  "restart"?: boolean;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -290,6 +291,17 @@ export type DetachedEvent = { event: "detached" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type EmptyEvent = { event: "empty" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedReportsChangedEvent = { event: "feed-reports-changed" } & {
+  "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedViewChangedEvent = { event: "feed-view-changed" } & {
+  "changed": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -502,6 +514,14 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type SelectionChangedEvent = { event: "selection-changed" } & {
+  "active": boolean;
+  "active_workspace": (T.Id) | null;
+  "screens": Array<T.SelectionScreen>;
+  "workspace": T.Id;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
   "keys": Array<string>;
@@ -514,6 +534,11 @@ export type SizeStateEvent = { event: "size-state" } & {
   "self_participant"?: string;
   "state": T.SizeState;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type StashChangedEvent = { event: "stash-changed" } & {
+  "revision": bigint;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -646,6 +671,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
   "cols": number;
   "data": T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;
@@ -705,6 +731,12 @@ export type WorkspaceMovedEvent = { event: "workspace-moved" } & {
   "workspace_revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type WorkspacePresentationChangedEvent = { event: "workspace-presentation-changed" } & {
+  "entity": T.Workspace;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type WorkspaceRenamedEvent = { event: "workspace-renamed" } & {
   "entity": T.Workspace;
@@ -760,6 +792,8 @@ export type KnownCmuxEvent =
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -785,8 +819,10 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -810,6 +846,7 @@ export type KnownCmuxEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Shapes serialized by runtime code but excluded from active event unions. */
@@ -847,6 +884,8 @@ export type KnownSubscribeEvent =
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
@@ -867,8 +906,10 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -887,6 +928,7 @@ export type KnownSubscribeEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Known delta-subscription events. */
@@ -897,6 +939,7 @@ export type TreeDeltaEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | SelectionChangedEvent
   | TabAddedEvent
   | TabChangedEvent
   | TabClosedEvent
@@ -905,6 +948,7 @@ export type TreeDeltaEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Known events from any attach mode. */

@@ -2,22 +2,27 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextHistoryPages
 import CmuxNextSettings
 import Foundation
 
 /// The read-side merge of every history owner (plans/cmux-next/history.md
 /// 2): page visits per browser profile, the location trail, closed tabs,
 /// agent sessions. Feeds the history page, the palette pages and
-/// `history.list`. Owns the per-profile visit logs; never a second copy of
-/// a fact another owner keeps.
+/// `history.list`. The daemon history module (`history-v1`) owns page visits,
+/// the location trail, agent hides and closed items; never a second copy of a
+/// fact another owner keeps.
 final class HistoryService {
     unowned let services: AppServices
-    /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
-    /// history in memory only (tests).
+    /// `<Application Support>/<bundle id>`, set at launch: where an older build's visit logs wait for the
+    /// daemon's import. nil in tests.
     var supportDirectory: URL?
-    private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
-    /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
-    private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
+    let pages = NSHashTable<HistoryCookieBackupsPageProvider>.weakObjects() // The open History pages (their shown rows).
+    /// The omnibox persistence per profile: the daemon's visit store (`DaemonVisitSink`).
+    private var routes: [BrowserProfileID: DaemonVisitSink] = [:]
+    /// Every daemon history write in order, visits, clears and removes alike, held while the local daemon is away.
+    private(set) lazy var writes = HistoryWriteQueue<DaemonHistoryClient>(retryable: DaemonHistoryClient.isLinkDrop) { [weak self] in await self?.connectedDaemonHistory() }
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
@@ -36,7 +41,7 @@ final class HistoryService {
         closedRetention = ClosedHistoryRetention(services: services)
     }
 
-    /// Launch: page history becomes durable in `supportDirectory`.
+    /// Launch: every profile's omnibox history persists through the daemon.
     func start(supportDirectory: URL) {
         self.supportDirectory = supportDirectory
         let cache = services.cache
@@ -44,7 +49,6 @@ final class HistoryService {
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
-        adoptDaemonHistoryOnFirstConnection()
         // Folders of closed workspaces deleted while the app was not running (the CLI, another app).
         DaemonClosedHistory.emptyAgentHomeTrash()
     }
@@ -58,109 +62,44 @@ final class HistoryService {
 
     // MARK: Pages
 
-    /// Makes `history` (a profile's omnibar history) durable and seeds it
-    /// from the profile's log.
+    /// Makes `history` (a profile's omnibar history) durable on the daemon and seeds it from the
+    /// daemon's visit summaries once the local daemon serves `history-v1`.
     func attach(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
-        let sink = sink(for: profile)
-        let route = routes[profile] ?? RoutingVisitSink(local: sink, profile: BrowserProfileRecord.wireID(for: profile)) { [weak self] in
-            self?.daemonHistory
-        }
+        let route = routes[profile] ?? DaemonVisitSink(profile: BrowserProfileRecord.wireID(for: profile), writes: writes)
         routes[profile] = route
         route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
             guard let sync = self?.services.onboarding.historySync else { return }
             Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
         }
         history.persistence = route
-        if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
-        let log = sink.log
-        // task-owner: one-shot launch read of the profile's visit log
-        Task { [weak history] in
-            _ = await log.prune()
-            let summaries = await log.summaries()
-            let entries = summaries.compactMap { summary in
-                URL(string: summary.url).map { BrowserHistoryEntry(url: $0, title: summary.title, visitCount: summary.visitCount, lastVisit: summary.lastVisit) }
-            }
-            history?.merge(entries)
-        }
-    }
-
-    private func sink(for profile: BrowserProfileID) -> BrowserVisitSink {
-        if let existing = sinks[profile] { return existing }
-        let url = supportDirectory.map {
-            BrowserVisitLog.fileURL(profile: BrowserProfileRecord.wireID(for: profile), supportDirectory: $0)
-        }
-        let sink = BrowserVisitSink(log: BrowserVisitLog(url: url))
-        sinks[profile] = sink
-        return sink
-    }
-
-    /// Drains writes routed to the app-local log before daemon handoff.
-    func flushLocalHistory(profile: BrowserProfileID) async -> Bool {
-        guard let sink = sinks[profile] else { return true }
-        return await sink.flush()
-    }
-
-    /// Every profile's log: the default one first.
-    private var profileLogs: [(profile: String, log: BrowserVisitLog)] {
-        var profiles: [BrowserProfileID] = [.default]
-        profiles += services.browserProfiles.ordered.map(\.engineProfile).filter { $0 != .default }
-        return profiles.map { (BrowserProfileRecord.wireID(for: $0), sink(for: $0).log) }
+        seedWhenConnected(history, profile: profile)
     }
 
     // MARK: Entries
 
     /// Every entry matching `query`, newest first.
-    func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
-        if let daemon = daemonHistory { return await daemonEntries(query, daemon) }
-        let wants = { (kind: HistoryEntry.Kind) in query.kinds.isEmpty || query.kinds.contains(kind) }
-        var all: [HistoryEntry] = []
-        if wants(.location) { all += locationEntries() }
-        if wants(.closed) { all += closedEntries() }
-        if wants(.agent) {
-            await agents.refresh()
-            all += agents.entries()
-        }
-        if wants(.command) {
-            await commands.refresh()
-            all += commands.entries()
-        }
-        if wants(.page) {
-            let since = query.range.start(now: Date())
-            let limit = query.limit ?? 500
-            for (profile, log) in profileLogs {
-                for visit in await log.visits(matching: query.text, since: since, limit: limit) {
-                    all.append(HistoryEntry(id: "page:\(profile):\(visit.id)", kind: .page, time: visit.time,
-                                            title: visit.title.flatMap { $0.isEmpty ? nil : $0 } ?? visit.url, detail: visit.url,
-                                            payload: .page(url: visit.url, profile: profile)))
-                }
-            }
-        }
-        return query.apply(to: all)
+    func entries(_ query: HistoryQuery) async -> [HistoryEntry] { await read(query).entries }
+
+    /// Same, with whether an owner did not answer (an empty list is then not "nothing there").
+    func read(_ query: HistoryQuery) async -> HistoryRead {
+        // The local daemon may be (re)connecting: its kinds are then unavailable, every connected daemon's commands still list.
+        await daemonEntries(query, daemonHistory)
     }
 
-    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
-        if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
-        return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
-    }
-
-    func locationEntries() -> [HistoryEntry] {
-        let trail = services.locationTrail
-        return trail.trail.entries.enumerated().map { index, entry in
-            let location = entry.location
-            return HistoryEntry(
-                id: "location:\(location.key.machine):\(location.key.tab):\(index)", kind: .location, time: entry.enteredAt,
-                title: location.title, detail: location.workspaceTitle, machineName: location.machineName,
-                isAvailable: trail.isAvailable(location), payload: .location(location, isCurrent: index == trail.trail.cursor))
-        }
+        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
+        return await daemonEntry(id: id, daemonHistory)
     }
 
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
     /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
-    func closedEntries() -> [HistoryEntry] {
+    /// `limit`: only the newest that many are named (the titlebar list).
+    func closedEntries(limit: Int? = nil) -> [HistoryEntry] {
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
-        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
+        let once = DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }
+        return once.prefix(limit ?? once.count).map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind = Self.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
@@ -235,84 +174,52 @@ final class HistoryService {
 
     // MARK: Clearing
 
-    /// Clears `kinds` (empty: all) in `range`. Pages clear in every profile.
+    /// Clears `kinds` (empty: all) in `range`, from its start to the click (the daemon clear may wait in `writes`). Pages clear in every profile.
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
-        let since = range.start(now: Date())
+        let now = Date(), since = range.start(now: now)
         if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
-        if daemonHistory != nil {
-            // The daemon removes page visits and trail entries and hides agents; terminal commands
-            // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
-            let appOwned: Set<HistoryEntry.Kind> = [.command]
-            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
-            if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
-            if wants(.command) { commands.delete(since: since) }
-            if wants(.page) {
-                for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
-                    services.cache.history(for: profile).forget(since: since)
-                }
-            }
-            if wants(.location) { services.locationTrail.clear(since: since) }
-            onChange?()
-            return
-        }
+        // The daemon removes page visits, trail entries and closed items and hides agents; terminal
+        // commands are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
+        let appOwned: Set<HistoryEntry.Kind> = [.command]
+        let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
+        if !owned.isEmpty { daemonClear(kinds: owned, since: since, until: now) }
+        if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: now, kind: "agent") } }
+        if wants(.command) { commands.delete(since: since, until: now) }
         if wants(.page) {
-            for (profile, _) in profileLogs {
-                guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
-                sink(for: engine).clear(since: since)
-                services.cache.history(for: engine).forget(since: since)
+            for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+                services.cache.history(for: profile).forget(since: since)
             }
         }
         if wants(.location) { services.locationTrail.clear(since: since) }
-        if wants(.closed) { DaemonClosedHistory.clear(since: since, services: services) }
-        if wants(.agent) { agents.hide(since: since) }
-        if wants(.command) { commands.delete(since: since) }
         onChange?()
     }
 
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
-        let since = range.start(now: Date())
-        Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
-        if daemonHistory != nil {
-            let wireID = BrowserProfileRecord.wireID(for: profile)
-            daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }
-            services.cache.history(for: profile).forget(since: since)
-            onChange?()
-            return
-        }
-        sink(for: profile).clear(since: since)
+        let now = Date(), since = range.start(now: now)
+        let wireID = BrowserProfileRecord.wireID(for: profile)
+        Task { [sync = services.onboarding.historySync] in await sync.forget(profile: wireID, since: since) }  // task-owner: imported pages too
+        daemonClear(kinds: [.page], since: since, until: now, profile: wireID)
         services.cache.history(for: profile).forget(since: since)
         onChange?()
     }
 
     /// Removes one entry (the page's Remove from History).
     func remove(_ entry: HistoryEntry) {
-        // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
-        // it serves history-v1) removes every visit of it.
-        if daemonHistory != nil, entry.kind != .page, entry.kind != .command {
-            let id = entry.id
-            daemonMutation { try await $0.remove(ids: [id]) }
-            // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
-            if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
-            onChange?()
-            return
-        }
         switch entry.payload {
         case .page(let url, let profile):
+            // The omnibox removes the URL and its persistence removes every visit of it on the daemon.
             let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
             if let url = URL(string: url) { services.cache.history(for: engine).removeEntry(for: url) }
-        case .location(let location, _):
-            services.locationTrail.remove(location.key)
-        case .closed(let item):
-            // Delete Permanently on the daemon that owns it.
-            guard let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id),
-                  let entry = DaemonClosedHistory.entry(id, in: services) else { break }
-            DaemonClosedHistory.delete(entry, services: services)
-        case .agent(let session):
-            agents.hide(session)
         case .command(let command):
             commands.delete(command)
+        case .location, .closed, .agent:
+            let id = entry.id
+            daemonMutation { try await $0.remove(ids: [id], key: $1) }
+            if case .agent(let session) = entry.payload { hidden.hideLocally { $0.hide(entry: session.qualifiedID) } }
+            // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
+            if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
         }
         onChange?()
     }
@@ -320,31 +227,19 @@ final class HistoryService {
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
         Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
-        if daemonHistory != nil {
-            // One site removal on the daemon (one backup); memory forgets without persistence.
-            daemonMutation { try await $0.removeSite(host: host, profile: nil) }
-            for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
-                services.cache.history(for: profile).forget(host: host)
-            }
-            onChange?()
-            return
-        }
-        for (profile, _) in profileLogs {
-            guard let engine = BrowserProfileRecord.engineProfile(for: profile) else { continue }
-            // One removal in the log; memory forgets without persistence (not a Remove from History per page).
-            sink(for: engine).remove(host: host)
-            services.cache.history(for: engine).forget(host: host)
+        // One site removal on the daemon (one backup); memory forgets without persistence.
+        daemonMutation { try await $0.removeSite(host: host, profile: nil, key: $1) }
+        for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
+            services.cache.history(for: profile).forget(host: host)
         }
         onChange?()
     }
 
-    /// A deleted browser profile: its page history goes too, on the daemon and in the app-local log.
+    /// A deleted browser profile: its page history goes too, on the daemon.
     func forget(profile: BrowserProfileID) {
-        if daemonHistory != nil {
-            let wireID = BrowserProfileRecord.wireID(for: profile)
-            daemonMutation { try await $0.clear(kinds: [.page], range: .all, profile: wireID) }
-        }
-        sinks[profile]?.clear(since: nil)
-        sinks[profile] = nil
+        let wireID = BrowserProfileRecord.wireID(for: profile), now = Date()
+        daemonClear(kinds: [.page], since: nil, until: now, profile: wireID)
+        routes[profile] = nil
     }
 }
+

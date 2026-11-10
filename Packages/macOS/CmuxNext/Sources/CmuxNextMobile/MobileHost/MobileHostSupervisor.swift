@@ -29,21 +29,21 @@ public actor MobileHostSupervisor {
         public var browserHosts: (any MobileHostBrowserHosting)?
         /// This Mac's identity key, proved to phones that pinned it; nil: none.
         public var macIdentity: MobileHostMacIdentity?
-        /// The app's simulator surface sources; nil when this build cannot stream
-        /// simulators (hostd then refuses `surface`).
+        /// The app's surface sources (phone tabs' simulators, `s<n>`, and the owner's Cloud
+        /// desktops, `c~<machine>~<team>`); nil when this build streams neither (hostd then refuses `surface`).
         public var surfaceHosts: (any MobileHostSurfaceHosting)?
-        /// Current new-architecture carriers; fetched for every phone request, never cached here.
-        public var cloudLinks: @Sendable () async -> [MobileHostCloudLink]
+        /// Current new-architecture carriers and the plan's Cloud flag; fetched for every phone request, never cached here.
+        public var cloudLinks: @Sendable () async -> MobileHostCloudLinks
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                    cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil) {
+                    cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil) {
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
-            self.cloudLinks = cloudLinks ?? { [] }
+            self.cloudLinks = cloudLinks ?? { MobileHostCloudLinks() }
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -67,12 +67,26 @@ public actor MobileHostSupervisor {
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
+    /// The last `needs_you` line (the Feed's open requests) and the account (Stack user) whose feed
+    /// it came from: sent on every change, and to each new hostd of that same account only. A hostd
+    /// of another account (a sign-in as B after A) gets none of A's requests.
+    private var needsYou: (user: String, line: Data)?
+    /// The account the running hostd serves (its launch's user), nil with none running.
+    private var processUser: String?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
     private var state = MobileHostState()
     private var run: Task<Void, Never>?
     private var process: MobileHostProcess?
+    private struct ExposureWaiter {
+        var sessionID: String
+        var allowed: Bool
+        var continuation: CheckedContinuation<Void, Error>
+    }
+    private var nextExposureRequest: UInt64 = 0
+    private var exposureWaiters: [UInt64: ExposureWaiter] = [:]
+    private var exposureTimeouts: [UInt64: DemandTimer] = [:]
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
@@ -135,6 +149,11 @@ public actor MobileHostSupervisor {
 
     /// Ends the current run and waits for its hostd to exit.
     private func halt() async {
+        let waiters = exposureWaiters
+        exposureWaiters.removeAll()
+        exposureTimeouts.values.forEach { $0.cancel() }
+        exposureTimeouts.removeAll()
+        waiters.values.forEach { $0.continuation.resume(throwing: SessionExposureError.hostUnavailable) }
         let task = run
         run = nil
         task?.cancel()
@@ -150,6 +169,89 @@ public actor MobileHostSupervisor {
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
+    }
+
+    public enum SessionExposureError: Error, LocalizedError, Equatable, Sendable {
+        case hostUnavailable
+        case rejected(String)
+        case timedOut
+
+        public var errorDescription: String? {
+            switch self {
+            case .hostUnavailable: return "cmux-mobile-host is not running"
+            case let .rejected(reason): return reason
+            case .timedOut: return "cmux-mobile-host did not confirm the Remote Control change"
+            }
+        }
+    }
+
+    /// Changes one chat's Remote Control exposure and waits for the Rust host's exact state
+    /// acknowledgement. A dead host never reports success; persistence remains Rust-owned.
+    public func setSessionExposure(sessionID: String, allowed: Bool) async throws {
+        guard let process else { throw SessionExposureError.hostUnavailable }
+        let id = nextExposureRequest
+        nextExposureRequest &+= 1
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                exposureWaiters[id] = ExposureWaiter(sessionID: sessionID, allowed: allowed, continuation: continuation)
+                guard process.send(MobileHostLaunch.sessionExposureLine(sessionID: sessionID, allowed: allowed)) else {
+                    exposureWaiters.removeValue(forKey: id)
+                    continuation.resume(throwing: SessionExposureError.hostUnavailable)
+                    return
+                }
+                let timeout = DemandTimer(owner: "MobileHostSupervisor.sessionExposure")
+                exposureTimeouts[id] = timeout
+                timeout.schedule(after: .seconds(3)) { [weak self] in
+                    await self?.timeoutExposureRequest(id)
+                }
+            }
+        }, onCancel: {
+            // task-owner: one actor hop resolves this cancelled request; it never waits or repeats.
+            Task { [weak self] in await self?.cancelExposureRequest(id) }
+        })
+    }
+
+    private func timeoutExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: SessionExposureError.timedOut)
+    }
+
+    private func cancelExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func resolveExposureRequests(for event: MobileHostEvent) {
+        switch event {
+        case let .sessionExposureState(available, configured, sessions, blockedSessions):
+            let exposed = Set(sessions)
+            let blocked = Set(blockedSessions)
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (available && (waiter.allowed
+                    ? (configured ? exposed.contains(waiter.sessionID) : true)
+                    : blocked.contains(waiter.sessionID))) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume()
+            }
+        case let .sessionExposureError(sessionID, allowed, reason):
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (waiter.sessionID == sessionID && waiter.allowed == allowed) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume(throwing: SessionExposureError.rejected(reason))
+            }
+        default:
+            break
+        }
     }
 
     /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
@@ -174,6 +276,29 @@ public actor MobileHostSupervisor {
         let line = MobileHostLaunch.phoneCredentialsLine(credentials)
         phoneCredentialsLine = line
         process?.send(line)
+    }
+
+    /// The app Feed's open requests (#33818) of `user`'s feed: kept for each new hostd of that
+    /// account and sent to the running one now when it serves that account. hostd serves them to
+    /// phones and pushes each one once. Another account's set replaces the kept one outright.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) {
+        let line = MobileHostLaunch.needsYouLine(requests)
+        guard needsYou?.user != user || needsYou?.line != line else { return }
+        needsYou = (user, line)
+        if processUser == user { process?.send(line) }
+    }
+
+    /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now
+    /// gets it. Nothing goes to the running hostd: an empty set would close each request on that
+    /// account's phones, while the account change itself ends that hostd.
+    public func clearNeedsYou() {
+        needsYou = nil
+    }
+
+    /// The `needs_you` line a hostd started now for `user` gets: only that account's own.
+    func needsYouForHostd(user: String) -> Data? {
+        guard let needsYou, needsYou.user == user else { return nil }
+        return needsYou.line
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -219,7 +344,8 @@ public actor MobileHostSupervisor {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }
         process = child
-        defer { process = nil }
+        processUser = inputs.launch.userID
+        defer { (process, processUser) = (nil, nil) }
         // A new hostd knows none of the old one's browser hosts.
         defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         defer { if let sources = inputs.surfaceHosts { Task { await sources.stopAll() } } }
@@ -312,6 +438,7 @@ public actor MobileHostSupervisor {
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
                 publish { $0.apply(event, at: at) }
+                resolveExposureRequests(for: event)
             }
         }
     }
@@ -321,6 +448,7 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
+        if let line = needsYouForHostd(user: inputs.launch.userID) { child.send(line) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

@@ -258,6 +258,35 @@ impl CloudBackend for RemoteCloudBackend {
         headers: &[(String, String)],
         body: PutBody,
     ) -> Result<HttpReply, TransportError> {
+        self.put_with_etag(url, headers, body).map(|(reply, _)| reply)
+    }
+
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        self.runtime.block_on(async {
+            let response = self
+                .files
+                .post(url)
+                .timeout(UPLOAD_TIMEOUT)
+                .header("x-cmux-part-number", number)
+                .json(&serde_json::json!({}))
+                .send()
+                .await
+                .map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError("part URL reply exceeds the limit".into()));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
         let headers_have_length =
             headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
         let mut request = self.files.put(url);
@@ -292,6 +321,8 @@ impl CloudBackend for RemoteCloudBackend {
             };
             let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
+            let etag = response.headers().get(reqwest::header::ETAG)
+                .and_then(|value| value.to_str().ok()).map(str::to_owned);
             let bytes = tokio::time::timeout(reply_body_window(), response.bytes())
                 .await
                 .map_err(|_| TransportError("the upload reply did not finish".into()))?
@@ -302,7 +333,7 @@ impl CloudBackend for RemoteCloudBackend {
                     bytes.len()
                 )));
             }
-            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+            Ok((HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) }, etag))
         })
     }
 
@@ -357,8 +388,11 @@ impl CloudBackend for RemoteCloudBackend {
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
         self.handshake(url, bearer, client_version).map(|stream| {
-            Box::new(RemoteWire { handle: self.runtime.handle().clone(), stream })
-                as Box<dyn CloudWire>
+            Box::new(RemoteWire {
+                handle: self.runtime.handle().clone(),
+                stream,
+                wake: Arc::new(tokio::sync::Notify::new()),
+            }) as Box<dyn CloudWire>
         })
     }
 }
@@ -420,6 +454,9 @@ fn transport(error: &reqwest::Error) -> TransportError {
 struct RemoteWire {
     handle: tokio::runtime::Handle,
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    /// Ends a waiting `recv` early (`CloudWire::interrupter`); a wake with
+    /// no receive waiting ends the next one.
+    wake: Arc<tokio::sync::Notify>,
 }
 
 impl CloudWire for RemoteWire {
@@ -435,12 +472,22 @@ impl CloudWire for RemoteWire {
         })
     }
 
+    fn interrupter(&self) -> Option<cmux_tui_core::cloud_conversations::WireInterrupt> {
+        let wake = self.wake.clone();
+        Some(Arc::new(move || wake.notify_one()))
+    }
+
     fn recv(&mut self, timeout: Duration) -> WireRecv {
         let stream = &mut self.stream;
+        let wake = self.wake.clone();
         self.handle.block_on(async move {
-            let next = match tokio::time::timeout(timeout, stream.next()).await {
-                Err(_) => return WireRecv::Idle,
-                Ok(next) => next,
+            // `next` is cancel safe: a frame half read stays buffered.
+            let next = tokio::select! {
+                next = tokio::time::timeout(timeout, stream.next()) => match next {
+                    Err(_) => return WireRecv::Idle,
+                    Ok(next) => next,
+                },
+                () = wake.notified() => return WireRecv::Idle,
             };
             match next {
                 None | Some(Err(_)) => WireRecv::Closed { code: None },
@@ -498,6 +545,58 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// The declared part length is a hard boundary even when it is not a
+    /// 64 KiB multiple. A server must never receive the next part's bytes.
+    #[test]
+    fn streamed_put_stops_at_a_non_aligned_declared_length() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (seen, received) = mpsc::channel();
+        let declared = UPLOAD_CHUNK_BYTES as u64 + 17;
+        std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut length = None;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = Some(value.trim().parse::<usize>().unwrap());
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let length = length.unwrap();
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            reader.get_mut().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+            let mut extra = [0; 1];
+            let extra_byte = reader.read(&mut extra).unwrap_or(0) != 0;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\netag: \"part-etag\"\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}")
+                .unwrap();
+            seen.send((body, extra_byte)).unwrap();
+        });
+        let path =
+            std::env::temp_dir().join(format!("cmux-stream-boundary-{}", std::process::id()));
+        let mut source = std::fs::File::create(&path).unwrap();
+        source.write_all(&vec![b'a'; declared as usize]).unwrap();
+        source.write_all(b"NEXT-PART").unwrap();
+        drop(source);
+        let file = std::fs::File::open(&path).unwrap();
+        let backend = RemoteCloudBackend::new().unwrap();
+        let (_, etag) = backend
+            .put_with_etag(&format!("{origin}/upload"), &[], PutBody::File { file, len: declared })
+            .unwrap();
+        assert_eq!(etag.as_deref(), Some("\"part-etag\""));
+        let (body, extra) = received.recv().unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(body.len(), declared as usize);
+        assert!(body.iter().all(|byte| *byte == b'a'));
+        assert!(!extra, "streamed body crossed the declared part boundary");
+    }
 
     /// Review of #26498: a slow uplink or a slow final answer is not a stall.
     /// One read of the body is small enough that hyper asks for the next one
@@ -616,6 +715,20 @@ mod tests {
             .unwrap();
         assert_eq!(reply.status, 307);
         assert!(seen.recv().unwrap().0.starts_with("PATCH "));
+    }
+
+    #[test]
+    fn direct_part_url_mint_uses_only_the_slot_and_part_header() {
+        let backend = RemoteCloudBackend::new().unwrap();
+        let (origin, seen) = one_http_exchange(
+            "HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
+        );
+        backend.attachment_part_url(&format!("{origin}/signed-slot"), 3).unwrap();
+        let (head, _) = seen.recv().unwrap();
+        let head = head.to_ascii_lowercase();
+        assert!(head.starts_with("post /signed-slot "));
+        assert!(head.contains("x-cmux-part-number: 3"));
+        assert!(!head.contains("authorization:"));
     }
 
     #[test]

@@ -86,20 +86,24 @@ async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
   const keycaps = () =>
     [...host.querySelectorAll("button")]
       .filter((button) => button.querySelector("kbd"))
-      .map((button) => `${button.getAttribute("aria-label")}: ${button.querySelector("kbd")!.textContent}`);
+      .map(
+        (button) =>
+          `${button.getAttribute("aria-label")}: ${[...button.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")}`,
+      );
   return { host, answers, press, keycaps, unmount: () => act(async () => root.unmount()) };
 }
 
 test("deny answers with the first deny option, and only its button shows the keycap", async () => {
   const card = await mount();
-  expect(card.keycaps()).toEqual(["Allow once: ⌥⌘1", "Deny: ⌥⌘3"]);
+  // Each answer leads with its letter (dealbreakers D8: approving is one obvious key), then its keys.
+  expect(card.keycaps()).toEqual(["Deny: N Esc", "Allow once: Y ⌘ ↩"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
   await card.unmount();
 });
 
 // Leo 2026-10-25: the buttons went short ("Always allow", not its whole rule); the keys stay.
-test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, and an extra option draws no key", async () => {
+test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, show Esc and ⌘↩ keycaps, and an extra option draws no key", async () => {
   const card = await mount(undefined, {
     ...ask,
     permissionId: "p-rule",
@@ -110,19 +114,18 @@ test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, and an extra option draws
       ...ask.options.slice(1),
     ],
   });
-  expect(card.keycaps()).toEqual(["Allow once: ⌥⌘1", "Always allow: ⌥⌘2", "Deny: ⌥⌘3"]);
+  // Leo 2026-11-05, on Claude desktop's "Deny Esc" and "Allow for this session ⌘↩": Deny and Allow
+  // once show the card's own keys as keycaps; Always allow keeps its light ⌥⌘2 hint. Every button
+  // still answers its app shortcut, listed after the card key. The answer's letter leads (y, a, n).
+  expect(card.keycaps()).toEqual(["Deny: N Esc", "Always allow: A ⌥⌘2", "Allow once: Y ⌘ ↩"]);
   // Leo 2026-10-25, "just make it good? incl. the symbol hints": the hint is decoration, its
   // modifiers a fainter span before the key, and the button's name stays its label.
-  const hints = [...card.host.querySelectorAll(".acpmux-permission-action-shortcut")];
-  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(["true", "true", "true"]);
-  expect(hints.map((hint) => hint.querySelector(".acpmux-permission-action-modifiers")?.textContent)).toEqual([
-    "⌥⌘",
-    "⌥⌘",
-    "⌥⌘",
-  ]);
+  const hints = [...card.host.querySelectorAll("button kbd")];
+  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(Array(7).fill("true"));
+  expect(card.host.querySelector(".acpmux-permission-action-modifiers")?.textContent).toBe("⌥⌘");
   expect(
     [...card.host.querySelectorAll("button[aria-keyshortcuts]")].map((b) => b.getAttribute("aria-keyshortcuts")),
-  ).toEqual(["⌥⌘1", "⌥⌘2", "⌥⌘3"]);
+  ).toEqual(["n Escape ⌥⌘3", "a ⌥⌘2", "y Meta+Enter ⌥⌘1"]);
   await card.press("permissionAllowChat");
   expect(card.answers).toEqual(["session"]);
   await card.unmount();

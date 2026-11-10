@@ -110,7 +110,7 @@ public final class MainThreadWatchdog: Sendable {
     /// The process's fault counters when the watchdog first sampled the stall of `beat`: the
     /// base of its hang file's page-ins (+Episodes). Watchdog thread only (uncontended).
     let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?)?>(nil)
-    private let hangNanos: UInt64
+    let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
     public let log: HangLog
@@ -119,7 +119,7 @@ public final class MainThreadWatchdog: Sendable {
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
     /// when they move it, so host load adds no stall.
-    private let uptime: @Sendable () -> UInt64
+    let uptime: @Sendable () -> UInt64
     /// The stack is sampled this long into a stall (60% of the threshold),
     /// so a stall that ends just past the threshold still has one; the
     /// sample is dropped when the stall ends below the threshold.
@@ -148,7 +148,9 @@ public final class MainThreadWatchdog: Sendable {
     let running = Atomic<Bool>(false)
     /// The watchdog thread's wait: the main thread arms it on each wake and deletes it before
     /// each sleep, so only a turn longer than `sampleAfterNanos` wakes the watchdog thread.
-    private let alarm = MainThreadWatchdogAlarm()
+    let alarm = MainThreadWatchdogAlarm()
+    /// Nested default-mode runs of the main run loop, which the heartbeat reads as idle.
+    let nested = NestedRunLoopWatch()
     /// The stall sample, published by the watchdog thread while the main
     /// thread is still suspended (so a stall that ends right after the
     /// sample still finds it): the beat it belongs to, and its frame count
@@ -248,6 +250,7 @@ public final class MainThreadWatchdog: Sendable {
         beatNanos.store(uptime(), ordering: .releasing)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
+        nested.start(insideRun: CFRunLoopCopyCurrentMode(CFRunLoopGetMain()) != nil)
         // Two observers: every activity but before-waiting stamps first
         // (order CFIndex.min); before-waiting stamps last (CFIndex.max), so
         // AppKit's layout, display and the Core Animation commit, which run
@@ -298,6 +301,7 @@ public final class MainThreadWatchdog: Sendable {
     /// tests call it directly).
     func heartbeat(_ activity: CFRunLoopActivity) {
         let now = uptime()
+        noteRunLoopEdge(activity, now: now)
         let cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
@@ -357,16 +361,20 @@ public final class MainThreadWatchdog: Sendable {
     // MARK: - Watchdog thread
 
     func watch(sampler: ThreadStackSampler?) {
+        // Once with the initial values while nothing is suspended: its first suspended call then fills no Swift
+        // runtime cache (a Debug build's generic atomics resolve their witness tables on first use).
+        publishSample(board: nil, count: 0, beat: .max)
         var sampledBeat: UInt64 = .max
         var sampledTask: UInt64 = 0
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
         while running.load(ordering: .acquiring) {
             closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
+            checkNestedRunLoop(sampler: sampler)
             if mainAsleep.load(ordering: .acquiring) {
                 closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
-                // Parked until a main turn outlasts the sample delay (its alarm) or stop(). A wake
-                // between the check and the wait is not lost: the kernel keeps the fired timer.
-                waitForAlarm(nanos: nil)
+                // Parked until a main turn outlasts the sample delay (its alarm), a nested run is due, or
+                // stop(). A wake between the check and the wait is not lost: the kernel keeps the fired timer.
+                waitForAlarm(nanos: nested.parkLimit(now: uptime(), hangNanos: hangNanos))
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
@@ -388,14 +396,7 @@ public final class MainThreadWatchdog: Sendable {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
-                    _ = sampler.sample { count in
-                        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
-                        publishedTaskPacked.store(task.packed, ordering: .relaxed)
-                        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
-                        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
-                        publishedSampleCount.store(count, ordering: .relaxed)
-                        publishedSampleBeat.store(beat, ordering: .releasing)
-                    }
+                    _ = sampler.sample { count in publishSample(board: board, count: count, beat: beat) }
                     #if DEBUG
                     afterSampleForTesting.withLock { $0 }?()
                     #endif
@@ -406,6 +407,18 @@ public final class MainThreadWatchdog: Sendable {
             waitForAlarm(nanos: thresholdNanos)
         }
         if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
+    }
+
+    /// Publishes one sample for the main thread to read when its stall ends: the running task, the frame count
+    /// and the beat (``recordStall``). It runs while the main thread is suspended, so atomics only, and no first
+    /// use of anything (``ThreadStackSampler`` says why). Watchdog thread only.
+    private func publishSample(board: MainTaskBoard?, count: Int, beat: UInt64) {
+        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
+        publishedTaskPacked.store(task.packed, ordering: .relaxed)
+        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
+        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        publishedSampleCount.store(count, ordering: .relaxed)
+        publishedSampleBeat.store(beat, ordering: .releasing)
     }
 
     /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds

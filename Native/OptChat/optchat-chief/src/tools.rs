@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -45,7 +45,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 12] = [
+const TURN_GATED: [&str; 13] = [
     "send",
     "reply",
     "react",
@@ -58,6 +58,7 @@ const TURN_GATED: [&str; 12] = [
     "profile",
     "remember",
     "cloud_workspace",
+    "mcp",
 ];
 
 /// Section 9's subagent tools, answered by the host (subagents.rs).
@@ -245,6 +246,12 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Chief knows the reply is long (a list the person asked for): the
+    /// length gate lets its first send post (chief_kernel::replies).
+    pub long: bool,
+    /// A widget part (plans/cmux-next/chat-widgets-DESIGN.md): drawn by a Mac
+    /// with the app, shown as its fallback text everywhere else.
+    pub widget: Option<cmux_conversation::Widget>,
 }
 
 impl SendCall {
@@ -270,13 +277,39 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if attachments.len() > MAX_SEND_ATTACHMENTS {
-            return Err(format!(
-                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
-            ));
-        }
-        if text.is_none() && attachments.is_empty() {
-            return Err("send: give `text`, `attachments` or both".into());
+        let widget = match args.get("widget") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(w)) => {
+                let field = |k: &str| {
+                    w.get(k)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                };
+                let widget = cmux_conversation::Widget {
+                    app: field("app").ok_or("send: `widget.app` is the app id, publisher/name")?.to_owned(),
+                    widget: field("widget").unwrap_or("cmux.chat.widget/1").to_owned(),
+                    props: w.get("props").cloned().unwrap_or_else(|| json!({})),
+                    fallback: field("fallback")
+                        .ok_or("send: `widget.fallback` is required: the text clients without the app show")?
+                        .to_owned(),
+                    url: field("url").map(str::to_owned),
+                };
+                if !cmux_conversation::valid_widget(&widget) {
+                    return Err(format!(
+                        "send: the widget is malformed: app is publisher/name, props a JSON object of at most {} bytes, fallback 1 to {} characters, url https",
+                        cmux_conversation::MAX_WIDGET_PROPS_BYTES,
+                        cmux_conversation::MAX_WIDGET_FALLBACK_CHARS
+                    ));
+                }
+                Some(widget)
+            }
+            Some(_) => {
+                return Err("send: `widget` must be an object {app, props, fallback, url?}".into());
+            }
+        };
+        if text.is_none() && attachments.is_empty() && widget.is_none() {
+            return Err("send: give `text`, `attachments`, `widget` or several".into());
         }
         let reply_to = match args.get("reply_to") {
             None | Some(Value::Null) => None,
@@ -286,10 +319,17 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let long = match args.get("long") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("send: `long` must be true or false".into()),
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            long,
+            widget,
         })
     }
 
@@ -303,6 +343,12 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if self.long {
+            v["long"] = json!(true);
+        }
+        if let Some(w) = &self.widget {
+            v["widget"] = json!(w);
         }
         v
     }
@@ -595,10 +641,6 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "control",
             &serde_json::json!({"action": "cloud", "peer": peer}),
         ),
-        ("control", ["sessions", n]) => Call::parse(
-            "control",
-            &serde_json::json!({"action": "sessions", "n": n}),
-        ),
         ("control", ["answer", id, option]) => Call::parse(
             "control",
             &serde_json::json!({"action": "answer", "id": id, "option": option}),
@@ -715,10 +757,7 @@ impl ControlCall {
             n,
             peer: text("peer"),
         };
-        let needs_id = !matches!(
-            call.action.as_str(),
-            "status" | "cap" | "cloud" | "sessions"
-        );
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
         if needs_id && call.id.is_none() {
             return Err(format!("control {}: `id` is required", call.action));
         }
@@ -828,6 +867,9 @@ pub enum Call {
     /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
     /// workspace for a task.
     CloudWorkspace(crate::cloud_workspace::Request),
+    /// `mcp` (mcp_hub): one action of the MCP hub, its arguments as JSON
+    /// text (text keeps `Call` `Eq`).
+    Mcp(String),
     /// `escalate_auth` (a subagent's only write tool): the Chief drives a
     /// sign-in for it. `agent` is the caller's own id as it claims it; the
     /// host prefers the id its session binding gives (turn_caller.rs).
@@ -918,14 +960,12 @@ impl Call {
                     .filter(|e| !e.is_empty())
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
-                    && !PLACES.contains(&p)
-                    && !p
-                        .strip_prefix("cloud:")
-                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
+                    && let Some(size) = p.strip_prefix("cloud:")
+                    && !crate::subagents::SIZES.contains(&size)
                 {
                     return Err(format!(
-                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
-                        PLACES.join(", ")
+                        "spawn: no Cloud size {size}; one of {}",
+                        crate::subagents::SIZES.join(", ")
                     ));
                 }
                 let harness = args
@@ -940,6 +980,28 @@ impl Call {
                     .map(str::trim)
                     .filter(|m| !m.is_empty())
                     .map(str::to_owned);
+                // The Chief's sidebar choice (a1018) rides on each task as its
+                // `Sidebar:` line; a task that has its own keeps it.
+                let tasks = match args.get("sidebar").and_then(Value::as_str).map(str::trim) {
+                    None | Some("") => tasks,
+                    Some(v) => {
+                        let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
+                            return Err(format!(
+                                "spawn: no sidebar {v}; one of auto, shown, hidden"
+                            ));
+                        };
+                        tasks
+                            .into_iter()
+                            .map(|t| {
+                                if crate::workspaces::header(&t, "sidebar").is_some() {
+                                    t
+                                } else {
+                                    format!("Sidebar: {}\n{t}", choice.as_str())
+                                }
+                            })
+                            .collect()
+                    }
+                };
                 Ok(Call::Spawn {
                     tasks,
                     cwd,
@@ -1009,6 +1071,18 @@ impl Call {
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "watch" => WatchCall::parse(args).map(Call::Watch),
+            "mcp" => {
+                // On the socket the arguments ride in `mcp_args`: the
+                // envelope's own `tool` key would clobber the MCP `tool`.
+                if let Some(wire) = args.get("mcp_args").and_then(Value::as_str) {
+                    return Ok(Call::Mcp(wire.to_owned()));
+                }
+                let mut a = args.as_object().cloned().unwrap_or_default();
+                for k in ["from", "turn_key"] {
+                    a.remove(k);
+                }
+                Ok(Call::Mcp(Value::Object(a).to_string()))
+            }
             "remember" => {
                 let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
                 crate::remember::clean(text).map(|text| Call::Remember { text })
@@ -1109,8 +1183,9 @@ impl Call {
             | Call::ZoomAgent { .. }
             | Call::EscalateAuth { .. }
             | Call::Profile { .. }
+            | Call::Mcp(_)
             | Call::Chiefs { .. } => {
-                "spawn, tell, peers, profile, chiefs and a subagent's zoom are served by the Chief host"
+                "spawn, tell, peers, profile, chiefs, mcp and a subagent's zoom are served by the Chief host"
                     .to_owned()
             }
         }
@@ -1180,6 +1255,7 @@ impl Call {
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
             Call::Watch(c) => c.to_json(),
+            Call::Mcp(args) => json!({"tool": "mcp", "mcp_args": args}),
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
             Call::CloudWorkspace(r) => {
@@ -1252,12 +1328,17 @@ pub enum ControlRequest {
     Retry(String),
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
+    /// chief.stop {start: name}: that queued subagent starts now, past the
+    /// live cap (Start now in Home).
+    StartSubagent(String),
     /// chief.stop {all: true}: the turn and every subagent ("Stop all
     /// agents").
     StopAll,
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The turn session's tool hook (rights.rs): answers the hook's JSON.
+    RightsHook { phase: String, payload: Value },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1281,6 +1362,12 @@ pub struct Served {
     /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
     /// posts to them through the agent hub and `chiefs` lists them. None: off.
     pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
+    /// This Chief's fork in the cloud (migrate_fork.rs): `tell("chief:fork")`
+    /// reaches it and its reply comes back as a note. None: off.
+    pub fork: Option<Arc<crate::migrate_fork::ForkPeer>>,
+    /// The MCP hub (mcp_hub): the servers the Chief added, for it and its
+    /// subagents. None: no `mcp` tool on this host.
+    pub mcp: Option<crate::mcp_hub::McpHub>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1305,6 +1392,8 @@ pub fn serve_with(
             chief: None,
             turn: None,
             peers: None,
+            fork: None,
+            mcp: None,
         },
     )
 }
@@ -1384,6 +1473,28 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                // The turn session's tool hook (`optchat-chief rights-hook`):
+                // only a caller under one of this Chief's turn sessions gets
+                // a decision; anyone else gets none (their own policy holds).
+                if tool == "rights_hook" {
+                    let phase = req.get("phase").and_then(Value::as_str).unwrap_or("");
+                    let answer = match (control, role(), phase) {
+                        (Some(control), crate::turn_caller::Role::Turn, "pre" | "post") => {
+                            match control(ControlRequest::RightsHook {
+                                phase: phase.to_owned(),
+                                payload: req.get("payload").cloned().unwrap_or(Value::Null),
+                            }) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
+                        _ => json!({"text": "{}"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {
@@ -1441,17 +1552,25 @@ fn connection(conn: UnixStream, served: &Served) {
                                     .collect::<Vec<_>>()
                             });
                             let all = req.get("all").and_then(Value::as_bool) == Some(true);
-                            Some(
-                                match (restart, all, field("name").filter(|n| !n.trim().is_empty()))
-                                {
-                                    (Some(ids), _, _) => ControlRequest::Restart(ids),
-                                    (None, true, _) => ControlRequest::StopAll,
-                                    (None, false, Some(name)) => {
-                                        ControlRequest::StopSubagent(name.trim().to_owned())
-                                    }
-                                    (None, false, None) => ControlRequest::Stop,
-                                },
-                            )
+                            // Start now (a queued agent's tab in Home): no stop at all.
+                            if let Some(name) = field("start").filter(|n| !n.trim().is_empty()) {
+                                Some(ControlRequest::StartSubagent(name.trim().to_owned()))
+                            } else {
+                                Some(
+                                    match (
+                                        restart,
+                                        all,
+                                        field("name").filter(|n| !n.trim().is_empty()),
+                                    ) {
+                                        (Some(ids), _, _) => ControlRequest::Restart(ids),
+                                        (None, true, _) => ControlRequest::StopAll,
+                                        (None, false, Some(name)) => {
+                                            ControlRequest::StopSubagent(name.trim().to_owned())
+                                        }
+                                        (None, false, None) => ControlRequest::Stop,
+                                    },
+                                )
+                            }
                         }
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
@@ -1465,11 +1584,13 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                turn_routing: field("turn_routing"),
                                 reactions: Box::new(crate::brain::ReactionFields {
                                     classifier_harness: field("classifier_harness"),
                                     classifier_model: field("classifier_model"),
                                     classifier_prompt: field("classifier_prompt"),
                                     reactions_can_wake: field("reactions_can_wake"),
+                                    permission_mode: field("permission_mode"),
                                 }),
                             }))
                         }
@@ -1621,6 +1742,15 @@ fn connection(conn: UnixStream, served: &Served) {
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
+                    // This Chief's own fork in the cloud (migrate_fork.rs).
+                    Ok(Call::Tell {
+                        ref id,
+                        ref message,
+                        ..
+                    }) if served.fork.as_ref().is_some_and(|f| f.names(id)) => served
+                        .fork
+                        .as_ref()
+                        .map_or_else(|| Err("tell: no fork".to_owned()), |f| f.tell(message)),
                     // A Chief on another machine (peer_chiefs.rs), through the agent hub.
                     Ok(Call::Tell {
                         ref id,
@@ -1686,6 +1816,20 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Watch(call)) => match &served.orchestrator {
                         Some(o) => o.watch(call),
                         None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    // The Chief and its subagents use the hub's servers; only
+                    // the Chief adds or removes one (mcp_hub::McpHub::handle).
+                    Ok(Call::Mcp(args)) => match &served.mcp {
+                        Some(hub) => {
+                            let who = if subagent {
+                                crate::mcp_hub::Caller::Subagent(caller().unwrap_or_else(|| "a subagent".to_owned()))
+                            } else {
+                                crate::mcp_hub::Caller::Chief
+                            };
+                            let args: Value = serde_json::from_str(&args).unwrap_or_else(|_| json!({}));
+                            hub.handle(&args, &who)
+                        }
+                        None => Err("mcp: this Chief host has no MCP hub".to_owned()),
                     },
                     Ok(Call::Remember { text }) => match &served.orchestrator {
                         Some(o) => o.remember(&text),
@@ -1817,6 +1961,14 @@ pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
     Ok((!text.is_empty()).then_some(text))
 }
 
+/// The turn hook's answer from the live host (the JSON the hook prints).
+pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
+}
+
 /// The browse page from the live host; Err when no host answers on `path`.
 pub fn ask_browse(path: &Path) -> Result<String, String> {
     ask_json(path, &json!({"tool": "browse"}))
@@ -1842,38 +1994,5 @@ fn ask_json(path: &Path, request: &Value) -> Result<String, String> {
         (Some(text), _) => Ok(text.to_owned()),
         (None, Some(error)) => Err(error.to_owned()),
         (None, None) => Err("empty answer".to_owned()),
-    }
-}
-
-#[cfg(test)]
-mod control_session_tests {
-    use super::*;
-
-    #[test]
-    fn sessions_needs_no_child_id_and_accepts_a_page_offset() {
-        let first = ControlCall::parse(&json!({"action": "sessions"})).unwrap();
-        assert_eq!(first.action, "sessions");
-        assert_eq!(first.id, None);
-        assert_eq!(first.n, None);
-
-        let next = ControlCall::parse(&json!({"action": "sessions", "n": 60})).unwrap();
-        assert_eq!(next.n, Some(60));
-        assert_eq!(
-            next.to_json(),
-            json!({"tool": "control", "action": "sessions", "n": 60})
-        );
-
-        let cli = match command("control", &["sessions", "60"]).unwrap() {
-            Command::Call(Call::Control(call)) => call,
-            other => panic!("unexpected command: {other:?}"),
-        };
-        assert_eq!(cli.n, Some(60));
-
-        // Actions operating on a particular child still require its id.
-        assert!(
-            ControlCall::parse(&json!({"action": "interrupt"}))
-                .unwrap_err()
-                .contains("id")
-        );
     }
 }

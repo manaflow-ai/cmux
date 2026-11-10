@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
 import { InstallId, Revision } from "./schemas.ts"
+import { CloudVmNetwork } from "./cloud-network.ts"
 import { isMinLength, isPattern } from "./json-checks.ts"
 
 /**
@@ -13,6 +14,8 @@ export const CloudDriverResultParams = Schema.Struct({
   ok: Schema.Boolean,
   /** create: the provider's VM id. */
   provider_id: Schema.optionalKey(Schema.String),
+  /** Native create: membership confirmed before the guest receives its bind file. */
+  network: Schema.optionalKey(CloudVmNetwork),
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
@@ -39,6 +42,9 @@ export const CloudMachineBindParams = Schema.Struct({
   machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)),
   token_sha256: Schema.String.check(isPattern(/^[0-9a-f]{64}$/)),
   wg_public_key: Schema.String.check(isPattern(/^[A-Za-z0-9+/]{43}=$/)),
+  /** The session daemon's Noise static public key (base64url of 32 bytes, unpadded). A device pins it to reach
+   *  the machine over the carrier (design/cloud-carrier.md); a VM image older than the carrier sends none. */
+  daemon_noise_key: Schema.optionalKey(Schema.String.check(isPattern(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/))),
   daemon: Schema.Struct({
     version: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
     capabilities: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(32))
@@ -81,7 +87,7 @@ export const CloudMachineProviderStateParams = Schema.Struct({
   state: Schema.NullOr(Schema.String),
   // Optional for previously committed observations, which predate the fence.
   observed_revision: Schema.optionalKey(Revision),
-  observed_provider_name: Schema.optionalKey(Schema.String),
+  observed_provider_name: Schema.optionalKey(Schema.String.check(isMinLength(1))),
   observed_transport: Schema.optionalKey(Schema.Literals(["direct", "vm-api"]))
 })
 

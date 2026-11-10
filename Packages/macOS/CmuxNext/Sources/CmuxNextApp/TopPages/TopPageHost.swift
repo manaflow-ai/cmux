@@ -28,7 +28,8 @@ final class TopPageHost {
         case .home:
             // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
             guard HomeDock.classic else { return nil }
-            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
+            guard let page = HomeMessagesPage.make(services: services, widthKey: window.state.id) else { return nil }
+            view = page
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
@@ -57,20 +58,22 @@ final class TopPageHost {
     /// a React page: its web content).
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
-        case let home as TopHomePageView: home.focusPrimaryInput()
+        case let home as HomeMessagesPage: home.focusPrimaryInput()
         case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
         default: break
         }
     }
 
+    /// Retires a finished page after leaving it; opening its route again makes a fresh view.
+    func close(_ route: TopPageRoute) {
+        guard let view = views.removeValue(forKey: route) else { return }
+        if let page = view as? InternalPageView { page.removeFromSuperviewDetachingSubviews() } else { view.removeFromSuperview() } // not in a dealloc
+        // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
+        if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
+    }
+
     /// The window closed: every page view goes, and providers forget them.
     func teardown() {
-        for (route, view) in views {
-            view.removeFromSuperview()
-            // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
-            if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
-        }
-        views.removeAll()
-        keys.removeAll()
+        for route in Array(views.keys) { close(route) }
     }
 }

@@ -3,6 +3,7 @@
 // ops from the state's data. The config carries the look the app sends: the Ghostty theme pair
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
+import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
@@ -13,6 +14,7 @@ import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
+import { PAINT_AFTER_NAME } from "../../pages/shared/paintGate";
 import { diffViewerLabelsFor, diffViewerLanguage, loadDiffViewerLabels } from "../../labels";
 import type {
   AppsPageVariant,
@@ -117,6 +119,9 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      // A Run button or Run all opens a terminal or a chat in the app; the gallery opens nothing.
+      "cmux.markdown.runBlock": () => ({}),
+      "cmux.markdown.runAll": () => ({}),
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
           if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
@@ -221,6 +226,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
     : undefined;
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
+  let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -231,12 +237,20 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           sessionSource: source,
           repoRoot: repo,
           branchBaseRef: source.baseRef,
+          sourceOptions: state.sourceOptions,
           layout: state.layout ?? "split",
           layoutSource: "default",
           appearance: context.appearance,
           labels,
+          commentsSend: state.commentsSend,
+          reviewBrief: state.reviewBrief != null,
         },
-        ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
+        ops: [
+          "cmux.diff.comments",
+          ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : []),
+          ...(state.reviewBrief != null ? ["cmux.diff.brief"] : []),
+          ...(state.summaries ? ["cmux.diff.summary", "cmux.diff.summaryCheck"] : []),
+        ],
       }),
       "cmux.diff.protocolHandshake": () => ({
         type: "handshake",
@@ -255,17 +269,45 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
       },
+      "cmux.diff.brief": () => state.reviewBrief,
+      "cmux.diff.summaryCheck": () =>
+        state.summaries && "refused" in state.summaries
+          ? { ready: false, reason: state.summaries.refused }
+          : { ready: true, harness: "claude" },
+      "cmux.diff.summary": async (params: unknown) => {
+        const summaries = state.summaries;
+        if (!summaries || "refused" in summaries) throw new Error("no summaries");
+        const patch = String((params as { patch?: unknown } | null)?.patch ?? "");
+        const hit = Object.entries(summaries.sentences).find(([needle]) => patch.includes(needle));
+        await new Promise((resolve) => setTimeout(resolve, summaries.delayMs ?? 0));
+        if (!hit) throw new Error("no sentence");
+        return { text: hit[1], key: "gallery", cached: false };
+      },
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",
         value: {
-          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }],
+          groups: state.branchGroups ?? [
+            { id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] },
+          ],
         },
       }),
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };
         if (params.method === "viewerPrefs.get") return { preferences: prefs };
-        if (params.method === "comments.list") return { comments: [] };
+        if (params.method === "comments.list") return { comments };
+        if (params.method === "comments.save") {
+          const input = params.params.comment as DiffCommentRecord;
+          const now = new Date(0).toISOString();
+          const saved = { ...input, id: input.id ?? `gallery-${comments.length + 1}`, createdAt: now, updatedAt: now };
+          comments = [...comments.filter((entry) => entry.id !== saved.id), saved];
+          return { comment: saved };
+        }
+        if (params.method === "comments.delete") comments = comments.filter((entry) => entry.id !== params.params.id);
+        if (params.method === "comments.send") {
+          const ids = new Set(params.params.ids as string[]);
+          comments = comments.filter((entry) => !ids.has(entry.id));
+        }
         return {};
       },
     },
@@ -337,6 +379,13 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
+  if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
+  if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
+  if (state.freeUp) provider.freeUp = state.freeUp;
+  if (state.retentionForbidden) provider.retentionForbidden = true;
+  if (state.spendCap) provider.spendCap = { ...state.spendCap };
+  if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
@@ -372,6 +421,18 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "create-at-cap") {
+    clickLater(".cloud-create-button");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-create-submit")?.click(), 320);
+  }
+  if (state.action === "cleanup-team") {
+    setTimeout(() => {
+      const team = document.querySelector<HTMLDetailsElement>(".cloud-cleanup-team");
+      if (team) team.open = true;
+    }, 240);
+  }
+  // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
+  if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {
     clickLater(".cloud-machine");
     setTimeout(() => {
@@ -389,6 +450,10 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
           ?.click();
       }
     }, 320);
+  }
+  if (state.action === "ports-shared") {
+    clickLater(".cloud-machine");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
   }
 }
 
@@ -424,7 +489,29 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
   if (state.route) history.replaceState(null, "", state.route);
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
-  await import("../../pages/changelog/main");
+  await showAfterPaintHold(() => import("../../pages/changelog/main"));
+}
+
+/**
+ * Mounts a page that holds its first frame (pages/shared/paintGate.ts `holdFirstPaint`) and shows
+ * it once that hold settles, as the app's host does (PagePaintProbe, PanePaintHold): the reader's
+ * first frame is the page with its first screen's data in. Without it the stage painted the
+ * loading placeholders whenever the mock host's replies (a timer each) came after the first
+ * frame, and the days under them moved as the notes arrived: pages.changelog#sheet scored 0 in one
+ * render and 0.248 in the next. Hidden with `display: none` (no boxes, so nothing it lays out
+ * meanwhile counts as a shift; a section sizes nothing, so each day near the viewport, and those
+ * under it, load their notes at once); the page's own 400 ms bound still shows a late page.
+ */
+async function showAfterPaintHold(mount: () => Promise<unknown>): Promise<void> {
+  const root = document.getElementById("root");
+  const display = root?.style.display ?? "";
+  if (root) root.style.display = "none";
+  try {
+    await mount();
+    await (window as unknown as Record<string, unknown>)[PAINT_AFTER_NAME];
+  } finally {
+    if (root) root.style.display = display;
+  }
 }
 
 const never = (): Promise<never> => new Promise(() => undefined);

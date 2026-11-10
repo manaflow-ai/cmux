@@ -10,16 +10,27 @@ import ImageIO
 /// asked, and tapbacks on messages that thank or praise it. The real Chief
 /// is `ChiefDaemonBackend` (cmux-tui `conversation-*` over the link); both
 /// sit behind `ConversationBackend`, so the screen does not change.
-public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendable {
+public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @unchecked Sendable {
     public typealias Sleep = @Sendable (Duration) async -> Void
     let engine: Engine
+    public let liveFeed = ChiefLiveFeed()
 
     /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
                 sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
-        engine = Engine(identity: identity, now: now, sleep: sleep)
+        let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
+        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo)
         self.sleep = sleep
-        questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
+        if !showsLiveDemo {
+            questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
+        }
+        // Opt-in synthetic live state for before/after simulator captures.
+        if showsLiveDemo {
+            liveFeed.update(ChiefLive(key: "conv_chief_local\u{0}\(identity.chiefID)\u{0}demo-run", step: "demo-reply",
+                text: String(repeating: "Checking the sample project and writing up the results.\n", count: 800)
+                    + "The checks passed. The reply keeps its newest words in view.",
+                activity: "Checking the sample project"))
+        }
     }
 
     let sleep: Sleep
@@ -33,7 +44,12 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 
     public func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
-        await engine.history(beforeSeq: beforeSeq, limit: limit)
+        // `-cmux-mobile-chief-slow-history`: the newest page comes 5 s late, like a slow
+        // link after a relaunch (ChiefKeptTranscriptUITests films the kept rows meanwhile).
+        if beforeSeq == nil, ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-slow-history") {
+            await sleep(.seconds(5))
+        }
+        return await engine.history(beforeSeq: beforeSeq, limit: limit)
     }
 
     public func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
@@ -72,6 +88,7 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 
     public func close() {
+        liveFeed.update(nil)
         Task { await engine.close() }
     }
 
@@ -98,10 +115,17 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
             return info
         }
 
-        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep) {
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false) {
             self.identity = identity
             self.sleep = sleep
-            messages = ChiefMockScript.history(identity: identity, now: now)
+            // A completed Chief reply would suppress the live bubble when the
+            // first history page lands. This scene starts with an unanswered
+            // synthetic prompt so both revisions show the long live reply.
+            messages = showsLiveDemo ? [ConversationMessage(
+                id: "demo-prompt", seq: 1, clientMessageID: "demo-prompt",
+                senderID: identity.meID, sentAt: now, text: "Please check the sample project.",
+                delivery: .read(nil)
+            )] : ChiefMockScript.history(identity: identity, now: now)
         }
 
         private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }
@@ -233,7 +257,7 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 }
 
-/// The mock answers like the Mac: a pause where Face ID would be (mock
+/// The mock answers like the Mac: a pause where signing would be (mock
 /// only: nothing is signed), then the question reads as answered and Chief
 /// replies. Layout and flow only.
 extension ChiefMockBackend: ChiefQuestionSource {
@@ -266,14 +290,14 @@ struct ChiefMockScript {
 
     static func history(identity: ChiefIdentity, now: Date) -> [ConversationMessage] {
         let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
-            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cmux-next-ios is green."),
+            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (**14 tests pass**), and the fleet build for feat-cmux-next-ios is **green**."),
             (true, 26 * 60 - 2, "nice. anything waiting on me?"),
             (false, 26 * 60 - 3, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
             (true, 95, "Can you start a Claude session on the cmux-next-ios workspace to build the workspaces tab?"),
             (false, 94, "Started Claude in cmux-next-ios on cmux mini 2 with your note as the first prompt. I'll tell you when it needs you."),
-            (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: BUILD SUCCEEDED."),
+            (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: **BUILD SUCCEEDED**."),
             (true, 40, "🙌 thanks"),
-            (false, 3, "Heads up: Claude in cmux is asking to run `cargo test -p cmux-mobile-link`. Want me to allow it?"),
+            (false, 3, "**Heads up:** Claude in cmux is asking to run `cargo test -p cmux-mobile-link`. Want me to allow it?"),
         ]
         // Each reply is later than the message it answers (the send-time
         // drawer shows every time).
@@ -281,11 +305,14 @@ struct ChiefMockScript {
         var messages: [ConversationMessage] = []
         for (index, line) in lines.enumerated() {
             let seq = index + 1
+            // Chief's Markdown as the wire draws it (ChiefWire.message): bold runs, stars removed.
+            let shown = line.me ? ChiefMarkdownBold.Rendered(text: line.text, runs: [], links: [], mentions: []) : ChiefMarkdownBold.render(line.text)
             var message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "seed-\(seq)",
                 senderID: line.me ? identity.meID : identity.chiefID,
-                sentAt: now.addingTimeInterval(-line.minutesAgo * 60), text: line.text,
-                delivery: line.me ? .read(nil) : nil
+                sentAt: now.addingTimeInterval(-line.minutesAgo * 60), text: shown.text,
+                delivery: line.me ? .read(nil) : nil,
+                textRuns: shown.runs
             )
             // Chief answers the request inline (an incoming reply quoting an outgoing message).
             if seq == 5 { message.replyToID = "msg_local_4" }

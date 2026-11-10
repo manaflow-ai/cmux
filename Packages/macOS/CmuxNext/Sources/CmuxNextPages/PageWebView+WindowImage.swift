@@ -25,11 +25,42 @@ extension PageWebView {
         guard let page = chromiumSession?.page else { return [] }
         return page.occlusionRects.map { page.contentView.convert($0, to: nil) }
     }
+
+    /// Where the page window shows the page at all, in window coordinates (``PageChromiumPage/windowClip``):
+    /// a window image paints the page's image only inside it, so a chat scrolled under Home's
+    /// docked column leaves Home showing, as the screen does. Nil on a WebKit page and when the
+    /// page shows as a plain rectangle.
+    public var chromiumWindowClip: CGPath? {
+        chromiumSession?.page.windowClip
+    }
+
+    /// The docked DevTools' area in window coordinates (``PageChromiumPage/dockedDevTools``), nil
+    /// with none docked. Chromium draws them in their own window, which a window image leaves out
+    /// like the page's: it paints ``chromiumDevToolsImage()`` there.
+    public var chromiumDevToolsArea: CGRect? {
+        guard let page = chromiumSession?.page, let docked = page.dockedDevTools else { return nil }
+        return page.contentView.convert(docked.devTools, to: nil)
+    }
+
+    /// The docked DevTools' area (window coordinates) and Chromium's image of them (nil when it
+    /// gives none); nil with no DevTools docked.
+    public func chromiumDevTools() async -> (area: CGRect, image: CGImage?)? {
+        guard let area = chromiumDevToolsArea else { return nil }
+        return (area, await chromiumSession?.page.devToolsImage())
+    }
+
+    /// The page's own area in window coordinates: the view's, less docked DevTools (Chromium's
+    /// image of the page has the page's size, so painted over the whole view it stretched).
+    var chromiumPageArea: NSRect {
+        guard let page = chromiumSession?.page, let docked = page.dockedDevTools else { return convert(bounds, to: nil) }
+        return page.contentView.convert(docked.page, to: nil)
+    }
 }
 
 extension PageRegistry {
     /// The Chromium pages `window` shows (in it, not hidden, not transparent, not the pool's
-    /// parked spare), each with its area in window coordinates, oldest first. A page under
+    /// parked spare), each with its own area in window coordinates (beside docked DevTools, only
+    /// the page's part: ``PageWebView/chromiumDevToolsArea`` has theirs), oldest first. A page under
     /// an alpha-0 view (the New Tab spare's off-screen parking, a pane holding its paint) or
     /// outside the window's content is not shown.
     public static func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
@@ -37,7 +68,7 @@ extension PageRegistry {
         return pages().compactMap { page in
             guard page.chromiumSession != nil, page.window === window, !page.isParkedSpare,
                   !page.isHiddenOrHasHiddenAncestor, !isTransparent(page) else { return nil }
-            let rect = page.convert(page.bounds, to: nil)
+            let rect = page.chromiumPageArea
             return rect.width > 0 && rect.height > 0 && rect.intersects(content) ? (page, rect) : nil
         }
     }

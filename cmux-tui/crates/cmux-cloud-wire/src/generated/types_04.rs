@@ -5,6 +5,346 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudSandboxes {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudConnectServices {
+    pub value: CloudConnectServices,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesCloudIdlePause {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesTelemetryLevelValue {
+        Full = "full",
+        CrashOnly = "crash_only",
+        Off = "off",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesTelemetryLevel {
+    pub value: TeamPolicyValuesTelemetryLevelValue,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesUpdatesChannelValue {
+        Stable = "stable",
+        Nightly = "nightly",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesUpdatesChannel {
+    pub value: TeamPolicyValuesUpdatesChannelValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesUpdatesMinimumVersion {
+    pub value: String,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionCuaEventsDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionCuaFramesDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionTranscriptDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesRetentionAuditDays {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoEnforce {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoEnforceForOwners {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoAllowGuests {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoIdleTimeoutHours {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesAgentsAllowedClassesValueItem {
+        Mux = "mux",
+        Agent = "agent",
+        Run = "run",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAgentsAllowedClasses {
+    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettingsValue {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettings {
+    pub value: TeamPolicyValuesDeviceSettingsValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyVersion {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub changed: Vec<PolicyKey>,
+    pub actor: Option<String>,
+    pub at: i64,
+    pub reason: Option<String>,
+    pub rollback_of: Option<i64>,
+}
+
+wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountUser {
+    pub user: String,
+    pub uid: i64,
+    pub class: SshCertClass,
+    pub principals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmError {
+    pub code: String,
+    pub message: String,
+    pub at: i64,
+}
+
+pub type TeamVmLeaseId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetired {
+    pub vm: String,
+    pub epoch: i64,
+    pub state: TeamVmRetiredState,
+    pub at: i64,
+    pub by: String,
+    pub tainted_by: Vec<String>,
+}
+
+wire_enum! {
+    TeamVmRetiredState {
+        Pausing = "pausing",
+        Paused = "paused",
+    }
+}
+
+wire_enum! {
+    /// Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries.
+    TeamVmStatus {
+        None = "none",
+        Provisioning = "provisioning",
+        Starting = "starting",
+        Running = "running",
+        Paused = "paused",
+        Failed = "failed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaint {
+    pub epoch: i64,
+    pub at: i64,
+    pub users: Vec<String>,
+    pub accepted_by: Option<String>,
+    pub accepted_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmView {
+    pub team: TeamId,
+    pub status: TeamVmStatus,
+    pub vm: Option<String>,
+    pub epoch: i64,
+    pub leases: Vec<TeamVmViewLeasesItem>,
+    pub last_error: Option<TeamVmError>,
+    pub updated_at: i64,
+    pub taint: Option<TeamVmTaint>,
+    pub retired: Vec<TeamVmRetired>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmViewLeasesItem {
+    pub lease: TeamVmLeaseId,
+    pub holder: String,
+    pub reason: String,
+    pub expires_at: i64,
+}
+
+/// RFC 3339 UTC with milliseconds.
+pub type Timestamp = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Trigger {
+    pub id: TriggerId,
+    pub status: TriggerStatus,
+    pub spec: TriggerInput,
+    pub next_at: Option<i64>,
+}
+
+wire_enum! {
+    TriggerStatus {
+        Active = "active",
+        NotYetSupported = "not_yet_supported",
+    }
+}
+
+/// One trigger of an automation; assigned by the owner.
+pub type TriggerId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TriggerInput {
+    Cron(TriggerInputCron),
+    Manual(TriggerInputManual),
+    Webhook(TriggerInputWebhook),
+    Event(TriggerInputEvent),
+    Message(TriggerInputMessage),
+    Continue(TriggerInputContinue),
+    Presence(TriggerInputPresence),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputCron {
+    pub r#type: LitCron,
+    pub expr: String,
+    pub tz: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputManual {
+    pub r#type: LitManual,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputWebhook {
+    pub r#type: LitWebhook,
+}
+
+wire_enum! {
+    TriggerInputEventSource {
+        Integration = "integration",
+        Machine = "machine",
+        Store = "store",
+        Task = "task",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputEvent {
+    pub r#type: LitEvent,
+    pub source: TriggerInputEventSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    pub event: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputMessage {
+    pub r#type: LitMessage,
+    pub conversation: String,
+    pub rule: String,
+}
+
+wire_enum! {
+    TriggerInputContinueUntilItem {
+        GoalMet = "goal_met",
+        Budget = "budget",
+        Stop = "stop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputContinue {
+    pub r#type: LitContinue,
+    pub until: Vec<TriggerInputContinueUntilItem>,
+    pub cooldown_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_runs: Option<i64>,
+}
+
+wire_enum! {
+    TriggerInputPresenceWhen {
+        UserActive = "user_active",
+        UserReturnsAfter = "user_returns_after",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriggerInputPresence {
+    pub r#type: LitPresence,
+    pub when: TriggerInputPresenceWhen,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earliest: Option<CronSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UsageMeterLine {
     pub meter: Meter,
     pub unit: String,

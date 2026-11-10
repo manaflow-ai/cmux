@@ -5,18 +5,19 @@
 // (ToolGroupRow.tsx) and "Subagent finished" (SubagentDoneLine.tsx). Every one is the tool rows'
 // grid: icon, sentence, then the trailing column (status, then duration), then the chevron.
 // The variants compare the recipient's one look: the chip (shipped), a link, plain text.
-import { useLayoutEffect, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
-import { SubagentNavContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { recipient: "chip" | "link" | "plain"; open?: boolean };
 
@@ -74,19 +75,25 @@ function RowGrammarGallery({ recipient, open = false }: Props) {
     else root.dataset.recipientStyle = recipient;
     return () => void delete root.dataset.recipientStyle;
   }, [recipient]);
+  // The clicks record the open rows in the disclosure store, but the rows subscribe to it only in a
+  // passive effect, which may run after the first paint: the page then painted closed and opened a
+  // frame later, a load shift on some runs only. Drawing the rows again under a new key, from this
+  // layout effect, reads the store before the browser paints, so the first frame is the open one.
+  const [opened, setOpened] = useState(false);
   useLayoutEffect(() => {
     if (!open) return;
     for (const toggle of document.querySelectorAll<HTMLElement>(
-      ".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent",
+      ".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent-msg .cv-agentmsg__toggle",
     ))
       toggle.click();
+    setOpened(true);
   }, [open]);
   const message = agentMessage(sendMessage.tool!)!;
   const send = acpmuxSendCall(shellSend.tool!)!;
   return (
     <TranscriptDisclosureProvider sessionId="gallery-row-grammar">
       <SubagentNavContext.Provider value={() => undefined}>
-        <main className="row-grammar-gallery" data-row-grammar>
+        <main key={opened ? "opened" : "drawn"} className="row-grammar-gallery" data-row-grammar>
           <Row label="send-message">
             <MessageCard item={sendMessage} message={message} />
           </Row>

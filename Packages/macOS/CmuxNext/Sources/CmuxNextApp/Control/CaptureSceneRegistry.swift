@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWorkspaceNaming
 import CmuxNextSettings
+import CmuxNextControl
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
 struct CaptureSceneDefinition: Sendable {
@@ -21,10 +22,6 @@ struct CaptureSceneDefinition: Sendable {
 final class CaptureSceneRegistry {
     let services: AppServices
     let frames = BenchFrames()
-    /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
-    var blockedTerminal: String?
-    /// The terminals `home-chief` opened, closed after its snapshot.
-    var openedTerminals: [String] = []
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -66,6 +63,7 @@ final class CaptureSceneRegistry {
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
+        if definition.name == Self.sessionInfoNativeScene { AgentPaneSessionInfoDebugState.widenCaptureWindow(targetWindow.window) }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -124,11 +122,8 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
         }
 
-        // Home is native: it settles on its own conditions, and neither the
-        // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isHome || readinessIsComplete(readiness) else {
+        guard readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -136,23 +131,32 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+        let actionReadiness = await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
+              actionReadinessReport["animations_pending"]?.boolValue == false else {
+            return .object(["error": .string("scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
+        }
+        var nativeSessionInfo: CmuxNextSettings.JSONValue = .null
+        if definition.name == Self.sessionInfoNativeScene {
+            let native = await nativeSessionInfoReadiness(windowID: targetWindowID)
+            guard native.ready else {
+                return .object([
+                    "error": .string("native Session Info did not settle"),
+                    "scene": .string(definition.name), "readiness": readiness,
+                    "action_readiness": actionReadiness, "scene_action": sceneAction,
+                    "native_session_info": native.report,
+                ])
+            }
+            nativeSessionInfo = native.report
         }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-        let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
-        if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
-        result["click"] = click
-        guard isHome || Self.pageComposited(result) else {
+        guard Self.pageComposited(result) else {
             return .object([
                 "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -170,6 +174,7 @@ final class CaptureSceneRegistry {
         result["readiness"] = readiness
         result["action_readiness"] = actionReadiness
         result["scene_action"] = sceneAction
+        if definition.name == Self.sessionInfoNativeScene { result["native_session_info"] = nativeSessionInfo }
         if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
             _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
         }
@@ -183,6 +188,10 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        // A capture process reuses one app for multiple scenes. Clear the native override before
+        // every scene so a native still cannot leak into legacy scenes; the native scene opts in
+        // explicitly below, while a future shipped default remains authoritative after reset.
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"), "value": .null], services: services)
         let chat = services.windows.controllers.lazy.compactMap { $0.content?.focusedPane?.currentTabKey }.first
         if let chat { services.cloud.toolCards.set([], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in } }
         switch name {
@@ -201,6 +210,14 @@ final class CaptureSceneRegistry {
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
         case "history-narrow":
             return await DebugAgentPane.handle(["action": .string("open_changes")], services)
+        case Self.sessionInfoNativeScene:
+            let native = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"),
+                                                "value": .bool(true)], services: services)
+            let click = { [services] in await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services) }
+            guard case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services) else {
+                return .object(["native": native, "click": await click()])
+            }
+            return .object(["native": native, "click": await view.debugOpenSessionInfo(pane: pane, click: click)])
         case "hints-cmd-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
@@ -242,6 +259,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
+        CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it
+                               description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
                                description: "A Cloud machine the person opened (its my-project row) and two that agents made, never opened here, each with its image's own workspace-1: the agents' rows show (leaked: true) or none do (false)."),
@@ -251,13 +270,9 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: "workspace-auto-name",
                                description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
-        CaptureSceneDefinition(name: homeChiefScene,
-                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
-        CaptureSceneDefinition(name: "home-chief-long-draft",
-                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
 }
 
@@ -417,14 +432,13 @@ extension CaptureSceneRegistry {
     /// The three running, connected machines, each with one workspace: the person's my-project, and
     /// the image's own workspace-1 on each machine an agent made.
     func addAgentCloudMachines() {
-        let api = services.cloud.api, binary = URL(fileURLWithPath: "/usr/bin/false")
-        let paths = CloudPaths(root: FileManager.default.temporaryDirectory.appendingPathComponent("cn-capture-cloud-machines"))
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "capture")
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
-            let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "capture")
-            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name), link: link,
-                                              mainWork: services.mainWork)
+            // Never connected: the scene sets the tree itself, and no connect runs its op.
+            let resolver = CloudEndedLinkResolver(error: .unsupported)
+            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
+                                              appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                              localIdentity: { nil }, mainWork: services.mainWork)
             services.machines.add(session)
             // Connected, as the account's list leaves a running machine: a connecting one draws no rows.
             _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(id)", generation: "capture"),
@@ -661,6 +675,26 @@ extension CaptureSceneRegistry {
     }
 }
 
+/// A deterministic capture of the native Session Info path. The fixture and click are the same
+/// production paths a person uses; only the tunable and the readiness witness are capture-only
+/// (``AgentPaneView/debugSessionInfoReadiness(pane:windowWidth:settle:)``).
+extension CaptureSceneRegistry {
+    static let sessionInfoNativeScene = "session-info-native"
+
+    private func nativeSessionInfoReadiness(windowID: String) async -> (ready: Bool, report: CmuxNextSettings.JSONValue) {
+        guard let controller = services.windows.controller(for: windowID),
+              let key = controller.content?.focusedPane?.currentTabKey,
+              let view = services.agentTabs.existingView(key) else {
+            return (false, .object(["error": .string("native Session Info has no focused agent view")]))
+        }
+        return await view.debugSessionInfoReadiness(pane: key, windowWidth: { Double(controller.window?.frame.width ?? 0) }) { [frames] until in
+            frames.start()
+            let settled = await frames.settled(until: until, start: ContinuousClock.now, window: 100, deadline: 5_000)
+            return (settled, frames.stop())
+        }
+    }
+}
+
 /// Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...". A Cloud machine that ran
 /// for hours and lost its app link read "Failed to start" in red. This scene shows two machine
 /// headers through the real connect path, with no network: a running machine whose link went down
@@ -669,9 +703,9 @@ extension CaptureSceneRegistry {
 extension CaptureSceneRegistry {
     static let cloudMachineDisconnectedScene = "cloud-machine-disconnected"
     /// The machine whose link dropped, then the one whose connect the provider refused, with each one's connect error.
-    static let endedLinkMachines: [(id: String, name: String, code: String, message: String)] = [
-        ("capture-vm-dropped", "dropped-link-vm", "cmux.cloud.link_down", "the machine's link went down"),
-        ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
+    static let endedLinkMachines: [(id: String, name: String, error: CloudLinkError)] = [
+        ("capture-vm-dropped", "dropped-link-vm", .disconnected(reason: "the machine's link went down")),
+        ("capture-vm-refused", "refused-vm", .failed(code: "vm_start_failed", message: "the provider could not start this machine")),
     ]
 
     /// Shows the settled showcase window's sidebar, adds both machines with a header per computer
@@ -698,8 +732,7 @@ extension CaptureSceneRegistry {
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
-            let (code, message) = (machine.code, machine.message)
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: code, message: message) })
+            let resolver = CloudEndedLinkResolver(error: machine.error)
             let session = CloudMachineSession(machine: CloudMachine(id: machine.id, status: .running, displayName: machine.name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -710,7 +743,7 @@ extension CaptureSceneRegistry {
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
             ]))
-            // A click's connect: its `cloud.machine.connect` fails, and the link ends.
+            // A click's connect fails, and the link ends.
             session.connect(origin: .user)
         }
         services.windows.reconcileMembership()

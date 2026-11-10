@@ -787,6 +787,268 @@
         }
       }
     },
+    "action.sidebar.priority.moveEarlier": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل الدردشة إلى الأمام في الأولوية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri chat ranije u prioritetu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt chat tidligere i Prioritet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat in Priorität nach oben verschieben…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Chat Earlier in Priority…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover chat antes en Prioridad…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer la discussion avant dans Priorité…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta chat prima in Priorità…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先でチャットを前へ移動…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីការជជែកទៅមុនក្នុងអាទិភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "우선순위에서 채팅을 앞으로 이동…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt chat tidligere i Prioritet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś czat wcześniej w priorytetach…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover conversa para antes em Prioridade…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить чат выше в приоритете…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแชทขึ้นในลำดับความสำคัญ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbeti Öncelik'te öne taşı…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити чат вище в пріоритеті…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển cuộc trò chuyện lên trước trong Ưu tiên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在优先中前移聊天…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在優先中前移聊天…"
+          }
+        }
+      }
+    },
+    "action.sidebar.priority.moveLater": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل الدردشة إلى الخلف في الأولوية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri chat kasnije u prioritetu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt chat senere i Prioritet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat in Priorität nach unten verschieben…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Chat Later in Priority…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover chat después en Prioridad…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer la discussion après dans Priorité…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta chat dopo in Priorità…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "優先でチャットを後ろへ移動…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីការជជែកទៅក្រោយក្នុងអាទិភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "우선순위에서 채팅을 뒤로 이동…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt chat senere i Prioritet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś czat później w priorytetach…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover conversa para depois em Prioridade…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить чат ниже в приоритете…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแชทลงในลำดับความสำคัญ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbeti Öncelik'te geriye taşı…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити чат нижче в пріоритеті…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển cuộc trò chuyện ra sau trong Ưu tiên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在优先中后移聊天…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在優先中後移聊天…"
+          }
+        }
+      }
+    },
     "menu.sidebar.priority.markRead": {
       "extractionState": "manual",
       "localizations": {
@@ -10665,6 +10927,58 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Khôi phục hiệu ứng mờ dần của thanh bên"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "恢复侧边栏渐隐"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
+      }
+    },
+    "action.sidebar.floatOnHover.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي المخفي عائمًا عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Plutajuća skrivena bočna traka pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel svævende ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste beim Überfahren schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Float Hidden Sidebar on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar la barra lateral oculta flotando al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra la barra laterale nascosta fluttuante al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをポインタでフロート表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែតពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버 시 숨긴 사이드바를 떠 있게 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel flytende ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ukryty pasek boczny jako pływający po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral oculta flutuando ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать скрытую боковую панель поверх при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างที่ซ่อนแบบลอยเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu üzerine gelince yüzer göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати приховану бічну панель поверх при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện thanh bên đã ẩn dạng nổi khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "action.sidebar.floatOnHover.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عدم إظهار الشريط الجانبي المخفي عائمًا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nikad ne prikazuj plutajuću skrivenu bočnu traku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis aldrig skjult sidepanel svævende"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste nie schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Never Float Hidden Sidebar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No mostrar nunca la barra lateral oculta flotando"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ne jamais afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non mostrare mai la barra laterale nascosta fluttuante"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをフロート表示しない"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កុំបង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "숨긴 사이드바를 떠 있게 표시하지 않음"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis aldri skjult sidepanel flytende"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nigdy nie pokazuj ukrytego paska bocznego jako pływającego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nunca mostrar a barra lateral oculta flutuando"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Никогда не показывать скрытую боковую панель поверх"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่แสดงแถบด้านข้างที่ซ่อนแบบลอย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu asla yüzer gösterme"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ніколи не показувати приховану бічну панель поверх"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không bao giờ hiện thanh bên đã ẩn dạng nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "从不浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "永不浮動顯示隱藏的側邊欄"}}
       }
     },
     "action.sidebar.controlsOnHover.on": {

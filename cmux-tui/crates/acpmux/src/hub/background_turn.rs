@@ -12,8 +12,10 @@
 //! `system/init` to its `result` while no acpmux turn runs (`Session::harness_turn` without
 //! `Session::turn`). acpmux records it between two mux `background_turn` records:
 //!
-//! - `{"state": "started", "id", "trigger"}`, before the turn's own lines; `trigger` is
-//!   `task_notification`, `scheduled` or `system` (what came just before its `system/init`);
+//! - `{"state": "started", "id", "trigger", "cause"?}`, before the turn's own lines; `trigger` is
+//!   `task_notification`, `scheduled` or `system` (what came just before its `system/init`), and a
+//!   `task_notification` turn's `cause` names the task that ended and whether that is worth a
+//!   response (`background_cause.rs`: `{kind, status, weight, origin?, summary?}`);
 //! - `{"state": "ended", "id", "trigger", "quiet", "reason"}`, at its `result` (`reason:
 //!   "result"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
 //!   turn's), or when the agent exits (`"exit"`).
@@ -70,6 +72,8 @@ pub(super) struct BackgroundTurns {
     running: Option<Running>,
     /// Reply message ids of background turns, newest last.
     messages: VecDeque<String>,
+    /// The tasks started and the notifications heard: a turn's `cause`.
+    causes: super::background_cause::Causes,
 }
 
 /// Whether a reply is quiet: at most one short line, with no question and no link.
@@ -83,6 +87,9 @@ impl BackgroundTurns {
     /// A raw Claude line, before it is logged. Returns the records to log first.
     fn on_line(&mut self, method: &str, line: &Value, acpmux_turn: bool, seq: u64) -> Vec<Value> {
         let mut out = Vec::new();
+        if method == "claude.system.task_started" || !acpmux_turn {
+            self.causes.on_line(method, line);
+        }
         match method {
             "claude.system.task_notification" if !acpmux_turn => {
                 self.hint = Some("task_notification");
@@ -112,13 +119,20 @@ impl BackgroundTurns {
         let mut started = None;
         if acpmux_turn {
             self.pending = None;
+            self.causes.clear();
         } else if WORK.contains(&kind) && self.running.is_none() {
             // Model work with no acpmux turn is Claude Code's own turn. Its `system/init` may
             // have come before this daemon started (a restart, an adopted host): what started
             // it is then unknown.
             let (trigger, seq) = self.pending.take().unwrap_or(("system", seq));
             let id = format!("bg-{seq}");
-            started = Some(json!({"state": "started", "id": id, "trigger": trigger}));
+            let mut record = json!({"state": "started", "id": id, "trigger": trigger});
+            if let Some(cause) = self.causes.take().filter(|_| trigger == "task_notification")
+                && let Some(fields) = record.as_object_mut()
+            {
+                fields.insert("cause".into(), cause);
+            }
+            started = Some(record);
             self.running =
                 Some(Running { id, trigger, text: String::new(), long: false, attention: false });
         }
@@ -308,9 +322,11 @@ mod tests {
         assert!(b.on_line("claude.system.task_notification", &json!({}), false, 1).is_empty());
         assert!(b.on_line("claude.system.init", &json!({}), false, 2).is_empty());
         let started = b.on_update(&chunk("m1", "Nothing new "), false, 0);
+        // A notification of a task this daemon never heard start: a result, acpmux cannot say more.
         assert_eq!(
             started,
-            Some(json!({"state": "started", "id": "bg-2", "trigger": "task_notification"}))
+            Some(json!({"state": "started", "id": "bg-2", "trigger": "task_notification",
+                        "cause": {"kind": "unknown", "status": "completed", "weight": "result"}}))
         );
         assert_eq!(b.on_update(&chunk("m1", "for you yet."), false, 0), None);
         assert!(b.owns_message("m1"));
@@ -326,6 +342,29 @@ mod tests {
         let ended = b.on_line("claude.result.success", &json!({}), false, 9);
         assert_eq!(ended[0]["trigger"], "system");
         assert_eq!(ended[0]["quiet"], false);
+    }
+
+    #[test]
+    fn a_task_notification_turn_names_its_cause() {
+        let mut b = BackgroundTurns::default();
+        let task = json!({"task_id": "t1", "subagent_type": "general-purpose"});
+        // Started during the person's turn: still heard.
+        b.on_line("claude.system.task_started", &task, true, 1);
+        let note = json!({"task_id": "t1", "tool_use_id": "toolu_1", "status": "completed",
+                          "summary": "The agent is waiting on its own background work."});
+        b.on_line("claude.system.task_notification", &note, false, 2);
+        b.on_line("claude.system.init", &json!({}), false, 3);
+        let started = b.on_update(&chunk("m1", "."), false, 0).unwrap();
+        assert_eq!(
+            started["cause"],
+            json!({"kind": "subagent", "status": "interim", "weight": "silent",
+                   "origin": "toolu_1", "summary": "The agent is waiting on its own background work."})
+        );
+        b.on_line("claude.result.success", &json!({}), false, 5);
+        // A notification the person's turn consumed is no later turn's cause.
+        b.on_line("claude.system.task_notification", &note, true, 6);
+        b.on_line("claude.system.init", &json!({}), false, 7);
+        assert!(b.on_update(&chunk("m2", "Hi"), false, 0).unwrap().get("cause").is_none());
     }
 
     #[test]

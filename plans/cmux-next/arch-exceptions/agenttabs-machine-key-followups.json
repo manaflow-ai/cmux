@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-05",
+  "row": "app_lines",
+  "allow": 39,
+  "why": "Machine-qualified AgentTabs follow-up routing and collision-safe hibernation preserve per-machine tab identity in existing App ownership boundaries.",
+  "author": "lane/agenttabs-machine-key",
+  "owner": "p0-machines-r3",
+  "receipt": "Review (codex gpt-6-astra high; follow-up fixes): SHIP at 33b69cf18f1d2aa62718c76d0f54324a2a14179f",
+  "expiry": "2026-12-05"
+}

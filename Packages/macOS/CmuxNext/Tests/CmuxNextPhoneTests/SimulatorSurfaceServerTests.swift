@@ -41,7 +41,6 @@ import Testing
         #expect(throws: SurfaceSourceWireError.tooLarge) { _ = try huge.next() }
     }
 
-    /// Every key hostd lets a phone press has a HID usage here, and nothing else does.
     /// hostd's `encode` line carries a bitrate from the wire; `Int(1e30)` used to trap on the main actor.
     @Test func aWireBitrateIsClampedNeverATrap() {
         #expect(SurfaceFrameEncoder.bitrate(fromWire: 1e30) == 40_000)
@@ -52,6 +51,7 @@ import Testing
         #expect(SurfaceFrameEncoder.bitrate(fromWire: 2500) == 2_500)
     }
 
+    /// Every key hostd lets a phone press has a HID usage here, and nothing else does.
     @Test func theKeysHostdAllowsAreTheKeysTheSimulatorGets() {
         let hostd = ["Backspace", "Enter", "Tab", "Escape", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
         #expect(hostd.allSatisfy { SimulatorSurfaceServer.Session.keyUsage($0) != nil })
@@ -66,5 +66,32 @@ import Testing
         #expect(small.width == 750 && small.height == 1334)
         let landscape = SurfaceFrameEncoder.encodedSize(width: 2622, height: 1206)
         #expect(landscape.width == 1920 && landscape.height == 882)
+    }
+
+    // MARK: Unauthenticated peers
+
+    /// Any local process can connect before it proves it holds the secret, so what it may cost is bounded:
+    /// a few sessions, a short hello deadline, and a small frame until the hello.
+    @Test func onlyAFewSessionsAreAdmitted() {
+        #expect(SimulatorSurfaceServer.admits(sessions: 0))
+        #expect(SimulatorSurfaceServer.admits(sessions: SimulatorSurfaceServer.maximumSessions - 1))
+        #expect(!SimulatorSurfaceServer.admits(sessions: SimulatorSurfaceServer.maximumSessions))
+        #expect(!SimulatorSurfaceServer.admits(sessions: 300))
+    }
+
+    @Test func aFrameBeforeTheHelloIsSmall() throws {
+        let hello = Data(#"{"secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","t":"hello"}"#.utf8)
+        var wire = SurfaceSourceWire()
+        wire.maximumFrame = SurfaceSourceWire.maximumBeforeHello
+        wire.append(Data([1]) + withUnsafeBytes(of: UInt32(hello.count).bigEndian) { Data($0) } + hello)
+        #expect(try wire.next() != nil, "the real hello fits")
+        // A 1 MiB header is refused before its body is read, so nothing is buffered or parsed.
+        var big = SurfaceSourceWire()
+        big.maximumFrame = SurfaceSourceWire.maximumBeforeHello
+        big.append(Data([1, 0, 0x10, 0, 0]))
+        #expect(throws: SurfaceSourceWireError.tooLarge) { _ = try big.next() }
+        // After the hello the full limit applies again.
+        big.maximumFrame = SurfaceSourceWire.maximumIncoming
+        #expect(try big.next() == nil)
     }
 }

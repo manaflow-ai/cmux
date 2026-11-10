@@ -96,6 +96,13 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ),
     ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
+    ("cloud.machine.keep", MUTATION, &["cloud.machine.not_found"]),
+    (
+        "cloud.machine.archive_delete",
+        MUTATION,
+        &["cloud.machine.not_found", "cloud.machine.not_paused"],
+    ),
+    ("cloud.retention.set", MUTATION, &[]),
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).
@@ -192,6 +199,24 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.status.report", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.event.emit", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    (
+        "cloud.vm.attention.emit",
+        VM_SELF,
+        &[
+            "cloud.machine.not_found",
+            "cloud.rate_limited",
+            "idempotency.conflict",
+            "owner.unreachable",
+        ],
+    ),
+    // The Native guest receiver (#28947): its network policy read and its
+    // lifecycle report, which carries a revision.
+    ("cloud.vm.network_policy", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    (
+        "cloud.vm.receiver.lifecycle",
+        VM_SELF,
+        &["cloud.machine.not_found", "cloud.rate_limited", "revision.conflict"],
+    ),
 ];
 
 /// Codes the G8 approval path adds (cx-wb5.65): an install's money or
@@ -229,6 +254,19 @@ const PROVIDER_OPS: &[&str] = &[
     "cloud.environment.boot",
 ];
 
+/// Codes the team's spending cap adds (cmux-platform SpendCap.ts): a member's
+/// start at the team's cap, or over their own monthly budget.
+const SPEND_CAP: &[&str] = &["cloud.member_budget.reached", "cloud.spend_cap.reached"];
+
+/// Ops that start a machine for a member, which the spending cap refuses.
+const SPEND_CAP_OPS: &[&str] = &[
+    "cloud.machine.create",
+    "cloud.machine.start",
+    "cloud.snapshot.restore",
+    "cloud.environment.build",
+    "cloud.environment.boot",
+];
+
 /// The backend Cloud ops this table describes, in catalog order.
 pub fn backend_ops() -> impl Iterator<Item = &'static str> {
     OPS.iter().map(|(name, _, _)| *name)
@@ -244,11 +282,13 @@ pub fn declared_errors(op: &str) -> Option<&'static [&'static str]> {
             .map(|(name, base, own)| {
                 let provider: &[&str] = if PROVIDER_OPS.contains(name) { PROVIDER } else { &[] };
                 let approval: &[&str] = if APPROVAL_OPS.contains(name) { APPROVAL } else { &[] };
+                let cap: &[&str] = if SPEND_CAP_OPS.contains(name) { SPEND_CAP } else { &[] };
                 let mut codes: Vec<&'static str> = base
                     .iter()
                     .chain(own.iter())
                     .chain(provider.iter())
                     .chain(approval.iter())
+                    .chain(cap.iter())
                     .copied()
                     .collect();
                 codes.sort_unstable();

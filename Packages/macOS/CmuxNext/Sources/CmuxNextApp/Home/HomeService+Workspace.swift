@@ -159,8 +159,11 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
-                                         prefersLocal: prefersLocalChief), HomeDock.classic else { return }
+        // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
+        let followed = chiefFollow.conversation
+        if let followed { followedChiefConversations.insert(followed) }
+        guard let chief = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
+                                                     prefersLocal: prefersLocalChief), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -187,6 +190,7 @@ extension HomeService {
         // The Chief moved to a server: one Chief tab, where the local one was.
         // After closing a dangling tab its pane may be gone: name the workspace.
         let others = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
+            + followedChiefConversations.sorted()
         let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {
@@ -212,17 +216,17 @@ extension HomeService {
 
     /// The view of conversation tab `tab`, made on first show. Opening Home
     /// starts the local mux's brain host once per launch.
-    func tabView(for tab: TabModel) -> HomeHostView? {
+    func tabView(for tab: TabModel) -> HomeConversationPage? {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
-        let view = HomeHostView(services: services, conversation: conversation)
+        guard let view = HomeConversationPage.make(services: services, conversation: conversation) else { return nil }
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
         return view
     }
 
-    func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
+    func existingTabView(_ key: String) -> HomeConversationPage? { tabViews[key] }
 
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
@@ -238,6 +242,6 @@ extension HomeService {
 
     /// The tab closed: its view goes with it.
     func releaseTabView(_ key: String) {
-        tabViews.removeValue(forKey: key)
+        tabViews.removeValue(forKey: key)?.close()
     }
 }

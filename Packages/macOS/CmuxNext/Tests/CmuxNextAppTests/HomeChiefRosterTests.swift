@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 @testable import CmuxNextApp
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import CmuxNextHostedChief
 @testable import MessagesLabSidebar
@@ -39,10 +40,10 @@ struct HomeChiefRosterTests {
                 "this Mac's, the Hosted and the Mac mini's Chief are each reachable from the list")
         #expect(model.pinned.first?.id == Self.hosted, "the main Chief is pinned first")
         #expect(model.pinned.first?.isMainChief == true)
-        #expect(model.pinned.first?.listBadge == HomeConversationStrings.mainChief + " \u{00B7} " + HomeChiefPlace.cloud.label)
+        #expect(model.pinned.first?.listBadge == HomeModelStrings.mainChief + " \u{00B7} " + HomeChiefPlace.cloud.label)
         #expect(model.pinned.filter(\.isMainChief).count == 1, "exactly one main Chief")
         let all = model.pinned + model.rows
-        #expect(all.first { $0.id == Self.local }?.listBadge == HomeConversationStrings.placeThisMac)
+        #expect(all.first { $0.id == Self.local }?.listBadge == HomeModelStrings.placeThisMac)
         #expect(all.first { $0.id == Self.placed }?.listBadge == "cmux20")
     }
 
@@ -51,11 +52,8 @@ struct HomeChiefRosterTests {
                                      chiefRoster: Self.roster())
         guard let unii = model.pinned.first(where: { $0.id == Self.unii }) else { Issue.record("Unii is listed"); return }
         #expect(unii.place == .thisMac)
-        #expect(unii.listBadge?.hasPrefix(HomeConversationStrings.placeThisMac) == true)
-        #expect(unii.accessibilityLabel.hasPrefix("Unii, " + HomeConversationStrings.placeThisMac))
-        // The list draws the tag after the name.
-        let entry = HomeSidebarView.entry(unii)
-        #expect(entry.shownTitle.hasPrefix("Unii \u{00B7} " + HomeConversationStrings.placeThisMac))
+        #expect(unii.listBadge?.hasPrefix(HomeModelStrings.placeThisMac) == true)
+        #expect(unii.accessibilityLabel.hasPrefix("Unii, " + HomeModelStrings.placeThisMac))
         // A DM gets no tag.
         #expect(model.rows.first { $0.id == Self.ada }?.listBadge == nil)
     }
@@ -73,7 +71,7 @@ struct HomeChiefRosterTests {
         let roster = HomeChiefRoster.make(rows: Self.rows, local: Self.local, hosted: nil, placed: Self.placed, server: "cmux20",
                                           showsPlaced: true)
         #expect(roster.main == Self.placed)
-        #expect(roster.tag(for: Self.local, engine: nil) == HomeConversationStrings.placeThisMac)
+        #expect(roster.tag(for: Self.local, engine: nil) == HomeModelStrings.placeThisMac)
     }
 
     // MARK: The host switch lives in the Chief's card
@@ -104,20 +102,7 @@ struct HomeChiefRosterTests {
         #expect(HomeCloudChiefs(hosted: chiefs.hosted).otherHost(of: Self.hosted.rawValue) == nil)
     }
 
-    @Test func noSegmentedControlFloatsOverTheChat() {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let view = HomeHostView(services: services, conversation: Self.hosted.rawValue)
-        view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
-        view.layoutSubtreeIfNeeded()
-        #expect(!Self.descendants(of: view).contains { $0 is NSSegmentedControl })
-    }
-
     // MARK: Fixtures
-
-    static func descendants(of view: NSView) -> [NSView] {
-        view.subviews + view.subviews.flatMap(descendants)
-    }
 
     static func chief(_ id: CmuxHomeCore.ConversationID, _ agent: String, _ title: String, at: TimeInterval) -> InboxRow {
         row(id, title: title, participants: [Participant(id: ParticipantID(agent), kind: .agent, displayName: title, agentClass: .chief)], at: at)

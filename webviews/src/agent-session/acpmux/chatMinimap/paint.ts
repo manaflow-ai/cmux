@@ -5,23 +5,49 @@
 // rest (dates, notices, the working line) draws nothing. Each kind is one path and one fill, and
 // rows that land on the same device pixel line merge, so a draw is bounded by the canvas's height,
 // not by the number of rows, after one pass over them.
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import type { AcpmuxRow } from "../model";
+import type { GeometrySource, LayoutGeometry } from "../conversationGeometry";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 
-/// The minimap's width in CSS px, and the room it keeps from the pane's right edge.
+/// The minimap's narrowest and widest strip in CSS px, and the room it keeps from the pane's right
+/// edge. It was a fixed 56 px of 1 px hairlines (Leo, 2026-11-05: "this vs code minimap is pretty
+/// sh***y it isn't very useful it's so small"); it now takes the right gutter up to MINIMAP_MAX_WIDTH.
 export const MINIMAP_WIDTH = 56;
+export const MINIMAP_MAX_WIDTH = 120;
 export const MINIMAP_EDGE = 10;
+/// The room the chat's column keeps at its right while the minimap is on (chatMinimap.css
+/// --cv-inset-end, model.ts transcriptColumn's endReserve): the widest strip with its edge on each
+/// side, as VS Code's minimap takes its own width from the editor. Without it the strip had only the
+/// gutter Chat Text Width left, so the 800px column made it narrow again, or hid it, in any pane
+/// under 1080px.
+export const MINIMAP_RESERVE = MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE;
+/// The narrowest chat whose column keeps that room: narrower (a small pane, or a chat beside an
+/// artifact), the column it leaves is too narrow to read, and the strip takes what gutter there is, as
+/// before. The chat's own width, not the window's (chatMinimap.css measures the same).
+export const MINIMAP_MIN_PANE = 600;
+/// The room the column keeps for the minimap in a chat `width` px wide.
+export const minimapReserve = (width: number): number => (width >= MINIMAP_MIN_PANE ? MINIMAP_RESERVE : 0);
+
+/// The strip's width for a right gutter (the text column's inset) of `inset` px: as wide as the gutter
+/// allows between MINIMAP_WIDTH and MINIMAP_MAX_WIDTH, so it never lies over the text, or 0 when the
+/// gutter cannot hold the narrowest strip (no minimap, as before). ChatMinimap and the right rail's
+/// reserve (useRailPlacement) read the same width.
+export function minimapWidth(inset: number): number {
+  const room = Math.floor(inset - 2 * MINIMAP_EDGE);
+  return room < MINIMAP_WIDTH ? 0 : Math.min(MINIMAP_MAX_WIDTH, room);
+}
 /// Space above and below the minimap inside the view: clear of the transcript's 18px soft edges.
 export const MINIMAP_TOP = 20;
 export const MINIMAP_BOTTOM = 20;
-/// The largest scale: a short chat draws at an eighth of its size from the top, as VS Code's
-/// minimap draws a short file, instead of stretching to the full height.
-export const MAX_SCALE = 1 / 8;
-/// The view box is never shorter than this, so a long chat's stays easy to grab.
-export const MIN_VIEW = 14;
-/// A reply's or tool group's text lines on the map: one line every LINE_PITCH CSS px, LINE_HEIGHT tall.
-const LINE_PITCH = 2;
-const LINE_HEIGHT = 1;
+/// The largest scale: a short chat draws at a quarter of its size from the top, as VS Code's minimap
+/// draws a short file at its scale 2, instead of stretching to the full height.
+export const MAX_SCALE = 1 / 4;
+/// The view box is never shorter than this, so a long chat's stays easy to see and grab.
+export const MIN_VIEW = 24;
+/// A reply's or tool group's text lines on the map: one line every LINE_PITCH CSS px, LINE_HEIGHT tall
+/// (VS Code's minimap lines at its scale 2).
+export const LINE_PITCH = 4;
+export const LINE_HEIGHT = 2;
 
 export type MinimapKind = "prompt" | "reply" | "tool";
 export type MinimapColors = Record<MinimapKind, string>;
@@ -61,19 +87,42 @@ export type MinimapContext = Pick<
   "setTransform" | "clearRect" | "beginPath" | "rect" | "fill" | "fillStyle" | "globalAlpha"
 >;
 
+/// Every row's top and height, for the full passes below: an estimate's own arrays, or one ordered
+/// walk of a placement's index, kept per geometry (a placement is immutable), so a draw and the
+/// change check before it walk it once. The map's passes are O(rows) as before; nothing per token
+/// reads this while a reply streams (the picture stops above it).
+const places = new WeakMap<LayoutGeometry, { tops: Float64Array; heights: Float64Array }>();
+export function rowPlaces(layout: GeometrySource): { tops: ArrayLike<number>; heights: ArrayLike<number> } {
+  if (!("geometry" in layout)) return layout;
+  const geometry = layout.geometry;
+  let kept = places.get(geometry);
+  if (!kept) {
+    const tops = new Float64Array(geometry.count);
+    const heights = new Float64Array(geometry.count);
+    geometry.scan(0, geometry.count, (index, top, height) => {
+      tops[index] = top;
+      heights[index] = height;
+    });
+    kept = { tops, heights };
+    places.set(geometry, kept);
+  }
+  return kept;
+}
+
 /// The first row whose place, height, identity or kind on the map differs between two drawn states:
 /// a draw whose rows all match the last one's is skipped. A new object for the same row (a token)
 /// is no change.
 export function firstChangedRow(
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
-  before: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  layout: GeometrySource,
+  before: { rows: readonly AcpmuxRow[]; layout: GeometrySource },
 ): number {
-  const count = Math.min(rows.length, layout.tops.length);
-  const kept = Math.min(count, before.rows.length, before.layout.tops.length);
+  const now = rowPlaces(layout);
+  const prior = rowPlaces(before.layout);
+  const count = Math.min(rows.length, now.tops.length);
+  const kept = Math.min(count, before.rows.length, prior.tops.length);
   for (let index = 0; index < kept; index += 1) {
-    if (layout.tops[index] !== before.layout.tops[index] || layout.heights[index] !== before.layout.heights[index])
-      return index;
+    if (now.tops[index] !== prior.tops[index] || now.heights[index] !== prior.heights[index]) return index;
     const row = rows[index]!;
     const was = before.rows[index]!;
     if (row !== was && (row.id !== was.id || minimapKind(row) !== minimapKind(was))) return index;
@@ -104,7 +153,7 @@ const jitter = (seed: number, line: number) => 0.55 + (((seed + line * 17) % 41)
 export function paintMinimap(
   ctx: MinimapContext,
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
+  layout: GeometrySource,
   {
     width,
     height,
@@ -122,7 +171,8 @@ export function paintMinimap(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   if (scale <= 0) return 0;
-  const count = Math.min(rows.length, layout.tops.length);
+  const { tops, heights } = rowPlaces(layout);
+  const count = Math.min(rows.length, tops.length);
   const kinds = Array.from({ length: count }, (_, index) => minimapKind(rows[index]!));
   const pixel = 1 / dpr;
   let drawn = 0;
@@ -135,9 +185,9 @@ export function paintMinimap(
     let lastLine = -1;
     for (let index = 0; index < count; index += 1) {
       if (kinds[index] !== kind) continue;
-      const rowHeight = layout.heights[index]! * scale;
+      const rowHeight = heights[index]! * scale;
       if (rowHeight <= 0) continue;
-      const top = (layout.tops[index]! + THREAD_PADDING_TOP) * scale;
+      const top = (tops[index]! + THREAD_PADDING_TOP) * scale;
       if (top >= height) break;
       const line = Math.floor(top * dpr);
       // Under a device pixel: one pixel line, unless this kind already drew on it.

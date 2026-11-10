@@ -50,8 +50,8 @@ fn closing_active_pane_focuses_most_recent_remaining_pane() {
             {
                 saw_closed = true;
             }
-            MuxEvent::TreeSelectionChanged if saw_closed => break,
-            MuxEvent::TreeSelectionChanged => {
+            MuxEvent::TreeSelectionChanged(_) if saw_closed => break,
+            MuxEvent::TreeSelectionChanged(_) => {
                 panic!("selection resync arrived before the pane-closed delta")
             }
             _ => {}
@@ -241,4 +241,53 @@ fn move_tab_does_not_emit_layout_for_a_removed_source_screen() {
     assert!(events.try_iter().all(
         |event| !matches!(event, MuxEvent::LayoutChanged(screen, _) if screen == source_screen)
     ));
+}
+
+/// Issue 38194: closing the focused pane returns to the pane the user focused
+/// last, as classic's `SplitViewController.closePane` does. A pane that only
+/// gained a tab in the background (its `active_at` moved, its focus did not)
+/// does not win.
+#[test]
+fn closing_the_focused_pane_returns_to_the_last_focused_pane_not_the_last_active() {
+    let mux = test_mux();
+    let s1 = mux.new_workspace(None, None).unwrap();
+    let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+    let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+    let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+    let s3 = mux.split(p2, SplitDir::Down, None).unwrap();
+    let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+    assert!(mux.focus_pane(p2));
+    assert!(mux.focus_pane(p1));
+    assert!(mux.focus_pane(p3));
+    {
+        let mut state = mux.state.lock().unwrap();
+        let newest = state.panes.values().map(|pane| pane.active_at).max().unwrap();
+        state.panes.get_mut(&p2).unwrap().active_at = newest + 1;
+    }
+    mux.close_pane(p3).unwrap();
+    mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p1));
+}
+
+/// Issue 38194: when no remaining pane was ever focused, the closed pane's
+/// sibling that absorbs its space takes focus (classic's fallback), not the
+/// pane before it in layout order. `H(p1, V(p2, p3))`, close p2: p3.
+#[test]
+fn closing_the_focused_pane_with_no_focus_history_focuses_its_sibling() {
+    let mux = test_mux();
+    let s1 = mux.new_workspace(None, None).unwrap();
+    let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+    let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+    let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+    let s3 = mux.split(p2, SplitDir::Down, None).unwrap();
+    let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+    assert!(mux.focus_pane(p2));
+    {
+        let mut state = mux.state.lock().unwrap();
+        state.panes.get_mut(&p1).unwrap().focused_at = 0;
+        state.panes.get_mut(&p3).unwrap().focused_at = 0;
+    }
+    mux.close_pane(p2).unwrap();
+    mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p3));
 }

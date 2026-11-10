@@ -17,12 +17,12 @@ const waitForPage: Play = async (ctx) => {
 const waitForPicker: Play = async (ctx) => {
   await waitForPage(ctx);
   await ctx.click({ selector: ".nt-screen .acpmux-model .acpmux-picker-button" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols"));
 };
 const waitForSignOut: Play = async (ctx) => {
   await waitForPicker(ctx);
   await ctx.waitFor(() =>
-    [...ctx.document.querySelectorAll(".acpmux-quick-menu .acpmux-quick-item")].some(
+    [...ctx.document.querySelectorAll(".acpmux-cols [role=listbox] [role=button]")].some(
       (item) => item.textContent?.trim() === translate("harness.logIn"),
     ),
   );

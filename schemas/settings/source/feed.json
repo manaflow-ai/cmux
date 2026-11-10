@@ -14,12 +14,12 @@
           "key": "feed.github.enabled",
           "note": "The opt-in connection: this Mac reads GitHub notifications and review requests with the gh login.",
           "title": {
-            "key": "settings.feed.github.enabled",
-            "text": "Connect GitHub"
+            "key": "settings.group.githubInbox",
+            "text": "GitHub Inbox"
           },
           "help": {
-            "key": "settings.feed.github.enabled.help",
-            "text": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+            "key": "settings.feed.github.enabled.summary",
+            "text": "Inbox shows your GitHub notifications"
           },
           "summary": {
             "key": "settings.feed.github.enabled.summary",

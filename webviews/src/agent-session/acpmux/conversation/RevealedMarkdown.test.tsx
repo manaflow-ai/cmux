@@ -2,13 +2,13 @@
 // A streaming reply reads like Claude desktop's and Codex's (Leo 2026-10-19: "remove that block
 // ascii blinking cursor thing"; whole words from #22339): nothing trails the newest word (no block
 // cursor), and the text grows a whole word at a time, each word fading in, never a letter at a time
-// or with a partial word at its end. Once the stream ends, all of it shows. The Debug toggle
-// agentPane.debug.streamWords off (`data-stream-words="off"`) grows it a character at a time.
+// or with a partial word at its end. Once the stream ends, all of it shows.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { RevealedMarkdown, revealFrames } from "./RevealedMarkdown";
+import { RevealedMarkdown } from "./RevealedMarkdown";
+import { revealFrames } from "./revealedMarkdownModel";
 import { StreamReveal, wordEdge } from "../streamReveal";
 
 let dom: JSDOM | undefined;
@@ -125,6 +125,38 @@ test("the newest words fade in, each word whole", () => {
   expect(container.querySelector(".cv-md")?.textContent?.startsWith("Hello there")).toBe(true);
 });
 
+test("words after a code span, a parenthesis or a line break still fade in", () => {
+  // Leo, 2026-11-03: "hey even u have that text fading in! i want that..." Any Markdown character in
+  // the newest text used to skip its fade.
+  for (const [before, after, fades] of [
+    ["Run `bun test` and", "Run `bun test` and then check the output", "and then check the output"],
+    ["It works (mostly", "It works (mostly and quickly now", "mostly and quickly now"],
+    ["First line.\nSecond", "First line.\nSecond line goes here", "Second line goes here"],
+  ] as const) {
+    root = createRoot(container);
+    render("", true);
+    render(before, true);
+    frames(0, 30);
+    render(after, true);
+    frames(30 * 16, 8);
+    const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "").join("");
+    expect(fresh.length).toBeGreaterThan(0);
+    // The word held back while the first text waited (StreamReveal.stallMs) fades in first.
+    expect(fades.startsWith(fresh.trim())).toBe(true);
+    act(() => root?.unmount());
+  }
+});
+
+test("text inside an unclosed emphasis draws without a fade (the open run is closed for now, safeTail.ts)", () => {
+  root = createRoot(container);
+  render("", true);
+  render("This is **very", true);
+  frames(0, 30);
+  render("This is **very important stuff here", true);
+  frames(30 * 16, 8);
+  expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
+});
+
 test("fresh text expires with the host fade-in token", () => {
   dom!.window.document.documentElement.style.setProperty("--agent-motion-in", "1000ms");
   root = createRoot(container);
@@ -136,18 +168,6 @@ test("fresh text expires with the host fade-in token", () => {
   expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
   frames(800, 1);
   expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
-});
-
-test("with the Debug toggle off, a reply grows a character at a time", () => {
-  dom!.window.document.documentElement.dataset.streamWords = "off";
-  root = createRoot(container);
-  render("", true);
-  render("Hello there wor", true);
-  const shown = frames(0, 90);
-  // The partial word shows: the reveal reached the end of what arrived.
-  expect(shown.at(-1)).toBe("Hello there wor");
-  // On the way there it showed parts of words.
-  expect(shown).toContain("Hello there w");
 });
 
 /// Runs a display frame `gap` ms after the one before for each of `gaps`, from `from`; returns how
@@ -304,7 +324,6 @@ test("turning Reduce Motion on mid-reply shows the whole reply and stops the rev
 // Motion on there shows that text. Turning it off again must pace only what arrives after it,
 // never re-reveal from the reveal's older length: what shows never shrinks.
 test("Reduce Motion on then off before a frame keeps what shows when later text arrives", () => {
-  dom!.window.document.documentElement.dataset.streamWords = "off";
   const motion = reducedMotionQuery(false);
   const { frame } = cancellableFrames();
   root = createRoot(container);

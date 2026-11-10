@@ -4,6 +4,10 @@
 //! (cosmic-gray, 2026-11-02: the lock's holder ran on with no socket). Synthetic temp homes only.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::MetadataExt;
 use std::process::{Command, Stdio};

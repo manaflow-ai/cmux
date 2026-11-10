@@ -127,8 +127,10 @@ pub(crate) const NON_ASKING_MODES: &[(&str, &[&str])] = &[
     // asking), "agent" (the same, auto_review, its default) and
     // "agent-full-access".
     ("codex", &["read-only", "agent", "agent-full-access"]),
-    // opencode 1.18.33: "build", its default, allows everything; "plan"
-    // (allows bash) is not listed here because Claude's "plan" asks.
+    // opencode 1.18.33: "build", its default, runs most tools without asking
+    // (it still asks for a folder outside the project, a `*.env` read and a
+    // repeated call: packages/opencode/src/agent/agent.ts); "plan" (allows
+    // bash) is not listed here because Claude's "plan" asks.
     ("opencode", &["build"]),
 ];
 
@@ -146,22 +148,64 @@ pub(crate) const MODE_FIELDS: &[&str] = &[
     "sandbox_mode",
 ];
 
-/// Config options a Web connection may set to any value: they choose a model
-/// or how hard it thinks, never what runs without asking.
-pub(crate) const FREE_CONFIG_IDS: &[&str] =
-    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+/// Config options a Web connection may set to any value: they choose a model,
+/// how hard it thinks or whether the chat shows a recap when the person comes
+/// back (`session-recap`), never what runs without asking.
+pub(crate) const FREE_CONFIG_IDS: &[&str] = &[
+    "model",
+    "effort",
+    "reasoning_effort",
+    "thought_level",
+    "thinking",
+    crate::claude_stdio::RECAP_OPTION,
+];
 
 /// Config options a chat may bring back from another machine with any value
 /// (`transfer_guard.rs` `web_guard_modes`), though the Web may not set them:
 /// Claude's `ultracode` (its top effort; its subagents still ask as the chat's
 /// mode says) and `fast-mode` (its output speed, which only trusted pages and
-/// the CLI toggle, `tests/remote_guard.rs`). Neither decides what runs without
-/// asking.
-pub(crate) const CARRIED_CONFIG_IDS: &[&str] =
-    &[crate::claude_stdio::ULTRACODE_OPTION, "fast-mode"];
+/// the CLI toggle, `tests/remote_guard.rs`), and Claude's `prompt-suggestions` (whether a
+/// next prompt is suggested after a turn, `claude_stdio/prompt_suggestions.rs`). None decides
+/// what runs without asking.
+pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
+    crate::claude_stdio::ULTRACODE_OPTION,
+    "fast-mode",
+    crate::claude_stdio::prompt_suggestions::OPTION,
+];
 
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
+}
+
+/// Modes of [`NON_ASKING_MODES`], by harness family, that run every tool with no question at
+/// all, so a permission policy that answers questions never comes into play. The other
+/// non-asking modes still ask for some tools (Claude's `acceptEdits` before Bash, Codex's
+/// `read-only` and `agent` outside the workspace, opencode's `build` outside the project), and a
+/// policy answers those, or deny them unasked ([`DENIES_UNASKED_MODES`]) (review of #39057).
+const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] =
+    &[("claude", &["bypassPermissions"]), ("codex", &["agent-full-access"]), ("opencode", &[])];
+
+/// Whether mode `mode` of a harness of family `family` (`mode_family`) runs every tool unasked.
+/// A family the table reviewed ([`RUNS_EVERYTHING_MODES`]) is held to its row: its other modes
+/// (opencode's `agent-full-access`, were one named so) say nothing. Any other family (a launcher
+/// such as `codex-sr2`, Gemini, a custom agent) by acpmux's shared rule of a mode that skips
+/// every approval (`start_mode::is_full_access`, `spec/full-access-modes.json`): the rule
+/// acpmux already applies to it for `sessions.allowFullAccess` (review 3 of #39057).
+pub(crate) fn runs_everything_unasked(family: &str, mode: &str) -> bool {
+    match RUNS_EVERYTHING_MODES.iter().find(|(f, _)| *f == family) {
+        Some((_, modes)) => modes.contains(&mode),
+        None => crate::hub::start_mode::is_full_access(mode),
+    }
+}
+
+/// Modes of [`NON_ASKING_MODES`], by harness family, that ask nothing and deny a tool not allowed
+/// beforehand (Claude's `dontAsk`: its permission rules allow, everything else is refused).
+const DENIES_UNASKED_MODES: &[(&str, &[&str])] = &[("claude", &["dontAsk"])];
+
+/// Whether mode `mode` of a harness of family `family` (`mode_family`) denies, without asking,
+/// every tool not allowed beforehand ([`DENIES_UNASKED_MODES`]).
+pub(crate) fn denies_unasked(family: &str, mode: &str) -> bool {
+    DENIES_UNASKED_MODES.iter().any(|(f, modes)| *f == family && modes.contains(&mode))
 }
 
 /// `REFUSED_FAMILIES` plus `extra` (families whose profile runs one).
@@ -316,6 +360,38 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
+/// The family whose permission modes `m`'s agent offers: `claude` for every chat on acpmux's own
+/// Claude Code backend (`claude_stdio`), whatever family its profile declares, else `family_of`.
+/// A launcher profile such as `claude-sr2` (`sr2 claude`) names its own family to stay out of
+/// the default Claude row, but runs Claude Code with Claude Code's modes: keyed by that family,
+/// the mode tables knew no mode that asks, and a chat under deny-all or review stayed in `auto`.
+pub(crate) fn mode_family(m: &SessionMeta) -> String {
+    mode_family_by(m.agent_info.as_ref(), m.family.as_deref(), &m.harness)
+}
+
+/// [`mode_family`] from a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`),
+/// for a client that holds no `SessionMeta`: the same rule ([`mode_family_by`]). `None` when the
+/// detail names no harness.
+pub(crate) fn mode_family_of_detail(detail: &serde_json::Value) -> Option<String> {
+    use serde_json::Value;
+    let harness = detail.get("harness").and_then(Value::as_str)?;
+    let family = detail.get("family").and_then(Value::as_str);
+    Some(mode_family_by(detail.get("agentInfo"), family, harness))
+}
+
+/// The one rule of [`mode_family`] and [`mode_family_of_detail`]: `claude` for acpmux's own Claude
+/// Code backend (by `agent_info`), else the family, else the harness name.
+fn mode_family_by(
+    agent_info: Option<&serde_json::Value>,
+    family: Option<&str>,
+    harness: &str,
+) -> String {
+    if crate::claude_stdio::steers_by_info(agent_info) {
+        return "claude".to_owned();
+    }
+    family.unwrap_or(harness).to_owned()
+}
+
 /// Whether a Web connection may run a session in ANY mode: Codex through
 /// `codex app-server`, bridged in process (`codex_app_server.rs`), both as
 /// recorded at its creation (`harness_argv`) and as its harness name runs
@@ -340,7 +416,7 @@ pub(crate) fn any_mode_for_web(
 pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
     let from_modes = m.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
     let from_option = || {
-        m.config_options.as_ref().and_then(Value::as_array).and_then(|a| {
+        m.config_options.as_deref().and_then(Value::as_array).and_then(|a| {
             a.iter()
                 .find(|o| o.get("id").and_then(Value::as_str) == Some("mode"))
                 .and_then(|o| o.get("currentValue"))
@@ -379,5 +455,13 @@ mod remote_start_tests {
             remote_start(&table, "claude", &claude),
             Ok(vec!["default".to_string(), "plan".to_string()])
         );
+    }
+
+    /// A new Claude chat carries `prompt-suggestions` in its options (on by default), and a
+    /// chat brought back from another machine keeps it: it never decides what runs unasked.
+    #[test]
+    fn prompt_suggestions_is_carried_with_any_value() {
+        assert!(CARRIED_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
+        assert!(!FREE_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
     }
 }

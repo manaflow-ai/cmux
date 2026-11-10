@@ -35,11 +35,33 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: Whether a focus model owns `page`'s keys; if not, the page takes the keyboard itself
     ///   when its WebKit view had it.
     func focusViewChanged(_ page: PageWebView) -> Bool
+    /// Sends every file of a Chromium page to its page host (``PageWebView/chromiumResource(_:range:)``)
+    /// while `live`, so the live web loop (``WebDevOverride``) serves Chromium pages as it serves
+    /// WebKit ones. Returns false when this Chromium cannot (its pages then open in WebKit).
+    func setLivePages(_ live: Bool) -> Bool
+    /// Opens the developer tools of the cmux page `view` shows (a ``PageWebView``, or a page's own
+    /// `WKWebView`) and starts picking an element: Chromium DevTools for a page in Chromium, Web
+    /// Inspector for one in WebKit. The page's Inspect Element row calls it (``PageDeveloperTools``).
+    ///
+    /// - Parameter view: The page's view.
+    func inspectPage(_ view: NSView)
+}
+
+extension PageChromiumPage {
+    /// No clip: the page shows as a plain rectangle.
+    public var windowClip: CGPath? { nil }
+    /// No docked DevTools: the page has its whole view.
+    public var dockedDevTools: (page: CGRect, devTools: CGRect)? { nil }
+    /// No DevTools image.
+    public func devToolsImage() async -> CGImage? { nil }
 }
 
 extension PageChromiumHosting {
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
+    public func setLivePages(_ live: Bool) -> Bool { false }
+    /// No inspector: the row does nothing.
+    public func inspectPage(_ view: NSView) {}
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -52,14 +74,29 @@ public protocol PageChromiumPage: AnyObject {
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
-    /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
+    /// Chromium asks it for every request under one, with the request's `Range` header (nil when
+    /// none; a `<video>` asks one range at a time), and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? { get set }
+    /// Answers a request for a dynamic path at once, in the turn it arrives, when it can
+    /// (``PageReadyResourceSource``); nil from it, or no answerer, asks ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? { get set }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// The shape the page window shows the page in, in window coordinates (a pane scrolled under
+    /// a docked column shows only its uncovered part); nil when the page shows as a plain
+    /// rectangle. A window image paints the page's image only inside it.
+    var windowClip: CGPath? { get }
+    /// The page's own area and its docked DevTools' area, in ``contentView``'s coordinates, while
+    /// DevTools are docked beside the page (Inspect Element); nil otherwise. A window image paints
+    /// the page's image only in the page's area, and the DevTools' own image in theirs.
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { get }
+    /// The docked DevTools as Chromium drew them (their frontend's `Page.captureScreenshot`); nil
+    /// with none docked or when Chromium gives no image.
+    func devToolsImage() async -> CGImage?
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -68,6 +105,12 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Posts native AppKit input to this page, in view points from its top-left. False when no page window is shown.
+    func debugPress(at point: NSPoint) -> Bool
+    #endif
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -76,6 +119,8 @@ public protocol PageChromiumPage: AnyObject {
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
     func setFocused(_ focused: Bool)
+    /// Whether the page has the keyboard (a Chromium page takes it in its own child window).
+    var hasKeys: Bool { get }
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document
@@ -123,4 +168,24 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// The person picked these files in the app's panel for the page's file input
     /// (``PageChromiumPage/setAnswersFileChooser(_:)``), before the page gets them.
     case filesChosen([URL])
+}
+
+extension PageChromiumPage {
+    /// Hosts without a separate deadline use their ordinary DevTools transport.
+    public func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
+        try await devTools(method, params: params)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A host must explicitly provide native input; a placement view is not necessarily the renderer's input view.
+    public func debugPress(at point: NSPoint) -> Bool { false }
+    #endif
+}
+
+public extension PageChromiumPage {
+    /// A page that answers nothing at once (a fake in tests) sends every request to ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? {
+        get { nil }
+        set {}
+    }
 }

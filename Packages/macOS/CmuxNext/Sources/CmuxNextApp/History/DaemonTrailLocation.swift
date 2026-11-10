@@ -1,21 +1,23 @@
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 
 /// The daemon's location trail (cx-hnmbt.12): the app reports each step and reads the rows back.
 extension DaemonHistoryClient {
     /// Records one step of the location trail (`history.trail.record`, origin user). The daemon runs
     /// the app's step rules (`steps`, quick passes, `jump`) on its own trail, at the app's `time`.
-    /// Answers the daemon's reply: the entry the step landed in and whether its trail changed.
+    /// Answers the daemon's reply: the entry the step landed in and whether its trail changed. `key` is the
+    /// write's idempotency key, the same on every attempt (``HistoryWriteQueue``), so a retry records once.
     @discardableResult
     func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
-                     jump: Bool) async throws -> (id: String?, recorded: Bool?) {
+                     jump: Bool, key: String = DaemonHistoryClient.key()) async throws -> (id: String?, recorded: Bool?) {
         let place = try await Self.place(HistoryTrailLocation(location))
         var params: [String: JSONValue] = [
             "window": .string(window), "location": place, "at_ms": Self.decimal(time), "steps": .string(steps.rawValue),
         ]
         if jump { params["jump"] = .bool(true) }
-        let result = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: Self.key())
+        let result = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: key)
         guard case .object(let reply) = result, case .object(let value)? = reply["value"] else { return (nil, nil) }
         let id: String? = if case .string(let id)? = value["id"] { id } else { nil }
         let recorded: Bool? = if case .bool(let recorded)? = value["recorded"] { recorded } else { nil }

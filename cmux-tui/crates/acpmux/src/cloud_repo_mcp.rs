@@ -21,6 +21,20 @@ pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 
+/// What the agent tells a person who asks where it runs: the machine, how long its files last,
+/// and how to bring a repository in. A Cloud chat can start with no repository, so the agent says
+/// so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
+/// "i want us to be able to do this too"). Facts, not policy: the machine is a cmux Cloud Linux VM
+/// (`/etc/cmux/vm-kind`), its disk stays until it is deleted, and an idle machine may be paused
+/// (cmux-platform CloudIdle) and resumes with its files.
+pub const INSTRUCTIONS: &str = "This chat runs on a cmux Cloud machine: a Linux virtual machine \
+in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, even while it \
+is paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push \
+work to GitHub to keep it anywhere else. A chat can start with no repository; then the working \
+folder may be empty. Attach one at any time with add_repo (list_repos finds names); Session Info \
+may also offer the person Add repository. A needs_github result is retried automatically after Connect \
+GitHub finishes. When asked what this environment is, say these things plainly.";
+
 /// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
     std::path::Path::new("/etc/cmux/vm-kind").exists()
@@ -56,7 +70,7 @@ pub async fn run() -> Result<()> {
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        Some("Repository tools are available on this Cloud machine. A needs_github result is retried automatically after Connect GitHub finishes.".to_owned()),
+        Some(INSTRUCTIONS.to_owned()),
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
     .await
@@ -323,6 +337,19 @@ mod tests {
         )
         .await;
         assert_eq!(result["isError"], false);
+    }
+
+    #[test]
+    fn instructions_state_the_machine_and_its_lifetime() {
+        for fact in [
+            "Linux virtual machine",
+            "until the machine is deleted",
+            "push work",
+            "no repository",
+            "add_repo",
+        ] {
+            assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
+        }
     }
 
     #[test]

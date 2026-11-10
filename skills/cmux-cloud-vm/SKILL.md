@@ -1,6 +1,6 @@
 ---
 name: cmux-cloud-vm
-description: "Operate cmux Cloud machines through the app's cloud actions (or the cmux VM API with no app: provision, exec, pause, delete), and drive a machine's own cmux-tui session from inside it. Use for cmux machine/vm/cloud tasks; backend implementation belongs to cmux-backend."
+description: "Start a Cloud chat and read its reply in one command (`cmux cloud start-chat --prompt TEXT --wait --json`), and operate cmux Cloud machines through the app's cloud actions (or the cmux VM API with no app: provision, exec, pause, delete), and drive a machine's own cmux-tui session from inside it. Use for cmux machine/vm/cloud tasks; backend implementation belongs to cmux-backend."
 ---
 
 # cmux Cloud machines
@@ -13,9 +13,67 @@ and the rest) was removed. What works now:
 
 | Where | What works |
 | --- | --- |
-| Mac, app running | `cmux cloud <verb>` app actions: create, open, fork, snapshot, restore, resize, rename and kill machines, sign in, diagnostics |
+| Mac, app running | `cmux cloud start-chat --prompt TEXT --wait --json` (a Cloud chat and its reply, below), and the `cmux cloud <verb>` app actions: create, open, fork, snapshot, restore, resize, rename and kill machines, sign in, diagnostics |
 | No app (CI, a headless agent) | `cmux machine` (`new`, `show`, `exec`, `pause`, `resume`, `rm` and more; `cmux vm` is its old name) against the cmux VM API with an API key: [provision, run, pause, delete](references/headless.md) |
 | Inside a machine | the machine's `cmux`, a guest adapter over its cmux-tui daemon: the resource grammar (`cmux workspace list`, `cmux terminal current screen read`) plus guest verbs (`cmux self`, `cmux coderouter`, `cmux env`, `cmux layout`, `cmux notify`, `cmux open-url`) |
+
+## Start a Cloud chat and read its reply: one command
+
+```sh
+cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
+```
+
+It starts an agent chat (`--agent claude` by default, or `codex`, ...) on a Cloud
+machine, sends the prompt and, with `--wait`, waits for the turn to end and answers
+`reply` with `machine_id`, `machine_name`, `session_id`, `workspace_id` and
+`tab_id`. The chat opens as a tab in the machine's workspace in the app, so
+the person can read it. Without `--wait` it answers once the prompt is sent.
+
+- Which machine: `--name NAME` takes the machine with that name, or creates it;
+  `--target machine:vm-…` takes that machine. With neither it creates a new small
+  machine with a new name (`chat-…`), one workspace per machine, so a chat never
+  lands on a machine someone else uses.
+- No folder is needed: without `--cwd` the chat starts in a new folder of its own under
+  `~/chats` on the machine; `--cwd FOLDER` starts it in that existing folder instead;
+  `--timeout SECONDS` bounds `--wait` (default 900).
+- The next prompt to the same chat, with `SESSION_ID` from the answer (the answer's
+  `follow_up.send` has it filled in). The session id finds the chat's machine; `--wait`
+  prints the reply:
+
+  ```sh
+  cmux chat send SESSION_ID 'next prompt' --wait
+  ```
+
+  Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
+  chat's tab.
+- Another folder or repository for a chat that already runs: `cmux chat cd SESSION_ID DIR`,
+  or `cmux chat cd SESSION_ID --repo OWNER/NAME [--ref REF]` (the machine clones it into
+  `~/chats/SESSION_ID/NAME` with the GitHub access it has). The chat goes on there as a new
+  session with the conversation so far; send its next prompt to the answer's `session_id`.
+  `follow_up.new_chat` starts a new chat in the same folder.
+- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
+  `cloud.start_pending` (the machine is still coming up: run the same command again,
+  its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
+  Run from an agent chat, it starts at once, as from a terminal: nothing asks the
+  person. Only when they turned off `cloud.agentsStartWithoutAsking` does the app
+  ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
+
+`cmux cloud start-chat --help` has every flag.
+
+### A test, proof or lane makes a machine: name it `cmux-test-<run>`, kill it after
+
+A machine a test, proof, journey or agent lane makes counts against the person's team cap
+like any other (20, paused ones count). Leo's own team filled with leftover `chat-…` and
+`lease-…` machines, and his NIGHTLY could not make one (2026-11-09). So:
+
+- Name it `cmux-test-<run>` (lowercase letters, digits, `.`, `_`, `-`): `cmux cloud
+  start-chat --name cmux-test-<run> ...` or `cmux machine new --name cmux-test-<run>`.
+  Never let a test start-chat pick its own `chat-…` name: that name is the person's.
+- Kill it in a cleanup that always runs: a shell `trap 'cmux cloud kill-machine --target machine:$ID --confirm --json' EXIT`,
+  a `finally`, or an `if: always()` step in a workflow.
+- The platform deletes a `cmux-test-…` machine (and a journey's `cloud journey auto jr-…`
+  or a chat proof's `ccp-<run>`) 6 hours after its create, and the cap message names
+  these as test leftovers. A machine with any other name is never touched.
 
 ## Start with discovery
 
@@ -28,15 +86,15 @@ cmux app capabilities
 `action describe` prints the action's targets and arguments. Actions drive the app
 the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
 in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
-and `stderr`, `cloud new-machine` the new `machine_id`, `machine-status` and the file
+and `stderr`, `cmux machine new` (the `cloud new-machine` action) the new `machine_id`, `machine-status` and the file
 and listing actions their facts. They need the app, sign-in and its private tunnel.
 
 ## Machine lifecycle from the Mac
 
 ```sh
 cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
-cmux cloud new-machine                                    # answers machine_id (or pending)
-cmux cloud new-workspace                                  # a new cloud workspace
+cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
+cmux cloud new-workspace --json                           # a new cloud workspace on a new small machine of its own (machine_id, target; or pending)
 cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
 cmux cloud ssh --target machine:vm-…                      # a terminal tab in its first workspace
 cmux cloud machine-status --target machine:vm-…

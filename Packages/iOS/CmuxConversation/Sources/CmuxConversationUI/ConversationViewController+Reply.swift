@@ -332,6 +332,7 @@ extension ConversationViewController {
             guard case var .message(model) = row, thread.contains(where: { $0.id == model.message.id }) else { return nil }
             // Inside the thread, replies render without their quote.
             model.replyQuote = nil
+            model.replyThread = nil
             model.showsTail = true
             // Names are a group's: a 1:1 thread shows none, as its transcript.
             model.showsSenderName = model.isGroup && !model.isOutgoing
@@ -400,7 +401,8 @@ extension ConversationViewController {
         overlay.dim.frame = overlay.bounds
         let width = view.bounds.width
         let y = overlay.contentHeight
-        let headerBottom = header.frame.maxY
+        // Under the header and a host's pinned row (Chief's question bar).
+        let headerBottom = contentTop
         let available = composerContainer.frame.minY - headerBottom - Self.threadBottomGap
         // Where content-space 0 sits on screen, before and after.
         let before = overlay.content.frame.minY - overlay.content.contentOffset.y

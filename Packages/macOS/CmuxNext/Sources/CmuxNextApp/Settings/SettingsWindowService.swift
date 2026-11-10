@@ -119,7 +119,7 @@ final class SettingsWindowService: InternalPageProvider {
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
-        let homeHidden = SidebarBridge.hidesHome(services.sidebarLayout.document)
+        let homeHidden = services.sidebarLayout.document.hidesHome
         let mounted = window.mountedContents.filter(holds).map(\.workspace)
         let members = services.windows.registry.members(of: window.state.id).compactMap { services.machines.workspace(id: $0)?.0 }
             .filter { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } } }
@@ -145,13 +145,6 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
-    /// The art picker, for `workspace` too when given (its This Workspace choice).
-    static func backgroundRoute(workspace: String?) -> String? {
-        guard let route = route(section: .appearance, setting: "appearance.background") else { return nil }
-        guard let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return route }
-        return "\(route)&workspace=\(id)"
-    }
-
     /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
     /// it opens Settings on the default page (the page hides the category the same way).
     static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {

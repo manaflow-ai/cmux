@@ -1,3 +1,5 @@
+import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
+
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
 /// The machines are the composer's computers (ComposerContext availableComputers): acpmux's peers
@@ -5,7 +7,9 @@
 export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
-/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
+/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay; or `paused` /
+/// `resuming` for a Cloud machine acpmux has no link to that the account says sleeps
+/// (cloudMachines.ts `withCloudSleep`).
 /// `loadWarning`: a ready machine's load warning (machineResources.ts), as the composer words it.
 export type Environment = {
   id: string;
@@ -14,6 +18,9 @@ export type Environment = {
   connected?: boolean;
   state?: string;
   loadWarning?: string;
+  /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
+  /// it is not connected; absent from an older daemon.
+  downSince?: number;
 };
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
@@ -37,6 +44,21 @@ export const CONNECT_ACTIONS = {
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
 /// A started chat's move: to a Cloud machine, or back to this Mac.
 export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
+/// Why each offered move would refuse now, as the chat's right-click menu row says it under its title.
+export type OffloadReasons = Readonly<Partial<Record<OffloadKind, string>>>;
+
+/// The `pane.tabState` `moveReasons` (by action id) for the offered `kinds`.
+export function offloadReasonsOf(
+  kinds: readonly OffloadKind[],
+  reasons: Readonly<Record<string, string>>,
+): OffloadReasons {
+  const out: Partial<Record<OffloadKind, string>> = {};
+  for (const kind of kinds) {
+    const reason = reasons[CONNECT_ACTIONS[kind]];
+    if (reason) out[kind] = reason;
+  }
+  return out;
+}
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a
 /// `ws://`/`wss://` one (cmux Cloud and other daemons the user connected by URL). In the app the
@@ -72,6 +94,20 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
 
 /// Each peer's link state from `_acpmux/status` (the relay keeps it as a string;
 /// AcpmuxPaneMethods.replyShapes). A peer with no state, or one that is not a string, is left out.
+/// Each peer's whole link state from `_acpmux/status` or `_acpmux/peers` rows (`link`, linkState.ts),
+/// from a daemon that sends it.
+export function peerLinksFromStatus(status: unknown): Record<string, PeerLinkDetail> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const links: Record<string, PeerLinkDetail> = {};
+  for (const peer of peers) {
+    const row = (peer ?? {}) as { name?: unknown; link?: unknown };
+    const detail = row.link === undefined ? undefined : readPeerLinkDetail(row);
+    if (typeof row.name === "string" && row.name && detail) links[row.name] = detail;
+  }
+  return links;
+}
+
 export function peerStatesFromStatus(status: unknown): Record<string, string> {
   const peers = (status as { peers?: unknown } | undefined)?.peers;
   if (!Array.isArray(peers)) return {};
@@ -90,6 +126,33 @@ export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
   if (environment.state !== undefined) return environment.state === "connected";
   return environment.connected !== false;
+}
+
+/// The link states of a machine acpmux cannot reach: dropped and dialing again, down, refused or too
+/// old. Connecting and degraded are on their way up; paused and resuming are a Cloud machine asleep.
+const UNREACHABLE_STATES: ReadonlySet<string> = new Set([
+  "reconnecting",
+  "restarting",
+  "offline",
+  "authFailed",
+  "updateRequired",
+]);
+/// How long a machine stays unreachable before its machine list moves it under Unavailable: a link
+/// that drops and comes back keeps its row in place.
+export const UNAVAILABLE_AFTER_MS = 5 * 60_000;
+
+/// Whether a machine list puts the machine under its collapsed Unavailable group (Leo, 2026-11-09,
+/// of four retired lanes listed "Reconnecting" for good: "drop retired and unreachable machines from
+/// the list, or group them at the bottom"). acpmux keeps no retired flag on a peer, so a retired
+/// machine is one acpmux can no longer reach: a peer down or dialing again for UNAVAILABLE_AFTER_MS
+/// (`downSince`; an older daemon that sends no time counts at once), or a machine only an old chat
+/// still names (acpmux no longer lists it). A machine on its way up, a Cloud machine asleep and this
+/// Mac never are.
+export function environmentUnavailable(environment: Environment, now: number): boolean {
+  if (environment.kind === "local" || environmentReady(environment)) return false;
+  if (environment.state === undefined) return environment.connected === false;
+  if (!UNREACHABLE_STATES.has(environment.state)) return false;
+  return environment.downSince === undefined || now - environment.downSince >= UNAVAILABLE_AFTER_MS;
 }
 
 /// The name the picker's This Mac row shows. The host sends this Mac's own name as
@@ -191,6 +254,30 @@ export type SavedEnvironmentDraft = {
 
 /// A saved environment: the host assigned its id and time.
 export type SavedEnvironment = SavedEnvironmentDraft & { id: string; updatedAt: number };
+
+/// A saved environment that is only a folder on this computer (no worktree): a place, not a
+/// machine. The picker lists it with the folders, never among the machines (Leo, 2026-11-03, on
+/// Claude Desktop listing such a folder as an environment of its own: "imo claude has kinda s***ty
+/// ways to deal with remote stuff. chatgpt's is better.").
+export function savedEnvironmentIsFolder(environment: SavedEnvironmentDraft): boolean {
+  return environment.kind === "local" && Boolean(environment.folder) && !environment.worktree;
+}
+
+/// A saved environment's name as the picker shows it: an SSH one says its machine too, unless its
+/// name already does, so a row named after a folder ("Projects") never hides which machine it is on.
+/// One named just after its machine says its folder ("cmux16 · Projects"), so it never reads as the
+/// machine's own row (Claude Desktop listed "cmux16" twice).
+export function savedEnvironmentLabel(environment: SavedEnvironmentDraft): string {
+  const host = environment.kind === "ssh" ? environment.host : undefined;
+  if (!host) return environment.name;
+  const name = environment.name.toLowerCase();
+  if (name === host.toLowerCase()) {
+    const folder = environment.folder?.replace(/\/+$/, "").split("/").pop();
+    return folder ? `${environment.name} · ${folder}` : environment.name;
+  }
+  if (name.includes(host.toLowerCase())) return environment.name;
+  return `${environment.name} · ${host}`;
+}
 
 export type SavedEnvironmentHost = {
   list(): Promise<SavedEnvironment[]>;
@@ -295,5 +382,17 @@ export function knownMachines(
     const peer = chat.peer ?? (chat.hostKind === "cloud" ? chat.host : undefined);
     if (peer) add(peer, chat.host ?? peer, !chat.peer);
   }
-  return machines;
+  // One name, one row: a chat's peer acpmux no longer lists is labelled by its host, which can be
+  // a listed machine's name (an earlier link to the same box, or another box of the same name). Its
+  // row then says its peer too ("cmux16 (cmux16-tailnet)"), so no two rows read the same.
+  const named = new Map<string, number>();
+  for (const machine of machines) {
+    const key = machine.label.toLowerCase();
+    named.set(key, (named.get(key) ?? 0) + 1);
+  }
+  return machines.map((machine) =>
+    (named.get(machine.label.toLowerCase()) ?? 0) > 1 && machine.label !== machine.id
+      ? { ...machine, label: `${machine.label} (${machine.id})` }
+      : machine,
+  );
 }

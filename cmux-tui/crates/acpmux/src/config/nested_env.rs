@@ -42,7 +42,7 @@ pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
-pub(crate) fn is_nested_claude_key(key: &str) -> bool {
+pub fn is_nested_claude_key(key: &str) -> bool {
     key.starts_with("CLAUDE")
         || key.starts_with("ANTHROPIC_")
         || key.starts_with("CMUX_CLAUDE_")
@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 6] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -84,13 +84,15 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 6] = [
     "OPTCHAT_TURN_SEAL",
     // The subagent preset's role flag.
     "OPTCHAT_SUBAGENT",
+    // A stable Chief session's Chief (session_env.rs): its `cmux chief acp` alone.
+    "CMUX_CHIEF_PARTICIPANT",
     // A coding agent's mark for the commands its tools run.
     "AI_AGENT",
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the
-/// prompt-cache switches ([`is_prompt_cache_key`]) and [`TURN_SCOPED_ENV`].
-pub(crate) fn is_caller_scoped_key(key: &str) -> bool {
+/// prompt-cache switches (`is_prompt_cache_key`) and `TURN_SCOPED_ENV`.
+pub fn is_caller_scoped_key(key: &str) -> bool {
     is_prompt_cache_key(key) || TURN_SCOPED_ENV.contains(&key)
 }
 

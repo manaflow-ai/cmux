@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8.
+// cmux-tui mux protocol 12, IR 1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -375,6 +375,8 @@ pub struct ConversationTypingEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DaemonShutdownEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restart: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -394,6 +396,19 @@ pub struct DetachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedReportsChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedViewChangedEvent {
+    pub changed: Vec<String>,
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -693,6 +708,15 @@ pub struct ScrollChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionChangedEvent {
+    pub active: bool,
+    pub active_workspace: Nullable<T::Id>,
+    pub screens: Vec<T::SelectionScreen>,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsChangedEventOrigin {
     #[serde(rename = "user")]
@@ -726,6 +750,12 @@ pub struct SizeStateEvent {
     pub self_participant: Option<String>,
     pub state: T::SizeState,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StashChangedEvent {
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -881,6 +911,8 @@ pub struct VtStateEvent {
     pub cols: u16,
     pub data: T::Base64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
@@ -957,6 +989,13 @@ pub struct WorkspaceMovedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspacePresentationChangedEvent {
+    pub entity: T::Workspace,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceRenamedEvent {
     pub entity: T::Workspace,
     pub generation: String,
@@ -1018,6 +1057,8 @@ pub enum Event {
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
+    FeedReportsChanged(FeedReportsChangedEvent),
+    FeedViewChanged(FeedViewChangedEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
@@ -1043,8 +1084,10 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
+    StashChanged(StashChangedEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
@@ -1068,6 +1111,7 @@ pub enum Event {
     WorkspaceChanged(WorkspaceChangedEvent),
     WorkspaceClosed(WorkspaceClosedEvent),
     WorkspaceMoved(WorkspaceMovedEvent),
+    WorkspacePresentationChanged(WorkspacePresentationChangedEvent),
     WorkspaceRenamed(WorkspaceRenamedEvent),
     Unknown(UnknownEvent),
 }
@@ -1113,6 +1157,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
+            Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
+            Self::FeedViewChanged(_) => Some("feed-view-changed"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
@@ -1138,8 +1184,10 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
+            Self::StashChanged(_) => Some("stash-changed"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
@@ -1163,6 +1211,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some("workspace-changed"),
             Self::WorkspaceClosed(_) => Some("workspace-closed"),
             Self::WorkspaceMoved(_) => Some("workspace-moved"),
+            Self::WorkspacePresentationChanged(_) => Some("workspace-presentation-changed"),
             Self::WorkspaceRenamed(_) => Some("workspace-renamed"),
             Self::Unknown(event) => event.name.as_deref(),
         }
@@ -1207,6 +1256,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
+            Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
+            Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
@@ -1232,8 +1283,10 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
+            Self::StashChanged(_) => Some(&STASH_CHANGED_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
@@ -1257,6 +1310,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some(&WORKSPACE_CHANGED_EVENT_METADATA),
             Self::WorkspaceClosed(_) => Some(&WORKSPACE_CLOSED_EVENT_METADATA),
             Self::WorkspaceMoved(_) => Some(&WORKSPACE_MOVED_EVENT_METADATA),
+            Self::WorkspacePresentationChanged(_) => Some(&WORKSPACE_PRESENTATION_CHANGED_EVENT_METADATA),
             Self::WorkspaceRenamed(_) => Some(&WORKSPACE_RENAMED_EVENT_METADATA),
             Self::Unknown(_) => None,
         }
@@ -1563,6 +1617,22 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("feed-reports-changed") => match serde_json::from_value::<FeedReportsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedReportsChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("feed-view-changed") => match serde_json::from_value::<FeedViewChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedViewChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("frame") => match serde_json::from_value::<FrameEvent>(raw.clone()) {
             Ok(event) => Event::Frame(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1763,6 +1833,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("selection-changed") => match serde_json::from_value::<SelectionChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SelectionChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
             Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1773,6 +1851,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("size-state") => match serde_json::from_value::<SizeStateEvent>(raw.clone()) {
             Ok(event) => Event::SizeState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stash-changed") => match serde_json::from_value::<StashChangedEvent>(raw.clone()) {
+            Ok(event) => Event::StashChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1957,6 +2043,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("workspace-moved") => match serde_json::from_value::<WorkspaceMovedEvent>(raw.clone()) {
             Ok(event) => Event::WorkspaceMoved(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("workspace-presentation-changed") => match serde_json::from_value::<WorkspacePresentationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::WorkspacePresentationChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

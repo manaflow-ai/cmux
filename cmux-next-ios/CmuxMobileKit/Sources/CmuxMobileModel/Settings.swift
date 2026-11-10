@@ -149,12 +149,20 @@ public final class SettingsStore {
     public var wrapCode: Bool { didSet { save(wrapCode, "wrapCode") } }
     /// Read by the terminal key bar.
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
+    /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
+    public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key; Rust turns ultra
+    /// mode on only while the network is cellular. Off by default.
+    public var ultraOnCellular: Bool { didSet { save(ultraOnCellular, "ultraOnCellular") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
     /// Show previews: off, the lock screen shows only the kind and the Mac.
     public var notifyPreviews: Bool { didSet { save(notifyPreviews, "notifyPreviews") } }
     public var requireFaceID: Bool { didSet { save(requireFaceID, "requireFaceID") } }
+    /// Workspaces shows one line per workspace (the Mac's Compact Workspace List); read by the
+    /// list through `CmuxMobilePreferences.Key.compactWorkspaceList`.
+    public var compactWorkspaceList: Bool { didSet { save(compactWorkspaceList, "compactWorkspaceList") } }
 
     /// The terminal's key row zooms by writing the font size directly.
     @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
@@ -163,6 +171,9 @@ public final class SettingsStore {
     private func reloadTerminalFontSize() {
         let stored = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         if stored != terminalFontSize { terminalFontSize = stored }
+        // A chat's Toggle Prompt Queueing writes the same key (`CmuxMobilePreferences.setQueueing`).
+        let followUp = defaults.string(forKey: "cmuxMobile.settings.followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
+        if followUp != self.followUp { self.followUp = followUp }
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -179,6 +190,8 @@ public final class SettingsStore {
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
+        predictiveEcho = bool("predictiveEcho", true)
+        ultraOnCellular = bool("ultraOnCellular", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)
@@ -188,6 +201,7 @@ public final class SettingsStore {
         notifyMutedMacs = defaults.stringArray(forKey: "cmuxMobile.settings.notifyMutedMacs") ?? []
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
+        compactWorkspaceList = bool("compactWorkspaceList", false)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }
