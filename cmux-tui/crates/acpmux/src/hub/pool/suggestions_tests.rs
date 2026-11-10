@@ -20,6 +20,7 @@ fn key(prompt_suggestions: Option<bool>) -> PoolKey {
         account: None,
         machine: None,
         prompt_suggestions,
+        model: None,
     }
 }
 

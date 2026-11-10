@@ -50,6 +50,10 @@ pub struct PoolKey {
     /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
     /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
     pub prompt_suggestions: Option<bool>,
+    /// The model the harness is spawned with (`spawn_model`): Claude Code takes `--model` at
+    /// spawn and a new chat on it never sends `session/set_model`, so an agent pooled on another
+    /// model (the spare of the chat before) would run that model under this chat's name.
+    pub model: Option<String>,
 }
 
 impl PoolKey {

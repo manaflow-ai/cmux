@@ -256,9 +256,20 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
     reads.then(enabled)
 }
 
+/// The model a pooled agent drafted as `draft` is spawned with, as `start.rs` passes it to
+/// `spawn_plan` (`current_model`); `None` for the harness's own default. Part of the key: a chat
+/// asking for one model never takes an agent started on another.
+fn spawn_model(draft: &SessionMeta) -> Option<String> {
+    super::model_options::current_model(draft).filter(|m| !m.is_empty() && m != "default")
+}
+
 #[cfg(test)]
 #[path = "suggestions_tests.rs"]
 mod suggestions_tests;
+
+#[cfg(test)]
+#[path = "model_key_tests.rs"]
+mod model_key_tests;
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
@@ -365,6 +376,7 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
+            model: spawn_model(draft),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
