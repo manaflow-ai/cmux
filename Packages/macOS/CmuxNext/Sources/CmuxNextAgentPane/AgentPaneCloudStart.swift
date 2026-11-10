@@ -29,6 +29,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The page's send again after its `cloud.signIn` signed in: authorized only by
     /// the click that sign-in kept for this ``key`` (``AgentPaneModel/takeCloudSignInGrant(_:)``), never a gesture.
     var signedIn = false
+    /// The team to switch to before this send (the plan card's Switch to <team>): a team id of the
+    /// person's, switched to by the App as the team picker does; nil keeps the active team.
+    public var team: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -67,7 +70,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
-              let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
+              let harness = name("harness"), let model = name("model"), let environment = name("environment"),
+              let team = name("team") else { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let gestureTicket = params?["gestureTicket"]
@@ -78,6 +82,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
+        self.team = team
         self.attachments = attachments
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
@@ -141,9 +146,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
-    /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
-    public func seed(cwd: String?) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+    /// prompt, sent once with the Send's gesture, on the agent and model the page picked. `draft`: what
+    /// the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
+    public func seed(cwd: String?, draft: String? = nil) -> AgentPaneSeed {
+        AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
                       promptBy: .person, harness: harness, model: model)
     }
 }

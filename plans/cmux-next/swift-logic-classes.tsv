@@ -3247,28 +3247,9 @@ CmuxNextApps	class	MachineCatalogPublisher	0	LOGIC	100	0	Packages/macOS/CmuxNext
 CmuxNextApps	struct	MachineCatalogSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Operations/MachineCatalogSource.swift	catalog admission: dedupe ids, max 256 records, 128 KiB frame bound
 CmuxNextApps	protocol	MachineCatalogWriter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Operations/MachineCatalogWriter.swift	protocol seam
 CmuxNextApps	struct	RoutedAppCall	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Operations/RoutedAppCall.swift	decodes routed app call payload and encodes answer; protocol plumbing
-CmuxNextApps	class	AppSceneAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneAppearance.swift	from class AppSceneAppearance:10: scene appearance (SwiftUI environment)
-CmuxNextApps	struct	AppSceneThemedRoot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneAppearance.swift	from class AppSceneAppearance:10: scene appearance (SwiftUI environment)
-CmuxNextApps	class	AppBundleImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneBundleImage.swift	from struct AppSceneBundleImage:5: scene image loading from bundle
-CmuxNextApps	struct	AppSceneBundleImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneBundleImage.swift	scene image loading from bundle
-CmuxNextApps	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneColors.swift	from struct AppSceneColors:8: scene color token to SwiftUI color mapping
-CmuxNextApps	struct	AppSceneColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneColors.swift	scene color token to SwiftUI color mapping
-CmuxNextApps	struct	AppSceneDecorations	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneDecorations.swift	scene decoration view modifiers
-CmuxNextApps	struct	AppSceneTap	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneDecorations.swift	from struct AppSceneDecorations:7: scene decoration view modifiers
+CmuxNextApps	class	AppBundleImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppBundleImageCache.swift	decoded bundle images for Image(src)
 CmuxNextApps	class	AppSceneHostingView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneHostingView.swift	NSHostingView for scenes
-CmuxNextApps	struct	AppSceneMenuButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneMenus.swift	SwiftUI menu button
-CmuxNextApps	struct	AppSceneMenuItems	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneMenus.swift	from struct AppSceneMenuButton:6: SwiftUI menu button
-CmuxNextApps	struct	AppSceneButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneNodeView.swift	from struct AppSceneNodeView:8: SwiftUI node view
-CmuxNextApps	struct	AppSceneNodeView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneNodeView.swift	SwiftUI node view
-CmuxNextApps	struct	AppSceneBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift	from struct AppSceneRowView:9: SwiftUI row view
-CmuxNextApps	struct	AppSceneEmptyState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift	from struct AppSceneRowView:9: SwiftUI row view
-CmuxNextApps	struct	AppSceneRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift	SwiftUI row view
-CmuxNextApps	struct	AppSceneShape	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift	SwiftUI shapes
-CmuxNextApps	struct	AppSceneTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift	from struct AppSceneShape:5: SwiftUI shapes
 CmuxNextApps	enum	AppSceneStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift	scene styling
-CmuxNextApps	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift	EnvironmentValues for scene views
-CmuxNextApps	struct	AppSceneFailureRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift	from extension EnvironmentValues:6: EnvironmentValues for scene views
-CmuxNextApps	struct	AppSceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift	from extension EnvironmentValues:6: EnvironmentValues for scene views
 CmuxNextApps	struct	AppScene	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Scene/AppScene.swift	scene tree: apply create/update/children/remove ops with 4096 node and 64 depth budgets, ancestor and duplicate checks
 CmuxNextApps	class	AppSceneModel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Scene/AppSceneModel.swift	from protocol AppSceneInteraction:7: observable scene model status holder for views
 CmuxNextApps	protocol	AppSceneInteraction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Scene/AppSceneModel.swift	from protocol AppSceneInteraction:7: observable scene model status holder for views
