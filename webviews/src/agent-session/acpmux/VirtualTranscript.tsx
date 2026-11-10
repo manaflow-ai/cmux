@@ -1357,6 +1357,8 @@ function TranscriptView({
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
   const scrollRef = useRef({ top: 0, delta: 0 });
+  /// Where the warm rows were built from, held while a fast scroll outruns them (below).
+  const heldWarmAt = useRef<number | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
@@ -3022,8 +3024,15 @@ function TranscriptView({
   // gave each scroll frame a second render of the whole transcript (often restarted by the next
   // scroll event) that drew the same warm rows. A step leaves at least WARM_VIEWPORTS less half a
   // step warm on either side.
+  // A scroll whose lead outruns the warm rows (a fling: half a viewport a frame or more) holds them
+  // where they were: each frame's deferred render built a viewport either side of a view the next
+  // frame had already left, a second transcript render and up to three viewports of rows a frame
+  // that no frame showed. They catch up once the scroll's lead decays (SCROLL_LEAD_IDLE_MS).
   const warmStep = Math.max(1, height * WARM_STEP_VIEWPORTS);
-  const warmAt = Math.round((unplacedScroll.top - origin) / warmStep) * warmStep;
+  const liveWarmAt = Math.round((unplacedScroll.top - origin) / warmStep) * warmStep;
+  const warmOutrun = Math.abs(unplacedScroll.delta) * SCROLL_LEAD_STEPS > height * WARM_VIEWPORTS;
+  const warmAt = warmOutrun && heldWarmAt.current !== undefined ? heldWarmAt.current : liveWarmAt;
+  heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   const warmTop = useDeferredValue(warmAt) + placementDelta;
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);

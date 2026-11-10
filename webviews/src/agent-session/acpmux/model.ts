@@ -3476,6 +3476,10 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
   return merged;
 }
 
+/// How uneven a scroll's next jump is against its last, as a share of it, that the views
+/// `scrollLeadRanges` builds ahead of a jump still cover (frame-time jitter of a paced fling).
+export const PREDICTED_JITTER = 0.05;
+
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
 /// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
 /// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
@@ -3501,10 +3505,32 @@ export function scrollLeadRanges(
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
+  // A scroll that moves past the cap in one frame lands past the capped lead too: the lead between
+  // the view and the next frame's view is never on screen, so only a scroll that can slow into it
+  // (a scrollbar drag of a few viewports a move) builds it. Faster, each frame mounts the view and
+  // the views the next `steps` frames reach, not the rows it jumps over: a fling of tens of
+  // viewports a frame (a god session) built 5 viewports of rows a frame that no frame showed.
+  const jumping = Math.abs(delta) > maxLead;
+  const contiguous = jumping ? 0 : lead;
+  // A jump's rows a frame are a view the next frame leaves: one row of overscan, not a margin's worth.
+  const overscan = jumping ? 1 : undefined;
+  const ranges = [
+    visibleLayoutRange(
+      layoutModel,
+      delta < 0 ? scrollTop - contiguous : scrollTop,
+      viewportHeight + contiguous,
+      overscan,
+    ),
+  ];
   const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
+  // The next views are built only while their margin holds a frame's unevenness (a few percent of
+  // its jump): past that, the next frame lands outside the window it built as often as in it, and
+  // the view it lands on is built in its own commit anyway.
+  if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
   for (let step = 1; step <= steps; step += 1)
-    ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
+    ranges.push(
+      visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
+    );
   return mergeRowRanges(ranges);
 }
 import {
