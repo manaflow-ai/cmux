@@ -16,7 +16,17 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT", "HTMLElement", "Element", "Node", "Event", "ResizeObserver"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "HTMLElement",
+  "Element",
+  "Node",
+  "Event",
+  "ResizeObserver",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 
@@ -42,7 +52,7 @@ class FakeResizeObserver {
 
 /** Delivers a size for `target` to every observer that watches it (none: nothing happens). */
 function resized(target: Element, height: number) {
-  for (const { callback, targets } of [...observers]) {
+  for (const { callback, targets } of Array.from(observers)) {
     if (!targets.has(target)) continue;
     const entry = { target, borderBoxSize: [{ blockSize: height, inlineSize: 600 }], contentRect: { height } };
     callback([entry as unknown as ResizeObserverEntry], {} as ResizeObserver);
