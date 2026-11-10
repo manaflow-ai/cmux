@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { call, deliver, memberRow, mirroredTeam, PROJECT, teamState, teamStub, type World } from "./team-stack-support.ts"
@@ -252,7 +252,7 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
   })
 
-  it("a downgrade seen by a sync that stopped early (a member read found the team gone) is the grant carried", async () => {
+  it("a sync that stopped early (a member read found the team gone) leaves the owner unconfirmed: nothing is carried", async () => {
     const t = await ownedTeamWithGrant("max")
     t.w.vmPlans.set(t.stackTeam, "go")
     const real = t.w.fake.getTeamMember
@@ -260,8 +260,8 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect((await deliver("team_membership.created", { team_id: t.stackTeam, user_id: t.stackUser })).body).toMatchObject({ ok: true, outcome: "team_missing_recheck" })
     t.w.fake.getTeamMember = real
     expect((await deleteInStack(t)).status).toBe(200)
-    expect(await carried(t.team)).toMatchObject({ vm_plan: "go", outcome: "moved" })
-    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "go" })
+    expect(await carried(t.team)).toMatchObject({ vm_plan: "go", outcome: "unverified", to_team: null })
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
   })
 
   it("a team event still waiting when the delete is confirmed may carry a newer grant: nothing is carried, an operator decides", async () => {
@@ -295,5 +295,184 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
       throw new Error("stack GET user returned 429")
     }
     expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+  })
+
+  // Review F1 at 38b48ba9: ownership moved, and the membership read that would show it failed.
+  it("ownership moved from Alice to Bob, the member read failed: the grant goes to neither", async () => {
+    const t = await ownedTeamWithGrant("max")
+    const bob = crypto.randomUUID()
+    t.w.members.set(`${t.stackTeam}:${bob}`, "Bob")
+    expect((await deliver("team.updated", { id: t.stackTeam, display_name: "Acme" })).status).toBe(200)
+    t.w.perms.set(`${t.stackTeam}:${bob}`, ["$delete_team"])
+    t.w.perms.set(`${t.stackTeam}:${t.stackUser}`, [])
+    const real = t.w.fake.getTeamMember
+    t.w.fake.getTeamMember = async () => {
+      throw new Error("stack GET team member returned 503")
+    }
+    expect((await deliver("team_permission.created", { id: "$delete_team", team_id: t.stackTeam, user_id: bob })).body).toMatchObject({ ok: true, outcome: "queued" })
+    t.w.fake.getTeamMember = real
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(await carried(t.team)).toMatchObject({ outcome: "unverified", to_team: null })
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
+    expect(await personalGrant(t.w, bob)).toEqual({ ok: true, vm_plan: null })
+  })
+
+  // Review F2 at 38b48ba9: an older refresh that finishes last, in the same millisecond, never restores a revoked grant.
+  it("an older grant refresh finishing after a newer webhook read, same millisecond, never restores the revoked grant", async () => {
+    const t = await ownedTeamWithGrant("max")
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+    try {
+      const gate = gatedTeamRead(t.w)
+      const refresh = inDO(teamStub(t.team), async (instance, state) => {
+        state.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0`)
+        return instance.cloudVmPlan(t.team)
+      })
+      await gate.entered
+      t.w.vmPlans.set(t.stackTeam, "free")
+      expect((await deliver("team.updated", { id: t.stackTeam, display_name: "Acme" })).status).toBe(200)
+      gate.release()
+      await refresh
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(await carried(t.team)).toBeNull()
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
+  })
+})
+
+/** The next team read answers what Stack holds now, then waits until released (a slow, older read). */
+const gatedTeamRead = (w: World) => {
+  const real = w.fake.getTeam
+  let enter!: () => void
+  let release!: () => void
+  const entered = new Promise<void>((r) => (enter = r))
+  const released = new Promise<void>((r) => (release = r))
+  w.fake.getTeam = async (team: string) => {
+    w.fake.getTeam = real
+    const answer = await real(team)
+    enter()
+    await released
+    return answer
+  }
+  return { entered, release }
+}
+
+/** A small seeded generator (mulberry32), so a failing interleaving is replayed from its seed. */
+const rng = (seed: number) => () => {
+  seed = (seed + 0x6d2b79f5) | 0
+  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+}
+
+const RUNS = 60
+describe("property: a carry never grants more than the latest confirmed grant, or to anyone but the latest owner", { timeout: 300_000 }, () => {
+  it(`${RUNS} random interleavings of refreshes, webhooks, ownership changes, revocations and deletes`, async () => {
+    const grants = ["max", "pro", "go", "free", null] as const
+    let carriedRuns = 0
+    for (let run = 0; run < RUNS; run++) {
+      const seed = 1000 + run
+      const r = rng(seed)
+      const pick = <T>(xs: ReadonlyArray<T>) => xs[Math.floor(r() * xs.length)]!
+      // Half the runs freeze the clock, so every read and write collides in one millisecond.
+      const clock = r() < 0.5 ? vi.spyOn(Date, "now").mockReturnValue(Date.now()) : null
+      const log: Array<string> = []
+      try {
+        const t = await ownedTeamWithGrant("max")
+        const alice = t.stackUser
+        const bob = crypto.randomUUID()
+        t.w.members.set(`${t.stackTeam}:${bob}`, "Bob")
+        expect((await deliver("team.updated", { id: t.stackTeam, display_name: "Acme" })).status).toBe(200)
+        let owner = alice
+        let slow: { release: () => void; done: Promise<unknown> } | null = null
+        const pace = (on: boolean) =>
+          inDO(teamStub(t.team), async (instance) => {
+            instance.stackPace = on ? undefined : async () => false
+          })
+        /** One event: delivered now, delayed behind the pace, or with failing member reads. */
+        const send = async (type: string, data: unknown) => {
+          const how = pick(["now", "now", "delayed", "failing"] as const)
+          log.push(`${type}:${how}`)
+          if (how === "delayed") await pace(false)
+          const real = t.w.fake.getTeamMember
+          if (how === "failing")
+            t.w.fake.getTeamMember = async () => {
+              throw new Error("stack GET team member returned 503")
+            }
+          try {
+            await deliver(type, data)
+          } finally {
+            t.w.fake.getTeamMember = real
+            if (how === "delayed") await pace(true)
+          }
+        }
+        const steps = 3 + Math.floor(r() * 6)
+        for (let i = 0; i < steps; i++) {
+          const op = pick(["grant", "grant", "owner", "refresh", "slow", "alarm"] as const)
+          log.push(op)
+          if (op === "grant") {
+            const g = pick(grants)
+            if (g === null) t.w.vmPlans.delete(t.stackTeam)
+            else t.w.vmPlans.set(t.stackTeam, g)
+            log.push(`=${g}`)
+            await send("team.updated", { id: t.stackTeam, display_name: "Acme" })
+          } else if (op === "owner") {
+            const next = owner === alice ? bob : alice
+            t.w.perms.set(`${t.stackTeam}:${next}`, ["$delete_team"])
+            t.w.perms.set(`${t.stackTeam}:${owner}`, [])
+            const prev = owner
+            owner = next
+            await send("team_permission.created", { id: "$delete_team", team_id: t.stackTeam, user_id: next })
+            await send("team_permission.deleted", { id: "$delete_team", team_id: t.stackTeam, user_id: prev })
+          } else if (op === "refresh" || (op === "slow" && slow !== null)) {
+            await inDO(teamStub(t.team), async (instance, state) => {
+              state.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0`)
+              return instance.cloudVmPlan(t.team)
+            })
+          } else if (op === "slow") {
+            const gate = gatedTeamRead(t.w)
+            const done = inDO(teamStub(t.team), async (instance, state) => {
+              state.storage.sql.exec(`UPDATE cloud_vm_plan SET checked_at = 0`)
+              return instance.cloudVmPlan(t.team)
+            })
+            await gate.entered
+            slow = { release: gate.release, done }
+          } else {
+            await inDO(teamStub(t.team), async (_instance, state) => {
+              state.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0 WHERE type != 'team.deleted'`)
+            })
+            await fireAlarm(teamStub(t.team))
+          }
+          // A slow refresh started earlier finishes after this step's reads.
+          if (slow !== null && op !== "slow") {
+            slow.release()
+            await slow.done
+            slow = null
+          }
+        }
+        if (slow !== null) {
+          slow.release()
+          await slow.done
+        }
+        // The truth when the team is deleted: the latest grant and owner Stack holds.
+        const truthGrant = t.w.vmPlans.get(t.stackTeam) ?? null
+        expect((await deleteInStack(t)).status).toBe(200)
+        const c = await carried(t.team)
+        const context = `seed ${seed}: ${log.join(" ")} -> ${JSON.stringify(c)} (truth ${truthGrant} to ${owner === alice ? "alice" : "bob"})`
+        if (c?.outcome === "moved") {
+          carriedRuns++
+          expect(c.vm_plan, context).toBe(truthGrant)
+          expect(c.owner, context).toBe(userIdFor(PROJECT, owner))
+        }
+        const other = owner === alice ? bob : alice
+        expect(await personalGrant(t.w, other), context).toEqual({ ok: true, vm_plan: null })
+        const mine = await personalGrant(t.w, owner)
+        if (mine.ok && mine.vm_plan !== null) expect(mine.vm_plan, context).toBe(truthGrant)
+      } finally {
+        clock?.mockRestore()
+      }
+    }
+    console.log(JSON.stringify({ msg: "grant carry property", runs: RUNS, carried: carriedRuns }))
   })
 })
