@@ -379,16 +379,22 @@ impl PtySurface {
     /// Build and fan out one immutable frame while the caller holds `term`.
     /// This never calls into the mux; a producer-driven caller publishes the
     /// output event through [`Self::build_producer_frame`] after unlocking.
+    ///
+    /// `for_viewers`: the frame is only for the render taps (output, a scroll,
+    /// a resize, a clear, new colors), so none is built while no tap is
+    /// attached; the terminal damage waits in the render state. A caller that
+    /// reads `latest` itself (an attach, [`Surface::render_frame`]) passes
+    /// false and builds at the current generation first, so a skipped frame
+    /// is never served stale.
     pub(super) fn build_frame_locked(
         &self,
         term: &mut Terminal,
         generation: u64,
-        producer_driven: bool,
+        for_viewers: bool,
     ) -> ghostty_vt::Result<bool> {
         let built = {
             let mut render = self.render.lock().unwrap();
-            if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
-            {
+            if (for_viewers && render.taps.is_empty()) || render.built_generation >= generation {
                 false
             } else {
                 render.state.update(term)?;
@@ -696,7 +702,7 @@ impl PtySurface {
             position_after
         });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let _ = self.build_frame_locked(&mut term, generation, false);
+        let _ = self.build_frame_locked(&mut term, generation, true);
         // A direct PTY's reader publishes the bus event, in order with the
         // output events it publishes: this caller may hold `Mux::state`.
         #[cfg(unix)]
