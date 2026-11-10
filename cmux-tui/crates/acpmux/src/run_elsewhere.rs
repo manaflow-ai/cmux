@@ -166,6 +166,8 @@ fn secret_content(patch: &[u8]) -> Vec<String> {
             if line.starts_with("@@") {
                 in_header = false;
             } else if let Some(name) = line.strip_prefix("+++ ") {
+                // git ends the line with a tab when the name has a space in it.
+                let name = name.strip_suffix('\t').unwrap_or(name);
                 current = unquote(name).and_then(|n| n.strip_prefix("b/").map(str::to_owned));
             }
             continue;
@@ -213,12 +215,8 @@ fn unquote(name: &str) -> Option<String> {
             b'f' => 12,
             b'r' => b'\r',
             b'0'..=b'7' => {
-                let mut v = u32::from(c - b'0');
-                for _ in 0..2 {
-                    let d = it.next().filter(u8::is_ascii_digit)?;
-                    v = v * 8 + u32::from(d - b'0');
-                }
-                u8::try_from(v).ok()?
+                let digits = [c, it.next()?, it.next()?];
+                u8::from_str_radix(std::str::from_utf8(&digits).ok()?, 8).ok()?
             }
             other => other,
         });
@@ -228,11 +226,9 @@ fn unquote(name: &str) -> Option<String> {
 
 /// Whether `line` has `prefix` followed by at least 20 token characters.
 fn token_after(line: &str, prefix: &str) -> bool {
-    line.match_indices(prefix).any(|(i, _)| {
-        line[i + prefix.len()..]
-            .bytes()
-            .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-            .count()
+    line.match_indices(prefix).any(|(i, p)| {
+        let Some(rest) = line.get(i..).and_then(|r| r.strip_prefix(p)) else { return false };
+        rest.bytes().take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')).count()
             >= 20
     })
 }
@@ -241,14 +237,15 @@ fn token_after(line: &str, prefix: &str) -> bool {
 /// fetches with its own credentials, and a token in the URL never leaves this one.
 pub fn without_login(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else { return url.to_owned() };
-    let host_end = rest.find('/').unwrap_or(rest.len());
-    match rest[..host_end].rsplit_once('@') {
+    let (authority, path) =
+        rest.find('/').and_then(|i| rest.split_at_checked(i)).unwrap_or((rest, ""));
+    match authority.rsplit_once('@') {
         // An ssh user names the account, not a secret (`ssh://git@host/x`); a password goes.
         Some((user, host)) if scheme.eq_ignore_ascii_case("ssh") || scheme.contains("+ssh") => {
             let user = user.split_once(':').map_or(user, |(u, _)| u);
-            format!("{scheme}://{user}@{host}{}", &rest[host_end..])
+            format!("{scheme}://{user}@{host}{path}")
         }
-        Some((_, host)) => format!("{scheme}://{host}{}", &rest[host_end..]),
+        Some((_, host)) => format!("{scheme}://{host}{path}"),
         None => url.to_owned(),
     }
 }
@@ -432,8 +429,8 @@ pub async fn diff(root: &Path, base: &str, left_out: &[String]) -> Result<Vec<u8
     if patch.len() > MAX_PATCH {
         return Err(format!(
             "the changes are {} MiB, more than the {} MiB a run sends",
-            patch.len() >> 20,
-            MAX_PATCH >> 20
+            patch.len().checked_shr(20).unwrap_or(0),
+            MAX_PATCH.checked_shr(20).unwrap_or(0)
         ));
     }
     Ok(patch)
@@ -460,7 +457,8 @@ fn cache_slug(origin: &str) -> String {
         .collect();
     let tail = tail.trim_end_matches(".git").trim_matches(['-', '.']).to_owned();
     let h = Sha256::digest(origin.as_bytes());
-    format!("{tail}-{:02x}{:02x}{:02x}", h[0], h[1], h[2])
+    let short: String = h.iter().take(3).map(|b| format!("{b:02x}")).collect();
+    format!("{tail}-{short}")
 }
 
 /// The script the other machine runs with `bash -s`: clone `origin` once into its cache, check
@@ -526,13 +524,19 @@ else
 fi
 trap done_ EXIT
 # The files the last run in the shared worktree brought: one the repository ignores (a sent
-# .env) would outlive `git clean` into a run that left it out. Checkout restores tracked ones.
-if [ -e "$work/.git" ] && [ -f "$work.sent" ]; then
-  (cd "$work" && xargs -0 rm -f -- <"$work.sent") || true
-fi
+# .env) would outlive `git clean` into a run that left it out.
+# Each goes only where no folder on its path is a link, so a run that turned `data/` into a link
+# never makes this one delete outside the worktree.
 if [ -e "$work/.git" ]; then
   git -C "$work" checkout -q -f --detach "$base"
   git -C "$work" clean -fdq
+  if [ -f "$work.sent" ]; then
+    while IFS= read -r -d '' p; do
+      d=$(dirname -- "$p")
+      while [ "$d" != . ] && [ "$d" != / ] && [ ! -L "$work/$d" ]; do d=$(dirname -- "$d"); done
+      if [ "$d" = . ]; then rm -f -- "$work/$p"; fi
+    done <"$work.sent"
+  fi
 else
   rm -rf "$work"
   git -C "$repo" worktree prune
@@ -546,10 +550,11 @@ fi
             nl = if patch.ends_with('\n') { "" } else { "\n" },
         ));
     }
+    // Only the files the base doesn't have: checkout restores the rest.
     let sent: Vec<String> = plan
         .files
         .iter()
-        .filter(|f| f.status != "D" && !left_out.contains(&f.path))
+        .filter(|f| f.status == "A" && !left_out.contains(&f.path))
         .map(|f| shell_quote(&f.path))
         .collect();
     s.push_str("if [ \"$work\" = \"$cache/work\" ]; then\n");

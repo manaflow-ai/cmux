@@ -72,13 +72,26 @@ fn a_private_key_in_added_lines_flags_its_file() {
 async fn a_secret_in_a_file_git_quotes_the_name_of_is_still_flagged() {
     let tmp = tempfile::tempdir().unwrap();
     let work = dirty_clone(tmp.path());
-    // git quotes a name with a quote, a backslash or a tab in its diff header.
-    for name in ["config\"local.txt", "back\\slash.txt", "tab\there.txt", "caf\u{e9}.txt"] {
+    // git quotes a name with a quote, a backslash or a tab in its diff header, and ends one with a
+    // space in it with a tab.
+    for name in [
+        "config\"local.txt",
+        "back\\slash.txt",
+        "tab\there.txt",
+        "caf\u{e9}.txt",
+        "config local.txt",
+    ] {
         write(&work.join(name), b"-----BEGIN RSA PRIVATE KEY-----\nabc\n");
         git_in(&work, &["add", "--", name]);
     }
     let plan = plan(&work).await.unwrap();
-    for name in ["config\"local.txt", "back\\slash.txt", "tab\there.txt", "caf\u{e9}.txt"] {
+    for name in [
+        "config\"local.txt",
+        "back\\slash.txt",
+        "tab\there.txt",
+        "caf\u{e9}.txt",
+        "config local.txt",
+    ] {
         let file =
             plan.files.iter().find(|f| f.path == name).unwrap_or_else(|| panic!("{name} listed"));
         assert!(file.secret, "{name} is flagged");
@@ -297,6 +310,34 @@ async fn a_secret_one_run_sent_is_gone_from_the_next_run_that_leaves_it_out() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(stdout.trim(), "absent", "{stdout}");
+}
+
+#[tokio::test]
+async fn clearing_the_last_run_never_follows_a_link_out_of_the_worktree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = dirty_clone(tmp.path());
+    let home = tmp.path().join("peer-home");
+    write(&home.join("ignore"), b"data\n");
+    let config = format!(
+        "[protocol \"file\"]\n\tallow = always\n[core]\n\texcludesFile = {}\n",
+        home.join("ignore").display()
+    );
+    std::fs::write(home.join("gitconfig"), config).unwrap();
+    // A file outside the worktree that a link could reach.
+    let outside = tmp.path().join("outside");
+    write(&outside.join("keep.txt"), b"not the run's\n");
+    write(&work.join("data/keep.txt"), b"sent\n");
+    git_in(&work, &["add", "-f", "data/keep.txt"]);
+    let plan = plan(&work).await.unwrap();
+    // The first run gets data/keep.txt and turns data/ into a link out of the worktree.
+    let turn = format!("rm -rf data && ln -s {} data", shell_quote(outside.to_str().unwrap()));
+    let out = run_script(&remote_script(&plan, &plan.patch, &[], &turn, "run-7").unwrap(), &home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // The next run (with no changes: git would refuse a patch through the link) clears what the
+    // first one brought, without following the link.
+    let out = run_script(&remote_script(&plan, b"", &[], "true", "run-8").unwrap(), &home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(outside.join("keep.txt").exists(), "the file the link reached is still there");
 }
 
 #[tokio::test]

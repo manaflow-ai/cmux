@@ -83,14 +83,16 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             })
             .collect();
         let why = refusal.or_else(|| plan.as_ref().err().cloned());
-        let mut reply = json!({"eligible": why.is_none(), "machines": list});
+        let mut reply = serde_json::Map::new();
+        reply.insert("eligible".into(), json!(why.is_none()));
+        reply.insert("machines".into(), json!(list));
         if let Some(why) = why {
-            reply["why"] = json!(why);
+            reply.insert("why".into(), json!(why));
         }
         if let Ok(plan) = &plan {
-            reply["tree"] = plan.view();
+            reply.insert("tree".into(), plan.view());
         }
-        return Ok(reply);
+        return Ok(Value::Object(reply));
     }
     if let Some(why) = refusal {
         return Err(RpcError::invalid_params(format!("this command stays here: {why}")));
@@ -147,7 +149,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         "task": started,
         "machine": peer,
         "base": plan.base,
-        "sent": plan.files.len() - left_out.len(),
+        "sent": plan.files.len().saturating_sub(left_out.len()),
         "leftOut": left_out,
     }))
 }
