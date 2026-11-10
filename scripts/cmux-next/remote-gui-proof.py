@@ -275,7 +275,8 @@ def watch_link(seconds: float, label: str) -> list:
     while time.monotonic() < end:
         row = machine_row() or {}
         state = chat_state()
-        now = (row.get("status"), row.get("link"), state.get("connection"), state.get("unavailable"))
+        peer = peer_connected()
+        now = (row.get("status"), "peer connected" if peer else "peer not connected", state.get("connection"), state.get("unavailable"))
         if now != last:
             seen.append({"at_ms": now_ms(), "status": now[0], "link": now[1], "chat_connection": now[2], "chat_unavailable": now[3]})
             log(label, json.dumps(seen[-1]))
@@ -421,6 +422,9 @@ def add_host() -> bool:
     outcome, ms = watch_add(pressed_at)
     card_shot(f"add-machine-{outcome or 'timeout'}")
     evidence["remote_machine"] = machine_row()
+    rm = evidence["remote_machine"] or {}
+    if outcome == "ready" and rm.get("status") not in (None, "connected"):
+        snag(f"the card says ready, but the app's machine row says {rm.get('status')}: {rm.get('detail')}", link=rm.get("link"))
     total = round((time.monotonic() - start) * 1000)
     evidence["times_ms"]["add_host"] = total
     evidence["times_ms"]["add_press_to_ready"] = ms
@@ -448,21 +452,33 @@ def chat_on_host() -> bool:
     where = menu("Computer")
     evidence["menu_computer"] = where
     shot("picker-where")
+    name = (evidence.get("remote_machine") or {}).get("name") or args.alias
+    picked_at = time.monotonic()
     remote = pane("click", text="Remote")
     if remote.get("error"):
         snag(f"the Where picker has no Remote row to click: {remote['error']}", rows=str(where)[:1500])
-    time.sleep(0.5)
-    machines = menu("Machine")
-    evidence["menu_machine"] = machines
+    time.sleep(0.6)
+    shot("remote-picked")
+    # The Machine picker: open it with a native click on its button, then the host's row. With one machine, Remote
+    # may already have picked it (run 42878100302: the button showed an icon and a green dot, no name).
+    opened = pane("click", selector='button[data-menu="Machine"]')
+    if opened.get("error"):
+        opened = menu("Machine")
+    evidence["menu_machine"] = opened
+    time.sleep(0.4)
     shot("picker-machine")
-    name = (evidence.get("remote_machine") or {}).get("name") or args.alias
-    picked_at = time.monotonic()
     picked = pane("click", text=name)
     if picked.get("error"):
-        snag(f"the Machine picker has no row {name!r}: {picked['error']}", rows=str(machines)[:1500])
-        return step("chat on the host", False, error=picked.get("error"))
+        snag(f"the Machine picker shows no row named {name!r} ({picked['error']}); going on with what Remote picked",
+             opened=str(opened)[:800])
+        pane("close_menus")
     time.sleep(0.3)
     shot("host-picked")
+    # "Trust <folder>?" (run 42878100302: "Trust session-01a1c70d...?" with No folder chosen): a person trusts it.
+    trusted = pane("click", text="Trust folder")
+    if not trusted.get("error"):
+        snag("a new chat on the host with No folder asked \"Trust session-<id>?\" before the first prompt")
+        time.sleep(0.5)
     sent = pane("compose_send", text=PROMPT)
     if sent.get("error"):
         snag(f"compose_send: {sent['error']}")
@@ -502,18 +518,22 @@ def move_there_and_back() -> bool:
     if not local:
         st = chat_state()
         snag(f"a chat on this Mac gave no reply in {ms} ms", chat={k: st.get(k) for k in ("connection", "unavailable", "isWorking", "lastAssistant", "harness")})
-    rows = menu("Computer")
+    rows = menu("Chat actions")
     evidence["menu_move_from_local"] = rows
     shot("move-menu")
     opened = pane("click", text="Move to…")
-    targets = menu("Computer") if opened.get("error") else pane("readiness")
-    evidence["move_targets_from_local"] = {"click": opened, "after": targets}
+    if opened.get("error"):
+        rows2 = menu("Computer")
+        opened = pane("click", text="Move to…")
+        evidence["menu_move_from_local_where"] = rows2
+    time.sleep(0.4)
+    evidence["move_targets_from_local"] = {"click": opened}
     shot("move-targets")
     name = (evidence.get("remote_machine") or {}).get("name") or args.alias
     there_at = time.monotonic()
     there = pane("click", text=name)
     if there.get("error"):
-        snag(f"Move to... offers no {name!r} (only Cloud machines and This Mac are move targets): {there['error']}",
+        snag(f"Move to… offers no {name!r} for a chat on this Mac ({there['error']}; Move to… opened: {opened})",
              menu=str(rows)[:1500])
         pane("close_menus")
         return step("move a chat there and back", False, error="no SSH machine among the Move to... targets")
@@ -539,10 +559,11 @@ def move_there_and_back() -> bool:
 
 def drop_and_restore() -> bool:
     # Back to the chat on the host (step 2's): the newest chat on the machine.
-    sid = next((s.get("session") for s in evidence["steps"] if s.get("step", "").startswith("chat on the host") and s.get("session")), None)
-    if sid:
-        pane("select_session", session=sid)
-        time.sleep(1)
+    sid = next((s.get("session") for s in evidence["steps"] if s.get("step", "").startswith("chat on the host") and s.get("ok") and s.get("session")), None)
+    if not sid:
+        return step("drop and restore the network: restore -> working", False, error="no chat on the host to time (step 2 failed)")
+    pane("select_session", session=sid)
+    time.sleep(1)
     drop_at = time.monotonic()
     host_sh("drop")
     seen = watch_link(min(args.drop_seconds, 600), "dropped")
@@ -558,8 +579,7 @@ def drop_and_restore() -> bool:
     link_seen = {}
 
     def working():
-        row = machine_row() or {}
-        if row.get("link") == "connected" and "link_ms" not in link_seen:
+        if "link_ms" not in link_seen and peer_connected():
             link_seen["link_ms"] = round((time.monotonic() - back_at) * 1000)
         return replied(before)
 

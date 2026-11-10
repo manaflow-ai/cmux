@@ -32,6 +32,8 @@ on:
 
 permissions:
   contents: read
+  # An earlier run's built-app artifact (Restore the built app from an earlier run's artifact).
+  actions: read
 
 concurrency:
   group: remote-gui-proof-${{ github.run_id }}
@@ -69,12 +71,37 @@ jobs:
           echo "key=rgp-app-$key" >> "$GITHUB_OUTPUT"
           echo "App key: rgp-app-$key"
 
+      # The cache alone did not carry it: run 42870121112 logged "Cache saved with key: rgp-app-3e4bde67..." and run
+      # 42878100302, on the same branch 50 min later, "Cache not found for input keys: rgp-app-3e4bde67...". So the app
+      # also goes up as an artifact named by the key, and a later run takes the newest unexpired one.
       - name: Restore the built app
         id: app-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/rgp-app
           key: ${{ steps.app-key.outputs.key }}
+
+      - name: Restore the built app from an earlier run's artifact
+        id: app-artifact
+        if: steps.app-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.app-key.outputs.key }}
+        run: |
+          set -uo pipefail
+          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$KEY&per_page=5" \
+            --jq '[.artifacts[] | select(.expired == false)][0].id // empty' 2>/dev/null)"
+          if [ -z "$id" ]; then echo "no artifact $KEY"; echo "hit=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          mkdir -p "$RUNNER_TEMP/rgp-dl" "$RUNNER_TEMP/rgp-app"
+          if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/rgp-dl/a.zip" \
+            && ditto -x -k "$RUNNER_TEMP/rgp-dl/a.zip" "$RUNNER_TEMP/rgp-dl" \
+            && ditto -x -k "$RUNNER_TEMP/rgp-dl/rgp-app.zip" "$RUNNER_TEMP/rgp-app" \
+            && [ -d "$RUNNER_TEMP/rgp-app/cmux DEV rgp.app" ]; then
+            echo "Reusing artifact $id ($KEY)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "artifact $id did not unpack"; echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -83,13 +110,13 @@ jobs:
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
       - name: Setup Node
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Setup Bun
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -100,7 +127,7 @@ jobs:
       # After the build, run 42730570609 stopped at "failed to run 'zig build' ...
       # No such file or directory".
       - name: Install build prerequisites
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
@@ -113,7 +140,7 @@ jobs:
       # newest published commit with the same cmux-tui and Ghostty inputs,
       # checked against its build-provenance attestation.
       - name: Build in-tree acpmux
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
@@ -126,7 +153,7 @@ jobs:
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Install the matching published cmux-tui client
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -164,7 +191,7 @@ jobs:
       # proof drives the app through its debug control surface (debug.page, debug.agent_pane, debug.key,
       # debug.window_snapshot), which the published NEXT DEV app, a Release build, does not compile in.
       - name: Build the tagged app
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         run: |
           set -euo pipefail
           # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
@@ -179,14 +206,27 @@ jobs:
           echo "PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Keep the built app
-        if: steps.app-cache.outputs.cache-hit != 'true'
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/rgp-app
           key: ${{ steps.app-key.outputs.key }}
 
+      - name: Upload the built app (for a later run)
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
+        run: ditto -c -k --sequesterRsrc --keepParent "$PROOF_APP" "$RUNNER_TEMP/rgp-app.zip"
+
+      - name: Upload the built app artifact
+        if: steps.app-cache.outputs.cache-hit != 'true' && steps.app-artifact.outputs.hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.app-key.outputs.key }}
+          path: ${{ runner.temp }}/rgp-app.zip
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Use the kept app
-        if: steps.app-cache.outputs.cache-hit == 'true'
+        if: steps.app-cache.outputs.cache-hit == 'true' || steps.app-artifact.outputs.hit == 'true'
         run: |
           app="$RUNNER_TEMP/rgp-app/cmux DEV rgp.app"
           [ -d "$app" ] || { echo "::error::the restored cache holds no app"; exit 1; }
