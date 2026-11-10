@@ -211,7 +211,7 @@ class SidebarItemRowView: NSView {
             // A favicon draws in its own colors: on the resting well, not the workspace color.
             chip.backgroundColor = showsSwatchDot ? info.color.map(SidebarStyle.color)?.cgColor
                 : wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
-            title.textColor = Palette.textPrimary
+            title.textColor = Palette.sidebarTitle
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
             let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)

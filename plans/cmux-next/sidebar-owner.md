@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
+  (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
+  Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).
+  Make the DEFAULT look like the Codex desktop sidebar". With the app at Default and `sidebar.density` Compact, list and
+  band rows are 30 pt with no gap (the same 30 pt pitch: the fill takes the old 2 pt gap), content 8 pt inside the fill
+  (`SidebarStyle.contentInset`) and the fill 6 pt from the edge, a 10 pt corner (`SidebarRowTokens.matchesCodex`). Every
+  other density keeps its rows, its `space1` gap and the tab radius. At every density: titles in `Palette.sidebarTitle`
+  (the primary text 12% toward the ground, 4.5:1 on every fill), detail lines tertiary, section and list headings at the
+  row size, regular, secondary ink (`SidebarStyle.headerFont`, was 12 pt semibold); the neutral hover, selection and
+  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two take back earlier calls and each has a
+  Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark` 0.2, `.light` 0.025; Lawrence 2026-10-19 had one
+  surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
+  the one list (`sidebar.listHeading`; cx-mdo0 had none). Regression: `SidebarCodexMatchTests`.
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the

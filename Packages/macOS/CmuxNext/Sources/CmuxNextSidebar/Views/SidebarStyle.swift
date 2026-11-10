@@ -6,6 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
+    /// A row's content (icon column, title, trailing column) from its fill's edge: the outer inset, or 8 pt at
+    /// Default, where the rows match the Codex sidebar (`SidebarRowTokens.matchesCodex`).
+    static var contentInset: CGFloat { SidebarDensityTokens.contentInset }
     /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
     /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
@@ -18,6 +21,13 @@ enum SidebarStyle {
     /// sidebar's edge, with no resize line or chrome shade in the band.
     static var rowToPaneGap: CGFloat { rowEdgeGap }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
+    /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex sidebar's
+    /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956): `sidebar.surfaceDim.dark` or `.light` for the
+    /// theme. nil when it is 0, or when the chrome around a curved main pane is already shaded (`appearance.sidebarSurface`
+    /// separate), so the sidebar never takes two shades. Call inside the view's theme scope.
+    static var surfaceDim: NSColor? {
+        Palette.sidebarDim(dark: SidebarTunables.surfaceDimDark.value, light: SidebarTunables.surfaceDimLight.value)
+    }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -259,7 +269,11 @@ enum SidebarStyle {
     static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
-    static var headerFont: NSFont { sized(Typography.header, weight: .semibold) }
+    /// A section or list header ("Pinned", "Projects", "Recents", a computer's name): the Codex sidebar's quiet
+    /// heading (https://github.com/manaflow-ai/cmux/issues/39956), the rows' own size at the regular weight in the
+    /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
+    /// the way from its ground to white, which `textSecondary` (62%) matches.
+    static var headerFont: NSFont { sized(Typography.body, weight: .regular) }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }

@@ -144,6 +144,24 @@ public nonisolated enum SidebarTunables {
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+    /// One list (`sidebar.groupByComputer` off) draws a quiet "Workspaces" heading over its rows, as the Codex sidebar
+    /// heads its list "Recents" (https://github.com/manaflow-ai/cmux/issues/39956). Off draws the bare list (cx-mdo0).
+    public static let listHeading = Tunable<Bool>.toggle(
+        "sidebar.listHeading", .sidebar, "Workspaces heading over the list",
+        help: "Draws a quiet Workspaces heading over the sidebar's one workspace list, as the Codex sidebar heads its list. Off: the list starts with its first row.",
+        default: true, code: "SidebarTunables.listHeading")
+
+    /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
+    /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956: "the sidebar colour is too bright").
+    /// Only where nothing else shades the sidebar: no `appearance.surfaces.sidebar` color, no separate chrome shade.
+    public static let surfaceDimDark = Tunable<Double>.number(
+        "sidebar.surfaceDim.dark", .sidebar, "Sidebar dim (dark themes)",
+        help: "Dark themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 draws the sidebar on the window's own color.",
+        default: 0.2, range: 0...0.6, step: 0.01, unit: .fraction, code: "SidebarTunables.surfaceDimDark")
+    public static let surfaceDimLight = Tunable<Double>.number(
+        "sidebar.surfaceDim.light", .sidebar, "Sidebar dim (light themes)",
+        help: "Light themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 draws the sidebar on the window's own color.",
+        default: 0.025, range: 0...0.3, step: 0.005, unit: .fraction, code: "SidebarTunables.surfaceDimLight")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
@@ -253,6 +271,9 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
+            listHeading.descriptor,
+            surfaceDimDark.descriptor,
+            surfaceDimLight.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,

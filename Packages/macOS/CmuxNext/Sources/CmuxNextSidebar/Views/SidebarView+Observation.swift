@@ -55,6 +55,8 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
+        /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
+        var listHeading: Bool
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -97,6 +99,7 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
+            listHeading = SidebarTunables.listHeading.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.

@@ -13,7 +13,7 @@ extension SidebarRegionMetrics {
     /// Otherwise their rows are the band's (``SidebarRowTokens/band``): at Expanded, Comfortable's 28 pt
     /// row, not the app's one-line 24 pt under 37 pt list rows (Lawrence 2026-11-04).
     @MainActor static func standard(minimal: Bool) -> SidebarRegionMetrics {
-        standard(rowHeight: minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarRowTokens.current.band.rowHeight)
+        standard(rowHeight: minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarRowTokens.current.band.listRowHeight)
     }
 
     @MainActor private static func standard(rowHeight row: CGFloat) -> SidebarRegionMetrics {
@@ -29,7 +29,7 @@ extension SidebarRegionMetrics {
             iconButtonWidth: row + Metrics.space2, lineWidth: Metrics.dividerThickness,
             favoriteHeight: row * 2 + Metrics.space2,
             // A row glyph's center from a line's leading edge (the line
-            // starts at the inset; the row glyph at twice the inset).
-            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconColumnBox / 2)
+            // starts at the inset; the row glyph the content inset past it).
+            glyphColumn: SidebarStyle.contentInset + SidebarStyle.iconColumnBox / 2)
     }
 }
