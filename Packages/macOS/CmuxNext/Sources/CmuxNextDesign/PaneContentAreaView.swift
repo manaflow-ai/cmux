@@ -247,14 +247,17 @@ public extension NSView {
     }
 
     /// How far from this pane content's top and leading edges its ground (``paneGroundColor``) starts: where its content
-    /// area is laid out now, below a tab strip at its top edge and after a vertical tab list. Zeros for an area at
-    /// those edges: a chat with no strip, or one that shares the tab row, paints from its top edge, whatever header
-    /// its pane reports for its ring. Nil: it has no content area of its own (it is one, or it shows none). The area's
-    /// origin does not change with the content's size, so the answer is right before the content lays out again.
-    /// Read in each frame of a spring that holds the content: O(its direct subviews), no layout.
+    /// area is laid out now (below a tab strip at its top edge, after a vertical tab list), and below the rows of a tab
+    /// row that a view in the area shares with the pane's tabs (``tabRowCoverHeight``: the area then starts at the top,
+    /// under the row, and no ground goes behind or beside the tabs). Zeros for a chat with no strip: it paints from its
+    /// top edge, whatever header its pane reports for its ring. Nil: it has no content area of its own (it is one, or it
+    /// shows none). A row's tools that enter or leave the row move the area and the cover in one layout, by the same
+    /// height, so the top is the same before and after that layout.
+    /// Read in each frame of a spring that holds the content: O(the area's views), no layout.
     var paneGroundInsets: (top: CGFloat, leading: CGFloat)? {
         guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return nil }
         let top = isFlipped ? area.frame.minY - bounds.minY : bounds.maxY - area.frame.maxY
-        return (top: max(0, top), leading: max(0, area.frame.minX - bounds.minX))
+        let row = area.subviews.reduce(0) { $1.isHidden ? $0 : max($0, $1.tabRowCoverHeight) }
+        return (top: max(0, top) + row, leading: max(0, area.frame.minX - bounds.minX))
     }
 }
