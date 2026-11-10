@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 import AppKit
+import CmuxNextWakeups
 
 /// Whether Home shows the Set Up cmux card (goal next-first-run-setup; Lawrence 2026-10-09: "i do not want new
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
@@ -35,7 +36,7 @@ public final class FirstRunSetup {
     @ObservationIgnored private let skipsOnboarding: Bool
     @ObservationIgnored private let cardWait: Duration
     /// Hands an ask to the dialog when no card was drawn within ``cardWait``.
-    @ObservationIgnored private var cardDeadline: Task<Void, Never>?
+    @ObservationIgnored private let cardDeadline = DemandTimer(owner: "onboarding.classic-card-wait")
     @ObservationIgnored private var agentsModel: AgentsStepModel?
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
@@ -174,9 +175,8 @@ public final class FirstRunSetup {
         let answer = await withCheckedContinuation { reply in
             classicReply = reply
             guard cardsOpen == 0 else { return }
-            cardDeadline = Task { [weak self, cardWait] in
-                try? await Task.sleep(for: cardWait)
-                guard !Task.isCancelled, let self, self.cardsOpen == 0 else { return }
+            cardDeadline.schedule(after: cardWait) { @MainActor [weak self] in
+                guard let self, self.cardsOpen == 0 else { return }
                 self.resolveClassic(nil)
             }
         }
@@ -188,8 +188,7 @@ public final class FirstRunSetup {
     private func resolveClassic(_ answer: ClassicImportAnswer?) {
         guard let reply = classicReply else { return }
         classicReply = nil
-        cardDeadline?.cancel()
-        cardDeadline = nil
+        cardDeadline.cancel()
         reply.resume(returning: answer)
     }
 
