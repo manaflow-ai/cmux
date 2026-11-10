@@ -406,3 +406,84 @@ fn a_journal_hook_with_an_old_cursor_keeps_every_undelivered_record() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn retention_hook(version: u32) -> crate::JournalHookManifest {
+    serde_json::from_value(json!({
+        "hook_id": "retention_hook",
+        "manifest_version": version,
+        "filter": {},
+        "exec": { "argv": ["/usr/bin/true"], "timeout_ms": 1000, "max_parallel": 1 },
+        "delivery": { "start": "tail", "retry": { "max_attempts": 1, "backoff_ms": 0 } },
+        "permissions": ["journal.read"],
+    }))
+    .unwrap()
+}
+
+/// A newer version of a hook replaces the older one, and the dispatcher runs
+/// deliveries of the enabled version only. A delivery of the replaced version
+/// that still waits can never run, so it must not hold the journal: without
+/// this, one such row stops retention for the life of the session.
+#[test]
+fn a_waiting_delivery_of_a_replaced_hook_version_does_not_stop_retention() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-retention-replaced-hook-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let (mux, agents) = session(1, &root);
+    // No dispatcher runs in this test: the test does the dispatcher's scans.
+    assert!(mux.try_claim_journal_hook_dispatcher());
+    mux.put_journal_hook(&retention_hook(1), "retention-test", "retention-hook-put-1").unwrap();
+    let first_cursor = mux.journal_hook_states().unwrap()[0].cursor_sequence;
+
+    let mut next_step = 0;
+    write_through(&mux, &agents, &mut next_step, first_cursor + 8);
+    // Version 1 matched one record; its delivery waits for its turn.
+    let matched = mux.session_journal_after(first_cursor, 1).unwrap().records.remove(0);
+    let scheduled = mux
+        .schedule_journal_hook_deliveries(&[crate::workspace_registry::JournalHookScan {
+            hook_id: "retention_hook".into(),
+            manifest_version: 1,
+            expected_cursor: first_cursor,
+            scanned_to: matched.sequence,
+            matches: vec![(matched.event_id.clone(), matched.sequence)],
+        }])
+        .unwrap();
+    assert_eq!(scheduled, vec![true]);
+
+    // Version 2 replaces version 1 before that delivery ran.
+    mux.put_journal_hook(&retention_hook(2), "retention-test", "retention-hook-put-2").unwrap();
+    let states = mux.journal_hook_states().unwrap();
+    assert_eq!(states.len(), 1, "only the newest version is enabled");
+    assert_eq!(states[0].manifest.manifest_version, 2);
+    let second_cursor = states[0].cursor_sequence;
+
+    write_through(&mux, &agents, &mut next_step, second_cursor + RECORDS);
+    // Version 2 saw every record and matched none: its cursor is at the head.
+    let scanned = mux
+        .schedule_journal_hook_deliveries(&[crate::workspace_registry::JournalHookScan {
+            hook_id: "retention_hook".into(),
+            manifest_version: 2,
+            expected_cursor: second_cursor,
+            scanned_to: head(&mux),
+            matches: Vec::new(),
+        }])
+        .unwrap();
+    assert_eq!(scanned, vec![true]);
+    for _ in 0..32 {
+        mux.run_journal_maintenance_for_test();
+    }
+
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    assert!(
+        pruned_through >= matched.sequence,
+        "the waiting delivery of the replaced hook version (record {}) holds the journal: \
+         retention deleted through {pruned_through} of head {}",
+        matched.sequence,
+        head(&mux),
+    );
+
+    mux.shutdown();
+    drop(agents);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
