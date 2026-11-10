@@ -150,7 +150,7 @@ final class DiffPageService: InternalPageProvider {
         let tabRuntime = runtime(for: link)
         guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
         let chat = DiffTabChat.local(session: pane.selectedTab?.agentSession?.session, isLocal: link.isLocal, replies: replies,
-                                     environment: services.feed.acpmuxEnvironment)
+                                     environment: QuitAgents.environment(services))
         return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
                     in: pane, focus: focus, chat: chat, created: created, failed: failed)
     }
@@ -432,7 +432,7 @@ final class DiffPageService: InternalPageProvider {
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
-        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self?.services.feed.acpmuxEnvironment })
+        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self.flatMap { QuitAgents.environment($0.services) } })
         provider.startPreopen()
         tab.page = page
         tab.provider = provider

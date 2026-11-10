@@ -39,6 +39,8 @@ import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { SkillOfferRow } from "./SkillOfferRow";
 import { SKILL_OFFER } from "../conversation/skillOffer";
+import { PromptCoachRow } from "./PromptCoachRow";
+import { PROMPT_COACH } from "../conversation/promptCoach";
 import { PresetApprovalRow } from "./PresetApprovalRow";
 import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
@@ -94,6 +96,7 @@ export const defaultRegistry: NativeRegistry = {
   [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
   [SKILL_OFFER]: SkillOfferRow,
+  [PROMPT_COACH]: PromptCoachRow,
   [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
@@ -137,7 +140,9 @@ export const readOnlyRegistry: NativeRegistry = {
   [MEMORY_OFFER]: NoRow,
   // So is a skill offer: it quotes the owner's other chats.
   [SKILL_OFFER]: NoRow,
-  // So is approving one of the owner's presets.
+  // How the owner could have prompted better is feedback for the owner, not for a guest.
+  [PROMPT_COACH]: NoRow,
+  // Approving one of the owner's presets is the owner's too.
   [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,

@@ -432,7 +432,7 @@ export function snapshotReadyCommand(root = ""): string {
 }
 
 /** Agent CLIs a first session starts; their entry files are read back into the snapshot's page cache. */
-const WARM_AGENT_BINS = ["claude", "codex", "opencode", "pi", "gh", "git"] as const;
+const WARM_AGENT_BINS = ["claude", "codex", "opencode", "pi", "cursor-agent", "gh", "git"] as const;
 
 /** Drop the page cache, then read back what a clone's bind path touches first, then the agent CLIs. */
 function warmBindPathCommand(): string {

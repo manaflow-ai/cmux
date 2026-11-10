@@ -264,6 +264,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The person's Save or Not now on a task done three times (`server/skill_distill.rs`).
     Capability { id: "skill-distill-v1", wire: &[method::MUX_SKILL_RESOLVE] },
+    // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
+    Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

@@ -505,6 +505,7 @@
       "set-client-sizing",
       "set-column-dock",
       "set-default-colors",
+      "set-divider-visible",
       "set-frontend-browser-history",
       "set-host-size-policy",
       "set-layout-sizes",
@@ -1183,6 +1184,18 @@
     },
     {
       "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
       "streams": [
         "subscribe"
       ]

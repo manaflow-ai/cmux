@@ -103,9 +103,25 @@ def rate_limited_classes() -> tuple:
     return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
 
 
+def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
+    """FOUND, GitHub's parsed answer to ROUTE, when it is a JSON object or list (a paginated read: each page is one);
+    NONE lets a None through (a test fake's empty answer). Anything else is Refused as unread, naming the first
+    SHAPE_CHARS characters of what came back, so no reader below calls `.get` on it. While the REST quota was spent
+    a read of a workflow's runs came back as a str, and list_base_runs' `listed.get("workflow_runs")` raised
+    AttributeError, a traceback merge_hold showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
+    for page in found if paginate and isinstance(found, list) else [found]:
+        if not (isinstance(page, (dict, list)) or (none and page is None)):
+            raise Refused(f"GitHub's answer to {route} could not be read: {str(page)[:SHAPE_CHARS]}")
+    return found
+
+
+SHAPE_CHARS = 200
+
+
 def rate_limit_aware(github):
-    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
-    looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
+    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above), and every `json` read that is not
+    a JSON object or list Refused as unread (json_shape). Reads are looked up on each call, so a caller that replaces
+    one (the tests' fakes) is still read, and checked."""
     class Aware:
         def __getattr__(self, name: str):
             attribute = getattr(github, name)
@@ -114,9 +130,12 @@ def rate_limit_aware(github):
 
             def read(*args, **kwargs):
                 try:
-                    return attribute(*args, **kwargs)
+                    found = attribute(*args, **kwargs)
                 except RateLimited as error:
                     raise RateLimitedRead(str(error)) from None
+                if name == "json" and args:
+                    return json_shape(str(args[0]), found, paginate=bool(kwargs.get("paginate")), none=True)
+                return found
 
             return read
 
@@ -194,11 +213,15 @@ class GitHub(_evidence.GitHub):
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
         jq = projection(route)
-        if jq is None:
-            return super().json(route, paginate=paginate, per_page=per_page)
 
         def fetch(url: str):
-            return json.loads(self.run(["api", url, "--jq", jq]))
+            # Each page is checked as it comes, so the pager never meets a str either (json_shape).
+            said = self.run(["api", url, *(("--jq", jq) if jq is not None else ())])
+            try:
+                found = json.loads(said)
+            except ValueError:
+                raise Refused(f"GitHub's answer to {url} could not be read: {said[:SHAPE_CHARS]}") from None
+            return json_shape(url, found)
         if not paginate:
             return fetch(route)
         try:
@@ -3064,8 +3087,8 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
     # pull_request_target) is never the base's.
     base_runs[workflow] = sorted(
-        (run for run in listed.get("workflow_runs") or []
-         if run.get("event") not in ("pull_request", "pull_request_target")
+        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+         if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
          and run.get("conclusion") != "skipped"),
         key=lambda run: run.get("created_at") or "", reverse=True)
 

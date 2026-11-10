@@ -1035,6 +1035,12 @@ export interface ProcessTailParams {
 /** What another agent's message asks of the session it goes to. */
 export type PromptClass = ("block" | "question" | "result" | "fyi");
 
+export interface PromptCoachParams {
+  _meta?: RequestMeta;
+  coachId?: unknown;
+  sessionId?: unknown;
+}
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
