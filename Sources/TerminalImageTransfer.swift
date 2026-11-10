@@ -386,6 +386,16 @@ enum TerminalImageTransferPlanner {
         return true
     }
 
+    /// Opens the file rather than checking POSIX bits: macOS app-data protection
+    /// denies reads inside other apps' containers even when the mode allows them.
+    private static func isReadableFileURL(_ fileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL.standardizedFileURL) else {
+            return false
+        }
+        try? handle.close()
+        return true
+    }
+
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
         let normalizedFileURL = fileURL.standardizedFileURL
         guard normalizedFileURL.isFileURL,
@@ -483,7 +493,11 @@ enum TerminalImageTransferPlanner {
         // Finder adds image previews to file selections. Preserve the original
         // files without decoding those previews for either paste or drop.
         // Folder, web, and expired URLs can still accompany actual image copies.
-        guard !urls.isEmpty, urls.allSatisfy(isRemoteUploadableFileURL) else { return nil }
+        // So can files the terminal program cannot open, such as a clipboard
+        // manager's copy inside its sandbox container; let the pixels win there.
+        guard !urls.isEmpty,
+              urls.allSatisfy(isRemoteUploadableFileURL),
+              urls.allSatisfy(isReadableFileURL) else { return nil }
         guard let durableURLs = pasteboardService.durableDroppedFileURLs(
             urls,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
