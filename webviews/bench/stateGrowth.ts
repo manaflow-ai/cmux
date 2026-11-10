@@ -237,7 +237,7 @@ export class FakeDaemon {
   /// this connection lost it, as acpmux drops a slow client's frames).
   push(events: EventRecord[], deliver = true): void {
     for (const event of events) {
-      const history = this.sessions.get(event.sessionId)?.history;
+      const history = event.sessionId === undefined ? undefined : this.sessions.get(event.sessionId)?.history;
       history?.push(event);
       if (history && this.keep !== undefined) while (history.length > this.keep) history.shift();
       if (deliver) this.send("_acpmux/event", event);
@@ -360,12 +360,7 @@ export type Sample = {
   types: Record<string, number>;
 };
 
-/// What the samples taken of a client so far hold themselves (their path maps and type counts, kept by the scenario
-/// until it judges them): taken off each later sample's heap, or the harness's own record of the growth reads as
-/// growth (about 4 KiB per operation at one sample in ten, measured on the Linux pool).
-const sampleCost = new WeakMap<object, { heapBytes: number; objects: number }>();
-
-/// One growth sample after a full collection, less what the earlier samples of `client` hold.
+/// One growth sample after a full collection.
 export function sample(
   op: number,
   client: object,
@@ -378,24 +373,29 @@ export function sample(
   const byPath = retainedEntries(client);
   let entries = 0;
   for (const [path, size] of byPath) if (!skip(path)) entries += size;
-  const held = sampleCost.get(client) ?? { heapBytes: 0, objects: 0 };
-  const taken: Sample = {
+  return {
     op,
-    heapBytes: stats.heapSize - held.heapBytes,
-    objects: stats.objectCount - held.objects,
+    heapBytes: stats.heapSize,
+    objects: stats.objectCount,
     entries,
     timers: clock.live,
     byPath,
     types: { ...stats.objectTypeCounts },
   };
-  // This sample is held from here on: weigh it (the walk's garbage collected) for the samples after it.
-  Bun.gc(true);
-  const after = heapStats();
-  sampleCost.set(client, {
-    heapBytes: held.heapBytes + after.heapSize - stats.heapSize,
-    objects: held.objects + after.objectCount - stats.objectCount,
-  });
-  return taken;
+}
+
+const NO_PATHS: Map<string, number> = new Map();
+
+/// Adds `next` to `samples`, keeping the path map and type counts only of the samples `judge` reads them from (the
+/// first one it fits, `keep`, and the newest): every sample's detail held to the end was the harness's own growth,
+/// about 4 KiB per operation at one sample in ten (measured on the Linux pool).
+export function keepSample(samples: Sample[], next: Sample, keep: (index: number) => boolean): void {
+  const previous = samples.at(-1);
+  if (previous && !keep(samples.length - 1)) {
+    previous.byPath = NO_PATHS;
+    previous.types = {};
+  }
+  samples.push(next);
 }
 
 /// The noise bands a scenario's slopes are held to, per operation, after warm-up.
@@ -544,7 +544,7 @@ async function measure(
   try {
     for (let index = 1; index <= ops; index++) {
       await op(index);
-      if (index % every === 0) samples.push(sample(index, run.client, run.clock, skip));
+      if (index % every === 0) keepSample(samples, sample(index, run.client, run.clock, skip), (at) => at === warm);
     }
   } finally {
     run.client.close();
@@ -760,13 +760,16 @@ export async function dayReplay(options: ScenarioOptions): Promise<Growth> {
   const every = Math.max(1, Math.floor((options.ops ?? 0) / 20) || (options.scale === "god" ? 50 : 10));
   const started = performance.now();
   let turns = 0;
+  // The halves judged below read the detail of samples 1 and the middle one (and the newest).
+  const ends = events.slice(opener).filter((event) => event.kind === "turn_result").length;
+  const middle = Math.floor(Math.floor(ends / every) / 2);
   try {
     for (const event of events.slice(opener)) {
       if (event.at > clock.now) await clock.advance(event.at - clock.now);
       daemon.push([event]);
       if (event.kind === "turn_result" && ++turns % every === 0) {
         await clock.advance(10);
-        samples.push(sample(turns, client, clock));
+        keepSample(samples, sample(turns, client, clock), (at) => at === 1 || at === middle);
       }
     }
   } finally {

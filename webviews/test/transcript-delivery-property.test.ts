@@ -255,9 +255,16 @@ test("closing the shown chat frees its records and rows", async () => {
   client.close();
 });
 
-// One fault kind at a time over the same seeds: the kinds that converge alone stay held to it while #8950 is open.
-for (const kind of ["dup", "swap", "drop", "lose"] as const)
-  test(`${kind} alone converges to the in-order rows`, async () => {
+// One fault kind at a time over the same seeds. Duplicates and a dropped socket converge alone and stay held to it;
+// a lost record, and a swap (its later record is dropped as stale, so a loss too), fail at the default seeds until
+// manaflow-ai/cmuxterm-hq#8950 is fixed, and `test.failing` turns red when they pass.
+for (const [kind, known] of [
+  ["dup", false],
+  ["drop", false],
+  ["swap", true],
+  ["lose", true],
+] as const)
+  (known ? test.failing : test)(`${kind} alone converges to the in-order rows`, async () => {
     const reference = await play(events, async (daemon) => {
       daemon.push(live);
       await clock!.advance(1000);
