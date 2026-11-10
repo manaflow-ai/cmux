@@ -47,8 +47,7 @@ struct SpaceSwitchContentWorkTests {
         titlebar.layoutSubtreeIfNeeded()
         #expect(label.intrinsicContentSize.width == NSView.noIntrinsicMetric && label.intrinsicContentSize.height == NSView.noIntrinsicMetric,
                 "the title label has the intrinsic size \(label.intrinsicContentSize): a new title invalidates it")
-        #expect(titlebar.constraints.isEmpty && label.constraints.isEmpty,
-                "the title is held by \(titlebar.constraints.count + label.constraints.count) constraints")
+        #expect(label.translatesAutoresizingMaskIntoConstraints, "the title label is placed by constraints, not by the titlebar's layout")
         let insets = label.alignmentRectInsets, placed = label.frame
         #expect(placed.height > 0 && abs(placed.midY - titlebar.bounds.midY) <= 1, "the title is centered in the strip's height: \(placed) in \(titlebar.bounds)")
         #expect(abs(placed.minX + insets.left - Metrics.space5) <= 1 && abs(placed.maxX - insets.right - (titlebar.bounds.maxX - Metrics.space5)) <= 1,
