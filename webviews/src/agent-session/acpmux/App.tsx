@@ -9041,7 +9041,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (startedInCloud) return openCloudChatWith({ cwd: result.cwd });
           return chooseProject(result.cwd).then(thenCloud);
         });
-      const folder = cdFolder(argument, snapshot.summary?.cwd);
+      const folder = cdFolder(argument, snapshot.summary?.cwd, state.inCloud);
       if (!folder) return t("composer.cmuxCdPath");
       if (startedInCloud) return openCloudChatWith({ cwd: folder });
       const summary = snapshot.summary;
