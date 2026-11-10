@@ -154,10 +154,10 @@ export function ExtensionWidgetCell({ widget }: { widget: MountedPanel }) {
       aria-label={panel.title}
     >
       {problem ? (
-        <span className="nt-ext-widget-notice" role="status">
+        <output className="nt-ext-widget-notice">
           <Icon name="status.warning" size={12} />
           <span>{nt(problem.kind === "failed" ? "extWidget.failed" : "extWidget.over", { name: panel.title })}</span>
-        </span>
+        </output>
       ) : (
         <SceneRenderer store={widget.store} dispatch={widget.dispatch} resolveAsset={widget.resolveAsset} />
       )}
