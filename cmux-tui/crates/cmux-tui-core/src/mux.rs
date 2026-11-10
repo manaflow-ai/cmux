@@ -1635,13 +1635,33 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement (the unplaced-terminal reaper).
-    Unplaced,
+    /// The terminal has no tab placement and no client holds an attach
+    /// stream on it (the unplaced-terminal reaper). The close checks both
+    /// once it holds its locks, so an attach that lands before then keeps
+    /// the terminal (feat `UnplacedNotKeptAndDetached`).
+    UnplacedAndDetached,
+}
+
+impl TerminalCloseGuard {
+    /// The close needs the terminal without a placement.
+    pub(crate) fn requires_unplaced(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The close needs no attach stream on the terminal.
+    pub(crate) fn requires_detached(self) -> bool {
+        matches!(self, Self::UnplacedAndDetached)
+    }
 }
 
 /// The close guard did not hold, so nothing changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
+pub(crate) enum TerminalCloseGuardFailed {
+    /// The terminal has a placement.
+    Placed,
+    /// A client holds an attach stream on the terminal.
+    Attached,
+}
 
 impl fmt::Display for TerminalCloseGuardFailed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -10772,16 +10792,25 @@ impl Mux {
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if guard == TerminalCloseGuard::Unplaced {
-                let placed = {
+            if guard.requires_unplaced() {
+                let (placed, attached) = {
                     let state = self.state.lock().unwrap();
-                    state.surfaces.values().any(|surface| {
+                    let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
+                    };
+                    let placed = state.surfaces.values().any(&hosts);
+                    let attached = guard.requires_detached()
+                        && state.terminal_catalog.values().any(|runtime| {
+                            hosts(runtime) && self.terminal_view_attached(runtime.id)
+                        });
+                    (placed, attached)
                 };
                 if placed {
-                    return Err(TerminalCloseGuardFailed.into());
+                    return Err(TerminalCloseGuardFailed::Placed.into());
+                }
+                if attached {
+                    return Err(TerminalCloseGuardFailed::Attached.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;
