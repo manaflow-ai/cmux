@@ -25,6 +25,7 @@ mod session_notices;
 mod shortcuts_menus;
 mod sidebar_agent_status;
 mod surface_attach;
+mod synchronized_output_draw;
 mod tab_close_selection;
 mod tab_titles;
 mod viewport_history;
