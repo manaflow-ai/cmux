@@ -50,8 +50,10 @@ fn agents_at_rest_after_a_reopen_the_first_report_is_a_row_and_the_next_are_not(
         let first = hook(&reopened, terminal, "PreToolUse");
         assert!(!first.replayed, "the first report after a restart is appended: {first:?}");
         assert_eq!(reopened.session_journal_head().unwrap(), head + 1);
+        // The roster's owner folds the appended row after the request answered.
+        settled(&reopened);
         for _ in 0..4 {
-            let next = hook(&reopened, terminal, "PostToolUse");
+            let next = hook(&reopened, terminal, "PreToolUse");
             assert!(next.replayed, "the next equal report is not appended: {next:?}");
             assert_eq!(next.sequence, first.sequence);
         }
