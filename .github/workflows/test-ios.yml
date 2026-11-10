@@ -1403,7 +1403,11 @@ jobs:
           XCODEBUILD_TIMEOUT_SECONDS: "600"
         run: |
           set -euo pipefail
-          mapfile -t journey < <(grep -Ev '^[[:space:]]*(#|$)' ios/AppStoreReview/journey-tests.txt)
+          # macOS runners ship bash 3.2: read the list line by line.
+          journey=()
+          while IFS= read -r test; do
+            journey+=("$test")
+          done < <(grep -Ev '^[[:space:]]*(#|$)' ios/AppStoreReview/journey-tests.txt || true)
           if [ "${#journey[@]}" -eq 0 ]; then
             echo "::error::ios/AppStoreReview/journey-tests.txt names no tests"
             exit 1

@@ -148,6 +148,9 @@ class AppReviewJourneyTests(unittest.TestCase):
         # unfiltered dispatches. Only a focused dispatch skips it.
         self.assertIn("if: ${{ inputs.test_filter == '' }}", step)
         self.assertNotIn("continue-on-error", step)
+        # The macOS runners' /bin/bash is 3.2.
+        for bash4 in ("mapfile", "readarray", "declare -A", "${test,,}", "${test^^}"):
+            self.assertNotIn(bash4, step)
         self.assertIn("family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}", simulator_job)
         gate = workflow[workflow.index("\n  ios-tests:\n"):]
         self.assertIn("      - ios-simulator\n", gate)
