@@ -55,6 +55,7 @@ class FakeApi:
         self.landed: str | None = None  # a commit that lands between the tip read and the dispatch
         self.jobs: dict[int, list[dict]] = {}
         self.gets: list[str] = []
+        self.covering: set[str] = set()  # base tier run shas whose commit contains the tip (compare: behind)
 
     def open_run(self, run_id: int, sha: str, at: float, status: str = "queued",
                  jobs: list[dict] | None = None, title: str = tier.TITLE) -> None:
@@ -78,6 +79,8 @@ class FakeApi:
         if "/compare/" in path:
             if self.compare_error:
                 raise RuntimeError("HTTP 502")
+            if path.split("/compare/")[1].split("...")[0] in self.covering:
+                return {"status": "behind", "files": []}
             return {"status": "ahead", "files": [{"filename": name} for name in self.files]}
         raise AssertionError(path)
 
@@ -228,8 +231,10 @@ class Kick(unittest.TestCase):
         # deadline must never let a second Mac tier start inside the new window.
         # The older run still waits for a Mac: the new run supersedes it, so it is
         # cancelled even though this kick dispatches nothing.
+        # The hand dispatch took the branch tip then, which contains this kick's tip.
         api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.covering.add(MID)
 
         clock.during_wait = lambda: api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
 
@@ -528,6 +533,75 @@ class OneDeadline(unittest.TestCase):
                                    log=lambda _: None, pushed=TIP, deadline=deadline), TIP)
         self.assertEqual(clock.slept, [])
         self.assertEqual(api.cancelled, [])
+
+
+class RunDuringAWait(unittest.TestCase):
+    """Codex review of #40369 (F1): after any wait the kick reads the run history again before it
+    dispatches. A 601 s quota wait with a manual base tier run starting 300 s into it dispatched only
+    301 s after that run, inside its 15 minute window. The real client and kick() on one fake clock."""
+
+    MANUAL_AT = T0 + 300
+
+    def run_kick(self, budget: float, covering: bool = False):
+        clock = Clock(T0)
+        deadline = quota.Deadline(budget, clock=clock.now)
+        fake = FakeApi([(OLD, T0 - 20 * 60)], TIP)  # the window is open when the kick starts
+        if covering:
+            fake.covering.add(MID)
+        dispatched_at: list[float] = []
+        refused = {"left": 1}
+        api = quota.QuotaGitHub("t", deadline=deadline, now=clock.now, sleep=clock.sleep)
+
+        def manual_run():
+            # Started by hand 300 s into the quota wait, titled with the branch tip then.
+            if not any(MID in run["display_title"] for run in fake.runs):
+                fake.open_run(12, MID, self.MANUAL_AT, "queued", QUEUED_MAC)
+
+        def send(method, url, body=None):
+            path = url.removeprefix(api.api_url + "/")
+            if method == "GET":
+                if "/compare/" in path and refused["left"]:
+                    refused["left"] -= 1
+                    return 403, b'{"message": "API rate limit exceeded"}', {
+                        "x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(clock.at + 600))}
+                return 200, json.dumps(fake.get(path)).encode(), {}
+            if path.endswith("/dispatches"):
+                dispatched_at.append(clock.at)
+            return fake.post(path, body or {}), b"", {}
+
+        api._send = send
+        clock.during_wait = manual_run
+        try:
+            result = tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               pushed=TIP, deadline=deadline)
+        except tier.PastDeadline as error:
+            result = error
+        return result, clock, fake, dispatched_at
+
+    def test_a_manual_run_during_a_quota_wait_gets_its_full_window(self):
+        # The job's real deadline: 601 s of quota wait leaves 479 s, and the manual run's window has 599 s
+        # to go. The kick exits with the deadline line; nothing is dispatched.
+        result, clock, fake, dispatched_at = self.run_kick(tier.JOB_TIMEOUT_S - tier.MARGIN_S)
+        self.assertEqual(clock.slept, [601])
+        self.assertIsInstance(result, tier.PastDeadline)
+        self.assertEqual(len(str(result).splitlines()), 1)
+        self.assertIn("the window opens in 599 s", str(result))
+        self.assertEqual(fake.dispatched, [])
+        self.assertEqual(dispatched_at, [])
+
+    def test_with_time_left_it_waits_out_the_manual_runs_window_then_dispatches(self):
+        result, clock, fake, dispatched_at = self.run_kick(3600)
+        self.assertEqual(clock.slept[:2], [601, 599])
+        self.assertEqual(result, TIP)
+        self.assertEqual(len(fake.dispatched), 1)
+        self.assertGreaterEqual(dispatched_at[0], self.MANUAL_AT + tier.WINDOW_S)
+
+    def test_a_manual_run_that_covers_the_push_ends_the_kick(self):
+        result, clock, fake, dispatched_at = self.run_kick(tier.JOB_TIMEOUT_S - tier.MARGIN_S, covering=True)
+        self.assertIsNone(result)
+        self.assertEqual(clock.slept, [601])
+        self.assertEqual(fake.dispatched, [])
+        self.assertEqual(dispatched_at, [])
 
 class QuotaRetry(unittest.TestCase):
     """Every workflow's GITHUB_TOKEN in a repository shares one REST quota (2026-11-10: the base tier
