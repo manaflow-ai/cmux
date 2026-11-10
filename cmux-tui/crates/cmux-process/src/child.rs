@@ -214,6 +214,18 @@ impl Child {
     /// can never reach a process that took a reused id. Elsewhere than macOS and Linux this waits as
     /// [`Self::wait_timeout`], which reaps.
     pub fn exited_within(&mut self, limit: Duration) -> io::Result<bool> {
+        #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux")))]
+        {
+            self.wait_timeout(limit).map(|status| status.is_some())
+        }
+        #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+        {
+            self.exited_unreaped_within(limit)
+        }
+    }
+
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    fn exited_unreaped_within(&mut self, limit: Duration) -> io::Result<bool> {
         drop(self.stdin.take());
         match &mut self.inner {
             #[cfg(target_vendor = "apple")]
@@ -230,8 +242,6 @@ impl Child {
                 exit_event_within(pid, limit)?;
                 exited_unreaped(libc::pid_t::try_from(pid).map_err(io::Error::other)?)
             }
-            #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux")))]
-            Inner::Std(_) => self.wait_timeout(limit).map(|status| status.is_some()),
         }
     }
 
