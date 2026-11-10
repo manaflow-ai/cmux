@@ -2513,10 +2513,16 @@ pre.cv-math-source {
   height: var(--cv-footer-row);
   padding-top: 0;
 }
-/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
-   its ⌃B hint on its line. */
+/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): its words
+   stand where a 22-tall line's would, its ⌃B hint on its line. Drawn up, never resized: the line keeps
+   the footer's slot under a step row and under a reply alike, so the box it is laid out in never
+   changes when a reply lands over a step. A line that changed its size in the update that also
+   pushed it down the transcript (a call's step, then the reply's first block) counted the whole push
+   as a layout shift: the shift that a turn ending and the next beginning in one update made (each
+   0.036 of the view, 4.2 of the long log's 7.7 streamed four records a frame,
+   transcript-replay.bench.ts `transcript_replay.trickle.cls`). */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-tool-row-height);
+  translate: 0 calc((var(--cv-tool-row-height) - var(--cv-footer-row)) / 2);
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room

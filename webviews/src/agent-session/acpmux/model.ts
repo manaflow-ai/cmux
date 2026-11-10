@@ -1560,8 +1560,10 @@ const isStepRow = (row: AcpmuxRow) =>
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
-/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
-/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
+/// finished", "Scheduled check", a compaction): its words where a 22-tall line's stand, with the run
+/// gap above it (`.acpmux-row--below.acpmux-row--after-step`, #29965). The Thinking line keeps the
+/// footer's 32 slot there too, drawn up (`liveStepHeight`), so a reply landing over a step never
+/// resizes it in the update that pushes it down; the waiting
 /// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
@@ -1601,6 +1603,9 @@ const TOOL_ROW_PT = 22;
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// The live line under a step row (`isLiveStep`): the Thinking line keeps the footer's slot, drawn up
+/// (conversation.css `.acpmux-row--after-step > .cv-worked.is-below`); the activity line is one tool row.
+const liveStepHeight = (row: AcpmuxRow) => (row.kind === ACTIVITY_LINE ? toolRowHeight() : footerRow());
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -3202,7 +3207,7 @@ export function layoutConversation(
       height = custom
         ? customHeight
         : edge === LIVE_STEP_EDGE
-          ? toolRowHeight()
+          ? liveStepHeight(row)
           : measuredRowHeight(
               row,
               width,
