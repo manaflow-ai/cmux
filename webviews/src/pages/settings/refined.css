@@ -18,10 +18,15 @@
   --polish-placeholder: color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base));
   /* The app's fill ramp (design-tokens.md section 1: hoverFill, selectionFill, pressedFill), as the
      host derives it from the terminal theme, so a Settings hover, selection and press read as the
-     sidebar's, the palette's and every shared control's. */
+     sidebar's, the palette's and every shared control's. Pressed is mixed here, not taken from
+     --ds-color-pressed: that resolves to the app's opaque surface step, which would paint a slab over
+     the window glass or a picture; pressedFill is ink 11% (light) / 14% (dark) over clear. */
   --polish-hover: var(--ds-color-hover);
   --polish-selected: var(--ds-color-selection);
-  --polish-pressed: var(--ds-color-pressed);
+  --polish-pressed: light-dark(
+    color-mix(in srgb, var(--polish-ink) 11%, transparent),
+    color-mix(in srgb, var(--polish-ink) 14%, transparent)
+  );
   --polish-focus: color-mix(in srgb, var(--polish-ink) 40%, transparent);
   --polish-duration: var(--cmux-motion-micro);
 }
