@@ -250,6 +250,10 @@ impl Customize {
                 )));
             }
         }
+        // One import at a time, from the first read to the last write: two
+        // that merged into the same settings text would each write theirs
+        // and the later one would drop the other's keys, in no generation.
+        let _lock = self.store().lock()?;
         let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
@@ -281,7 +285,16 @@ impl Customize {
         // Files the profile does not carry still count for validation (a
         // manifest names a script the folder already has).
         let mut check = files.clone();
-        for path in tree::scan(self.roots())?.tree.keys() {
+        let live = tree::scan(self.roots())?.tree;
+        // Every place this writes is one the draft's base generation holds,
+        // or is empty: a file too large to snapshot, one past the count the
+        // scan keeps, or one behind a linked folder is never written over.
+        let in_the_way: Vec<_> =
+            files.keys().filter_map(|path| tree::in_the_way(self.roots(), path, &live)).collect();
+        if !in_the_way.is_empty() {
+            return Err(Error::Untracked(in_the_way));
+        }
+        for path in live.keys() {
             if !check.contains_key(path)
                 && let Some(bytes) = tree::read(self.roots(), path)?
             {
@@ -295,7 +308,7 @@ impl Customize {
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
-        let begun = self.begin(&format!("profile {}", profile.name), origin, now_ms)?;
+        let begun = self.begin_locked(&format!("profile {}", profile.name), origin, now_ms)?;
         let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
         for (path, bytes) in
             files.iter().filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)

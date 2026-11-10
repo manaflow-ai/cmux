@@ -168,6 +168,42 @@ pub fn tracked(roots: &Roots, path: &str) -> bool {
         && (!path.starts_with("themes/") || path.ends_with(".json"))
 }
 
+/// Why writing `path` could lose something for good, given the tree a scan
+/// just read: `None` when the write is safe. Safe is a file the scan read
+/// (a generation holds its content before the write), or a place where
+/// nothing is yet and every folder on the way is a real folder. Anything
+/// else is on disk without a copy: a file too large or past the count the
+/// scan keeps, or a folder that is a link into somewhere the scan never
+/// reads (a dotfiles repo), which a write would follow.
+pub fn in_the_way(roots: &Roots, path: &str, live: &Tree) -> Option<Skipped> {
+    if live.contains_key(path) {
+        return None;
+    }
+    let skipped = |reason: &str| Some(Skipped { path: path.to_owned(), reason: reason.to_owned() });
+    let Some(file) = locate(roots, path) else { return skipped("not a customization path") };
+    // `customize/a/b.js`: `customize/a` must be a folder of its own. The
+    // part's root may be a link; the scan reads through that one.
+    let mut folder = file.parent();
+    for _ in 1..path.matches('/').count() {
+        let Some(dir) = folder else { break };
+        match fs::symlink_metadata(dir) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return skipped("inside a linked folder, which cmux does not read");
+            }
+            Ok(metadata) if !metadata.is_dir() => return skipped("its folder is a file"),
+            _ => {}
+        }
+        folder = dir.parent();
+    }
+    match fs::symlink_metadata(&file) {
+        Err(_) => None,
+        Ok(metadata) if metadata.is_file() && metadata.len() > MAX_FILE_BYTES => {
+            skipped(&format!("larger than {} MiB", MAX_FILE_BYTES / 1024 / 1024))
+        }
+        Ok(_) => skipped("on disk, and not a file cmux keeps a copy of"),
+    }
+}
+
 /// A name the scan steps over.
 fn hidden_name(name: &str) -> bool {
     name.starts_with('.') || name.ends_with('~') || name == "node_modules"

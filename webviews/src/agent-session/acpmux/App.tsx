@@ -9145,7 +9145,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     inCloud: snapshot.summary?.hostKind === "cloud",
     cloudStart: !quick,
     // Before a chat starts there is no `hostKind`: the picked run mode says where it will run.
-    startsElsewhere: newChatRunsElsewhere({ started: !fresh && !!snapshot.sessionId, mode: sandbox.mode }),
+    // A started chat on another machine (its `peer`) would customize that machine's cmux.
+    startsElsewhere: newChatRunsElsewhere({
+      started: !fresh && !!snapshot.sessionId,
+      peer: !!snapshot.summary?.peer,
+      mode: sandbox.mode,
+    }),
   });
   /// A started chat's `/side --on cloud` and `/cd --on cloud`: New Cloud Chat, on the person's
   /// gesture, with `start` handed to the tab it opens under a one-time token (commandPlace.ts). That

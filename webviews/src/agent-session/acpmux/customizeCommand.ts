@@ -75,15 +75,18 @@ export function customizeMessage(text: string): string | undefined {
 
 /// Whether the chat a prompt is about to start runs somewhere other than this machine's own
 /// files: Cloud or Sandboxed picked for a chat with no turn yet, another machine, or a saved
-/// environment that is not a place on this one. A started chat answers by its own host instead.
+/// environment that is not a place on this one. A started chat answers by its own host instead:
+/// a Cloud one by `inCloud`, one on another machine of the person's by its `peer` here.
 /// `/customize` is refused there: its agent would change that machine's cmux, or a sandbox's copy.
 export function newChatRunsElsewhere(pick: {
   started?: boolean;
+  /// A started chat on another machine of the person's (the chat's `summary.peer`).
+  peer?: boolean;
   mode?: "persistent" | "sandboxed" | "cloud" | undefined;
   machine?: boolean;
   environmentKind?: string | undefined;
 }): boolean {
-  if (pick.started) return false;
+  if (pick.started) return Boolean(pick.peer);
   if (pick.mode === "cloud" || pick.mode === "sandboxed") return true;
   return Boolean(pick.machine) || (pick.environmentKind !== undefined && pick.environmentKind !== "local");
 }
