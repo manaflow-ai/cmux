@@ -1123,7 +1123,7 @@ describe("clean-room provider key probe", () => {
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
       "proc/5/cmdline": "bash\0",
-      // As on every fresh staging machine: gitleaks' known public Google keys, Codex's copy of itself.
+      // As on every fresh staging machine: a secret scanner's known public Google keys, Codex's copy of itself.
       "home/cmux/.local/bin/acpmux": elf(GEMINI_SHAPE),
       "home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux": elf(GEMINI_SHAPE),
       "home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch": elf(PROJ),

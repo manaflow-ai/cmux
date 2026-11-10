@@ -86,7 +86,7 @@ LOGIN_FILES = {
 # Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
 SHIPPED = re.compile(r"^/opt/|/\.codex/\.tmp/plugins/|/\.claude/plugins/")
 # Programs the machine's installers put in its home, matched only when the file is a program (ELF): acpmux and
-# cmux carry gitleaks' list of known public Google keys, and Codex copies its own program to arg0/apply_patch.
+# cmux carry a secret scanner's list of known public Google keys, and Codex copies its own program to arg0/apply_patch.
 SHIPPED_PROGRAM = re.compile(r"^/home/[^/]+/(\.local/bin/(acpmux|cmux|cmux-tui)|\.local/share/cmux-tui/builds/[^/]+/bin/[^/]+|"
                              r"\.codex/tmp/arg0/[^/]+/apply_patch)$")
 
