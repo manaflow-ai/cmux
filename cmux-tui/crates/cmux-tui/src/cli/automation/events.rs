@@ -104,7 +104,8 @@ fn follow(kind: &EventKind, global: &super::super::GlobalArgs) -> Outcome {
     match result {
         Ok(()) => Ok(0),
         Err(error) => {
-            let message = error["message"].as_str().unwrap_or("the event source failed");
+            let message =
+                error.get("message").and_then(Value::as_str).unwrap_or("the event source failed");
             eprintln!("cmux: {}: {message}", kind.name);
             Ok(1)
         }
@@ -180,7 +181,7 @@ pub(super) fn pull_request_line(pr: &Value) -> Value {
     json!({
         "event": "pr-opened",
         "url": pr["url"],
-        "repo": pr["repository"]["nameWithOwner"],
+        "repo": pr.pointer("/repository/nameWithOwner"),
         "number": pr["number"],
         "title": pr["title"],
         "draft": pr["isDraft"],
@@ -237,7 +238,10 @@ fn pull_requests() -> Result<(), Value> {
                 }
             }
             // A failed read (offline, rate limited) waits for the next one.
-            Err(error) => eprintln!("cmux: pr-opened: {}", error["message"].as_str().unwrap_or("")),
+            Err(error) => eprintln!(
+                "cmux: pr-opened: {}",
+                error.get("message").and_then(Value::as_str).unwrap_or("")
+            ),
         }
     }
 }

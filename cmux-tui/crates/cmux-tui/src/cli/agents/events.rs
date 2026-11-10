@@ -869,12 +869,12 @@ pub(in crate::cli) fn follow(
             }
             Err(AgentFailure::Owner(failure)) => return Err(mcp::agent_failure_value(failure)),
         };
-        for event in answer["events"].as_array().into_iter().flatten() {
+        for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
             if !each(event) {
                 return Ok(());
             }
         }
-        after = answer["next_after"].as_str().map(str::to_owned).or(after);
+        after = answer.get("next_after").and_then(Value::as_str).map(str::to_owned).or(after);
     }
 }
 
@@ -882,7 +882,7 @@ pub(in crate::cli) fn follow(
 /// `seq kind change id detail`.
 pub(in crate::cli) fn human_lines(answer: &Value) -> String {
     let mut out = String::new();
-    for event in answer["events"].as_array().into_iter().flatten() {
+    for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
         let text = |name: &str| event[name].as_str().unwrap_or("").to_owned();
         let detail = match event["kind"].as_str() {
             Some("agent") => text("state"),
