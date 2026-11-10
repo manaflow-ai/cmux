@@ -572,7 +572,8 @@ def god_ratio_rows(rows):
         small, big = twin.get("p95"), god.get("p95")
         if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
             continue
-        if small <= max(twin.get("floor") or 0, GOD_RATIO_MIN[unit]):
+        least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
+        if small <= max(twin.get("floor") or 0, least):
             continue
         ratio = round(big / small, 3)
         version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
@@ -1614,7 +1615,8 @@ GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
 # The smallest twin a ratio means anything against: a 2 ms long task on the small chat would make 84 ms on the god chat
 # 42x, and a ratio of noise flaps. A god row whose twin is under it is still judged by its own target.
 GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
-GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_)")
+GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at rest
+GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$)")  # a rate per second (idle_ms_per_s) keeps its ratio
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
