@@ -98,6 +98,9 @@ export class FoldRide {
     // fold plays there, the room under the last reply and the dock's.
     let last: { node: HTMLElement; index: number } | undefined;
     for (const each of rows) if (!last || each.index > last.index) last = each;
+    // Rows mounted outside the run (a margin drag's selection holds them) leave unmounted rows
+    // between: the last of them says nothing of what a move shows.
+    if (last && last.index - Math.min(...rows.map((each) => each.index)) + 1 !== rows.length) return this.release();
     if (!last) return this.release();
     // Its box includes the translate it wears now.
     const worn = parseFloat(last.node.style.translate.split(" ")[1] ?? "") || 0;

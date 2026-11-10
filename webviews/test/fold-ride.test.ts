@@ -167,3 +167,22 @@ test("a fold back at its placed height leaves the rows under it no translate", (
   expect(ride.riding).toBe(false);
   expect(last.style.translate).toBe("");
 });
+
+// A margin drag's selection keeps a row far below mounted, outside the run: the rows between are
+// not mounted, so its reach says nothing of what a close would show, and the ride gives way.
+test("the ride gives way when the mounted rows are not one run", () => {
+  const rows = transcript(4);
+  const [row, , , held] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  held.setAttribute("aria-posinset", "40");
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 60);
+  expect(ride.ride([row])).toBe(false);
+  expect(held.style.translate).toBe("");
+});

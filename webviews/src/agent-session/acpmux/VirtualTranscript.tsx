@@ -2226,6 +2226,9 @@ function TranscriptView({
             // over the live line under it, and the view a line short (agent-pane-stream-jitter's
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
+            // A ride that gives way below takes its translates off now: the rows go to their places
+            // before this frame paints too, not in a batch after it.
+            const rode = foldRide.current!.riding;
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
               pendingDrawn.current = new Map();
               // Back at their placed heights: a ride keeps no translate for a change undone.
@@ -2241,7 +2244,12 @@ function TranscriptView({
                 : foldRide.current!.release()
             )
               return;
-            else if (followingRef.current || targets.some(heightFoldInFlight) || foldHolding(foldAnchor.current)) {
+            else if (
+              rode ||
+              followingRef.current ||
+              targets.some(heightFoldInFlight) ||
+              foldHolding(foldAnchor.current)
+            ) {
               for (let pass = 0; pass < 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
