@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -171,6 +174,37 @@ class TestIntegrity(unittest.TestCase):
         self.assertEqual(calls[0][0:6], ("-c", "core.quotePath=false", "diff", "--name-status", "--find-renames", "--text"))
         self.assertIn("--no-ext-diff", calls[0])
         self.assertIn("--no-textconv", calls[0])
+
+    def test_binary_bytes_in_the_diff_do_not_crash_the_guard(self):
+        # Main commit 22d51d28 (#40164) added .webp images. `git diff --text`
+        # prints their bytes, and byte 0xee is not UTF-8: the guard crashed
+        # with UnicodeDecodeError for every pull request based on that main.
+        with tempfile.TemporaryDirectory() as root:
+            def git(*args: str) -> str:
+                return subprocess.check_output(["git", "-C", root, *args], text=True).strip()
+
+            git("init", "-q")
+            git("config", "user.email", "guard@example.com")
+            git("config", "user.name", "guard")
+            Path(root, "README.md").write_text("base\n", encoding="utf-8")
+            git("add", "README.md")
+            git("commit", "-q", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            Path(root, "web").mkdir()
+            Path(root, "web", "image.webp").write_bytes(b"RIFF\xee\x00\x00\x00WEBPVP8 \n\xff\xfe\n")
+            Path(root, "tests").mkdir()
+            Path(root, "tests", "test_bytes.py").write_bytes(b"# caf\xe9\nassert True\n")
+            git("add", "web/image.webp", "tests/test_bytes.py")
+            git("commit", "-q", "-m", "binary")
+
+            previous = Path.cwd()
+            os.chdir(root)
+            try:
+                findings = module.run(base)
+            finally:
+                os.chdir(previous)
+
+        self.assertEqual(findings, [])
 
     def test_skip_reason_update_is_not_new_skip(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
