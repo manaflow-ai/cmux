@@ -597,9 +597,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // What this source already has is history to a new reader: one change, drawn in place.
         flushOpenChunk()
-        if !replay.isEmpty { continuation.yield(.batch(replay)) }
-        // A reader made after the attach caught up (a rebuilt store) starts current.
-        if attached { continuation.yield(.historyLoading(false)) }
+        // A reader made after the attach caught up (a rebuilt store) starts current: the load
+        // state goes in the same batch, so the reader gets one change.
+        if !replay.isEmpty {
+            continuation.yield(.batch(attached ? replay + [.historyLoading(false)] : replay))
+        } else if attached {
+            continuation.yield(.historyLoading(false))
+        }
         continuations.append(continuation)
         return stream
     }
