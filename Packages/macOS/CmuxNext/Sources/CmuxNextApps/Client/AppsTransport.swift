@@ -33,10 +33,9 @@ public protocol AppsTransport: AnyObject {
     /// Begins following the daemon (availability events from here on).
     func start()
     func list() async throws(AppsTransportError) -> AppsListReply
-    /// Visible Session Info app sections (`cmux.apps.panels.list`).
-    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
-    /// Visible New Tab app widgets (`cmux.apps.panels.list` with `surface: newTab`).
-    func newTabWidgets() async throws(AppsTransportError) -> [AppSessionInfoPanel]
+    /// Visible app panels of one page (`cmux.apps.panels.list`): `sessionInfo` sections or
+    /// `newTab` widgets.
+    func panels(surface: String) async throws(AppsTransportError) -> [AppSessionInfoPanel]
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -50,9 +49,4 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
-}
-
-public extension AppsTransport {
-    /// A transport that lists no New Tab widgets (test fakes, an older daemon).
-    func newTabWidgets() async throws(AppsTransportError) -> [AppSessionInfoPanel] { [] }
 }

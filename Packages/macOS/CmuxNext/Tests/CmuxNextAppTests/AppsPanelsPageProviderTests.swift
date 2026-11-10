@@ -93,8 +93,9 @@ private final class FakePanelsTransport: AppsTransport {
     func list() async throws(AppsTransportError) -> AppsListReply {
         AppsListReply(revision: 1, apps: [AppRecord(json: ["id": "local/customize", "installed": true, "manifest": Self.manifest])].compactMap { $0 })
     }
-    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
-        [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }
+    func panels(surface: String) async throws(AppsTransportError) -> [AppSessionInfoPanel] {
+        guard surface == "sessionInfo" else { return [] }
+        return [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }
     }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         throw AppsTransportError(message: "unused")

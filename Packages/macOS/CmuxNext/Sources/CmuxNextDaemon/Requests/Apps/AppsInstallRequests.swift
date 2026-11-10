@@ -23,10 +23,11 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
     public var op: String
     public var args: JSONValue
 
-    /// `apps.panels.list`: the Session Info sections of installed, visible apps.
-    public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
-    /// `apps.panels.list` with `surface: newTab`: the New Tab widgets of installed, visible apps.
-    public static let newTabWidgetsList = AppsStoreRequest(op: "apps.panels.list", args: .object(["surface": .string("newTab")]))
+    /// `apps.panels.list`: the Session Info sections (`sessionInfo`) or New Tab widgets (`newTab`)
+    /// of installed, visible apps.
+    public static func panelsList(surface: String) -> AppsStoreRequest {
+        AppsStoreRequest(op: "apps.panels.list", args: .object(["surface": .string(surface)]))
+    }
 
     public init(op: String, args: JSONValue = .object([:])) {
         self.op = op

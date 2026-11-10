@@ -23,7 +23,7 @@ import Testing
             let apps = listed ? [AppRecord(json: ["id": "local/customize", "installed": true, "manifest": Self.manifest])].compactMap { $0 } : []
             return AppsListReply(revision: revision, apps: apps)
         }
-        func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { [] }
+        func panels(surface: String) async throws(AppsTransportError) -> [AppSessionInfoPanel] { [] }
         func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
             throw AppsTransportError(message: "unused")
         }

@@ -82,13 +82,13 @@ public final class AppsClient {
 
     public func sessionInfoPanels() async throws(AppsClientError) -> [AppSessionInfoPanel] {
         if case .unavailable(let reason) = availability { throw .unavailable(reason) }
-        do throws(AppsTransportError) { return try await transport.sessionInfoPanels() }
+        do throws(AppsTransportError) { return try await transport.panels(surface: "sessionInfo") }
         catch { throw .refused(error) }
     }
 
     public func newTabWidgets() async throws(AppsClientError) -> [AppSessionInfoPanel] {
         if case .unavailable(let reason) = availability { throw .unavailable(reason) }
-        do throws(AppsTransportError) { return try await transport.newTabWidgets() }
+        do throws(AppsTransportError) { return try await transport.panels(surface: "newTab") }
         catch { throw .refused(error) }
     }
 
