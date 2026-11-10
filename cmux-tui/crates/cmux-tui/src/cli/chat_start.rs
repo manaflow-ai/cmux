@@ -642,6 +642,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
+    // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
+    if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
+        return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+    }
     let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
@@ -651,6 +655,8 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         Err(error) => return usage_failure(&error, global.output),
     };
     let start = match route {
+        // Every other argument is checked before anything is cloned.
+        Route::Here if start.repo.is_some() && here_preflight(&start).is_err() => start,
         Route::Here => match in_repo(start, global.output) {
             Ok(start) => start,
             Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
@@ -693,6 +699,11 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Err(error) => usage_failure(&error, global.output),
         },
     }
+}
+
+/// Whether target `on` is a Cloud selector (`cloud`, `vm`, `vm:…`), never a chat here.
+pub(super) fn names_cloud(on: &str) -> bool {
+    on == "cloud" || on == "vm" || on.starts_with("vm:")
 }
 
 /// Why [`in_repo`] started nothing.
@@ -838,6 +849,21 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
     Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
 }
 
+/// Every check a chat here makes of its arguments before it starts, run before `--repo` clones
+/// anything: the wait's, and `agents chat new`'s own (`parse_new`). The prompt is not read from
+/// stdin for it; the start reads it once.
+pub(super) fn here_preflight(start: &Start) -> Result<(), UsageError> {
+    here_wait(start)?;
+    let mut checked = start.clone();
+    if checked.cwd.is_none() && checked.repo.is_some() {
+        // The clone's folder, which is absolute: `--repo`'s own.
+        checked.cwd = Some("/".to_owned());
+    }
+    let words = new_words(&checked, checked.prompt.clone())?;
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    super::agents::chat_control::parse_new(&words).map(drop)
+}
+
 /// `agents chat new …` with this start's settings, after the same globals.
 pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>, UsageError> {
     let mut words = prefix.to_vec();
@@ -848,6 +874,15 @@ pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>
 
 /// The words after `agents chat new` for this start (`-` read from stdin now).
 pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
+    let prompt = match &start.prompt {
+        Some(prompt) if prompt == "-" => Some(read_stdin().map_err(UsageError::new)?),
+        prompt => prompt.clone(),
+    };
+    new_words(start, prompt)
+}
+
+/// [`new_args`] with `prompt` as the prompt's text.
+fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, UsageError> {
     let mut words = Vec::new();
     for (flag, value) in [
         ("--harness", &start.agent),
@@ -861,9 +896,7 @@ pub(super) fn new_args(start: &Start) -> Result<Vec<String>, UsageError> {
     }
     // Inline, so a path that starts with `-` stays a path.
     words.extend(start.attach.iter().map(|file| format!("--attach={file}")));
-    if let Some(prompt) = &start.prompt {
-        let prompt =
-            if prompt == "-" { read_stdin().map_err(UsageError::new)? } else { prompt.clone() };
+    if let Some(prompt) = prompt {
         words.extend(["--".to_owned(), prompt]);
     }
     Ok(words)
