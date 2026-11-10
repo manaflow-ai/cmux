@@ -58,8 +58,8 @@ enum ConversationTableLayout {
                 let style = (base.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
                 style.tabStops = stops
                 style.defaultTabInterval = gap
-                // Rows never wrap: a cell past the bubble's edge is cut, not moved under the next column.
-                style.lineBreakMode = .byClipping
+                // A row wider than the bubble (large text sizes) wraps, so no cell is cut.
+                style.lineBreakMode = .byWordWrapping
                 // A little air under the header row.
                 if index == 0, rows.count > 1 { style.paragraphSpacing = max(style.paragraphSpacing, (font.pointSize / 4).rounded()) }
                 text.addAttribute(.paragraphStyle, value: style, range: paragraph)

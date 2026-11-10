@@ -32,9 +32,10 @@ public struct ConversationTextTable: Sendable, Hashable, Codable {
 // lint:allow namespace-type -- pure helpers
 public enum ConversationMarkdownTables {
     /// Widest row, in characters, still drawn as columns: cells plus a
-    /// three-character gap between columns. About a phone bubble's line at
-    /// the default text size; wider tables are drawn as records.
-    public static let columnBudget = 34
+    /// three-character gap between columns. Under a phone bubble's line at
+    /// the default text size; wider tables are drawn as records. A row that
+    /// still overflows (large text sizes, wide glyphs) wraps, never clips.
+    public static let columnBudget = 30
 
     public struct Result: Sendable, Hashable {
         public var text: String
@@ -307,5 +308,32 @@ extension ConversationTextTable {
             guard location >= 0, location + table.length <= bodyLength else { return nil }
             return ConversationTextTable(location: location, length: table.length, alignments: table.alignments)
         }
+    }
+}
+
+/// An array field added to a stored type after data was written without it
+/// (``ConversationMessage/tables`` in a transcript cache written by an older
+/// build): a missing key decodes as empty instead of failing the whole value.
+@propertyWrapper
+public struct ConversationEmptyWhenMissing<Element: Codable & Hashable & Sendable>: Codable, Hashable, Sendable {
+    public var wrappedValue: [Element]
+
+    public init(wrappedValue: [Element]) {
+        self.wrappedValue = wrappedValue
+    }
+
+    public init(from decoder: any Decoder) throws {
+        wrappedValue = try decoder.singleValueContainer().decode([Element].self)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
+    }
+}
+
+extension KeyedDecodingContainer {
+    public func decode<Element>(_ type: ConversationEmptyWhenMissing<Element>.Type, forKey key: Key) throws -> ConversationEmptyWhenMissing<Element> {
+        try decodeIfPresent(type, forKey: key) ?? ConversationEmptyWhenMissing(wrappedValue: [])
     }
 }
