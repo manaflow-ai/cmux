@@ -219,3 +219,23 @@ fn the_vm_kind_and_fingerprint_ops_answer() {
     );
     assert_eq!(call(c"cloud_start_check_account", &json!({"asked": []})).0, ERR_INVALID);
 }
+
+/// The pre-approval token's two ops round-trip the state the app keeps, numbers as Swift's `JSONValue` sends them.
+#[test]
+fn the_capability_ops_answer() {
+    let first = call(c"cloud_capability_use", &json!({"team": "team-a", "nowMs": 1.0e12})).1;
+    assert_eq!((first["header"].clone(), first["fetch"].clone()), (json!(null), json!(true)));
+    let body = json!({"ok": true, "value": {"capability": "cc1.a.b", "team": "team-a", "issued_at": 5.0, "expires_at": 300_005.0, "refresh_at": 240_005.0}});
+    let kept = call(
+        c"cloud_capability_keep",
+        &json!({"state": first["state"], "team": "team-a", "sentMs": 1.0e12, "nowMs": 1.0e12 + 200.0, "status": 200.0, "body": body}),
+    )
+    .1;
+    assert_eq!(kept["outcome"], "held");
+    let next = call(
+        c"cloud_capability_use",
+        &json!({"state": kept["state"], "team": "team-a", "nowMs": 1.0e12 + 1000.0}),
+    )
+    .1;
+    assert_eq!((next["header"].clone(), next["fetch"].clone()), (json!("cc1.a.b"), json!(false)));
+}
