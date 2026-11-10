@@ -54,17 +54,17 @@ struct CloudIdlePauseTests {
         #expect(idle.lastDecision?.run.checked == 8)
         #expect(idle.lastDecision?.run.elapsedMs == 120)
 
-        let fields = CloudHandlers.idlePauseFields(idle)
-        #expect(fields["minutes"] == .int(30))
-        #expect(fields["private_address_known"] == .bool(true))
-        #expect(fields["last_checked_at"] == .int(1_700_000_000_000))
-        #expect(fields["last_decision"] != .null)
-
         let services = MachineIconTests.services()
         let session = MachineIconTests.cloudMachine(services, id: "vm-diag")
         session.machine = machine
         let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"running"}"#.utf8))
-        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        let status = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0))
+        guard case .object(let idleFields)? = status.fields["idle_pause"] else { Issue.record("no idle_pause"); return }
+        #expect(idleFields["minutes"] == .int(30))
+        #expect(idleFields["private_address_known"] == .bool(true))
+        #expect(idleFields["last_checked_at"] == .int(1_700_000_000_000))
+        #expect(idleFields["last_decision"] != .null)
+        let text = status.text
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
 
@@ -86,13 +86,13 @@ struct CloudIdlePauseTests {
         let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
         session.machine = machine
         let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"failed"}"#.utf8))
-        let fields = CloudHandlers.statusFields(session, stats, now: Date(timeIntervalSince1970: 0))
+        let fields = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).fields
         #expect(fields["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("VM API: HTTP 503")]))
-        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        let text = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).text
         #expect(text.contains("error: cloud.provider.unavailable: VM API: HTTP 503"))
 
         let healthy = MachineIconTests.cloudMachine(services, id: "vm-ok")
-        #expect(CloudHandlers.statusFields(healthy, stats)["error"] == nil)
+        #expect(CloudHandlers.status(healthy, stats).fields["error"] == nil)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {

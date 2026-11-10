@@ -516,6 +516,10 @@ def row_cmdt(cmux, server, hz, load, rng):
 
 
 def row_tab_switch(cmux, server, hz, load, rng):
+    """20 switches between the 2 colour pages, as the Chrome arm. The pane also holds the workspace's terminal tab (and
+    the CPU page under load), so Ctrl-Tab alone goes round 3 or 4 tabs and mixes page -> page, page -> terminal and
+    terminal -> page switches in one row. The colour pages are the last 2 tabs and the blue one is in front:
+    Ctrl-Shift-Tab (previous) and Ctrl-Tab (next) in turn stay on these 2 tabs."""
     cmux.setup(load, server.url("color", bg="c03030"))
     cmux.act("openBrowser.chromium", url=server.url("color", bg="3050c0"))
     pause(2.0)
@@ -523,10 +527,14 @@ def row_tab_switch(cmux, server, hz, load, rng):
     left, top, width, height = cmux.page_box()
     cmux.record("tab-switch", 30, (left + 20, top + 20, width - 40, height - 40), column_step=150, worst_frames=3000)
     stamps = []
-    for _ in range(20):
-        stamps.append(key(cmux, "tab", modifiers=["ctrl"], must_run=True))
+    for i in range(20):
+        stamps.append(key(cmux, "tab", modifiers=["ctrl", "shift"] if i % 2 == 0 else ["ctrl"], must_run=True))
         pause(0.5)
-    return latency_result(cmux, hz, stamps, horizon_ms=500)
+    result = latency_result(cmux, hz, stamps, horizon_ms=500)
+    cmux.geometry()
+    if not cmux.pages:  # an even count of switches ends on the blue page: no page shown = the keys left the 2 pages
+        raise NotRun("cmux: no Chromium page is shown after the 20 switches (the keys did not stay on the 2 colour pages)")
+    return result
 
 
 def row_window_resize(cmux, server, hz, load, rng):
