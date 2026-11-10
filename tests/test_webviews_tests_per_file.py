@@ -130,7 +130,9 @@ def path_without_timeout(temp):
     farm = temp / "system-bin"
     farm.mkdir()
     for name in ("bash", "git", "xargs", "tr", "wc", "sort", "cat", "mktemp", "rm", "getconf",
-                 "sleep", "perl", "dirname", "env", "grep", "mkdir", "rmdir", "basename"):
+                 "sleep", "perl", "dirname", "env", "grep", "mkdir", "rmdir", "basename",
+                 # The runner reads which files start a dev server with webviews_test_shards.py.
+                 "python3"):
         found = shutil.which(name)
         if found:
             (farm / name).symlink_to(found)
