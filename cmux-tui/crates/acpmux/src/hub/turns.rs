@@ -193,6 +193,14 @@ impl Hub {
             });
         }
         self.pair_logs(opts.provenance.as_ref()).await;
+        // Opt-in usage patterns: a prompt (or steer) on this harness; never its text.
+        if cmux_usage_patterns::enabled() {
+            let harness = session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
+            cmux_usage_patterns::count(
+                if steer { "agent-steer" } else { "agent-prompt" },
+                &harness,
+            );
+        }
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`). Not the
         // owner's terminal send, which no connection proved (`PromptOptions::unproven_owner`).

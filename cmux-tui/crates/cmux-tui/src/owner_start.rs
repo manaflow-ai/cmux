@@ -29,6 +29,9 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         let forwarder = crash_forward::start(logs);
         memory_guard::spawn(panic_log, forwarder);
         background_checks::spawn();
+        // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
+        // `diagnostics.usagePatterns`; one file per session's daemon.
+        let _ = cmux_usage_patterns::install(&format!("daemon-{}", args.session));
     }
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");

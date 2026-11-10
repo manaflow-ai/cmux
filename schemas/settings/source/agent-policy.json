@@ -1348,6 +1348,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [

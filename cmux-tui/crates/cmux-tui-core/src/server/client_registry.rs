@@ -517,6 +517,11 @@ impl ClientRegistry {
                 started_tabs: HashSet::new(),
             },
         );
+        // Opt-in usage patterns: connections by transport, and the most open at once.
+        if cmux_usage_patterns::enabled() {
+            cmux_usage_patterns::count("connection", transport.as_str());
+            cmux_usage_patterns::peak("connections.open", state.clients.len() as u64);
+        }
         drop(state);
         self.notify_client_presence();
         client
@@ -725,6 +730,8 @@ impl ClientRegistry {
             record.name = Some(clamp_client_label(name));
         }
         if let Some(kind) = kind {
+            // Opt-in usage patterns: which kinds of client connect (`cmux-next`, `cli`, ...).
+            cmux_usage_patterns::count("client", &kind);
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {

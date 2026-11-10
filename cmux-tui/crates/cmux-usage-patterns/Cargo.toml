@@ -1,0 +1,17 @@
+[package]
+name = "cmux-usage-patterns"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Opt-in usage patterns: bounded local counters of how a person uses cmux (which commands, surfaces, splits, connections), never content. Off until diagnostics.usagePatterns is on; nothing leaves the machine."
+
+[dependencies]
+cmux-config.workspace = true
+cmux-tui-platform.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -137,6 +137,13 @@ pub(super) fn handle_connection_frame(
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    // Opt-in usage patterns: the command's wire name (it parsed as a `Command`, so it is one of
+    // the enum's names), never its params. One atomic load when off.
+    if cmux_usage_patterns::enabled()
+        && let Some(name) = command_wire_name(message)
+    {
+        cmux_usage_patterns::count("command", name);
+    }
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
     // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
@@ -159,6 +166,18 @@ pub(super) fn handle_connection_frame(
             None => true,
         },
     }
+}
+
+/// The `cmd` member of a line that parsed as a [`Request`]: the text between
+/// `"cmd":"` and the next quote. Wire names have no escapes; anything else is
+/// none (and `clean_key` still guards the count).
+fn command_wire_name(message: &str) -> Option<&str> {
+    let start = message.find("\"cmd\":\"").or_else(|| message.find("\"cmd\": \""))?;
+    let rest = &message[start..];
+    let rest = &rest[rest.find(':')? + 1..];
+    let rest = rest.trim_start().strip_prefix('"')?;
+    let name = &rest[..rest.find('"')?];
+    (!name.contains('\\')).then_some(name)
 }
 
 impl Command {

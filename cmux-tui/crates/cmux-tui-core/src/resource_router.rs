@@ -140,6 +140,8 @@ pub(crate) fn handle_parsed_resource_request(
 ) -> Result<Value, ResourceError> {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    // Opt-in usage patterns: the operation's wire name (a catalog constant), one atomic load when off.
+    cmux_usage_patterns::count("operation", operation.wire_name());
     let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
     serde_json::to_value(match result {
         Ok(result) => ResponseEnvelope::success(id, result),

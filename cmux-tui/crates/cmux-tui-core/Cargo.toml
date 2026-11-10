@@ -39,6 +39,7 @@ cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
+cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
 # The Tasks page link (tasks_link.rs): the owner socket protocol and its client.

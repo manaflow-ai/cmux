@@ -221,6 +221,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
+    // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
+    let _ = cmux_usage_patterns::install("acpmux");
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();

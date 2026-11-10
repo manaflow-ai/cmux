@@ -221746,6 +221746,62 @@
           }
         }
       }
+    },
+    "settings.group.usagePatterns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Usage Patterns"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أنماط الاستخدام"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nutzungsmuster"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Patrones de uso"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Habitudes d’utilisation"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "使用パターン"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용 패턴"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用模式"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用模式"}}
+      }
+    },
+    "settings.diagnostics.usagePatterns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Record Usage Patterns"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تسجيل أنماط الاستخدام"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nutzungsmuster aufzeichnen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Registrar patrones de uso"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Enregistrer les habitudes d’utilisation"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "使用パターンを記録"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용 패턴 기록"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "记录使用模式"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "記錄使用模式"}}
+      }
+    },
+    "settings.diagnostics.usagePatterns.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Stays on this computer. Counts only, no text."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى على هذا الكمبيوتر. أعداد فقط، بلا نصوص."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bleibt auf diesem Computer. Nur Zählungen, kein Text."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se queda en este ordenador. Solo recuentos, sin texto."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Reste sur cet ordinateur. Des comptes seulement, aucun texte."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータにのみ保存。回数だけで、テキストは含みません。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에만 저장됩니다. 횟수만 기록하고 텍스트는 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "只保存在这台电脑上。只有计数，没有文字。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只存在這台電腦上。只有計數，沒有文字。"}}
+      }
+    },
+    "settings.diagnostics.usagePatterns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يحسب كيف تستخدم cmux على هذا الكمبيوتر: الأوامر وتقسيم الأجزاء ومحادثات الوكلاء والمطالبات والرموز والاتصالات، حسب اليوم والساعة. لا يسجّل أبدًا المطالبات أو نص الطرفية أو عناوين الويب أو أسماء الملفات أو أي شيء تكتبه، ولا يُرسل أي شيء إلى أي مكان. اعرضها باستخدام cmux usage-patterns أو في صفحة إحصاءات الوكلاء."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zählt, wie du cmux auf diesem Computer nutzt: Befehle, geteilte Bereiche, Agent-Chats, Prompts und Tokens sowie Verbindungen, nach Tag und Stunde. Prompts, Terminaltext, Webadressen, Dateinamen oder deine Eingaben werden nie aufgezeichnet, und nichts wird irgendwohin gesendet. Ansehen mit cmux usage-patterns oder auf der Seite „Agent-Statistiken“."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuenta cómo usas cmux en este ordenador: comandos, divisiones de paneles, chats de agentes, prompts y tokens, y conexiones, por día y hora. Nunca registra prompts, texto del terminal, direcciones web, nombres de archivo ni nada que escribas, y no se envía nada a ningún sitio. Consúltalos con cmux usage-patterns o en la página Estadísticas de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Compte la façon dont vous utilisez cmux sur cet ordinateur : commandes, divisions de volets, chats d’agents, prompts et jetons, et connexions, par jour et par heure. Les prompts, le texte du terminal, les adresses web, les noms de fichiers et tout ce que vous tapez ne sont jamais enregistrés, et rien n’est envoyé nulle part. Consultez-les avec cmux usage-patterns ou sur la page Statistiques des agents."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータでの cmux の使い方を数えます：コマンド、ペインの分割、エージェントのチャット、プロンプトとトークン、接続を、日ごと・時間ごとに。プロンプト、ターミナルのテキスト、Web アドレス、ファイル名、入力した内容は一切記録せず、どこにも送信しません。cmux usage-patterns または「エージェント統計」ページで確認できます。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에서 cmux를 어떻게 쓰는지 셉니다: 명령, 창 분할, 에이전트 채팅, 프롬프트와 토큰, 연결을 일과 시간별로 기록합니다. 프롬프트, 터미널 텍스트, 웹 주소, 파일 이름이나 입력한 내용은 절대 기록하지 않으며 아무 데도 보내지 않습니다. cmux usage-patterns 또는 에이전트 통계 페이지에서 확인하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "统计你在这台电脑上如何使用 cmux：命令、窗格拆分、代理聊天、提示和 token，以及连接，按天和小时。绝不记录提示、终端文本、网址、文件名或你输入的任何内容，也不会发送到任何地方。用 cmux usage-patterns 或在“代理统计”页面查看。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "統計你在這台電腦上如何使用 cmux：指令、窗格分割、代理聊天、提示與 token，以及連線，按日與小時。絕不記錄提示、終端機文字、網址、檔案名稱或你輸入的任何內容，也不會傳送到任何地方。用 cmux usage-patterns 或在「代理統計」頁面查看。"}}
+      }
     }
   },
   "version": "1.0"

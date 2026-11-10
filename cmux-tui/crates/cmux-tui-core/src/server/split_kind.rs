@@ -202,6 +202,11 @@ pub(super) fn new_pane_right(
 
 pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> anyhow::Result<Value> {
     let dir = parse_split_dir(&params.dir)?;
+    // Opt-in usage patterns: which way people split (a fixed word, never content).
+    if cmux_usage_patterns::enabled() {
+        let way = if params.dir == "right" { "split-right" } else { "split-down" };
+        cmux_usage_patterns::count("layout", way);
+    }
     let size = optional_surface_size(params.cols, params.rows);
     if let Some(split_id) = &params.split_id {
         crate::resource::SplitPublicId::parse(split_id.clone())

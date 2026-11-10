@@ -136,3 +136,46 @@ export function hourShares(hours: number[]): number[] {
   const max = Math.max(0, ...hours);
   return Array.from({ length: 24 }, (_, hour) => (max > 0 ? (hours[hour] ?? 0) / max : 0));
 }
+
+/** The usage-pattern families the page shows, in order, with their title keys. */
+export const USAGE_FAMILIES = [
+  ["agent-chat", "stats.usage.family.agentChats"],
+  ["agent-prompt", "stats.usage.family.agentPrompts"],
+  ["tokens", "stats.usage.family.tokens"],
+  ["layout", "stats.usage.family.layouts"],
+  ["command", "stats.usage.family.commands"],
+  ["operation", "stats.usage.family.operations"],
+  ["connection", "stats.usage.family.connections"],
+  ["acpmux-connection", "stats.usage.family.agentConnections"],
+  ["machine", "stats.usage.family.machines"],
+  ["client", "stats.usage.family.clients"],
+] as const;
+
+export interface UsageGroup {
+  family: string;
+  titleKey: string;
+  total: number;
+  distinct: number;
+  /** The top rows, highest first; a paired machine shows no key (it is an opaque stand-in). */
+  rows: { key: string; count: number }[];
+}
+
+/** The families with counts, each with its `limit` highest keys (ties by name). */
+export function usageGroups(counts: Record<string, Record<string, number>>, limit = 8): UsageGroup[] {
+  const groups: UsageGroup[] = [];
+  for (const [family, titleKey] of USAGE_FAMILIES) {
+    const keys = counts[family];
+    if (!keys) continue;
+    const entries = Object.entries(keys).filter(([, count]) => count > 0);
+    if (entries.length === 0) continue;
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    groups.push({
+      family,
+      titleKey,
+      total: entries.reduce((sum, [, count]) => sum + count, 0),
+      distinct: entries.length,
+      rows: family === "machine" ? [] : entries.slice(0, limit).map(([key, count]) => ({ key, count })),
+    });
+  }
+  return groups;
+}
