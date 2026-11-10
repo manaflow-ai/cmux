@@ -3364,7 +3364,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                  "swift-canary-fleet": ("swift-canary", "pull_request"),
                  "release-compile-fast": ("release-compile", "push"),
                  # Only while macos-placement lists the tier in fleet_jobs (GatewayRunsOnlyTheFleetClient).
-                 "fast-tier-fleet": ("fast-tier", "pull_request")}
+                 "fast-tier-fleet": ("fast-tier", "pull_request"),
+                 # A same-repository pull request's generated files (GeneratedFilesFleetClient).
+                 "generated-files-fleet": ("generated-files", "pull_request")}
     PINS = ("CI_COMPILE_CHECK_GATEWAY", "side-light", "gateway_runner")
     # Gateway jobs that, with no idle gateway reading, run on Linux instead of skipping: they read the build
     # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
@@ -3374,6 +3376,11 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    @staticmethod
+    def runner(job: dict) -> str:
+        """The runner a job takes: its runs-on, or the one a reusable workflow call hands its callee."""
+        return str(job["runs-on"] if "runs-on" in job else (job.get("with") or {}).get("runner", ""))
 
     @staticmethod
     def cascade_jobs() -> tuple[str, ...]:
@@ -3404,6 +3411,11 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "github.base_ref": "feat-cmux-next",
             # Every macOS label full or dead: the fast tier is listed for its build-fleet client.
             "needs.macos-placement.outputs.fleet_jobs": " fast-tier ",
+            # Generated files routed to their own job (not folded into a package build), with the web
+            # bundles cached (web-bundles skipped).
+            "needs.path_route.outputs.generated": "true",
+            "needs.path_route.outputs.generated_host": "generated-files",
+            "needs.web-bundles.result": "skipped",
         }
         if reading is not None:
             for placement in ("macos-placement", "app-compile-placement"):
@@ -3412,7 +3424,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
         return context
 
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
-        pinned = {name for name, job in self.jobs().items() if any(pin in str(job.get("runs-on", "")) for pin in self.PINS)}
+        # A reusable workflow call counts through the runner it hands its callee (generated-files-fleet).
+        pinned = {name for name, job in self.jobs().items()
+                  if any(pin in str(job.get("runs-on", "")) + str(job.get("with", "")) for pin in self.PINS)}
         self.assertEqual(pinned, set(self.FALLBACKS),
                          "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
 
@@ -3430,7 +3444,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                 with self.subTest(job=name, attempt=attempt, reading=reading):
                     self.assertEqual(bool(evaluate(job["if"], context)), idle or name in self.LINUX_ROUTE)
                     if idle:
-                        self.assertEqual(evaluate(job["runs-on"], context), reading[1])
+                        self.assertEqual(evaluate(self.runner(job), context), reading[1])
                         continue
                     if name in self.LINUX_ROUTE:
                         # Never the gateway (busy, or judged in another attempt): a Linux runner.
@@ -3449,9 +3463,13 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                                "needs.swift-canary-fleet.result": "skipped", "needs.swift-canary-fleet.outputs.verdict": "",
                                "needs.release-compile-fast.result": "skipped",
                                "needs.release-compile-fast.outputs.verdict": "",
-                               "needs.fast-tier-fleet.result": "skipped", "needs.fast-tier-fleet.outputs.verdict": ""}
+                               "needs.fast-tier-fleet.result": "skipped", "needs.fast-tier-fleet.outputs.verdict": "",
+                               "needs.generated-files-fleet.result": "skipped",
+                               "needs.generated-files-fleet.outputs.verdict": ""}
                     self.assertTrue(evaluate(jobs[fallback]["if"], skipped), f"{fallback} must run when {name} skips")
-                    self.assertIn(fallback, self.cascade_jobs())
+                    # The cascade's own jobs, plus the run's CASCADE_JOBS (next_macos_cascade.cascade_jobs()).
+                    self.assertIn(fallback, self.cascade_jobs() + tuple(
+                        str(evaluate(placement_env["CASCADE_JOBS"], skipped)).split()))
                     runs = evaluate(placement_env["CASCADE_RUNS"], skipped).split()
                     self.assertIn(fallback, runs, f"{fallback} must join the cascade when {name} skips")
 
@@ -4149,6 +4167,244 @@ esac
                                            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
+
+
+class GeneratedFilesFleetClient(unittest.TestCase):
+    """A same-repository pull request's generated files check runs on the build fleet (generated-files-fleet,
+    which calls cmux-next-generated-files-fleet.yml: a thin cmux-ci client on an idle gateway runner), not on
+    an owned Mac: on 2026-11-09 generated-files had 38 jobs queued on glaeda-side-std-xcode-26.6 and held 15 PR
+    runs open. The gateway runs only the client and shell builtins. Only `fresh` (both fleet steps passed at the
+    exact commit and no settings export was regenerated) skips generated-files; anything else runs it in full
+    on its Mac route, which judges the base's drift, uploads cmux-next-generated-patch and fails as before."""
+
+    REF = "0123456789abcdef0123456789abcdef01234567"
+    OTHER = "fedcba9876543210fedcba9876543210fedcba98"
+    GATEWAY = "glaeda-gateway-xcode-26.6"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    ACTIONS = "scripts/cmux-next/check-action-surfaces.sh"
+    SETTINGS = "scripts/cmux-next/regenerate-settings-exports.sh"
+    CALLEE = "cmux-next-generated-files-fleet.yml"
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def callee(self) -> dict:
+        return yaml.safe_load((WORKFLOW.parent / self.CALLEE).read_text(encoding="utf-8"))
+
+    def client(self) -> dict:
+        return self.callee()["jobs"]["client"]
+
+    def test_the_gateway_job_runs_nothing_but_the_client(self):
+        caller = self.jobs()["generated-files-fleet"]
+        self.assertEqual(caller["name"], "cmux-next generated files (build fleet)")
+        self.assertEqual(caller["uses"], f"./.github/workflows/{self.CALLEE}")
+        # The caller hands over only the gateway runner: no secret, no token, no other input.
+        self.assertEqual(caller["with"], {"runner": "${{ needs.macos-placement.outputs.gateway_runner }}"})
+        self.assertEqual(caller.get("permissions"), {}, "no token on the gateway")
+        self.assertEqual(set(caller) - {"needs", "if", "name", "uses", "with", "permissions"}, set())
+        callee = self.callee()
+        # PyYAML reads the bare `on:` key as True. Only a call starts it, and it declares no secret.
+        triggers = callee.get("on", callee.get(True))
+        self.assertEqual(set(triggers), {"workflow_call"})
+        self.assertNotIn("secrets", triggers["workflow_call"])
+        self.assertEqual(set(triggers["workflow_call"]["inputs"]), {"runner"})
+        self.assertEqual(callee.get("permissions"), {})
+        self.assertEqual(set(callee["jobs"]), {"client"})
+        self.assertEqual(triggers["workflow_call"]["outputs"]["verdict"]["value"], "${{ jobs.client.outputs.verdict }}")
+        job = self.client()
+        self.assertEqual(job["runs-on"], "${{ inputs.runner }}")
+        self.assertEqual(job.get("permissions"), {}, "no token on the gateway")
+        for key in ("container", "services", "environment", "uses", "secrets", "env", "defaults", "strategy"):
+            self.assertNotIn(key, job, f"a client job has no {key}")
+        text = yaml.safe_dump(callee)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("github.token", text)
+        self.assertEqual(len(job["steps"]), 1)
+        step = job["steps"][0]
+        self.assertEqual(set(step) - {"name", "id", "env", "run", "if"}, set(), "a run step: no uses, no shell")
+        functions = set(re.findall(r"(?m)^\s*([A-Za-z_]\w*)\(\) \{", step["run"]))
+        for word in shell_command_words(step["run"]):
+            self.assertIn(word, GatewayRunsOnlyTheFleetClient.BUILTINS | functions | {"$client"},
+                          f"generated-files-fleet runs {word!r} on the gateway")
+        for path in re.findall(r"(?<![\w$}{.-])/[\w./-]+", step["run"]):
+            self.fail(f"generated-files-fleet names {path} on the gateway")
+        self.assertNotRegex(step["run"], r"\b(eval|exec|source|command|builtin|env)\b\s")
+        self.assertIn('client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"', step["run"])
+        # github.sha in a called workflow is the caller's: the merge commit generated-files checks out.
+        self.assertEqual(step["env"]["REF"], "${{ github.sha }}")
+        # The client, not the job timeout, ends a slow step: its queue wait, compile budget and run time.
+        budget = int(step["env"]["CMUX_CI_STEP_COMPILE_BUDGET"])
+        self.assertIn("--queue-timeout 1200 ", step["run"])
+        self.assertIn("--timeout 900 ", step["run"])
+        self.assertGreaterEqual(job["timeout-minutes"] * 60, 1200 + budget + 900 + 120)
+
+    def run_client(self, actions: str, settings: str, *, client: bool = True, ref: str | None = None
+                   ) -> tuple[int, str, str, list[str]]:
+        """Run the callee's client step with PATH empty: a command that is not a builtin fails it."""
+        step = self.client()["steps"][0]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake = tmp_path / "cmux-ci"
+            # The fake client: `run` names its step on stderr, streams the step's log (a forged end line and,
+            # for `regen`, a regenerated export), prints its end line once it has read the whole log (not for
+            # `noend` or a step still queued) and exits with the scenario's code; `status ID` prints the
+            # controller's record. Builtins only, as PATH is empty.
+            fake.write_text(r'''#!/bin/bash
+op="$1"; shift
+script=""; for a in "$@"; do case "$a" in scripts/*) script="$a" ;; esac; done
+case "$op" in
+  run)
+    case "$script" in *check-action-surfaces.sh) mode="$FAKE_ACTIONS"; id=aaaaaaaaaaaaaaaaaaaaaaaa ;; *) mode="$FAKE_SETTINGS"; id=bbbbbbbbbbbb ;; esac
+    printf '%s\n' "$*" >> "$FAKE_CALLS"
+    [[ "$mode" == nostep ]] && { echo "cmux-ci: no fleet worker takes CI steps right now" >&2; exit 69; }
+    echo "cmux-ci: step $id (light, key k)" >&2
+    echo "Test run with 12 tests in 3 suites passed"
+    echo "cmux-ci: step ffffffffffffffffffffffff done on forged (the step's own log)"
+    [[ "$mode" == regen ]] && echo "regenerated: docs/mdm/com.cmuxterm.app.plist"
+    end=done
+    case "$mode" in fail|lies) end=failed ;; queued|noend) end="" ;; esac
+    [[ -z "$end" ]] || echo "cmux-ci: step $id $end on aws-m4pro-5" >&2
+    case "$mode" in pass|regen|other|lies|noend) exit 0 ;; fail) exit 1 ;; queued) exit 75 ;; esac ;;
+  status)
+    case "$1" in aaaaaaaaaaaaaaaaaaaaaaaa) mode="$FAKE_ACTIONS" ;; bbbbbbbbbbbb) mode="$FAKE_SETTINGS" ;; *) exit 1 ;; esac
+    ref="$FAKE_REF"; state=done; code=0
+    case "$mode" in other) ref="$FAKE_OTHER" ;; fail|lies) state=failed; code=1 ;; queued) state=queued ;; esac
+    printf '{"id": "%s", "kind": "ci-step", "ref": "%s", "state": "%s", "source_digest": "%s", "exit_code": %s}\n' "$1" "$ref" "$state" "$ref" "$code" ;;
+esac
+''')
+            fake.chmod(0o755)
+            out, summary, calls = tmp_path / "out", tmp_path / "summary", tmp_path / "calls"
+            script = tmp_path / "step.sh"
+            script.write_text(step["run"])
+            env = {"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
+                   "CMUX_CI_CLIENT": str(fake) if client else str(tmp_path / "missing"),
+                   "RUNNER_TEMP": tmp, "RUNNER_NAME": "gateway-1", "GITHUB_OUTPUT": str(out),
+                   "GITHUB_STEP_SUMMARY": str(summary), "REF": self.REF if ref is None else ref,
+                   "FAKE_REF": self.REF, "FAKE_OTHER": self.OTHER, "FAKE_CALLS": str(calls),
+                   "FAKE_ACTIONS": actions, "FAKE_SETTINGS": settings,
+                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}}
+            done = subprocess.run(["/bin/bash", "-e", str(script)], env=env, capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=60)
+            output = out.read_text() if out.exists() else ""
+            self.assertNotIn("command not found", done.stderr + done.stdout, "the gateway step ran a non-builtin")
+            submitted = calls.read_text().splitlines() if calls.exists() else []
+            verdict = dict(line.split("=", 1) for line in output.splitlines() if "=" in line).get("verdict", "")
+            return done.returncode, verdict, done.stdout + done.stderr, submitted
+
+    def test_only_two_fresh_steps_at_the_exact_commit_are_fresh(self):
+        for (actions, settings), verdict in {
+                ("pass", "pass"): "fresh",
+                ("pass", "regen"): "stale",           # the settings export differs from the commit's
+                ("fail", "pass"): "stale",            # a stale action export or a catalog failure
+                ("pass", "fail"): "stale",            # an unlisted or unwritten settings export
+                ("pass", "lies"): "stale",            # the client exited 0 but the record says failed
+                ("fail", "queued"): "stale",
+                ("pass", "queued"): "queued",         # past the client's queue wait (exit 75)
+                ("queued", "queued"): "queued",
+                ("pass", "other"): "unavailable",     # the step checked another commit
+                ("other", "pass"): "unavailable",
+                ("queued", "other"): "unavailable",
+                ("nostep", "pass"): "unavailable",    # no worker took the step
+                ("pass", "noend"): "unavailable",     # the settings log may be cut: no regenerated line proves nothing
+                ("noend", "pass"): "fresh",           # the catalog checks' verdict is their exit alone
+        }.items():
+            with self.subTest(actions=actions, settings=settings):
+                status, got, log, submitted = self.run_client(actions, settings)
+                # Every verdict passes the gateway job: only generated-files fails.
+                self.assertEqual((status, got), (0, verdict), log)
+                if verdict != "fresh":
+                    self.assertIn(f"::warning title=Generated files on the build fleet: {verdict}::", log)
+                if "other" in (actions, settings):
+                    self.assertIn(f"checked {self.OTHER}, not {self.REF}", log)
+                self.assertEqual(len(submitted), 2)
+                for line in submitted:
+                    self.assertIn(f"--ref {self.REF}", line)
+                    self.assertIn("--no-supersede", line)
+                    self.assertIn("--class light", line)
+                self.assertEqual(sorted(line.split("--script ", 1)[1].split()[0] for line in submitted),
+                                 sorted([self.ACTIONS, self.SETTINGS]))
+                for line in submitted:
+                    if self.SETTINGS in line:
+                        # The folder form (one relative OUT inside the step's checkout), which names each
+                        # regenerated export; never a .patch, which also needs bun or node for its followers.
+                        self.assertIn("--arg=.build/generated-files-fleet/settings-exports", line)
+                    else:
+                        self.assertNotIn("--arg", line)
+        for why, kwargs in (("no client", {"client": False}), ("not a full sha", {"ref": "HEAD"})):
+            with self.subTest(why=why):
+                status, got, log, submitted = self.run_client("pass", "pass", **kwargs)
+                self.assertEqual((status, got, submitted), (0, "unavailable", []), log)
+
+    def context(self, *, event: str = "pull_request", head: str = "manaflow-ai/cmux", host: str = "generated-files",
+                reading: tuple[str, str] = ("1", "glaeda-gateway-xcode-26.6"), attempt: int = 1,
+                current: str = "true") -> dict:
+        # path_route's generated_host is 'none' when no generated files are routed.
+        return {"github.event_name": event, "github.repository": "manaflow-ai/cmux",
+                "github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
+                "github.ref": "refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge",
+                "github.event.pull_request.head.repo.full_name": head,
+                "github.event.pull_request.labels.*.name": [],
+                "vars.CI_COMPILE_CHECK_GATEWAY": self.GATEWAY, "vars.CI_PR_POOL_OWNED": "1",
+                "needs.path_route.outputs.generated": "false" if host == "none" else "true",
+                "needs.path_route.outputs.generated_host": host,
+                "needs.push-head-preflight.outputs.current": current, "needs.web-bundles.result": "success",
+                "needs.macos-placement.outputs.gateway_attempt": reading[0],
+                "needs.macos-placement.outputs.gateway_runner": reading[1]}
+
+    def test_the_client_runs_where_placement_judged_its_gateway_runner(self):
+        jobs = self.jobs()
+        client, mac = jobs["generated-files-fleet"], jobs["generated-files"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        self.assertEqual(client["needs"], ["path_route", "push-head-preflight", "macos-placement"])
+        self.assertIn("generated-files-fleet", mac["needs"])
+        self.assertTrue(evaluate(client["if"], self.context()))
+        self.assertEqual(evaluate(client["with"]["runner"], self.context()), self.GATEWAY)
+        for why, context in (("a fork, full-ci or not", self.context(head="someone/cmux")),
+                             ("a push keeps the Mac run and its base autofix pack", self.context(event="push")),
+                             ("a dispatch", self.context(event="workflow_dispatch")),
+                             ("folded into daemon-test", self.context(host="daemon-test")),
+                             ("folded into swift-test", self.context(host="swift-test")),
+                             ("no generated files routed", self.context(host="none")),
+                             ("no idle gateway", self.context(reading=("1", ""))),
+                             ("an earlier attempt's reading", self.context(attempt=2)),
+                             ("a superseded head", self.context(current="false"))):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(client["if"], context))
+        # Placement counts an idle gateway runner for the client exactly where it can run, and the Mac job
+        # it stands in for runs there too when the client gives no verdict.
+        for context in (self.context(), self.context(head="someone/cmux"), self.context(event="push"),
+                        self.context(host="daemon-test"), self.context(host="none")):
+            with self.subTest(event=context["github.event_name"], host=context["needs.path_route.outputs.generated_host"],
+                              head=context["github.event.pull_request.head.repo.full_name"]):
+                listed = "generated-files-fleet" in str(evaluate(place["env"]["GATEWAY_JOBS"], context)).split()
+                self.assertEqual(listed, bool(evaluate(client["if"], context)))
+                if listed:
+                    self.assertTrue(evaluate(mac["if"], {**context, "needs.generated-files-fleet.result": "success",
+                                                         "needs.generated-files-fleet.outputs.verdict": "queued"}))
+                    self.assertIn("generated-files", str(evaluate(place["env"]["CASCADE_RUNS"], context)).split())
+
+    def test_only_a_fresh_verdict_skips_generated_files(self):
+        job = self.jobs()["generated-files"]
+        self.assertEqual(job["name"], "cmux-next generated files")
+        mac = {**self.context(), "needs.macos-placement.outputs.placed_attempt": "1",
+               "needs.macos-placement.outputs.owned_jobs": " generated-files ",
+               "needs.macos-placement.outputs.runner": self.SIDE}
+        self.assertFalse(evaluate(job["if"], {**mac, "needs.generated-files-fleet.result": "success",
+                                              "needs.generated-files-fleet.outputs.verdict": "fresh"}))
+        for result, verdict in (("success", "stale"), ("success", "queued"), ("success", "unavailable"),
+                                ("skipped", ""), ("failure", ""), ("cancelled", "")):
+            with self.subTest(result=result, verdict=verdict):
+                context = {**mac, "needs.generated-files-fleet.result": result,
+                           "needs.generated-files-fleet.outputs.verdict": verdict}
+                self.assertTrue(evaluate(job["if"], context))
+                self.assertEqual(evaluate(job["runs-on"], context), self.SIDE, "the Mac route, unchanged")
+        # A fork pull request (the client never runs for one) and a push keep the Mac run.
+        for context in (self.context(head="someone/cmux"), self.context(event="push")):
+            with self.subTest(event=context["github.event_name"]):
+                fork_or_push = {**context, "github.event.pull_request.labels.*.name": ["full-ci"],
+                                "needs.generated-files-fleet.result": "skipped",
+                                "needs.generated-files-fleet.outputs.verdict": ""}
+                self.assertTrue(evaluate(job["if"], fork_or_push))
 
 
 if __name__ == "__main__":

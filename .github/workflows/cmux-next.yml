@@ -1537,9 +1537,10 @@ jobs:
           FLEET_CLIENT_JOBS: fast-tier
           # The gateway jobs this run starts (their own `if`s), each needing an idle runner.
           GATEWAY_JOBS: >-
-            ${{ format('{0} {1}',
+            ${{ format('{0} {1} {2}',
             needs.path_route.outputs.swift_canary == 'true' && 'swift-canary-fleet' || '',
-            github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '') }}
+            github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '',
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.generated_host == 'generated-files' && 'generated-files-fleet' || '') }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
           # The GUI jobs' last resort when the placement names neither a GUI route nor a GUI overflow (the shell
           # below). Fork branch first, as every runs-on here: a fork never names a Blacksmith label.
@@ -5267,23 +5268,32 @@ jobs:
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body" \
             || echo "::warning::could not post the $CONTEXT status"
 
+  # generated-files on the build fleet (cmux-next-generated-files-fleet.yml) for a same-repository pull
+  # request, on an idle gateway runner of its own (GATEWAY_JOBS). A `fresh` verdict skips generated-files.
+  generated-files-fleet:
+    needs: [path_route, push-head-preflight, macos-placement]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.repository_owner == 'manaflow-ai' && needs.path_route.outputs.generated_host == 'generated-files' && needs.push-head-preflight.outputs.current == 'true' && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
+    name: cmux-next generated files (build fleet)
+    uses: ./.github/workflows/cmux-next-generated-files-fleet.yml
+    with:
+      runner: ${{ needs.macos-placement.outputs.gateway_runner }}
+    permissions: {}
+
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-fleet]
     # Only where path routing picks it (generated_host): a run that swift-test or daemon-test
     # builds the package in checks its generated files there (CMUX_NEXT_FOLD_GENERATED), and
-    # generated-verdict gives that verdict.
-    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' }}
+    # generated-verdict gives that verdict. Skipped after a `fresh` generated-files-fleet verdict.
+    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' && needs.generated-files-fleet.outputs.verdict != 'fresh' }}
     name: cmux-next generated files
     # Bind pushes to their exact source head. A stalled old head therefore
     # cannot occupy the one branch-wide pending slot for every newer head.
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-generated-files', github.sha) || format('cmux-next-run-{0}-generated-files', github.run_id) }}
       cancel-in-progress: false
-    # vars.CI_SESSION_LANE_RUNNER is generated files' own owned label (glaeda-session-light-xcode-26.6,
-    # the light minis' session runner: a logged-in session, no console token). It is set only after
-    # those runners are registered; while it is unset the route below is unchanged. The fork clause
-    # stays first, so a fork pull request never reaches it. Same-repository PRs use the
-    # generic side picker and its bounded overflow, never the console GUI label.
+    # vars.CI_SESSION_LANE_RUNNER: this job's own owned label (glaeda-session-light-xcode-26.6, a logged-in
+    # session, no console token); unset, the route is unchanged. The fork clause stays first. Same-repository
+    # PRs use the generic side picker and its bounded overflow, never the console GUI label.
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && fromJSON(vars.RUNNER_POOLS).macos_26 || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || fromJSON(vars.RUNNER_POOLS).macos_26)) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     permissions:
@@ -5348,17 +5358,9 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # The GUI-tagged suites (.requiresGUISession, .requiresPasteboard; for
-      # example SidebarLiveReorderTests) skip when the host has no display or
-      # pasteboard. Every glaeda mini has both: in 153 swift-test jobs
-      # (2026-10-04/05) all 11 minis behind the side label ran
-      # SidebarLiveReorderTests and no GUI or pasteboard test skipped. On a
-      # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
-      # instead of a silent skip. Blacksmith and hosted labels
-      # keep the skip: nothing has shown that they have a display session.
-      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
-      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
-      # and nightlies keep the requirement as advisory coverage.
+      # On a glaeda mini (each has a display and a pasteboard, as swift-test's copy of this step says),
+      # CMUX_TEST_REQUIRE_GUI=1 fails the GUI-tagged suites on a lost display instead of skipping them.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31).
       - name: Require the GUI session on a mini
         if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
@@ -5431,12 +5433,8 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
-      # Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
-      # (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
-      # recent base, at the same workspace path. With the seed's input times replayed, only what
-      # this change touched compiles, so a daemon-only change compiles no Swift and goes straight
-      # to the tests. The seed's resource bundles are dropped first (owned_spm_scratch.py
-      # drop-bundles, as a kept build's are). Any miss builds as before.
+      # Off the owned Macs, start from the fast tier's seed build (cmux-next-fast-tier-seed.yml), as
+      # swift-test does; any miss builds as before.
       - name: Compute the fast-tier seed keys
         id: seed-key
         if: ${{ !contains(runner.name, '-glaeda') && steps.reuse.outputs.hit != 'true' }}
@@ -5579,14 +5577,10 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
 
-      # The base autofix's action and settings exports, made on this build instead of a second Mac
-      # build of the same push (cmuxterm-hq#5424): every export regenerated, packed under this commit's
-      # tree (scripts/cmux-next/base_autofix_pushed_exports.py), and uploaded for
-      # cmux-next-base-autofix.yml's pushed-exports job. Pushes of feat-cmux-next and its base tier
-      # dispatches (cmux-next-base-tier-kick.yml, which these checks move to) only, so a pack is only
-      # ever this repository's merged code. It puts the checkout's exports back as they were, so
-      # the steps below see what the checks left; a failure makes no pack (the autofix's Mac job then
-      # regenerates them) and never fails this job. vars.CMUX_NEXT_BASE_EXPORTS_PACK=0 turns it off.
+      # The base autofix's action and settings exports from this build (cmuxterm-hq#5424), packed under this
+      # commit's tree (base_autofix_pushed_exports.py) for cmux-next-base-autofix.yml's pushed-exports job.
+      # feat-cmux-next pushes and base tier dispatches only. It restores the checkout's exports; a failure
+      # makes no pack and never fails this job. vars.CMUX_NEXT_BASE_EXPORTS_PACK=0 turns it off.
       - name: Pack the exports for the base autofix
         id: base-exports
         if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}

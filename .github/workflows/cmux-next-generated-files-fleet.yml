@@ -1,0 +1,190 @@
+name: cmux-next generated files on the build fleet
+
+# cmux-next.yml's generated-files-fleet job: the generated files check of a same-repository pull request
+# as a thin build-fleet client (cmux-ci; build-fleet/ONBOARDING.md on cmuxterm-hq main), so it takes no
+# owned Mac. On 2026-11-09 generated-files had 38 jobs queued on glaeda-side-std-xcode-26.6 (11 runners
+# online) and was the only open job of 15 pull request runs, and a fast tier re-run (#39374, run
+# 42580950985 attempt 3) waited 2 hours behind it. It lives here, not in cmux-next.yml, because that
+# file is at GitHub's 500 KB workflow size limit.
+#
+# macos-placement lists the caller in GATEWAY_JOBS, so it runs only with an idle gateway runner of its
+# own (`runner`, macos-placement's gateway_runner); with none, generated-files takes its Mac route as
+# before. The gateway runs nothing of the commit: no checkout, no action, no token, no secret, only the
+# client (tests/test_cmux_next_checks_workflow.py GeneratedFilesFleetClient). Two fleet steps check the
+# commit generated-files itself checks out (github.sha, the caller's: a pull request's merge commit):
+#   - scripts/cmux-next/check-action-surfaces.sh: the action catalog checks with the freshness tests on,
+#     the first check of judge-action-exports.sh;
+#   - scripts/cmux-next/regenerate-settings-exports.sh: a fresh settings export, which prints
+#     "regenerated: PATH" for each export that differs from the commit's.
+# Both pass and no export is regenerated: the verdict `fresh`, and generated-files skips (its check
+# shows skipped, as release-compile does after app-compile-fleet's pass). Any other verdict (`stale`: a
+# red or regenerated check, which can be the base's drift; `queued`: a step still queued after the
+# client's 20-minute wait; `unavailable`: no fleet, no client, a step at another commit) passes this
+# job with a warning, and generated-files runs in full on its Mac route: it judges whose staleness it
+# is, uploads cmux-next-generated-patch, records its pass and fails as before. Pull requests only: a
+# push or a dispatch keeps the Mac run, which packs the exports for the base autofix
+# (base_autofix_pushed_exports.py reads that step by name).
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The idle gateway runner macos-placement saw in this attempt (gateway_runner).
+        type: string
+        required: true
+    outputs:
+      verdict:
+        description: fresh, stale, queued or unavailable; only fresh skips generated-files.
+        value: ${{ jobs.client.outputs.verdict }}
+
+permissions: {}
+
+jobs:
+  client:
+    name: client
+    runs-on: ${{ inputs.runner }}
+    permissions: {}
+    # Longer than the client's queue wait (1200 s), compile budget (1200 s) and run time (900 s) and the
+    # report, so the client, not the job timeout, ends a slow step: a timed-out job would be a red check.
+    timeout-minutes: 60
+    outputs:
+      verdict: ${{ steps.client.outputs.verdict }}
+    steps:
+      - name: Check the generated files on the build fleet
+        id: client
+        env:
+          # github.sha: a pull request's merge commit, the tree generated-files itself checks out.
+          REF: ${{ github.sha }}
+          # The client's compile allowance beyond --timeout (its default is 90 minutes): a cold CmuxNext
+          # build past it ends the step as no verdict, and generated-files runs on its Mac.
+          CMUX_CI_STEP_COMPILE_BUDGET: "1200"
+        run: |
+          set -uo pipefail
+          verdict=fresh
+          reasons=()
+          # finish VERDICT: the job's output and summary. Every verdict passes this job: only `fresh` skips
+          # generated-files, and any other runs generated-files in full on its Mac route.
+          finish() {
+            echo "verdict=$1" >> "$GITHUB_OUTPUT"
+            {
+              echo "### cmux-next generated files on the build fleet: $1"
+              echo
+              printf -- '- %s\n' "${reasons[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$1" != fresh ]]; then
+              echo "::warning title=Generated files on the build fleet: $1::no fresh verdict for $REF, so cmux-next generated files checks it on its Mac route: ${reasons[*]}"
+            fi
+          }
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            reasons+=("the commit to check is not a full sha ('$REF')")
+            finish unavailable
+            exit 0
+          fi
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            reasons+=("$client is not installed on runner $RUNNER_NAME")
+            finish unavailable
+            exit 0
+          fi
+          # submit N SCRIPT [ARG]: one fleet step that runs SCRIPT (with ARG) at REF. The worker runs a
+          # script only when its blob is the one on feat-cmux-next or main, so these are the reviewed copies.
+          # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
+          # --queue-timeout 1200: the light class's measured queue p90 (as fast-tier-fleet), bounded at
+          # 20 minutes; past it generated-files runs on its Mac.
+          submit() {
+            local status=0
+            if [[ -n "${3:-}" ]]; then
+              "$client" run --class light --script "$2" --ref "$REF" --arg="$3" --no-supersede \
+                --timeout 900 --queue-timeout 1200 > "$RUNNER_TEMP/generated-files-fleet-$1.log" 2>&1 || status=$?
+            else
+              "$client" run --class light --script "$2" --ref "$REF" --no-supersede \
+                --timeout 900 --queue-timeout 1200 > "$RUNNER_TEMP/generated-files-fleet-$1.log" 2>&1 || status=$?
+            fi
+            echo "$status" > "$RUNNER_TEMP/generated-files-fleet-$1.exit"
+          }
+          submit 1 scripts/cmux-next/check-action-surfaces.sh &
+          first=$!
+          # OUT inside the step's checkout (validateRegenerateExportsStep): the folder form prints a
+          # "regenerated: PATH" line for each export that differs from the commit's.
+          submit 2 scripts/cmux-next/regenerate-settings-exports.sh .build/generated-files-fleet/settings-exports &
+          second=$!
+          wait "$first"
+          wait "$second"
+          # judge N KIND WHAT: print the step's log, then its verdict from its exit, its log and the
+          # controller's record of the step, which must name REF as the commit it checked.
+          ref_re='"ref": *"([^"]*)"(.*)'
+          digest_re='"source_digest": *"([^"]*)"'
+          state_re='"state": *"([a-z_]*)"'
+          code_re='"exit_code": *(-?[0-9]+)'
+          # A step id as the fleet tools read it (tip-test-compile.sh): 6 to 64 hex.
+          step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
+          # The client's end line, which it prints once it has read the step's whole log: without it the
+          # log can be cut short, and a missing "regenerated:" line proves nothing.
+          end_re='^cmux-ci: step ([0-9a-f]{6,64}) (done|failed|cancelled) '
+          regen_re='^regenerated: (.+)$'
+          judge() {
+            local line id="" ended="" regenerated="" status="" json="" rest refs=0 state="" code="" step=unavailable why=""
+            echo "::group::$3 on the build fleet"
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              printf '%s\n' "$line"
+              # The client names its step before the step's own log streams.
+              if [[ -z "$id" && "$line" =~ $step_re ]]; then
+                id="${BASH_REMATCH[1]}"
+              elif [[ -n "$id" && "$line" =~ $end_re && "${BASH_REMATCH[1]}" == "$id" ]]; then
+                ended=yes
+              elif [[ "$line" =~ $regen_re ]]; then
+                regenerated="$regenerated ${BASH_REMATCH[1]}"
+              fi
+            done < "$RUNNER_TEMP/generated-files-fleet-$1.log"
+            echo "::endgroup::"
+            read -r status < "$RUNNER_TEMP/generated-files-fleet-$1.exit" || status=""
+            if [[ -z "$id" ]]; then
+              why="$3: the client submitted no step (exit ${status:-unknown})"
+            elif ! json="$("$client" status "$id" 2>&1)"; then
+              why="$3: the controller's record of step $id could not be read"
+            else
+              rest="$json"
+              while [[ "$rest" =~ $ref_re ]]; do
+                refs=$((refs + 1))
+                if [[ "${BASH_REMATCH[1]}" != "$REF" ]]; then why="$3: step $id checked ${BASH_REMATCH[1]:-no commit}, not $REF"; break; fi
+                rest="${BASH_REMATCH[2]}"
+              done
+              if [[ -z "$why" && "$refs" -eq 0 ]]; then why="$3: step $id's record names no checked commit"; fi
+              if [[ -z "$why" && "$json" =~ $digest_re && -n "${BASH_REMATCH[1]}" && "${BASH_REMATCH[1]}" != "$REF" ]]; then
+                why="$3: step $id checked out ${BASH_REMATCH[1]}, not $REF"
+              fi
+              if [[ "$json" =~ $state_re ]]; then state="${BASH_REMATCH[1]}"; fi
+              if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
+            fi
+            if [[ -z "$why" ]]; then
+              # The controller's record decides: a pass is a step done at REF with exit 0 (and a client that
+              # exited 0); a step that ended with a nonzero exit is stale or a catalog failure, which the
+              # Mac run tells apart; anything else (no worker, a queue or run timeout, a cancel) is no verdict.
+              if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
+                if [[ -n "$regenerated" ]]; then
+                  step=stale; why="$3: step $id regenerated an export that differs from $REF's:$regenerated"
+                elif [[ "$2" == settings && -z "$ended" ]]; then
+                  why="$3: step $id passed, but its log has no end line, so it may be cut short"
+                else
+                  step=fresh; why="$3: fresh at $REF (step $id)"
+                fi
+              elif [[ ( "$state" == "failed" || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
+                step=stale; why="$3: step $id failed at $REF (exit $code): a stale file or a catalog failure; its log is above"
+              elif [[ "$status" == 75 ]]; then
+                # The client stopped waiting for the queue; the step keeps its place and runs later.
+                step=queued; why="$3: step $id still queued after the client's queue wait (client exit 75, step ${state:-unknown})"
+              else
+                why="$3: no verdict from step $id (client exit ${status:-unknown}, step ${state:-unknown})"
+              fi
+            fi
+            reasons+=("$why")
+            echo "$why"
+            # The verdict is the worst step's: stale, then unavailable, then queued, then fresh.
+            case "$step" in
+              stale) verdict=stale ;;
+              unavailable) [[ "$verdict" == stale ]] || verdict=unavailable ;;
+              queued) [[ "$verdict" != fresh ]] || verdict=queued ;;
+            esac
+          }
+          judge 1 actions "the action catalog checks"
+          judge 2 settings "the settings export"
+          finish "$verdict"

@@ -486,7 +486,7 @@ FAST_JOB = "fast-tier"
 # The Mac job each build-fleet gateway job stands in for: it needs a Mac only when the fleet gives no
 # pass, so it takes no idle runner from the gateway job.
 GATEWAY_FALLBACKS = {"app-compile-fleet": "release-compile", "swift-canary-fleet": "swift-canary",
-                     "release-compile-fast": "release-compile"}
+                     "release-compile-fast": "release-compile", "generated-files-fleet": "generated-files"}
 
 
 def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:

@@ -99,6 +99,7 @@
     "cmux-next-web-bundle-publish.yml:build": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-web-bundles.yml:bundles": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-web-bundles.yml:webviews-checks": {"class": "webview", "warm": ["actions-cache"]},
+    "cmux-next-generated-files-fleet.yml:client": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next.yml:app-compile-fleet": {"class": "pr-release-compile", "warm": ["linux-pool-warm"]},
     "cmux-next.yml:cmux-scheme-compile": {"class": "pr-release-compile", "warm": ["deriveddata-reuse", "dev-cas", "actions-cache", "product-reuse"]},
     "cmux-next.yml:daemon-test": {"class": "pr-swift-test", "warm": ["spm-shared", "actions-cache"]},

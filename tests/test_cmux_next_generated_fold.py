@@ -205,8 +205,13 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        self.assertEqual(self.daemon["needs"], self.generated["needs"])
-        self.assertEqual(self.swift["needs"], self.generated["needs"])
+        # generated-files also waits for its build-fleet client (generated-files-fleet), whose `fresh`
+        # verdict skips it; the client builds nothing on its runner (a reusable workflow call, no BUILD step).
+        own = [need for need in self.generated["needs"] if need != "generated-files-fleet"]
+        self.assertEqual(self.generated["needs"], own + ["generated-files-fleet"])
+        self.assertEqual(self.daemon["needs"], own)
+        self.assertEqual(self.swift["needs"], own)
+        self.assertEqual(self.builders(self.jobs["generated-files-fleet"]), [])
 
     def test_every_routed_run_builds_once_for_its_generated_files(self):
         """Evaluates path_route's generated_host and the four jobs' conditions over events, routes,
