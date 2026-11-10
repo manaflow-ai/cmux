@@ -35,7 +35,13 @@
 //!   since nothing is copied; a chat folder on another one (a `/tmp` on its own disk) is refused
 //!   with that reason.
 //! - git runs with `--template=` and `core.hooksPath=/dev/null` (no hook or template runs),
-//!   https only (`protocol.allow=never`), no submodules, a bounded time and bounded output.
+//!   https only (`protocol.allow=never`), no submodules, a bounded time and bounded output, and
+//!   an empty home of its own in the staging folder (Codex review round 4, F1): libcurl reads
+//!   `~/.netrc`, so the daemon's own HOME would send the machine's credentials, not the lent one.
+//! - The checkout leaves out every path the remote sandbox forbids the agent to write
+//!   (`github_clone_checkout.rs`, Codex review round 4, F2): a clone is written outside the
+//!   sandbox, and a later session outside it would read those paths (agent instructions,
+//!   Claude Code and editor settings, hooks, `.envrc`). The reply names them.
 
 use crate::github_broker::{GithubAction, GithubActionParams};
 use crate::rpc::RpcError;
@@ -190,30 +196,42 @@ pub async fn run(
 ) -> Result<Value, RpcError> {
     let target = check_target(cwd, r)?;
     let name = dir_name(r);
-    clone_into(origin, &target, &r.repo, lent.as_ref().map(|t| t.as_str())).await?;
+    let out = clone_into(origin, &target, &r.repo, lent.as_ref().map(|t| t.as_str())).await?;
+    #[cfg(unix)]
+    let left_out = checkout::left_out_line(&out);
+    #[cfg(not(unix))]
+    let left_out = String::new();
     Ok(json!({
         "action": GithubAction::Clone,
         "repo": r.repo,
         "dir": name,
         "path": target,
-        "output": format!("Cloned {} into {}\n", r.repo, name),
+        "leftOut": out,
+        "output": format!("Cloned {} into {}\n{left_out}", r.repo, name),
         "source": source,
     }))
 }
 
 #[cfg(not(unix))]
-async fn clone_into(_: &CloneOrigin, _: &Path, _: &str, _: Option<&str>) -> Result<(), RpcError> {
+async fn clone_into(
+    _: &CloneOrigin,
+    _: &Path,
+    _: &str,
+    _: Option<&str>,
+) -> Result<Vec<String>, RpcError> {
     Err(RpcError::internal("repo clone runs on macOS and Linux only"))
 }
 
 /// The env git runs with: none of the daemon's own but what reaching GitHub needs, and nothing
-/// that reads the person's global or system config or asks a person.
+/// that reads the person's home, global or system config or asks a person.
 #[cfg(unix)]
-fn git_env(git: &mut tokio::process::Command) {
+fn git_env(git: &mut tokio::process::Command, home: &Path) {
     git.env_clear();
+    // An empty home of its own (Codex review round 4, F1): libcurl reads `~/.netrc`, so the
+    // daemon's HOME would lend git the machine's own credentials.
+    git.env("HOME", home).env("XDG_CONFIG_HOME", home);
     for key in [
         "PATH",
-        "HOME",
         "TMPDIR",
         "HTTPS_PROXY",
         "https_proxy",
@@ -289,7 +307,7 @@ async fn clone_into(
     target: &Path,
     repo: &str,
     token: Option<&str>,
-) -> Result<(), RpcError> {
+) -> Result<Vec<String>, RpcError> {
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let chat = target.parent().unwrap_or(Path::new("/"));
     let parent = open_dir(chat)
@@ -316,7 +334,7 @@ async fn clone_staged(
     name: &str,
     repo: &str,
     token: Option<&str>,
-) -> Result<(), RpcError> {
+) -> Result<Vec<String>, RpcError> {
     use std::os::unix::fs::MetadataExt as _;
     let opened =
         |e: std::io::Error| RpcError::internal(format!("could not open the staging folder: {e}"));
@@ -327,10 +345,12 @@ async fn clone_staged(
     }
     std::fs::create_dir(staged).map_err(opened)?;
     let dir = open_dir(staged).map_err(opened)?;
-    let mut done = clone_in(origin, &dir, repo, token).await;
-    if done.is_ok() {
-        done = place(origin, &stage_dir, parent, name);
-    }
+    // git's home: new and empty, in the daemon's private staging folder.
+    let home = stage.join("home");
+    std::fs::create_dir(&home).map_err(opened)?;
+    let cloned = clone_in(origin, &dir, staged, &home, repo, token).await;
+    let _ = std::fs::remove_dir_all(&home);
+    let done = cloned.and_then(|out| place(origin, &stage_dir, parent, name).map(|()| out));
     if done.is_err() {
         remove_failed(&dir, staged);
     }
@@ -539,20 +559,21 @@ fn config_at(dir: &std::fs::File) -> Vec<u8> {
     }
 }
 
+/// The most a git of a clone may print on stdout (a listing of the repository's paths).
 #[cfg(unix)]
-async fn clone_in(
-    origin: &CloneOrigin,
-    dir: &std::fs::File,
-    repo: &str,
-    token: Option<&str>,
-) -> Result<(), RpcError> {
-    use std::io::Write as _;
-    use std::os::fd::AsRawFd as _;
-    let base = origin.base().to_owned();
-    let host = base.split_once("://").map_or(base.as_str(), |(_, h)| h).to_owned();
-    let url = format!("{base}/{repo}.git");
+const OUT_MAX: u64 = 64 << 20;
+
+/// A git run inside the folder open at `dir_fd`, with `home` as its home (`git_env`), the
+/// options every git of a clone runs with, and `pipe_fd` (the credential) as its fd 3.
+#[cfg(unix)]
+fn git_at(
+    base: &str,
+    home: &Path,
+    dir_fd: std::os::fd::RawFd,
+    pipe_fd: Option<std::os::fd::RawFd>,
+) -> tokio::process::Command {
     let mut git = tokio::process::Command::new("git");
-    git_env(&mut git);
+    git_env(&mut git, home);
     git.args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
         .args(["-c", "credential.helper=", "-c", "credential.interactive=false"])
         .args(["-c", "http.followRedirects=false", "-c", "protocol.allow=never"])
@@ -561,24 +582,6 @@ async fn clone_in(
         // A test's loopback stand-in (`CloneOrigin::loopback`).
         git.args(["-c", "protocol.http.allow=always"]);
     }
-    // The token goes into a pipe only the helper reads (fd 3 in git and its children).
-    let pipe = match token {
-        Some(token) => {
-            let (reader, mut writer) = std::io::pipe()
-                .map_err(|e| RpcError::internal(format!("could not make a pipe: {e}")))?;
-            let answer = Zeroizing::new(format!("username=x-access-token\npassword={token}\n"));
-            writer.write_all(answer.as_bytes()).map_err(|e| {
-                RpcError::internal(format!("could not hand git its credential: {e}"))
-            })?;
-            drop(writer);
-            git.arg("-c").arg(format!("credential.helper={}", helper(&host)));
-            Some(reader)
-        }
-        None => None,
-    };
-    git.args(["clone", "--template=", "--no-recurse-submodules", "--quiet", "--", &url, "."]);
-    let dir_fd = dir.as_raw_fd();
-    let pipe_fd = pipe.as_ref().map(|p| p.as_raw_fd());
     // SAFETY: only async-signal-safe calls (fchdir, dup2, fcntl) between fork and exec.
     unsafe {
         git.pre_exec(move || {
@@ -599,16 +602,37 @@ async fn clone_in(
         });
     }
     git.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    git
+}
+
+/// Runs `git` to its end by `deadline`: what it printed on stdout, or why it failed (`what` it
+/// could not do, its error output with `token` cut out). `pipe` is closed here once git holds it.
+#[cfg(unix)]
+async fn finish(
+    mut git: tokio::process::Command,
+    pipe: Option<std::io::PipeReader>,
+    deadline: tokio::time::Instant,
+    what: &str,
+    token: Option<&str>,
+) -> Result<Vec<u8>, RpcError> {
+    use tokio::io::AsyncReadExt as _;
     let mut child =
         git.spawn().map_err(|e| RpcError::internal(format!("could not start git: {e}")))?;
     drop(pipe);
-    let stderr = child.stderr.take();
+    let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
     let run = async {
-        use tokio::io::AsyncReadExt as _;
-        let read = async {
+        let out = async {
+            let mut kept = Vec::new();
+            if let Some(mut pipe) = stdout {
+                let _ = (&mut pipe).take(OUT_MAX + 1).read_to_end(&mut kept).await;
+                let _ = tokio::io::copy(&mut pipe, &mut tokio::io::sink()).await;
+            }
+            kept
+        };
+        let err = async {
             let mut kept = Vec::new();
             if let Some(mut pipe) = stderr {
                 let _ = (&mut pipe).take(64 * 1024).read_to_end(&mut kept).await;
@@ -616,11 +640,10 @@ async fn clone_in(
             }
             kept
         };
-        let (err, status) = tokio::join!(read, child.wait());
-        status.map(|s| (s, err))
+        let (out, err, status) = tokio::join!(out, err, child.wait());
+        status.map(|s| (s, out, err))
     };
-    let ran = tokio::time::timeout(CLONE_TIMEOUT, run).await;
-    let Ok(ran) = ran else {
+    let Ok(ran) = tokio::time::timeout_at(deadline, run).await else {
         // Stopped and waited for, so it writes nothing while its folder is removed.
         let _ = child.kill().await;
         return Err(RpcError::internal(format!(
@@ -628,14 +651,56 @@ async fn clone_in(
             CLONE_TIMEOUT.as_secs()
         )));
     };
-    let (status, stderr) = ran.map_err(|e| RpcError::internal(format!("lost git: {e}")))?;
+    let (status, out, err) = ran.map_err(|e| RpcError::internal(format!("lost git: {e}")))?;
     if !status.success() {
-        return Err(RpcError::new(
-            -32041,
-            format!("git could not clone {repo}: {}", clean(&stderr, token)),
-        )
-        .with_data(json!({"reason": "github.command_failed"})));
+        return Err(RpcError::new(-32041, format!("git could not {what}: {}", clean(&err, token)))
+            .with_data(json!({"reason": "github.command_failed"})));
     }
+    if out.len() as u64 > OUT_MAX {
+        return Err(RpcError::internal(format!("git could not {what}: its output is too long")));
+    }
+    Ok(out)
+}
+
+/// Clones `repo` into the folder open at `dir` (`staged`), with `home` as git's home, and
+/// checks out all but what the sandbox forbids (`checkout.rs`): the paths left out.
+#[cfg(unix)]
+async fn clone_in(
+    origin: &CloneOrigin,
+    dir: &std::fs::File,
+    staged: &Path,
+    home: &Path,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<Vec<String>, RpcError> {
+    use std::io::Write as _;
+    use std::os::fd::AsRawFd as _;
+    let deadline = tokio::time::Instant::now() + CLONE_TIMEOUT;
+    let base = origin.base();
+    let host = base.split_once("://").map_or(base, |(_, h)| h).to_owned();
+    let url = format!("{base}/{repo}.git");
+    let dir_fd = dir.as_raw_fd();
+    // The token goes into a pipe only the helper reads (fd 3 in git and its children).
+    let pipe = match token {
+        Some(token) => {
+            let (reader, mut writer) = std::io::pipe()
+                .map_err(|e| RpcError::internal(format!("could not make a pipe: {e}")))?;
+            let answer = Zeroizing::new(format!("username=x-access-token\npassword={token}\n"));
+            writer.write_all(answer.as_bytes()).map_err(|e| {
+                RpcError::internal(format!("could not hand git its credential: {e}"))
+            })?;
+            drop(writer);
+            Some(reader)
+        }
+        None => None,
+    };
+    let mut git = git_at(base, home, dir_fd, pipe.as_ref().map(|p| p.as_raw_fd()));
+    if pipe.is_some() {
+        git.arg("-c").arg(format!("credential.helper={}", helper(&host)));
+    }
+    git.args(["clone", "--template=", "--no-checkout", "--no-recurse-submodules", "--quiet"])
+        .args(["--", &url, "."]);
+    finish(git, pipe, deadline, &format!("clone {repo}"), token).await?;
     // What git wrote stays in this one folder; a config that kept the token is not left.
     if let Some(token) = token.filter(|t| !t.is_empty()) {
         let config = config_at(dir);
@@ -643,8 +708,48 @@ async fn clone_in(
             return Err(RpcError::internal("the clone kept its credential; it was removed"));
         }
     }
-    Ok(())
+    // The checkout: everything but what the sandbox forbids (`checkout.rs`).
+    let mut ls = git_at(base, home, dir_fd, None);
+    ls.args(["ls-tree", "-r", "-z", "--name-only", "HEAD"]);
+    let Ok(listing) = finish(ls, None, deadline, "list the repository", None).await else {
+        // An empty repository has no HEAD, and nothing to check out.
+        return Ok(Vec::new());
+    };
+    let out: Vec<&[u8]> =
+        listing.split(|&b| b == 0).filter(|p| !p.is_empty() && checkout::kept_out(p)).collect();
+    if !out.is_empty() {
+        let patterns = checkout::sparse_patterns(&out).ok_or_else(|| {
+            RpcError::invalid_params(
+                "the repository has a path a chat may not write whose name holds a line break; it was not cloned",
+            )
+        })?;
+        let failed = |e: std::io::Error| {
+            RpcError::internal(format!("could not set up the clone's checkout: {e}"))
+        };
+        let info = staged.join(".git").join("info");
+        std::fs::create_dir_all(&info).map_err(failed)?;
+        std::fs::write(info.join("sparse-checkout"), patterns).map_err(failed)?;
+        for (key, value) in [("core.sparseCheckout", "true"), ("core.sparseCheckoutCone", "false")]
+        {
+            let mut set = git_at(base, home, dir_fd, None);
+            set.args(["config", key, value]);
+            finish(set, None, deadline, "set up the checkout", None).await?;
+        }
+    }
+    let mut read = git_at(base, home, dir_fd, None);
+    read.args(["read-tree", "-m", "-u", "HEAD"]);
+    finish(read, None, deadline, "check out the clone", None).await?;
+    if let Some(path) = checkout::first_left_in(staged)? {
+        return Err(RpcError::internal(format!(
+            "the checkout holds {path}, which a chat on this machine may not write; the clone was removed"
+        )));
+    }
+    Ok(out.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect())
 }
+
+#[cfg(unix)]
+#[path = "github_clone_checkout.rs"]
+mod checkout;
 
 #[cfg(test)]
 #[path = "github_clone_tests.rs"]

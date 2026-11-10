@@ -165,3 +165,64 @@ fn a_failed_clone_is_removed_and_its_links_are_not_followed() {
     assert!(!target.exists(), "the folder the clone made is gone");
     assert!(outside.join("keep").exists(), "a link's target stays");
 }
+
+/// Codex review round 4, F2: a clone leaves out every path `sandbox/remote-chain.sb` forbids
+/// the agent to write, at any depth and in any case, and nothing else.
+#[cfg(unix)]
+#[test]
+fn a_clone_leaves_out_the_paths_the_sandbox_forbids() {
+    use super::checkout::{kept_out, sparse_patterns};
+    for out in [
+        "CLAUDE.md",
+        "docs/agents.md",
+        "Claude.local.md",
+        "AGENTS.override.md",
+        "GEMINI.md",
+        ".claude/settings.json",
+        "a/.codex/config.toml",
+        ".vscode/tasks.json",
+        ".zed/settings.json",
+        ".idea/x.xml",
+        ".husky/pre-commit",
+        "sub/.githooks/pre-push",
+        ".cursor/rules",
+        ".windsurf/x",
+        ".cursorrules",
+        ".mcp.json",
+        "deep/.envrc",
+        ".pre-commit-config.yaml",
+        "lefthook.yml",
+        ".tool-versions",
+        "mise.toml",
+        ".mise.local.toml",
+        "mise/config.toml",
+        ".mise/config.toml",
+        ".config/mise/config.toml",
+        ".hg/hgrc",
+        ".github/copilot-instructions.md",
+        "fake/HEAD",
+        "vendor/.git/config",
+    ] {
+        assert!(kept_out(out.as_bytes()), "{out} is left out");
+    }
+    for kept in [
+        "README.md",
+        "src/claude.rs",
+        "docs/CLAUDE.md.txt",
+        ".github/workflows/ci.yml",
+        "config.toml",
+        "HEADER",
+        ".gitignore",
+        ".gitattributes",
+        "my.claude/x",
+    ] {
+        assert!(!kept_out(kept.as_bytes()), "{kept} is checked out");
+    }
+    let paths: [&[u8]; 3] = [b"CLAUDE.md", b"a b/[x]*?.envrc ", b"\\.envrc"];
+    assert_eq!(
+        String::from_utf8(sparse_patterns(&paths).unwrap()).unwrap(),
+        "/*\n!/CLAUDE.md\n!/a b/\\[x]\\*\\?.envrc\\ \n!/\\\\.envrc\n"
+    );
+    let broken: [&[u8]; 1] = [b"bad\n/CLAUDE.md"];
+    assert!(sparse_patterns(&broken).is_none(), "a line break is refused");
+}
