@@ -2424,21 +2424,21 @@
     "curve": "easeIn"
    },
    "pinLift": {
-    "value": 0.12,
+    "value": 0.15,
     "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
     "unit": "s",
     "use": "Home list pin drag: the tile lifting (linear)",
     "curve": "linear"
    },
    "pinSettle": {
-    "value": 0.18,
+    "value": 0.25,
     "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
     "unit": "s",
     "use": "Home list pin drag: a dropped tile scaling back (linear)",
     "curve": "linear"
    },
    "pinShrink": {
-    "value": 0.18,
+    "value": 0.22,
     "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
     "unit": "s",
     "use": "Home list pin drag: a ghost shrinking onto its row avatar"
