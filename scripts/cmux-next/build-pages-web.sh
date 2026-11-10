@@ -58,6 +58,7 @@ settings
 setup-card
 stash
 stats
+task-manager
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
