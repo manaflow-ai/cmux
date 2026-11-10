@@ -241,9 +241,16 @@ export function reportHostGlass(
       // Its glass is withdrawn: an earlier answer no longer says the App draws it if it opens again.
       leaving.add(element);
       answered.delete(element);
-    } else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
+    } else if (
+      leaving.delete(element) &&
+      live &&
+      reported.has(element) &&
+      !answered.has(element) &&
+      !timedOut.has(element)
+    ) {
       // Opened again before the App answered: a deadline that passed while it closed skipped it, so
-      // it gets a new one (a slow App still never leaves it on no glass).
+      // it gets a new one (a slow App still never leaves it on no glass). One never reported yet gets
+      // its deadline with its first report, after the hold.
       const timer = deadlines.get(element);
       if (timer !== undefined) clearTimeout(timer);
       arm(element, view.performance.now(), false);
