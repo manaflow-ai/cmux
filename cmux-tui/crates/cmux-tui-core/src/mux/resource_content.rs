@@ -19,6 +19,8 @@ use crate::workspace_registry::{
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
 use published_screens::PublishedScreens;
+#[cfg(test)]
+pub(crate) use scoped_projection::without_crosscheck;
 pub(crate) use split_ids::ensure_screen_split_public_ids;
 use split_ids::ensure_split_public_ids;
 

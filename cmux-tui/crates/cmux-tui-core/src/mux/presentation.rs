@@ -171,6 +171,8 @@ pub struct TabPinChange {
 }
 
 fn surface_directories_in_state(state: &State) -> Vec<(SurfaceId, String)> {
+    #[cfg(test)]
+    walk_counters::decoration_walk_visited(state.surfaces.len());
     state
         .surfaces
         .iter()

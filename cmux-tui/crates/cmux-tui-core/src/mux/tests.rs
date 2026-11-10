@@ -62,6 +62,8 @@ mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
 mod viewport_columns;
+#[cfg(unix)]
+mod workspace_close_cost;
 mod workspace_materialize;
 mod workspaces;
 mod writer_lock_order;

@@ -42,6 +42,10 @@ impl Mux {
     ) -> HashMap<SurfaceId, SurfaceNotification> {
         let placement_notifications = self.placement_notifications.lock().unwrap();
         let terminal_notifications = self.terminal_notifications.lock().unwrap();
+        #[cfg(test)]
+        walk_counters::decoration_walk_visited(
+            state.surfaces.len() + state.resource_indexes.content_ids.len(),
+        );
         let mut result = HashMap::new();
         for (surface_id, surface) in &state.surfaces {
             let notification = match surface.terminal_public_id() {
