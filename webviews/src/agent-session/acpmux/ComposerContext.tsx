@@ -38,6 +38,7 @@ import {
   type ConnectKind,
   type EnvironmentKind,
   type OffloadKind,
+  type OffloadReasons,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import { ExtraFolderList } from "./ExtraFolderList";
@@ -146,6 +147,7 @@ export function ComposerContext({
   connectOnlyWhenEmpty = false,
   onOffload,
   offloads = NO_OFFLOADS,
+  offloadReasons,
   saved,
   onRefreshMachines: onRefreshPeers,
   folderNote,
@@ -222,6 +224,9 @@ export function ComposerContext({
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (`pane.tabState` `moveReasons`: a chat with no first message
+  /// yet): the picker's row is disabled and says it, never a click that does nothing.
+  offloadReasons?: OffloadReasons;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
   /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
@@ -980,6 +985,7 @@ export function ComposerContext({
                 }
                 environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
+                {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
