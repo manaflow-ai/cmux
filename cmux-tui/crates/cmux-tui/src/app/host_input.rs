@@ -18,28 +18,35 @@ use crate::app::{
 use crate::config::Action;
 use crate::keys;
 
+/// The longest poll when shutdown cannot wake the reader (no poll waker): it
+/// notices a closed ingress within this.
 pub(super) const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// The longest poll when shutdown wakes the reader (`set_reader_wake`): the
+/// idle reader then has no timer of its own.
+pub(super) const WAKEABLE_POLL_CAP: Duration = Duration::from_secs(3600);
 
 pub(super) fn read_crossterm_event(
     timeout: Option<Duration>,
+    cap: Duration,
     poll: impl FnMut(Duration) -> std::io::Result<bool>,
     read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
-    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+    read_crossterm_event_with_clock(timeout, cap, poll, read, Instant::now)
 }
 
 pub(super) fn read_crossterm_event_with_clock(
     timeout: Option<Duration>,
+    cap: Duration,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
     mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
-    // Keep the input thread interruptible even when no graphics response is
-    // pending. A single normalized poll avoids separate timed and untimed
-    // branches drifting apart as the reader evolves.
+    // Every poll is bounded by `cap`, so the reader returns to check its
+    // ingress at least that often (or sooner, when shutdown wakes the poll).
+    // A single normalized poll avoids separate timed and untimed branches
+    // drifting apart as the reader evolves.
     const MAX_INTERRUPTED_RETRIES: u8 = 8;
-    let poll_timeout =
-        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    let poll_timeout = timeout.map_or(cap, |timeout| timeout.min(cap));
     let deadline = now() + poll_timeout;
     let mut interrupted: u8 = 0;
     loop {
@@ -363,6 +370,12 @@ impl HostInputRuntime {
         state.reader = Some(reader);
     }
 
+    /// `wake` makes the reader's blocked poll return; shutdown calls it after
+    /// it closes the ingress, so the reader can poll without a short timer.
+    pub(super) fn set_reader_wake(&self, wake: impl Fn() + Send + Sync + 'static) {
+        let _ = self.reader.wake.set(Box::new(wake));
+    }
+
     pub(super) fn shutdown_control(&self) -> HostInputShutdown {
         HostInputShutdown { ingress: self.ingress.clone(), reader: self.reader.clone() }
     }
@@ -387,9 +400,13 @@ pub(super) struct HostInputShutdown {
 impl HostInputShutdown {
     pub(super) fn shutdown(&self) {
         self.ingress.close();
-        // The reader checks the closed ingress before each read, and the
-        // crossterm wrapper caps every poll at CROSSTERM_POLL_INTERVAL, so a
-        // healthy reader reports its exit within one interval. A reader stuck
+        if let Some(wake) = self.reader.wake.get() {
+            wake();
+        }
+        // The reader checks the closed ingress before each read, and the wake
+        // above ends its blocked poll (without a waker, the crossterm wrapper
+        // caps every poll at CROSSTERM_POLL_INTERVAL), so a healthy reader
+        // reports its exit at once. A reader stuck
         // inside the terminal read (a hung-up tty the event source keeps
         // re-reading, issue 23088) never reports it. Waiting for that report
         // up to HOST_INPUT_READER_EXIT_DEADLINE, and leaving such a reader
@@ -439,7 +456,8 @@ impl HostInputShutdown {
 }
 
 /// How long shutdown waits for the reader to report its exit. A healthy
-/// reader notices the closed ingress within one CROSSTERM_POLL_INTERVAL.
+/// reader notices the closed ingress when woken, or within one
+/// CROSSTERM_POLL_INTERVAL without a waker.
 pub(super) const HOST_INPUT_READER_EXIT_DEADLINE: Duration = Duration::from_secs(1);
 
 /// Owned by the reader thread. Dropping it, on return or unwind, is the
@@ -459,6 +477,8 @@ pub(super) struct HostInputReaderControl {
     pub(super) state: Mutex<HostInputReaderState>,
     complete: Condvar,
     exited: Condvar,
+    /// Wakes the reader's blocked poll (`set_reader_wake`).
+    wake: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl HostInputReaderControl {
