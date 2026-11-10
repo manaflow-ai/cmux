@@ -20,6 +20,9 @@ on:
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
+      - "tests/test_check_concurrency_caller_isolated.py"
+      - "scripts/cmux-next/caller_isolation.py"
+      - "scripts/cmux-next/caller-isolated-blocking-pending.json"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -39,6 +42,9 @@ on:
       - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "tests/test_check_concurrency_pipe_reads.py"
+      - "tests/test_check_concurrency_caller_isolated.py"
+      - "scripts/cmux-next/caller_isolation.py"
+      - "scripts/cmux-next/caller-isolated-blocking-pending.json"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/cmux-next/check-objc-selectors.py"
@@ -80,6 +86,7 @@ jobs:
             scripts/ci/pr_owned_findings.py
             tests/test_check_concurrency_generic_deinit.py
             tests/test_check_concurrency_pipe_reads.py
+            tests/test_check_concurrency_caller_isolated.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
@@ -96,6 +103,12 @@ jobs:
       - name: Pipe-read rule tests
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_check_concurrency_pipe_reads.py
+
+      # The caller-isolated blocking rule is red on ProcessRunner's shape (a blocking call in a nonisolated
+      # async function, awaited from the main actor) and green with @concurrent or work.run.
+      - name: Caller-isolated blocking rule tests
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_check_concurrency_caller_isolated.py
 
       # Every `super.<member>` must reach a selector its framework superclass
       # answers on each macOS recorded in the table, or be guarded.
