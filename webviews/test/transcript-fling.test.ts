@@ -186,8 +186,9 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
 
     // A stopped fling should release its directional lead after the idle timeout. Without the
     // decay, the mounted range stays several viewports wider than the settled view indefinitely.
-    // A jump far past the cap mounts no lead (above), so what the settled view keeps is the view and
-    // its warm rows, a viewport either side.
+    // A jump far past the cap mounts the view alone (above); once the scroll's lead decays, the warm
+    // rows held through the fling come back around the settled view, a viewport either side, and
+    // nothing wider stays.
     const mountedExtent = () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
@@ -198,7 +199,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       scroller.scrollTop = Math.floor((scroller.scrollHeight - scroller.clientHeight) / 2);
       await window.cmuxPaintFrame();
     });
-    await page.waitForFunction(`(${mountedExtent.toString()})() <= 4`, undefined, { timeout: 2_000 });
+    await page.waitForFunction(`(${mountedExtent.toString()})() > 2.5`, undefined, { timeout: 2_000 });
     await page.evaluate(() => window.cmuxPaintFrame());
     const settled = await page.evaluate(`(${mountedExtent.toString()})()`);
     expect(settled as number).toBeLessThanOrEqual(4);
