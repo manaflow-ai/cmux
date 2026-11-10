@@ -53,6 +53,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+mod codex_cloud_auth;
 pub mod codex_desktop;
 pub mod complete;
 pub mod config;

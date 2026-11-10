@@ -2227,7 +2227,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
       await J.step("reply", async () => {
         const last = await awaitReply().catch(async (e: Error) => {
-          if (!gwExec && !gatewayLocal) throw e;
+          // Through a gateway, or any Codex chat (the model-plane route a Codex chat with no login of its own takes):
+          // say what the machine's Codex had to reach its model with, never only "no reply" (cloud chat matrix, 11-10).
+          if (!gwExec && !gatewayLocal && provider !== "codex") throw e;
           // Through a gateway, what the chat machine's Codex had to reach the edge with: the model-plane files, the
           // machine kind and Codex's auth choice, the provider its config names, and whether a login shell and the
           // daemon carry the edge's base URL and key (the base URL as edge, other or unset; the key as set or not).
@@ -2242,6 +2244,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             `for f in "$HOME/.acpmux/login-env.json" "$HOME/.cmux/acpmux/login-env.json"; do [ -f "$f" ] && python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); print(sys.argv[1], "age_s=%s" % (int(time.time()) - int(d.get("savedAt") or 0)), "secret_names=%s" % ",".join(d.get("secretNames") or []))' "$f" 2>&1; done`,
             `grep -hoE '(login shell env|login env|imported login shell environment)[^"]{0,160}' "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | tail -3`,
             `for p in $(pgrep -u "$(id -u)" -f 'cmux-tui|acpmux' | head -3); do echo "pid $p: $(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -E '^OPENAI_(BASE_URL|API_KEY)=' | sed 's/=.*/=set/' | tr '\\n' ' ')"; done`,
+            // The model plane itself, from the machine: status and time only, one bounded request each (a hung edge
+            // reads as 000 after 15 s), with the machine's own base URL and key, never printed.
+            `bash -lc 'm=$(grep -m1 -E "^model *=" "$HOME/.codex/config.toml" | cut -d\\" -f2); echo "codex model: \${m:-unset}"; for p in models responses; do if [ "$p" = models ]; then a=(); else a=(-H "content-type: application/json" -d "{\\"model\\":\\"\${m:-gpt-5}\\",\\"input\\":\\"ping\\"}"); fi; echo "edge $p: $(curl -sS -m 15 -o /dev/null -w "%{http_code} %{time_total}s" -H "authorization: Bearer \${OPENAI_API_KEY}" "\${a[@]}" "\${OPENAI_BASE_URL%/}/$p" 2>&1 | tail -c 160)"; done' 2>&1 | tail -3`,
+            // Which codex the chat runs, and what the image's auth rules (agent-auth.sh) would pick for it here.
+            `echo "codex: $(command -v codex) launcher=$([ -x /etc/cmux/codex ] && echo yes || echo no) running=$(ps -o args= -u "$(id -u)" | grep -E '(^|/)codex( |$)' | grep -v grep | head -1 | cut -c1-120)"`,
+            `bash -lc '[ -f /etc/cmux/agent-auth.sh ] && . /etc/cmux/agent-auth.sh && cmux_agent_auth_resolve codex && echo "agent-auth codex: $cmux_agent_auth_mode ($cmux_agent_auth_reason)"' 2>&1 | tail -1`,
+            // The session's own account of the turn: its last error or retry line (no prompt or reply text).
+            `${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -oE '"kind":"(turn_error|retry|error|status)"[^}]{0,300}' | tail -3`,
           ].join("; ");
           const d = await exec(probe).catch(() => null);
           throw new Error(`${e.message} (the chat machine: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 1500)})`);
