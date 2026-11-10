@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
+import { ChannelLocks, DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
@@ -117,6 +117,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
+  /** One send per outbox channel at a time, across the commit-time drain and the alarm (owner-outbox.ts ChannelLocks). */
+  private readonly channelLocks = new ChannelLocks()
   /** The commit-time drain of prompt channels in flight (afterCommit), and whether a commit came during it. */
   private wakeDrain: Promise<void> | undefined
   private wakeAgain = false
@@ -376,7 +378,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (this.wakeDrain) return void (this.wakeAgain = true)
     const prompt = (c: string) => this.promptChannel(c)
     if (!this.engine.outbox.dueChannels(now).some(prompt)) return
-    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt, PROMPT_DRAIN_MAX_CHANNELS)
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt, PROMPT_DRAIN_MAX_CHANNELS, this.channelLocks)
       .catch(() => undefined)
       .finally(() => {
         this.wakeDrain = undefined
@@ -555,7 +557,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private async alarmOnce() {
     this.gate.sweep(Date.now())
     if (!this.engine) return
-    await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
+    await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, undefined, Infinity, this.channelLocks)
     this.engine.pruneEventWindow(Date.now())
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)

@@ -5,6 +5,7 @@ import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
 import { warmBrain } from "./mux-wake-delivery.ts"
 import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
+import { approvalAnswerChannel } from "./domains/feed-approvals.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 export const DEAD_REPLAY_MS = 24 * 3600_000
@@ -23,6 +24,22 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
   // A missing binding is a deploy error, not an outage: counted (dead letter after
   // OUTBOX_MAX_ATTEMPTS, replayed a day later), never retried forever.
   return "poison"
+}
+
+/** One send per outbox channel at a time within an object: each `run` for a channel starts after the one before it ends. */
+export class ChannelLocks {
+  private readonly tails = new Map<string, Promise<void>>()
+  async run(channel: string, fn: () => Promise<void>): Promise<void> {
+    const before = this.tails.get(channel) ?? Promise.resolve()
+    const mine = before.then(fn, fn)
+    const tail = mine.catch(() => undefined)
+    this.tails.set(channel, tail)
+    try {
+      await mine
+    } finally {
+      if (this.tails.get(channel) === tail) this.tails.delete(channel)
+    }
+  }
 }
 
 /** The class name of a Chief wake queue target (home-core conversation outbox `mux.wake`). */
@@ -45,7 +62,14 @@ export const drainOutboxChannels = async <S>(
   /** Only these channels (the commit-time wake path); no prune or replay then. */
   only?: (channel: string) => boolean,
   /** At most this many channels (the commit-time path: a change that touches thousands of objects is the alarm's). */
-  maxChannels = Infinity
+  maxChannels = Infinity,
+  /**
+   * The object's per-channel send lock, shared by the commit-time path and the alarm (OwnerDO.channelLocks): one send
+   * per channel at a time, its rows read inside the lock. Without it the alarm sent the row a commit-time send still
+   * held, a target acknowledged that duplicate ("already running"), the row left the queue, and a later retryable
+   * failure of the first send had nothing left to redeliver (review of #40370).
+   */
+  locks: ChannelLocks = new ChannelLocks()
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -61,8 +85,13 @@ export const drainOutboxChannels = async <S>(
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       if (only && !only(channel)) continue
       if (++sent > maxChannels) break
-      const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
-      if (rows.length === 0) continue
+      await locks.run(channel, async () => {
+      // Read under the lock: a send that ran meanwhile has marked its rows, or failed and backed the channel off.
+      if (!outbox.dueChannels(Date.now()).includes(channel)) return
+      // A Cloud approval answer goes alone, too: CloudDO runs the approved create inside the send and a retryable
+      // failure throws the whole batch, so an answer sent beside it would go again after its run ended.
+      const rows = outbox.pending(channel, channel !== "" && (outbox.isolating(channel) || approvalAnswerChannel(channel)) ? 1 : 100)
+      if (rows.length === 0) return
       try {
         if (channel === "") {
           const res = await project(env, engine.stream, rows)
@@ -83,7 +112,7 @@ export const drainOutboxChannels = async <S>(
             outbox.markSent([...res.done, ...res.dead], Date.now())
             if (res.dead.length > 0) console.error(JSON.stringify({ msg: "security mail dropped", stream: engine.stream, count: res.dead.length, reason: res.reason ?? "mail.refused" }))
             outbox.succeeded(channel)
-            continue
+            return
           }
           const ns = targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
@@ -100,6 +129,7 @@ export const drainOutboxChannels = async <S>(
         const dead = outbox.failed(channel, Date.now(), outboxFailure(channel, e))
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
+      })
     }
   if (only) return
   // Rows an older build marked sent instead of deleting go away a batch per alarm.
