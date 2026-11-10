@@ -179,8 +179,13 @@ pub(crate) fn run(mut overlay: impl Overlay, rx: Receiver<CursorEvent>) {
 
 fn target_of(ev: &CursorEvent) -> Option<Point> {
     match ev {
-        CursorEvent::Move { at, .. } | CursorEvent::Click { at, .. } => Some(*at),
-        CursorEvent::Typing { at, .. } | CursorEvent::Look { at, .. } => *at,
+        CursorEvent::Move { at, .. }
+        | CursorEvent::Click { at, .. }
+        | CursorEvent::Scroll { at, .. }
+        | CursorEvent::Drag { to: at, .. } => Some(*at),
+        CursorEvent::Typing { at, .. }
+        | CursorEvent::Keys { at, .. }
+        | CursorEvent::Look { at, .. } => *at,
         CursorEvent::Hide { .. } => None,
     }
 }

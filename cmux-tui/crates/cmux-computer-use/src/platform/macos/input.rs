@@ -112,11 +112,21 @@ fn mouse_event(src: &Cf, ty: u32, at: Point, button: Button, flags: u64) -> DRes
 }
 
 /// `count` clicks (1: single, 2: double, ...) of `button` at `at`.
-pub fn click(route: Route, at: Point, button: Button, count: u8, flags: u64) -> DResult<()> {
+pub fn click(
+    route: Route,
+    at: Point,
+    button: Button,
+    count: u8,
+    flags: u64,
+    gap: std::time::Duration,
+) -> DResult<()> {
     let src = source()?;
     let (down, up, _) = button_events(button);
     post(route, &mouse_event(&src, MOUSE_MOVED, at, Button::Left, flags)?);
     for n in 1..=count.max(1) {
+        if n > 1 && !gap.is_zero() {
+            std::thread::sleep(gap);
+        }
         for ty in [down, up] {
             let e = mouse_event(&src, ty, at, button, flags)?;
             // SAFETY: e is a live mouse event.

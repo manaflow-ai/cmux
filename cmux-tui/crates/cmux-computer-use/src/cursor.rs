@@ -25,14 +25,39 @@ pub const IDLE_HIDE: std::time::Duration = std::time::Duration::from_secs(4);
 pub enum CursorEvent {
     /// Glide to a point (global desktop points) before acting there.
     Move { session: String, label: String, at: Point },
-    /// A click landed (a ripple at the point).
-    Click { session: String, label: String, at: Point, button: String },
-    /// Text is being typed (a small caption under the cursor).
+    /// A click landed: a ripple at the point (two for a double click, three
+    /// for a triple; right and middle clicks look different).
+    Click {
+        session: String,
+        label: String,
+        at: Point,
+        button: String,
+        #[serde(default = "one")]
+        count: u8,
+    },
+    /// Text is being typed (a caption next to the cursor).
     Typing { session: String, label: String, at: Option<Point>, text: String },
-    /// The agent is looking (a screenshot or tree read): a soft pulse.
-    Look { session: String, label: String, at: Option<Point> },
+    /// A key combo was pressed ("cmd+s"): shown as key caps.
+    Keys { session: String, label: String, at: Option<Point>, keys: String },
+    /// A scroll at a point, in lines (dy > 0 down).
+    Scroll { session: String, label: String, at: Point, dx: f64, dy: f64 },
+    /// A drag from one point to another: a trail between them.
+    Drag { session: String, label: String, from: Point, to: Point },
+    /// The agent is looking (a screenshot or tree read): the window's frame
+    /// (global desktop points) is marked briefly.
+    Look {
+        session: String,
+        label: String,
+        at: Option<Point>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rect: Option<crate::desktop::Rect>,
+    },
     /// The session stopped or its grant was revoked: hide its cursor now.
     Hide { session: String },
+}
+
+fn one() -> u8 {
+    1
 }
 
 impl CursorEvent {
@@ -41,6 +66,9 @@ impl CursorEvent {
             CursorEvent::Move { session, .. }
             | CursorEvent::Click { session, .. }
             | CursorEvent::Typing { session, .. }
+            | CursorEvent::Keys { session, .. }
+            | CursorEvent::Scroll { session, .. }
+            | CursorEvent::Drag { session, .. }
             | CursorEvent::Look { session, .. }
             | CursorEvent::Hide { session } => session,
         }

@@ -123,7 +123,7 @@ fn click_point(
 ) -> DResult<ActionOutcome> {
     let at = d.point_in(t, point)?;
     let route = d.pointer_route(t, spec.delivery)?;
-    input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers))?;
+    input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
 
