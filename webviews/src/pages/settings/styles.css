@@ -89,6 +89,7 @@ mark {
   gap: var(--ds-space-3);
   padding: var(--ds-space-4) var(--ds-space-3);
   border-right: 1px solid var(--border);
+  background: var(--ds-color-chrome-shade); /* the chrome layer (design/selected-is-foreground.md) */
   overflow-y: auto;
   overscroll-behavior: contain;
   transition: border-color var(--motion-hover);
@@ -200,8 +201,9 @@ mark {
   transition: background var(--motion-hover);
 }
 
+/* The current section is the foreground: the content's own surface (design/selected-is-foreground.md). */
 .section-link[aria-current] {
-  background: var(--accent-soft);
+  background: var(--ds-color-selected);
 }
 
 .section-link:focus-visible {
@@ -624,6 +626,7 @@ mark {
   gap: 0;
   padding: var(--ds-space-1);
   border: 1px solid var(--border);
+  background: var(--ds-color-chrome-shade);
   border-radius: var(--ds-radius-lg);
   margin: 0;
   min-width: 0;
@@ -651,8 +654,10 @@ mark {
   background: var(--input-bg);
 }
 
+/* The checked segment is the foreground on the track's chrome (design/selected-is-foreground.md). */
 .segment[data-checked] {
-  background: var(--accent-soft);
+  background: var(--ds-color-selected);
+  box-shadow: var(--elevation-1);
   font-weight: 500;
 }
 

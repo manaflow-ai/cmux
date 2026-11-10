@@ -84,6 +84,17 @@ public final class TabStripView: NSView {
     var leadsWithSelection = false
     /// The flush corner's state reached the window root since it was turned on.
     var reportedCornerFlush = false
+    /// The chrome band under the tabs of a strip inside the content card (`TabStripView+CornerFlush`), made on
+    /// first use; its shade, 0 for none.
+    var cornerBandLayer: CALayer?
+    var cornerBandShade: CGFloat = 0
+    /// The band's holes under the selected folder tab (`ChromeShadeHoles`), made with the band.
+    var cornerBandHoles: ChromeShadeHoles?
+    /// The window chrome the selected folder last reported to, and the folder as reported (in this
+    /// strip's layer, with the strip's frame in the window and its band), so a layout reports only a
+    /// folder that moved.
+    weak var cornerChrome: CornerFlushChrome?
+    var reportedFolder: (path: CGPath?, frame: CGRect, band: CGFloat)?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -428,6 +439,7 @@ public final class TabStripView: NSView {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
         guard shown != isShownInWindow else { return }
         isShownInWindow = shown
+        reportFolder(animated: false)
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }

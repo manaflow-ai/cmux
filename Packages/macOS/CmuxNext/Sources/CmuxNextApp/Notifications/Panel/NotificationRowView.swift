@@ -62,7 +62,7 @@ final class NotificationRowView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = isSelected ? Palette.selectionFill.cgColor : nil
+            layer?.backgroundColor = isSelected ? Palette.selectionFill.cgColor : nil // selected-surface-allow: cursor on a floating panel
             dot.layer?.backgroundColor = Palette.attention.cgColor
         }
     }

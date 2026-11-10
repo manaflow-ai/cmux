@@ -104,6 +104,7 @@ final class PaletteTableRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         performWithTheme {
+            // selected-surface-allow: the palette's keyboard cursor on a floating glass overlay, not a foreground layer.
             let color = isPaletteSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil
             ChromeHover.paint(fill, color, animated: fadesNextFill && window != nil)
         }

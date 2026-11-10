@@ -87,6 +87,25 @@ public struct Palette {
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
+    /// The foreground layer (design/selected-is-foreground.md): the content's own surface.
+    public static var contentSurface: NSColor { color(\.contentSurface, dynamic: PaletteDynamic.contentBackground) }
+    /// The selected row on the chrome (design/selected-is-foreground.md): the content's own surface,
+    /// so the selected item reads as part of the foreground (Leo, 2026-11-10: "The selected tab
+    /// should be white as well"). Laid over the chrome's shade (`Metrics.mainPaneChromeShade`), it
+    /// shows what the content shows over the window's backdrop, a translucent theme included
+    /// (``ThemeTokens/selectedSurface(overChromeShade:)``). Where the chrome and the content share
+    /// one surface (no shade), or the content is too see-through to match over the shade, the
+    /// content's color would not show, so the selection keeps `selectionFill` there.
+    /// `check-selected-surface.py` keeps every selected tab and row on these tokens.
+    public static var selectedSurface: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
+        guard shade > 0, let surface = tokens.selectedSurface(overChromeShade: shade) else { return selectionFill }
+        return surface.nsColor
+    }
+    /// The selected folder tab (`TabCell+CornerFeet`): exactly the content's surface, since the
+    /// chrome's shade is cut away under it (`ChromeShadeHoles`).
+    public static var selectedFolderSurface: NSColor { color(\.selectedSurface, dynamic: PaletteDynamic.contentBackground) }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.

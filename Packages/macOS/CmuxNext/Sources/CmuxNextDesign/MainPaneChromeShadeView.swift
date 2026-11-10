@@ -11,6 +11,8 @@ public import AppKit
 /// the window's own surface (Ghostty background, art and opacity).
 public final class MainPaneChromeShadeView: NSView {
     private let shade = CAShapeLayer()
+    /// The holes under the selected folder tabs of the top row (``setFolder(_:path:animated:)``).
+    private let folderHoles = ChromeShadeHoles()
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
@@ -51,6 +53,16 @@ public final class MainPaneChromeShadeView: NSView {
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
     /// `squareTopLeading`: the card's top corner at minX is square (`CornerFlushChrome`).
+    /// Cuts the shade away under a strip's selected folder tab (design/selected-is-foreground.md), so
+    /// the tab, in the content's surface, shows what the content shows over a see-through window.
+    /// `path` is in this view's layer; nil closes the strip's hole. `animated`: a selection change.
+    public func setFolder(_ key: ObjectIdentifier, path: CGPath?, animated: Bool) {
+        folderHoles.layout(bounds: shade.bounds)
+        folderHoles.set(key, path: path, animated: animated)
+        let mask: CALayer? = folderHoles.isEmpty ? nil : folderHoles.mask
+        if shade.mask !== mask { shade.mask = mask }
+    }
+
     public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopLeading: Bool = false) {
         guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopLeading != self.squareTopLeading
             || shade.frame != bounds || Metrics.floatingPanes else { return }
@@ -66,6 +78,7 @@ public final class MainPaneChromeShadeView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         shade.frame = bounds
+        folderHoles.layout(bounds: shade.bounds)
         guard alpha > 0, !card.isEmpty else {
             shade.path = nil
             return

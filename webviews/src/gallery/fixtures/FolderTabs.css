@@ -1,0 +1,46 @@
+/* The folder tab review (FolderTabs.tsx, design/selected-is-foreground.md). Every colour is a layer
+   token: the content's surface, the chrome's shade over the window, the selected row's surface. */
+.folder-tabs {
+  --ft-content: var(--cmux-content-surface, var(--cmux-surface-solid, Canvas));
+  --ft-shade: var(--cmux-chrome-shade, light-dark(rgb(0 0 0 / 0.045), rgb(0 0 0 / 0.28)));
+  --ft-selected: var(--cmux-selected-surface, var(--ft-content));
+  --ft-ink: var(--cmux-text, CanvasText);
+  --ft-muted: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+  --ft-edge: var(--cmux-separator, color-mix(in srgb, CanvasText 10%, transparent));
+  --ft-pill: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+  position: relative;
+  width: 760px;
+  height: 300px;
+  overflow: hidden;
+  border-radius: 16px;
+  color: var(--ft-ink);
+  font: 500 12px/1.25 var(--font-ui, system-ui);
+}
+.folder-tabs-layers { position: absolute; inset: 0; }
+.folder-tabs-chrome { fill: var(--ft-shade); }
+.folder-tabs-content { fill: var(--ft-content); }
+.folder-tabs-edge { fill: none; stroke: var(--ft-edge); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* The look before: a gray pill on the strip, the content apart. */
+.folder-tabs-pill { fill: var(--ft-pill); }
+.folder-tabs-strip { position: absolute; margin: 0; padding: 0; list-style: none; }
+.folder-tabs-tab {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  overflow: hidden;
+  color: var(--ft-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.folder-tabs-tab[aria-selected="true"] { color: var(--ft-ink); }
+.folder-tabs-sidebar { position: absolute; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 8px 0; list-style: none; }
+.folder-tabs-sidebar > li:first-child { padding: 4px 10px; color: var(--ft-muted); font-size: 11px; }
+.folder-tabs-row { padding: 6px 10px; border-radius: 8px; color: var(--ft-muted); }
+/* The current row is the foreground on the sidebar's chrome. */
+.folder-tabs-row[aria-current="true"] { background: var(--ft-selected); color: var(--ft-ink); }
+.folder-tabs-body { position: absolute; display: flex; flex-direction: column; gap: 10px; }
+.folder-tabs-body p { margin: 0; color: var(--ft-muted); }
+.folder-tabs-body i { display: block; width: 82%; height: 4px; border-radius: 4px; background: color-mix(in srgb, var(--ft-ink) 13%, transparent); }
+.folder-tabs-body i.short { width: 56%; }

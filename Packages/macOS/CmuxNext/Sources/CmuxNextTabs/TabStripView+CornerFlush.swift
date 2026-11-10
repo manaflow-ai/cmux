@@ -11,10 +11,76 @@ extension TabStripView: TabStripCorner {
 
     /// Gives every cell the foot below its pill (the selected one draws it) and reports whether the
     /// selected tab is the first. A layout pass: a selection alone calls ``reportCornerLead()``.
+    /// Tabs at the bottom of the window run into nothing: no foot there.
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
-        let foot = CornerFlush.current.isOn ? max(0, bounds.height - (tabY + tabHeight)) : 0
+        let on = CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom
+        let foot = on ? max(0, bounds.height - (tabY + tabHeight)) : 0
         for cell in cells.values { cell.cornerFoot = foot }
         reportCornerLead()
+        reportFolder(animated: false, onlyIfMoved: true)
+    }
+
+    /// The selected tab's folder (`TabCell+CornerFeet`) while it runs into the card.
+    public var selectedFolder: (path: CGPath, layer: CALayer)? {
+        guard let id = model.selectedID, let cell = cells[id], cell.runsIntoCard,
+              let folder = cell.cornerFeetLayer, let path = folder.path else { return nil }
+        return (path, folder)
+    }
+
+    /// Tells the window chrome where the selected folder tab is (design/selected-is-foreground.md): on
+    /// the top row the frame's shade cuts it away; inside the card this strip draws the chrome's shade
+    /// itself (a band under its tabs) and cuts the folder out of that. `animated`: a selection change,
+    /// faded with the tabs. `onlyIfMoved`: a layout pass, which reports only a folder that moved, so a
+    /// frame pass costs one path compare. O(1) in the tab count: only the selected tab is read.
+    func reportFolder(animated: Bool, onlyIfMoved: Bool = false) {
+        let folder = selectedFolder
+        let inStrip = layer.flatMap { own in folder.map { own.converted($0.path, from: $0.layer) } }
+        let place = cornerFrameInWindow, band = cornerChrome?.bandShade(for: self) ?? 0
+        if onlyIfMoved, let last = reportedFolder, last.path == inStrip, last.frame == place, last.band == band,
+           cornerChrome != nil || folder == nil { return }
+        reportedFolder = (inStrip, place, band)
+        let chrome = isShownInWindow && CornerFlush.current.isOn ? CornerFlushChrome.chrome(of: self) : nil
+        if let old = cornerChrome, old !== chrome { old.folderDidChange(self, animated: false, gone: true) }
+        cornerChrome = chrome
+        let band = chrome?.folderDidChange(self, animated: animated) ?? 0
+        applyCornerBand(band, animated: animated)
+    }
+
+    /// The chrome's shade under the tabs of a strip inside the content card (design/selected-is-foreground.md):
+    /// every strip is chrome, so its selected folder tab, in the content's surface, stands out of it, with
+    /// the band cut away under the folder. O(1): one layer the strip's bounds wide, below every tab.
+    func applyCornerBand(_ shade: CGFloat, animated: Bool) {
+        guard shade > 0 else {
+            cornerBandShade = 0
+            cornerBandLayer?.isHidden = true
+            return
+        }
+        let band: CALayer
+        let holes: ChromeShadeHoles
+        if let made = cornerBandLayer, let madeHoles = cornerBandHoles {
+            band = made
+            holes = madeHoles
+        } else {
+            band = CALayer()
+            band.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull()]
+            holes = ChromeShadeHoles()
+            band.mask = holes.mask
+            layer?.insertSublayer(band, at: 0)
+            cornerBandLayer = band
+            cornerBandHoles = holes
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        band.frame = bounds
+        band.isHidden = false
+        if shade != cornerBandShade || band.backgroundColor == nil {
+            cornerBandShade = shade
+            band.backgroundColor = NSColor.black.withAlphaComponent(shade).cgColor
+        }
+        CATransaction.commit()
+        holes.layout(bounds: band.bounds)
+        let folder = selectedFolder.map { band.converted($0.path, from: $0.layer) }
+        holes.set(ObjectIdentifier(self), path: folder, animated: animated)
     }
 
     /// Reports to the window root whether the selected tab is the strip's first, on its leading edge,

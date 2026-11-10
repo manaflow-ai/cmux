@@ -93,7 +93,10 @@ extension WorkspaceRowView {
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.statusAttention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
-            let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
+            // The selected row is the foreground, in the content's surface (design/selected-is-foreground.md).
+            // selected-surface-allow: the gray here is the drop target's, a transient mark, not the selection.
+            let fill = isDropTarget ? Palette.selectionFill : isSelected ? Palette.selectedSurface
+                : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
             paintFill(painted)

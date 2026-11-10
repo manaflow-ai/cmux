@@ -318,20 +318,21 @@
   box-shadow: inset 0 calc(-1 * var(--grid-half-step)) 0 var(--ds-color-fg);
 }
 
-/* segmented: one track holding every tab; the active tab is the raised surface. */
+/* segmented: one track holding every tab, the chrome; the active tab is the foreground, the content's
+   own surface (design/selected-is-foreground.md). */
 .ui-tabs-list[data-variant="segmented"] {
   gap: 0;
   align-self: flex-start;
   padding: var(--grid-half-step);
   border-radius: var(--ds-radius-lg);
-  background: var(--ds-color-hover);
+  background: var(--ds-color-chrome-shade);
 }
 .ui-tabs-list[data-variant="segmented"] .ui-tabs-trigger {
   height: var(--ds-control-compact);
   border-radius: var(--ds-radius-md);
 }
 .ui-tabs-list[data-variant="segmented"] .ui-tabs-trigger[data-active] {
-  background: var(--ds-color-surface);
+  background: var(--ds-color-selected);
   box-shadow: var(--elevation-1);
 }
 

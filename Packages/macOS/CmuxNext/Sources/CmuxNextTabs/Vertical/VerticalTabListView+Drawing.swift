@@ -75,7 +75,8 @@ extension VerticalTabListView {
 
     /// Fill behind a tab: the selection, the lighter fill of the other selected tabs, or hover.
     private func fill(for item: TabItem, hovered: Bool) -> NSColor? {
-        if item.id == model.selectedID { return Palette.selectionFill }
+        // The selected tab is the foreground, in the content's surface (design/selected-is-foreground.md).
+        if item.id == model.selectedID { return Palette.selectedSurface }
         if model.multiSelection.isMultiple, model.multiSelection.contains(item.id) { return Palette.secondarySelectionFill }
         return hovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
     }

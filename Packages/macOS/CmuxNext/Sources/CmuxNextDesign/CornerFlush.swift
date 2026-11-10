@@ -14,9 +14,12 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// Compact density keeps today's look under every value. The default, `off`, changes nothing.
+/// The default is `flush-goo` (Leo, 2026-11-10, design/selected-is-foreground.md): the selected tab
+/// is the foreground, in the content's own surface, and joins the content like a folder tab, one
+/// shape with concave corners where it meets the content's edge, in place of the gray pill: "We
+/// can like morph it in as like, you know how folder tabs look, right? ... Make it look cohesive."
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's corner.
+    /// The old corner: the selected tab is a gray pill on the strip.
     case off
     /// The card sits one grid step (4 pt) inside the frame on every side.
     case flush
@@ -28,7 +31,7 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public var tunableTitle: String {
         switch self {
-        case .off: "Off (today)"
+        case .off: "Off: the selected tab is a gray pill"
         case .flush: "Flush: the first tab rises from the card's edge"
         case .tight: "Flush, tight: the card meets the sidebar"
         case .goo: "Flush, goo: the selected tab flows into the card"
@@ -37,14 +40,13 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps today's look. Off: today's.",
-        default: .off, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Default flush-goo: the selected tab is the content's surface and joins it like a folder tab (design/selected-is-foreground.md). Off: the gray pill.",
+        default: .goo, code: "CornerFlush.tunable")
 
-    /// The value in effect: the Debug Settings value, except at compact density, which keeps
-    /// today's corner.
-    @MainActor public static var current: CornerFlush {
-        Metrics.density == .compact ? .off : tunable.value
-    }
+    /// The value in effect: the Debug Settings value, at every density. Compact density kept the old
+    /// corner while this was a Debug opt-in; the folder tab is the selected state now
+    /// (design/selected-is-foreground.md), and Compact is the default density, so it applies there too.
+    @MainActor public static var current: CornerFlush { tunable.value }
 
     public var isOn: Bool { self != .off }
 
@@ -76,6 +78,9 @@ public protocol TabStripCorner: AnyObject {
     var cornerFrameInWindow: CGRect { get }
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
+    /// The selected tab's folder shape and the layer it is drawn in, while it runs into the card; nil
+    /// otherwise (design/selected-is-foreground.md).
+    var selectedFolder: (path: CGPath, layer: CALayer)? { get }
 }
 
 extension Metrics {
@@ -132,6 +137,47 @@ public final class CornerFlushChrome: NSView {
         return false
     }
 
+    /// The window's chrome that `strip` reports to: the one among its ancestors' subviews.
+    public static func chrome(of strip: NSView) -> CornerFlushChrome? {
+        var view = strip.superview
+        while let ancestor = view {
+            if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first { return chrome }
+            view = ancestor.superview
+        }
+        return nil
+    }
+
+    /// A strip's selected folder tab appeared, moved or went (`animated`: a selection change, faded
+    /// with the tabs): the frame's shade cuts it away when the strip is on the frame (the top row),
+    /// so the tab shows what the content shows over a see-through window. `gone`: the strip left
+    /// this window or its sight; its hole closes. Returns the band the strip draws itself
+    /// (``bandShade(for:)``), 0 for none.
+    @discardableResult
+    public func folderDidChange(_ strip: any TabStripCorner & NSView, animated: Bool, gone: Bool = false) -> CGFloat {
+        strips.add(strip)
+        let band = gone ? 0 : bandShade(for: strip)
+        guard let shade, let shadeLayer = shade.layer else { return band }
+        let key = ObjectIdentifier(strip)
+        if !gone, !isHidden, drawn != nil, band == 0, !strip.isHiddenOrHasHiddenAncestor, let folder = strip.selectedFolder {
+            shade.setFolder(key, path: shadeLayer.converted(folder.path, from: folder.layer), animated: animated)
+        } else {
+            shade.setFolder(key, path: nil, animated: animated && !gone)
+        }
+        return band
+    }
+
+    /// The chrome band `strip` draws under its tabs (design/selected-is-foreground.md): every tab strip
+    /// is chrome, so its selected tab, in the content's surface, reads as the foreground. A strip on
+    /// the frame (its bottom on the card's top edge) sits on the frame's shade already and draws none;
+    /// a strip inside the card (a lower pane's, or any pane's when panes float) draws the frame's
+    /// shade itself. 0 while the flush corner is off or the strip is in another window.
+    public func bandShade(for strip: any TabStripCorner & NSView) -> CGFloat {
+        guard !isHidden, let drawn, let root = superview, strip.window === root.window else { return 0 }
+        let frame = root.convert(strip.cornerFrameInWindow, from: nil)
+        let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes
+        return onFrame ? 0 : drawn.alpha
+    }
+
     /// The card top inset in `root` that centers the top row's pills on the traffic lights' line, where
     /// the sidebar's `+` sits too; nil when the flush corner is off or the tabs are at the bottom. It
     /// may be negative: the strip's own top padding then sits above the window.
@@ -161,6 +207,9 @@ public final class CornerFlushChrome: NSView {
         guard on, alpha > 0, radius > 0, superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)
+            for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
+                shade.setFolder(ObjectIdentifier(strip), path: nil, animated: false)
+            }
             return
         }
         card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
@@ -182,6 +231,11 @@ public final class CornerFlushChrome: NSView {
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
         shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+        // Every strip's hole follows the card at once (a resize, a workspace switch); the strips' own
+        // bands follow on their next layout.
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
+            folderDidChange(strip, animated: false, gone: strip.window !== root.window)
+        }
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.

@@ -285,6 +285,11 @@ path = "tests/test_cmux_next_route_replay.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_selected_surface.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). check-selected-surface.py runs in the pre-push gate; run python3 tests/test_cmux_next_selected_surface.py yourself after changing the check (about 4 s, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 

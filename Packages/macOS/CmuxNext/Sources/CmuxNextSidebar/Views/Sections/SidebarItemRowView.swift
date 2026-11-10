@@ -247,10 +247,13 @@ class SidebarItemRowView: NSView {
         let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || (showsMenu && !showsHoverActions))
         return performWithTheme {
             if showsKeyFocus, !isPressed {
+                // selected-surface-allow: keyboard focus, one step past hover; the active item's look is below.
                 return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
             }
             // In the multi-selection (Shift- or Cmd-click), as a selected list row draws.
             if info.isSecondarySelected, !isPressed { return Palette.secondarySelectionFill }
+            // The active item is the foreground, in the content's surface (design/selected-is-foreground.md).
+            if info.isActive, !isPressed { return Palette.selectedSurface }
             guard style == .tile else { return ChromeHover.fillColor(state) }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
         }

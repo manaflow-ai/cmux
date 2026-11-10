@@ -62,13 +62,16 @@
 :root[data-settings-look="refined"] .settings > .sidebar {
   padding: var(--ds-space-4) var(--ds-space-3);
   border-right: 0;
-  background: transparent;
+  background: var(--ds-color-chrome-shade);
   gap: var(--ds-space-3);
 }
 
-/* One background for the whole page (user, 2026-10-30: "everything cohesive with same bg color"):
-   the sidebar and the content pane paint nothing of their own and no divider runs between them;
-   only the cards and controls take a fill. */
+/* Two layers, as the window has (design/selected-is-foreground.md; Leo, 2026-11-10: "The selected tab
+   should be white as well"): the section list is the chrome, black at the window chrome's shade over
+   the page, and the current section is the foreground, the content pane's own surface, so it reads as
+   the page it opens. No divider runs between them; the content pane paints nothing of its own and only
+   the cards and controls take a fill. This replaces the one background of 2026-10-30, where a selected
+   section could only be a gray pill. */
 :root[data-settings-look="refined"] .settings .sidebar-title {
   margin: 0;
   padding: 0 var(--ds-space-2) var(--ds-space-1);
@@ -102,7 +105,7 @@
 }
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] {
-  background: var(--polish-pressed);
+  background: var(--ds-color-selected);
   color: var(--polish-ink);
 }
 
@@ -218,7 +221,7 @@
   background: var(--polish-hover);
 }
 :root[data-settings-look="refined"] .settings .row-control .ui-select-button:hover { background: var(--polish-pressed); }
-:root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: var(--ds-radius-lg); background: var(--polish-hover); }
+:root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: var(--ds-radius-lg); background: var(--ds-color-chrome-shade); }
 :root[data-settings-look="refined"] .settings .segment { padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-sm); }
 
 :root[data-settings-look="refined"] .settings .theme-hero {
