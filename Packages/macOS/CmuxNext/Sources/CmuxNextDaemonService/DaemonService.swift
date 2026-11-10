@@ -189,10 +189,12 @@ public final class DaemonService {
     /// the daemon process and to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here.
+    /// `launchSnapshot` is the session's launch snapshot, read off the main thread (`LaunchSnapshot.saved`):
+    /// it shows before the first connection. This start reads no file for it.
     public func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil) {
+               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshot? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         if let prestart {
@@ -221,7 +223,7 @@ public final class DaemonService {
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        showLaunchSnapshot(launchSnapshot, session: launcher.configuration.session)
         // The prestart's connection records into its probe; later connections record into the same one.
         let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
         requestLatency.set(latency)

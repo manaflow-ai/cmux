@@ -109,7 +109,7 @@ final class AppServices {
     var restartControlListener: (@MainActor () throws -> Void)?
     /// One Cloud environment apply at a time.
     let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
-    /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
+    /// This build's error journal (nothing reads its logs at rest): Help > Copy Logs reads it.
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
@@ -529,8 +529,6 @@ final class AppServices {
     let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
-    /// Relays the Chats index and editor sources into the daemon's project list.
-    private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
