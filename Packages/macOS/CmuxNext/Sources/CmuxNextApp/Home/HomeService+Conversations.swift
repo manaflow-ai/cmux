@@ -259,10 +259,7 @@ extension HomeService {
     /// text, else its own upload or picked character (`AppServices.chosenPicture(of:)`), so one Chief's
     /// never shows on another; a Chief with none is left out and draws its name's monogram.
     var chiefFaces: [String: HomeChiefAvatar] {
-        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
-        #if DEBUG
-        chiefs.formUnion(debugChiefs)
-        #endif
+        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
     }
 

@@ -343,5 +343,6 @@ test("a part the page does not draw shows what native did: a widget's fallback, 
     { type: "poll", url: "https://example.com/poll/1" },
     { type: "poll" },
   ]).parts.map((part) => partText(part));
-  expect(texts).toEqual(["Sunny, 21°C", "widget", "https://example.com/poll/1", "poll"]);
+  // A widget without an app reads as its fallback (Swift HomeWireMapping, home-messages-widgets.test.tsx).
+  expect(texts).toEqual(["Sunny, 21°C", "no app", "https://example.com/poll/1", "poll"]);
 });

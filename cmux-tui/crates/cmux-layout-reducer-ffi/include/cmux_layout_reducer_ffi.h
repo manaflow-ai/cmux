@@ -534,6 +534,54 @@ int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *
                                       const uint32_t *order, size_t order_count, uint32_t *parent_out);
 
 /*
+ * The one close-selection rule (cmux-focus-core close_selection): the opener
+ * relations of tabs or of workspaces and the item selected after a close.
+ * One handle holds the relations of every strip of one kind (every pane's
+ * tabs, or every window's workspaces); each call names its strip by its
+ * items. Ids are the caller's own uint32_t numbering, stable for the
+ * handle's life; CMUX_FOCUS_NONE is none. A handle is used by one thread; a
+ * null handle is no relation. A null array with a nonzero count changes
+ * nothing (a pick: CMUX_FOCUS_NONE; the slot: `opener`). An item that is
+ * CMUX_FOCUS_NONE changes nothing.
+ */
+typedef struct CmuxCloseSelection CmuxCloseSelection;
+enum {
+    CMUX_CLOSE_SELECTION_QUICK = 0, /* a person's new item: forgotten when the selection leaves it */
+    CMUX_CLOSE_SELECTION_TASK = 1,  /* a link's or a tab action's new tab */
+};
+CmuxCloseSelection *cmux_close_selection_new(void);
+void cmux_close_selection_free(CmuxCloseSelection *handle);
+/* `item` was made while `opener` was the strip's selected item; foreground: the new item is selected */
+void cmux_close_selection_made(CmuxCloseSelection *handle, uint32_t item, uint32_t opener, uint8_t kind, uint8_t foreground,
+                               const uint32_t *strip, size_t strip_count);
+/* the strip's selection moved; gesture: a person chose it (not a close's own selection, not automation) */
+void cmux_close_selection_selected(CmuxCloseSelection *handle, uint32_t old, uint32_t new_item, uint8_t gesture,
+                                   const uint32_t *strip, size_t strip_count);
+/* a typed navigation (not a link click) in `tab` */
+void cmux_close_selection_typed_navigation(CmuxCloseSelection *handle, uint32_t tab, const uint32_t *strip, size_t strip_count);
+/* any other navigation committed in `tab`: its next typed navigation is not a just-made tab's first */
+void cmux_close_selection_navigated(CmuxCloseSelection *handle, uint32_t tab);
+/* `item` left its strip (closed or moved); after the pick for a close, for every item that closes */
+void cmux_close_selection_left(CmuxCloseSelection *handle, uint32_t item);
+void cmux_close_selection_forget_all(CmuxCloseSelection *handle, const uint32_t *strip, size_t strip_count);
+/* nonzero while a relation is held, in any strip; while zero, cmux_close_selection_selected changes nothing */
+uint8_t cmux_close_selection_has_relations(CmuxCloseSelection *handle);
+uint32_t cmux_close_selection_opener(CmuxCloseSelection *handle, uint32_t item);
+/* the tab selected after `selected` closed: a child, a sibling, the opener, the group's neighbor, the next shown tab, else the previous */
+uint32_t cmux_close_selection_tab(CmuxCloseSelection *handle, uint32_t selected, const uint32_t *old, size_t old_count,
+                                  const uint32_t *surviving, size_t surviving_count,
+                                  const uint32_t *shown, size_t shown_count,
+                                  const uint32_t *group_tabs, const uint32_t *group_ids, size_t group_count);
+/* the workspace shown after `shown` left, by the same ranks over the sidebar's row orders (order i holds order_lengths[i] ids) */
+uint32_t cmux_close_selection_workspace(CmuxCloseSelection *handle, uint32_t shown, const uint32_t *old, size_t old_count,
+                                        const uint32_t *surviving, size_t surviving_count,
+                                        const uint32_t *orders, const uint32_t *order_lengths, size_t order_count,
+                                        const uint32_t *group_rows, const uint32_t *group_ids, size_t group_count);
+/* the item a background child of `opener` goes after */
+uint32_t cmux_close_selection_slot(CmuxCloseSelection *handle, uint32_t opener, const uint32_t *order, size_t order_count,
+                                   const uint32_t *pinned, size_t pinned_count);
+
+/*
  * Agent cursor visibility (cmux-focus-core agent_cursor_visibility), typed:
  * one call per agent input event and per frame of pane motion while a target
  * is tracked, no JSON, no handle, no allocation. Ids are the caller's own

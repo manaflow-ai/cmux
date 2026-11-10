@@ -71,6 +71,12 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     /// Name of the bool argument a destructive action takes (`--confirm`).
     public nonisolated static let confirmName = "confirm"
 
+    /// The `confirm` argument a destructive action gains (``ActionDescriptor/init``).
+    nonisolated static var confirmBool: ActionArgument {
+        ActionArgument(name: confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     /// A copy that may be omitted.
     public var optional: ActionArgument {
         var copy = self
@@ -131,4 +137,17 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
             return .target(ActionTargetRef(kind: targetKind, id: trimmed))
         }
     }
+}
+
+extension ActionArgument {
+    /// The `theme` argument value that resets to the Ghostty config.
+    public static let themeConfigValue = "config"
+
+    /// Theme names the theme actions offer first, in picker order: the pinned values of the
+    /// catalog's `theme` argument (cmux-action-catalog), without the Ghostty config.
+    public static let curatedThemes: [String] = {
+        let theme = ActionCatalog.all.lazy.flatMap(\.arguments)
+            .first { $0.name == "theme" && $0.suggestions?.source == ActionSuggestions.ghosttyThemes }
+        return (theme?.suggestions?.pinned ?? []).map(\.value).filter { $0 != themeConfigValue }
+    }()
 }

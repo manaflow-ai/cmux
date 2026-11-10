@@ -31,7 +31,7 @@ import Testing
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: id, key: nil, name: "workspace-page", screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
         return SidebarMapping.shared.row(workspace, machine: .local, pageFace: { _, tab, _ in
-            .init(title: tab.title, favicon: tab.kind == .browser && hasFavicon ? favicon : nil)
+            .init(title: tab.titleText, favicon: tab.kind == .browser && hasFavicon ? favicon : nil)
         })
     }
 

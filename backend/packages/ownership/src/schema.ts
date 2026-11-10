@@ -85,5 +85,7 @@ export const migrate = (sql: SqlStore, t: Tables): void => {
   // Poison failures of the channel's head in a row (transient failures never count toward dead letter).
   const backoffColumns = sql.exec<{ name: string }>(`PRAGMA table_info(${t.outbox}_backoff)`).map((c) => c.name)
   if (!backoffColumns.includes("poison")) sql.exec(`ALTER TABLE ${t.outbox}_backoff ADD COLUMN poison INTEGER NOT NULL DEFAULT 0`)
+  // When the channel's head first got an in_flight reply (outbox.ts OUTBOX_IN_FLIGHT_MAX_MS); null when it never did.
+  if (!backoffColumns.includes("in_flight_since")) sql.exec(`ALTER TABLE ${t.outbox}_backoff ADD COLUMN in_flight_since INTEGER`)
   sql.exec(`INSERT INTO ${t.meta} (key, value) VALUES ('schema_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, String(SCHEMA_VERSION))
 }

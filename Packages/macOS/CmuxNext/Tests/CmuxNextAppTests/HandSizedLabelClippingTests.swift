@@ -84,15 +84,6 @@ import Testing
         _ = window
     }
 
-    @Test func historyRowMetaIsWhole() {
-        let view = SidebarChatHistoryRow()
-        view.configure(title: "Fix the omnibar", meta: "12m", quiet: false)
-        let window = Self.host(view, size: NSSize(width: 280, height: 28))
-        defer { window.closeAfterTest() }
-        #expect(Self.clipped(in: view) == [])
-        _ = window
-    }
-
     @Test func linkDragGhostTitleIsWhole() throws {
         let ghost = LinkDragGhost(title: "Pull request: fix the omnibar")
         defer { ghost.close() }

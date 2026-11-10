@@ -36,6 +36,7 @@ import { holdsOneConversation, listModel, visibleConversations } from "./list/mo
 import { NO_LIST_FACTS } from "./host";
 import { MessagesNav } from "./nav";
 import { closeNewMessage, followPageFocus, followTyping, reportedConversation, usePageCommands } from "./pageCommands";
+import { useSeeThrough } from "./seeThrough";
 import { MessagesSheetOps } from "./sheets/actions";
 import type {
   HiddenConversations,
@@ -62,6 +63,9 @@ export interface MessagesAppProps {
   /** Where the column's width is kept without a host (a browser; null: not kept, the gallery). In
    * the app the host keeps it per window (`width.load|save`). */
   widthStorage?: Storage | null;
+  /** The one conversation a conversation tab or the Chief panel shows (single.ts): no list column,
+   * no compose button, and the page keeps that conversation open. */
+  single?: string;
 }
 
 const WIDTH_KEY = "cmux.home.sidebarWidth";
@@ -76,6 +80,7 @@ export function MessagesApp({
   detail,
   onCompose,
   widthStorage,
+  single,
   ...props
 }: MessagesAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -86,6 +91,8 @@ export function MessagesApp({
   const { t, format, language } = strings;
   const [chrome, setChrome] = useState<MessagesChrome>({ windowControls: null });
   useEffect(() => messages.subscribeChrome(setChrome), [messages]);
+  // The floating Chief's see-through styles: no page background, the header's height to the host.
+  useSeeThrough(host);
   // Deleted from the list (Delete Conversation…): off it until a newer message.
   const [hidden, setHidden] = useState<HiddenConversations>(NONE_HIDDEN);
   useEffect(() => messages.subscribeHidden(setHidden), [messages]);
@@ -189,7 +196,14 @@ export function MessagesApp({
     !unreadOnly &&
     listWidth < COMPACT_BELOW &&
     wanted >= COMPACT_BELOW;
-  const shownWidth = folded ? 0 : listWidth;
+  const listless = folded || single !== undefined;
+  const shownWidth = listless ? 0 : listWidth;
+
+  // One conversation's page keeps it open: the store's own first pick (the newest row) never shows
+  // in its place, and a reconnect that picked another goes back to it.
+  useEffect(() => {
+    if (single && snapshot.selected !== single && !snapshot.loading) void store.select(single);
+  }, [single, snapshot.selected, snapshot.loading, store]);
 
   // Only the person's drag (and the double-click's reset) is kept; a narrow page's squeeze is not.
   const keep = (width: number | undefined) => {
@@ -308,7 +322,7 @@ export function MessagesApp({
 
   // Compose at the chat's top-left, after the traffic lights when they lie over it.
   const lights = chrome.windowControls;
-  const slotLeft = shownWidth + (folded ? 0 : WIDTH.divider);
+  const slotLeft = shownWidth + (listless ? 0 : WIDTH.divider);
   let composeX = COMPOSE_INSET;
   let composeY = Math.round((HEADER.band - HEADER.side) / 2);
   if (lights && lights.x < slotLeft + composeX + HEADER.side + 8) {
@@ -332,7 +346,8 @@ export function MessagesApp({
     onSelect: () => void messages.perform(item),
   }));
 
-  const conversation = snapshot.selected ? snapshot.conversations.get(snapshot.selected) : undefined;
+  const openID = single === undefined || snapshot.selected === single ? snapshot.selected : undefined;
+  const conversation = openID ? snapshot.conversations.get(openID) : undefined;
   const style = {
     "--hm-list-width": `${shownWidth}px`,
     ...(chrome.unreadColor ? { "--hm-unread-color": chrome.unreadColor } : {}),
@@ -341,7 +356,7 @@ export function MessagesApp({
   return (
     <AvatarContext.Provider value={store.avatars}>
       <div ref={page} className="hm-page" style={style}>
-        {!folded && (
+        {!listless && (
           <div
             className="hm-column"
             // The column waits for this window's width (one host answer), so it never opens at another.
@@ -410,7 +425,7 @@ export function MessagesApp({
             />
           </div>
         )}
-        {!folded && (
+        {!listless && (
           <div
             // The divider is a pointer affordance only, as the native split's: no accessibility element.
             className={`hm-divider${dividerDragging ? " dragging" : ""}`}
@@ -430,9 +445,11 @@ export function MessagesApp({
             chrome,
             ...(openedAt !== undefined ? { openedAt } : {}),
             nav,
+            ...(single !== undefined ? { single } : {}),
           })}
-          {/* New Message shows: no compose button over it (the native split's `composing`). */}
-          {!composing && (
+          {/* New Message shows: no compose button over it (the native split's `composing`); a single
+              conversation's page (a conversation tab) has none. */}
+          {single === undefined && !composing && (
             <ContextMenu items={composeMenu} className="hm-menu-host">
               <button
                 type="button"

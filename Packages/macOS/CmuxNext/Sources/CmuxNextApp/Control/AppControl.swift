@@ -103,6 +103,7 @@ final class AppControl {
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
+        service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
         errors.start()
@@ -307,7 +308,7 @@ final class AppControl {
         service.router.register([
             .async("debug.home.drive") { [weak services] call in
                 guard let services else { return .null }
-                return await DebugHomeNativeFixture.drive(call.params, services: services)
+                return await DebugHome.drive(call.params, services: services)
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -386,20 +387,6 @@ final class AppControl {
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
-            },
-            .mainActor("debug.home_native_fixture.open") { [weak services] call in
-                guard let services else { return .value(.null) }
-                let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already.
-                let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
-            },
-            // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
-            // files enter the shown Home composer through the same intake as
-            // a real drop, paste or pick (HomeComposerIntake: a native transcript's or the Messages page's).
-            .async("debug.home.attach") { [weak services] call in
-                guard let services else { return .null }
-                return await DebugHomeNativeFixture.attach(call.params, services: services)
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }

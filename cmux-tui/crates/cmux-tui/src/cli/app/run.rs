@@ -90,6 +90,19 @@ pub(in crate::cli) fn request_with_retry(
     )
 }
 
+/// [`request_with_retry`] for a caller with its own shorter budget (an MCP tool call, which its client times
+/// out): not-run refusals are asked again only until `timeout` from now, never the
+/// [`NOT_RUN_DEADLINE_FLOOR`] a person's command waits.
+pub(in crate::cli) fn request_with_retry_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let budget = timeout.min(not_run_deadline(Some(timeout)));
+    request_with_retry_until(stream, method, params, Some(timeout), Instant::now() + budget)
+}
+
 /// [`request_with_retry`] against one absolute `deadline` that a caller's reconnects share. The last wait is cut
 /// to what is left of the deadline, so the last try comes at it, never a backoff early. A refusal still standing at
 /// the deadline is the answer, with `data.not_run_waited_ms` naming how long it was asked again (the hang

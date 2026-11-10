@@ -143,7 +143,7 @@ public final class LinkController {
             log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
             ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
             guard let self, !Task.isCancelled else { return }
-            if case .waiting = self.phase { self.send(.foreground) }
+            self.send(.networkChanged)
         }
     }
 

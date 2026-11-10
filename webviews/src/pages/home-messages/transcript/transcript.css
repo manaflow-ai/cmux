@@ -39,6 +39,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  box-sizing: border-box;
   overflow: hidden;
   color: var(--page-text);
   font: var(--text-body);
@@ -177,6 +178,54 @@
   white-space: nowrap;
 }
 
+/* The Chief's face as the app read it (a picture, or its profile's text in the initials tile). */
+.mt-header-picture {
+  width: var(--mt-header-avatar);
+  height: var(--mt-header-avatar);
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+/* The location chip beside a Chief's name (ChiefTeleportChip, plain): caption words, the place's
+   glyph, a chevron; the running move and a failure in their colours. */
+.mt-place-chip {
+  display: inline-flex;
+  max-width: 200px;
+  height: 20px;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  cursor: default;
+}
+
+.mt-place-chip:hover {
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+}
+
+.mt-place-chip.running {
+  color: var(--page-text);
+}
+
+.mt-place-chip.failed {
+  color: var(--mt-danger);
+}
+
+.mt-place-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-place-chevron {
+  flex: none;
+  opacity: 0.6;
+}
+
 .mt-faces {
   display: inline-flex;
 }
@@ -230,10 +279,28 @@
 
 .mt-pinned {
   position: absolute;
-  top: var(--mt-top-room);
+  z-index: var(--layer-raised);
+  top: var(--mt-header-room);
   left: 50%;
   width: min(calc(100% - var(--ds-space-6)), 640px);
   transform: translateX(-50%);
+}
+
+/* Needs you gives way to the card on a short pane (it clips); the Set Up cmux card scrolls in the room
+ * left above the message box (pinnedLayout.ts, the native layoutPinnedSection). */
+.mt-pinned-section {
+  overflow: hidden;
+}
+
+.mt-setup-slot {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mt-setup-card {
+  display: flex;
+  justify-content: center;
 }
 
 /* Rows. */
@@ -646,7 +713,14 @@
   margin: 0 0 var(--ds-space-2);
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
   border-radius: 12px;
-  background: var(--cmux-surface-solid);
+  /* The message box's own glass (.mt-field): the card sits on the composer, so what is behind shows. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 60%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mt-quote-card {
+    background: var(--cmux-surface-solid, Canvas);
+  }
 }
 
 .mt-quote-card::before {

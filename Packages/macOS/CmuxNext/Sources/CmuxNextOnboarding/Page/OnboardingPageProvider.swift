@@ -13,7 +13,8 @@ import Foundation
 /// same click. This is the rule of the app's other pages with person-only ops (Settings' agents,
 /// the agent pane). A VoiceOver press carries no key or mouse event; in Chromium it counts as the
 /// gesture all the same (`ChromiumAccessibilityPress`: only an assistive app reaches it). In WebKit,
-/// where VoiceOver talks to the web process directly, it is still refused (manaflow-ai/cmux#37809).
+/// where VoiceOver talks to the web process directly, its trusted click counts while VoiceOver runs
+/// (`PageAccessibilityPress`, manaflow-ai/cmux#37809).
 /// Full Keyboard Access (Tab, then Space or Return) sends real key events and works in both.
 @MainActor
 final class OnboardingPageProvider: PageProvider {

@@ -55,9 +55,9 @@ overlay
 passwords
 server-cards
 settings
-setup-card
 stash
 stats
+task-manager
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
@@ -66,6 +66,8 @@ PAGES="$PAGES page-info site-settings site-data certificate"
 PAGES="$PAGES cookie-import"
 # The bookmarks bar (CmuxNextBookmarks BookmarksBarPages: one page per bar on screen).
 PAGES="$PAGES bookmarks-bar"
+# The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost: one page per block shown).
+PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

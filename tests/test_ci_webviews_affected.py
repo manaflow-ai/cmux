@@ -47,6 +47,14 @@ TREE = {
     "schemas/settings/settings-schema.json": "{}\n",
     "cmux-tui/assets/fixture-icons.svg": "<svg/>\n",
     "docs/readme.md": "x\n",
+    "webviews/src/gallery/sample.md": "x\n",
+    "webviews/src/raw.ts": 'import TEXT from "./gallery/sample.md?raw";\nexport const raw = TEXT;\n',
+    "webviews/test/raw.test.ts": 'import { raw } from "../src/raw";\n',
+    "webviews/src/art.webp": "x\n",
+    "webviews/src/art.ts": 'import ART from "./art.webp?url";\nexport const art = ART;\n',
+    "webviews/src/docs.ts": 'export const doc = "README.md";\n',
+    "webviews/test/docs.test.ts": 'import { doc } from "../src/docs";\n',
+    "README.md": "x\n",
     "unrelated/tool.py": "x = 1\n",
 }
 
@@ -116,6 +124,13 @@ class SelectTest(unittest.TestCase):
 
     def test_a_template_import_reaches_its_static_path(self) -> None:
         self.assertEqual(self.change("webviews/src/pool.ts"), with_always("webviews/test/pool.test.ts"))
+
+    def test_an_asset_imported_with_a_query_selects_the_tests_reaching_its_importer(self) -> None:
+        self.assertEqual(self.change("webviews/src/gallery/sample.md"), with_always("webviews/test/raw.test.ts"))
+        self.assertEqual(self.change("webviews/src/art.webp"), ALWAYS)
+
+    def test_a_doc_named_in_prose_selects_only_the_always_set(self) -> None:
+        self.assertEqual(self.change("README.md"), ALWAYS)
 
     def test_strings_naming_file_reads_in_app_code_do_not_mark_a_test(self) -> None:
         self.assertEqual(self.change("webviews/src/tools.ts"), with_always("webviews/test/tools.test.ts"))

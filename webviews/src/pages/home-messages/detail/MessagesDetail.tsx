@@ -15,9 +15,11 @@ import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
 import { APPROVAL_DECIDE_OP, ApprovalDecisions } from "../cards/approval/approval";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
-import { useSetupCard } from "./HomeSetupCard";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
+import { useSetupCard } from "../cards/setup/setupHost";
+import { FeedNeedsYou, parseNeedsYouRoute } from "../cards/needsYou/FeedNeedsYou";
+import { parseChiefFace, parseChiefPlace, type ChiefFace, type ChiefPlace } from "../transcript/ChiefPlace";
 import { cardStrings } from "../cards/strings";
 import { pageDebug } from "../debugCommands";
 import type { MessagesNav, NavState } from "../nav";
@@ -50,11 +52,14 @@ import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine
 import type { TranscriptExtras } from "../transcript/extras";
 import { OutgoingTyping } from "../transcript/outgoingTyping";
 import { useAgents } from "../cards/pills/useAgents";
+import { hostWidgets, WidgetContext } from "../cards/widget/widgetService";
 import {
   bubbleHostActions,
   chatAppearance,
   DEFAULT_APPEARANCE,
+  attachmentDragParams,
   DetailOps,
+  homeToastAvoidance,
   linkPreviewFetch,
   NO_FIRST_RUN,
   NO_HEADER_PANELS,
@@ -66,6 +71,7 @@ import {
   useHostStream,
   type FirstRunFacts,
 } from "./detailHost";
+import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
 import "../sheets/sheets.css";
 import "../cards/cards.css";
 import "./detail.css";
@@ -87,7 +93,7 @@ const NO_CONTACTS: Contacts = { contacts: [], inviteTeam: null, pendingInvites: 
 
 /** The page's detail slot. */
 export function MessagesDetail(props: MessagesDetailProps) {
-  const { store, snapshot, conversation, me, host, nav } = props;
+  const { store, snapshot, conversation, me, host, nav, single } = props;
   const view = useSyncExternalStore(nav.subscribe, nav.getSnapshot);
   // The parts' own tables (each keeps the Swift keys it replaces).
   const [words] = useState(() => ({
@@ -105,22 +111,31 @@ export function MessagesDetail(props: MessagesDetailProps) {
     () => (debug.intro ? { ...hostFirstRun, introKind: debug.intro } : hostFirstRun),
     [hostFirstRun, debug.intro],
   );
+  const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYouRoute, undefined);
+  const chiefFace = useHostStream(host, DetailOps.chiefFace, parseChiefFace, undefined);
+  const chiefPlace = useHostStream(host, DetailOps.chiefPlace, parseChiefPlace, undefined);
   const dictation = useHostDictation(host);
+  // Chat widgets draw from the app's widget host (HomeMessagesWidgets.swift); none: their fallback.
+  const widgets = useMemo(() => (host ? hostWidgets(host) : undefined), [host]);
   // Photos and videos go through the app's preparation before they upload (location removed
   // unless Settings > Home keeps it), as the native composer's did. No host (a browser): as they are.
   const prepareFile = useMemo(() => (host ? hostPrepareFile(host) : undefined), [host]);
+  // The app's toasts rest above the shown compose bar (the conversation's, a thread's or New
+  // Message's); no host (a browser): nothing to tell.
+  const toastAvoidance = useMemo(() => (host ? homeToastAvoidance(host) : undefined), [host]);
   const links = useMemo<RowLinks>(
     () => ({
       fetchPreview: linkPreviewFetch(host),
       onOpen: (href) => {
-        // A conversation link opens here; any other app link or path is the app's to open.
-        if (parseConversationLink(href)) {
+        // A conversation link opens here (the docked Home's list); any other app link or path, and
+        // every link on a one-conversation page, is the app's to open.
+        if (!single && parseConversationLink(href)) {
           nav.leaveCompose();
           void store.openLink(href);
         } else void host?.call(DetailOps.openLink, { url: href }).catch(() => undefined);
       },
     }),
-    [host, nav, store],
+    [host, nav, store, single],
   );
 
   // A Chief's permission cards decide through the app, on the person's click only.
@@ -218,6 +233,11 @@ export function MessagesDetail(props: MessagesDetailProps) {
       }),
     [nav, composing],
   );
+  // What the app hands over (files, a quote) goes to the composer that shows.
+  useEffect(
+    () => nav.setComposer(() => (composing ? composeBox.current : transcript.current?.composer())),
+    [nav, composing],
+  );
   // Files dropped on the conversation list go to the shown conversation; New Message takes none.
   useEffect(() => nav.setFileDrop(() => (composing ? undefined : transcript.current?.fileDrop)), [nav, composing]);
   useEffect(() => {
@@ -248,6 +268,10 @@ export function MessagesDetail(props: MessagesDetailProps) {
     links,
     approvals,
     transcript,
+    needsYou,
+    chiefFace,
+    chiefPlace,
+    toastAvoidance,
   };
 
   const rows = useMemo(() => [...snapshot.conversations.values()], [snapshot.conversations]);
@@ -305,6 +329,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
                   nav.composeText = text;
                 }}
                 {...(dictation ? { dictation } : {})}
+                toastAvoidance={toastAvoidance}
               />
             </div>
           )}
@@ -331,7 +356,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
   }
 
   return (
-    <>
+    <WidgetContext.Provider value={widgets}>
       <div className="hm-detail-frame">{main}</div>
       <Sheet
         view={view}
@@ -351,7 +376,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
           if (id) void openMade(id);
         }}
       />
-    </>
+    </WidgetContext.Provider>
   );
 }
 
@@ -374,6 +399,11 @@ interface ConversationViewProps {
   links: RowLinks;
   approvals: ApprovalDecisions | undefined;
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
+  /** The Feed route of the shown Chief chat's pinned Needs you, while it shows. */
+  needsYou: string | undefined;
+  chiefFace: ChiefFace | undefined;
+  chiefPlace: ChiefPlace | undefined;
+  toastAvoidance: ToastAvoidanceReports | undefined;
 }
 
 /** The open conversation: its transcript and composer, a Chief's first run while it is empty. */
@@ -474,9 +504,9 @@ function ConversationView(
   // a refusal shows the Chief's words in the turn's toast.
   const { startAgent: startTurnAgent, ...turnProps } = turn;
   const startAgent = isChief ? startTurnAgent : undefined;
-  // Set Up cmux on a first run, pinned under a Chief chat's header as the native transcript had it.
-  const setupCard = useSetupCard(host, isChief, words.cards);
   const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, isChief, startAgent);
+  // A Chief's Set Up cmux card while the app shows it (a first run), under Needs you.
+  const setupCard = useSetupCard(host, isChief, words.cards);
   const extras = useMemo<TranscriptExtras | undefined>(
     () => {
       const tail =
@@ -503,9 +533,26 @@ function ConversationView(
       agents.after,
     ],
   );
+  // The pinned Needs you section: one element while its route shows (a new one each render would
+  // re-render the Feed under it for nothing).
+  const needsYouRoute = isChief && host ? props.needsYou : undefined;
+  const needsYou = useMemo(
+    () =>
+      needsYouRoute && host ? (
+        <FeedNeedsYou key={`${conversation.id} ${needsYouRoute}`} host={host} route={needsYouRoute} />
+      ) : undefined,
+    [needsYouRoute, host, conversation.id],
+  );
   if (!me) return null;
+  const hostCall = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
+  // A Chief's name opens its settings under the pill (the app's popover); others' open Group Info.
+  // The thread's header is the conversation's, so it does the same.
+  const onContact = (anchor: { x: number; y: number; width: number; height: number }) =>
+    isChief && host
+      ? hostCall(DetailOps.chiefSettings, { conversation: id, anchor })
+      : nav.present({ kind: "groupInfo", conversation: id });
   // A Chief chat with no message ever shows its first run where the rows will be (the list's own
   // count, so a chat whose page is still loading never flashes it).
   const firstRunShown = conversation.kind === "chief" && conversation.lastSeq === 0 && snapshot.messages.length === 0;
@@ -527,6 +574,7 @@ function ConversationView(
         turn={turnProps}
         {...(extras ? { extras } : {})}
         card={agents.card}
+        onContact={onContact}
         root={root}
         path={path}
         onPath={(next) => setReplying({ root, path: next })}
@@ -568,9 +616,20 @@ function ConversationView(
         colors={colors}
         panels={props.panelItems(conversation)}
         onPanel={props.onPanel}
-        onContact={() => nav.present({ kind: "groupInfo", conversation: id })}
+        onContact={onContact}
+        {...(isChief && props.chiefFace?.conversation === id ? { face: props.chiefFace } : {})}
+        {...(isChief && props.chiefPlace?.conversation === id
+          ? {
+              place: props.chiefPlace,
+              onPlace: (anchor: { x: number; y: number; width: number; height: number }) =>
+                hostCall(DetailOps.chiefPlaceOpen, { conversation: id, anchor }),
+            }
+          : {})}
+        {...(needsYou ? { pinned: needsYou } : {})}
+        {...(setupCard ? { setupCard } : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
+        toastAvoidance={props.toastAvoidance}
         initialDraft={nav.draft(id)}
         onDraftChange={(text) => {
           nav.keepDraft(id, text);
@@ -598,12 +657,16 @@ function ConversationView(
         onReplyToSelection={onReplyToSelection}
         replyCounts={timelineCounts}
         onOpenReplies={(id) => openBranch(id, [])}
+        {...(host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                hostCall(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex)),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
-        {...(props.approvals ? { approvals: props.approvals } : {})}
         {...turnProps}
-        {...(setupCard ? { pinned: setupCard } : {})}
         {...(extras ? { extras } : {})}
         {...(firstRunShown
           ? {
@@ -659,6 +722,8 @@ function ThreadView(
     card?: ReactNode;
     /** My typing indicator: the thread's message box is the conversation's. */
     typing: OutgoingTyping;
+    /** The header's name: the conversation's own (a Chief's settings, else Group Info). */
+    onContact: NonNullable<MessagesTranscriptProps["onContact"]>;
   },
 ) {
   const { store, snapshot, words, conversation, root, path } = props;
@@ -693,7 +758,6 @@ function ThreadView(
     if (view?.hasMore && !view.loading) store.loadMoreReplies();
   }, [store, view]);
   const { look, colors } = props.appearance(conversation);
-  const id = conversation.id;
   return (
     <div className="hm-detail-split">
       <MessagesTranscript
@@ -719,7 +783,7 @@ function ThreadView(
         colors={colors}
         panels={props.panelItems(conversation)}
         onPanel={props.onPanel}
-        onContact={() => props.nav.present({ kind: "groupInfo", conversation: id })}
+        onContact={props.onContact}
         {...props.turn}
         {...(props.extras ? { extras: props.extras } : {})}
         pinned={
@@ -751,6 +815,7 @@ function ThreadView(
         }
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
+        toastAvoidance={props.toastAvoidance}
         {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
         spellChecking={props.spellChecking}
         // One message box, as the native one: the conversation's draft and files go on into the thread.
@@ -771,6 +836,14 @@ function ThreadView(
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={props.onReply}
         {...props.menus}
+        {...(props.host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                void props.host
+                  ?.call(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex))
+                  .catch(() => undefined),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}

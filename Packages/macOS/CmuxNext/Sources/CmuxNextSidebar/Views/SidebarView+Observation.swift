@@ -182,9 +182,13 @@ extension SidebarViewComponents {
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
         if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, list.settling != nil || list.landing != nil { updateBands(reloadsList: false) }
+        // A space switch too: the new space's blocks (its Home, its pinned workspaces) come with its rows. At the
+        // next layout pass they were a second change of the list: a second full layout that moved every row on a
+        // spring after a click, or one that waited for the pointer to leave the rows after a key.
+        if lastState != nil, profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
         if listChanged {
             if profileChanged {
-                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+                showSpace()
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

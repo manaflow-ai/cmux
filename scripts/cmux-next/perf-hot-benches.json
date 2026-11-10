@@ -71,6 +71,11 @@
       "bench": "scripts/cmux-next/activation-perf.py (workspace_switch.* rows)",
       "owner": "PL-switch"
     },
+    "pane-verb-turn": {
+      "what": "Toggle Pane Zoom and Swap Pane, from the action's handler to the layout the window shows: one store intent, then one layout apply per window that shows the workspace, all in the input's turn (no daemon wait)",
+      "bench": "PaneVerbsKeyTurnTests and PaneLayoutIntentTests (the change is in the layout model when the handler returns; the daemon's echo applies no layout), then scripts/cmux-next/pane-perf-terminal.py --actions zoom",
+      "owner": "Performance Lead"
+    },
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",

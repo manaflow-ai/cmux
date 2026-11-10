@@ -182,6 +182,9 @@ public extension PageDescriptor {
         actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
+            // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
+            // restore makes a machine from an archive (a money op, titled with the machine's name).
+            "cmux.cloud.machine.archive_delete": .delete, "cmux.cloud.snapshot.restore": .custom,
             "cmux.cloud.publication.delete": .delete, "cmux.cloud.firewall.delete": .delete,
             "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,

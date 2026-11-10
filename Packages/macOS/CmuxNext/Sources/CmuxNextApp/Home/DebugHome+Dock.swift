@@ -33,11 +33,21 @@ extension DebugHome {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.home.drive {action: legacy_pins, pins?}`: the Messages-list pins this Mac keeps (the old
-    /// store the one-time move reads, HomePinMigration), after setting them to `pins` when given.
-    static func legacyPins(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
-        let pins = params["pins"]?.arrayValue.map { $0.compactMap(\.stringValue) }
-        return .object(["ok": .bool(true), "pins": .array(services.home.pinMigration.debugPins(pins).map { .string($0) })])
+    /// `debug.home.drive {action, tab?, …}`: the Messages page of Home tab `tab` (else the active
+    /// window's Home) drives its list and transcript (``HomeMessagesDebug/drive(_:)``); `permalink {url}`
+    /// opens a message link as the docked Home's hand-off does; `chief_name {close?}` opens the front
+    /// Chief's settings with the keyboard in its name field (the chief-rename-field tour). The native transcript is gone.
+    static func drive(_ params: [String: JSONValue], services: AppServices) async -> CmuxNextSettings.JSONValue {
+        if params["action"]?.stringValue == "chief_name" {
+            guard let chief = HomeChiefActions.frontHome() else { return ["error": "no Chief is shown in the front window"] }
+            return .object(["ok": .bool(chief.debugEditName(close: params["close"]?.boolValue == true))])
+        }
+        if params["action"]?.stringValue == "permalink" {
+            guard let link = HomeDockSelection(link: params["url"]?.stringValue ?? "") else { return ["error": "not a link"] }
+            if !services.home.dock.isClassic, let dock = HomeDockTab.view(services) { dock.open(link) } else { AppActions.listedPage(services)?.show(link) }
+            return .object(["ok": .bool(true)])
+        }
+        return await messagesDebug(messagesPage(services, tab: params["tab"]?.stringValue))?.drive(params) ?? ["error": "no Home conversation is shown"]
     }
 
     /// The Messages page the DEBUG verbs drive: Home tab `tab`, else the active window's Home.
