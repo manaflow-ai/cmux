@@ -687,6 +687,14 @@ if log:
     Path(log).open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
 
 args = sys.argv[1:]
+if "--help" in args:
+    # asc 5 names the build selector --build-id; the Homebrew asc 2.x bottle
+    # that CI runners install still names it --build.
+    flag = os.environ.get("CMUX_FAKE_ASC_BUILD_FLAG", "--build-id")
+    print("FLAGS")
+    print(f"  {flag:<14} Build ID to attach")
+    sys.exit(0)
+
 if args[:2] == ["apps", "view"]:
     app_id = args[args.index("--id") + 1]
     print(json.dumps({
@@ -1391,8 +1399,12 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "App Store archive keeps crash reporting enabled",
     )
     _check(
-        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" in archive_call,
-        "App Store archive compiles with the VPN-free condition",
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE" in archive_call,
+        "App Store archive adds the VPN-free condition on top of each target's own conditions",
+    )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" not in archive_call,
+        "App Store archive does not replace package conditions such as swift-crypto's CRYPTO_IN_SWIFTPM",
     )
     _check(
         "CMUX_APPSTORE_BUILD=YES" in archive_call,
@@ -1492,6 +1504,24 @@ def test_official_testflight_workflow_publishes_generated_notes() -> None:
     _check(
         "--skip-notes" not in upload_step,
         "official cmux.app TestFlight upload does not suppress What to Test notes",
+    )
+
+
+def test_production_workflow_release_type_follows_release_when_approved() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-app-store.yml").read_text(encoding="utf-8")
+    _check(
+        "release_when_approved:" in workflow and "type: boolean" in workflow.split("release_when_approved:", 1)[1][:400],
+        "production App Store workflow offers a release_when_approved boolean input",
+    )
+    _check(
+        "IOS_APPSTORE_RELEASE_TYPE: ${{ github.event.inputs.release_when_approved == 'true' && 'AFTER_APPROVAL' || 'MANUAL' }}"
+        in workflow,
+        "production App Store release type is AFTER_APPROVAL only when release_when_approved is checked, else MANUAL",
+    )
+    _check(
+        "--release-type MANUAL" not in workflow
+        and workflow.count('--release-type "$IOS_APPSTORE_RELEASE_TYPE"') == 3,
+        "every App Store version create/update uses the dispatch's release type",
     )
 
 
@@ -1721,7 +1751,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         None,
     )
     attach_build_call = next(
-        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"] and "--help" not in call),
         None,
     )
     validate_call = next(
@@ -1745,7 +1775,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "attach-build",
             "--version-id",
             ASC_VERSION_ID,
-            "--build",
+            "--build-id",
             ASC_BUILD_ID,
         ],
         "submission preparation attaches the selected build to version 1.0.0",
@@ -1758,6 +1788,38 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         )
     else:
         _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_validate_appstore_release_matches_installed_asc_build_flag(tmp: Path, fakebin: Path) -> None:
+    """CI installs the Homebrew asc bottle (2.x, `--build`); local asc 5 uses `--build-id`."""
+    for flag in ("--build-id", "--build"):
+        run_tmp = tmp / flag.strip("-")
+        env = _base_env(run_tmp, fakebin)
+        env["ASC_APP_ID"] = ASC_APP_ID
+        env["CMUX_FAKE_ASC_BUILD_FLAG"] = flag
+        result = _run(
+            [
+                "bash",
+                str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+                "--build-id",
+                ASC_BUILD_ID,
+                "--prepare-submission",
+            ],
+            env=env,
+            tmp=run_tmp,
+            log_failure=False,
+        )
+        _check(result.returncode == 0, f"validation helper runs with an asc that names the build flag {flag}")
+        asc_log = run_tmp / "asc.jsonl"
+        calls = [json.loads(line) for line in asc_log.read_text(encoding="utf-8").splitlines()] if asc_log.exists() else []
+        attach = next(
+            (c for c in calls if c[:2] == ["versions", "attach-build"] and "--help" not in c),
+            None,
+        )
+        _check(
+            attach is not None and flag in attach and ASC_BUILD_ID == attach[attach.index(flag) + 1],
+            f"attach-build passes the build with {flag} when the installed asc names it so",
+        )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -2000,6 +2062,7 @@ def main() -> None:
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_official_testflight_workflow_publishes_generated_notes()
+        test_production_workflow_release_type_follows_release_when_approved()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
@@ -2012,6 +2075,9 @@ def main() -> None:
         )
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
+        )
+        test_validate_appstore_release_matches_installed_asc_build_flag(
+            tmp / "validate-build-flag-test", fakebin
         )
 
     if FAILURES:

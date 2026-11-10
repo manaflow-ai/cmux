@@ -342,6 +342,11 @@ ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
 ROLE_NAMES = ("root", "side", "gui")
+# feat-cmux-next's lane labels, which main's picker never hands out (so persistent() leaves them out): the session
+# and fast roles (glaeda#1530), the freshness slot's dev role (glaeda#1628) and the nightly slot (glaeda#1684). The
+# rescue watches jobs on them (owned_pool_rescue.job_pool()) and the janitor's snapshot counts them
+# (queue_janitor.pool_load_snapshot()), so a placement or the rescue can tell a lane label that runs nothing.
+LANE_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:session-|fast-|dev-|nightly-)(?:xl|std|light)-xcode-{XCODE_VERSION}")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -496,6 +501,17 @@ class Settings:
     stale: tuple[str, ...] = ()
     # CI_PR_POOL_QUEUE_ROUNDS; 0 for a caller that does not pass it (E2E, iOS).
     queue_rounds: int = 0
+
+
+# The dedicated nightly-next builder's label (feat-cmux-next's nightly_build_runner.py offers it
+# first): one mini whose job-started hook admits only nightly-next's app build. The rescue moves a
+# build queued on it past its budget, as on an owned pool, so no build waits on that one machine.
+NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
+
+
+def nightly_dedicated(label: str) -> bool:
+    """The dedicated nightly-next builder's label."""
+    return (label or "") == NIGHTLY_DEDICATED_LABEL
 
 
 def persistent(label: str) -> bool:
@@ -1222,8 +1238,19 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
     return min(wait, bound)
 
 
+def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
+    """Why `snapshot`'s queue counts are partial, or "": the janitor marks a sweep that could not list every
+    in-flight run `truncated` (queue_janitor.listing_state()). Its pools then miss demand, so a reader takes
+    the queue as unknown, never as nothing queued. Any value but false counts as truncated; a snapshot
+    without the key (written before it existed) does not."""
+    if "truncated" not in snapshot or snapshot.get("truncated") is False:
+        return ""
+    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {snapshot.get('total', '?')} "
+            "in-flight runs), so its queues are unknown")
+
+
 def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
-    """Why decide() would not read `snapshot` (missing, undated, stale or without pools), or ""."""
+    """Why decide() would not read `snapshot` (missing, undated, stale, truncated or without pools), or ""."""
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return "no readable pool snapshot"
     if not isinstance(snapshot.get("pools"), Mapping):
@@ -1231,7 +1258,7 @@ def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)"
-    return ""
+    return snapshot_truncated(snapshot)
 
 
 def iso(moment: dt.datetime) -> str:
@@ -1674,6 +1701,8 @@ def decide(
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
+    if snapshot_truncated(snapshot):
+        return Choice("", "", snapshot_truncated(snapshot))
     try:
         load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
         roots = {label: pool(snapshot, root_label(label), owned_slots) for label in limits.order

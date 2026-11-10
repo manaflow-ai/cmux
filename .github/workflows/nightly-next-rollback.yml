@@ -20,8 +20,36 @@ name: nightly-next rollback
 # NIGHTLY_NEXT_CANARY=enforce and the build it launched failed.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
-# file is on main too; a run there does nothing.
+# file is on main too; a run there does nothing. Its workflow_call trigger is
+# here only so main's copy of nightly-next-rollback-drill.yml, which calls it,
+# is a valid workflow; nightly-next's copy has the drill folder's paths.
 on:
+  workflow_call:
+    inputs:
+      reason:
+        required: true
+        type: string
+      bad_build:
+        required: false
+        default: ''
+        type: string
+      if_newest:
+        required: false
+        default: ''
+        type: string
+      drill:
+        description: Roll back the drill folder's feed (nightly-next/drill/), never the users' feed.
+        required: false
+        default: false
+        type: boolean
+    # Named, never inherited, as on nightly-next: the caller passes only the feed's R2 token.
+    secrets:
+      NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
+        required: false
+      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY:
+        required: false
+      NIGHTLY_NEXT_R2_ACCOUNT_ID:
+        required: false
   workflow_dispatch:
     inputs:
       reason:
@@ -46,8 +74,12 @@ on:
 
 permissions: {}
 
+# One group per run: a shared group let a newer request replace a waiting one,
+# so a pulled build could stay on the feed. Two rollbacks never overwrite each
+# other: the feed write is a compare-and-swap on the bytes the plan read
+# (--replace-sha256), and the loser writes nothing and says to run again.
 concurrency:
-  group: nightly-next-rollback
+  group: nightly-next-rollback-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -66,7 +98,7 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

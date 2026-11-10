@@ -4,12 +4,29 @@ import CmuxTerminal
 
 extension NSEvent {
     var cmuxIsUndoRedoCommandEquivalent: Bool {
+        cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Matches the Undo menu equivalent using the active keyboard layout.
+    func cmuxIsUndoRedoCommandEquivalent(
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+    ) -> Bool {
         let normalizedFlags = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        return type == .keyDown
-            && (normalizedFlags == [.command] || normalizedFlags == [.command, .shift])
-            && KeyboardLayout.normalizedCharacters(for: self) == "z"
+        guard type == .keyDown,
+              normalizedFlags == [.command] || normalizedFlags == [.command, .shift] else {
+            return false
+        }
+        // Match AppKit's Command table, including Dvorak - QWERTY Command.
+        // charactersIgnoringModifiers describes the unmodified layout instead.
+        if let character = layoutCharacterProvider(keyCode, normalizedFlags),
+           !character.isEmpty, character.allSatisfy(\.isASCII) {
+            return character.lowercased() == "z"
+        }
+        return KeyboardLayout.normalizedCharacters(for: self) == "z"
     }
 }
 

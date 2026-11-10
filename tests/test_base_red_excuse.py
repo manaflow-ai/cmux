@@ -180,7 +180,7 @@ class Excusing(unittest.TestCase):
         self.assertIn(SWIFT, "\n".join(self.judge()))
 
     def test_failing_tests_decide_and_error_lines_beside_them_are_not_compared(self):
-        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with signal 6")
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with code 1")
         self.assertIn(SWIFT, "\n".join(self.judge()))
 
     def test_a_compile_error_with_a_warning_only_the_head_printed_is_excused(self):
@@ -300,6 +300,245 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
+    def newer_skipped_check(self):
+        """#39027 (2026-11-09): a same-tree cmux-next run on the head branch skipped the job and
+        posted a newer check run of its name, which hid the push run's red on the head."""
+        self.gh.jobs[9] = dict(failed_job(9, 11, HEAD), conclusion="skipped", steps=[])
+        self.with_checks([check_run(self.gh.jobs[1]), check_run(self.gh.jobs[9])])
+
+    def test_a_newer_skipped_check_does_not_hide_a_head_red_the_base_has(self):
+        self.newer_skipped_check()
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT]))
+        self.assertIn("run 20", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
+
+    def test_a_newer_skipped_check_does_not_hide_a_head_red_the_base_does_not_have(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        self.newer_skipped_check()
+        with self.assertRaisesRegex(excuse.Refused, "somethingNew") as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
+        self.assertNotIn("no verdict", str(caught.exception))
+
+    def test_a_newer_head_verdict_still_wins_over_an_older_red(self):
+        green = dict(failed_job(9, 11, HEAD), conclusion="success")
+        green["steps"] = [dict(step, conclusion="success") for step in green["steps"]]
+        self.gh.jobs[9] = green
+        self.with_checks([check_run(self.gh.jobs[1]), check_run(green)])
+        # The newest verdict is green: the older red is not judged, so no base run excuses it.
+        with self.assertRaisesRegex(excuse.Refused, "is success") as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
+        self.assertNotIn("run 20", str(caught.exception))
+
+
+class AttemptsGitHub(FakeGitHub):
+    """FakeGitHub with run attempts and the head's check runs. A job's run_attempt is 1 unless a test sets it;
+    jobs?filter=latest lists a run's newest attempt, as GitHub does, and the head's check runs (every attempt, any
+    filter) link each job on HEAD, the check run id being the job id unless a test sets CHECK_IDS."""
+
+    def __init__(self):
+        super().__init__()
+        self.check_ids: dict[int, int] = {}
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
+            self.routes.append(route)
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            jobs = [job for job in self.jobs.values() if job["run_id"] == run]
+            newest = max((job.get("run_attempt") or 1 for job in jobs), default=1)
+            return [{"jobs": [copy.deepcopy(job) for job in jobs if (job.get("run_attempt") or 1) == newest]}]
+        if route.split("?", 1)[0].endswith(f"commits/{HEAD}/check-runs"):
+            self.routes.append(route)
+            return [{"check_runs": [{"id": self.check_ids.get(job["id"], job["id"]), "name": job["name"],
+                                     "status": job["status"], "conclusion": job["conclusion"],
+                                     "app": {"slug": "github-actions"},
+                                     "details_url": f"https://github.com/{REPO}/actions/runs/{job['run_id']}"
+                                                    f"/job/{job['id']}"}
+                                    for job in self.jobs.values() if job["head_sha"] == HEAD]}]
+        return super().json(route, paginate=paginate)
+
+
+class SupersededCancelledRun(unittest.TestCase):
+    """Port of feat-cmux-next's rule (cmux#36965 at 004465b3): run 42179149655's 'risk evidence' was cancelled by
+    concurrency while the newer run 42179187468 of the same workflow passed it. The newest completed run of a check
+    name in the same workflow on the head is its verdict; only a cancelled (or stale) job is passed over, and a skip
+    (cmux#39863 at 5bba0857: a hand dispatch of cmux-next.yml on the PR branch) is no verdict that supersedes one.
+    The owned-pool rescue cancels a run and re-runs it: the rerun's green is the newest run of the name."""
+
+    def setUp(self):
+        self.gh = AttemptsGitHub()
+
+    def judge(self, runs=(10,)):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh)
+
+    def check(self, name=SWIFT):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def newer(self, conclusion, run=11, job_id=5, **extra):
+        self.gh.jobs[job_id] = dict(failed_job(job_id, run, HEAD), conclusion=conclusion, **extra)
+        self.gh.logs[job_id] = self.gh.logs[1]
+
+    def skipped(self, job_id, run):
+        self.gh.jobs[job_id] = dict(failed_job(job_id, run, HEAD), conclusion="skipped", steps=[])
+
+    def test_a_cancelled_run_with_a_newer_green_run_of_its_name_is_not_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5"),
+                        lines)
+        # Nothing was compared with the base: no base run was listed.
+        self.assertFalse(any("/workflows/7/runs?" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_a_stale_run_with_a_newer_green_run_of_its_name_is_not_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "stale"
+        self.newer("success")
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its stale job in run 10 is superseded by job 5"),
+                        lines)
+
+    def test_recency_is_the_linked_job_id_not_the_check_run_id(self):
+        # A check run's own id need not be its job's: the newer run's check run here has the lower id.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.check_ids = {1: 900, 5: 3}
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+
+    def test_an_older_job_of_a_newer_check_run_supersedes_nothing(self):
+        # The cancelled job 6 is newer than the green job 5, whatever their check runs' ids say.
+        self.gh.jobs = {6: dict(failed_job(6, 10, HEAD), conclusion="cancelled"), 2: self.gh.jobs[2]}
+        self.newer("success")
+        self.gh.check_ids = {6: 3, 5: 900}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_cancelled_run_with_nothing_newer_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_of_another_workflow_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.run_workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_run_still_running_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer(None, status="in_progress")
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_newer_cancelled_run_supersedes_nothing(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("cancelled")
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_cancelled_run_with_a_newer_failure_is_judged_by_that_failure(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("failure")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+        # The newer failure is the verdict: a red the base does not have stays the head's.
+        self.gh.logs[5] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaisesRegex(excuse.Refused, "somethingNew"):
+            self.judge()
+
+    def test_a_failure_with_a_newer_green_run_stays_a_red(self):
+        # A failure is a verdict: a later run's green never launders it (merge_hold's _superseded_cancels).
+        self.newer("success")
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_a_newer_skip_does_not_supersede_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
+    def test_a_green_run_under_a_newer_skip_still_supersedes_a_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.skipped(6, 12)
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job in run 10 is superseded by job 5 "),
+                        lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_cancelled_one_is_not_a_red(self):
+        # gh-merge-green names a red required check by --check: the newest run of the name is the green one.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_a_check_named_whose_newest_run_passed_a_failure_stays_a_red(self):
+        self.newer("success")
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_cancelled_run_is_another_workflows_stays_a_red(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.run_workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, "success"):
+            self.check()
+
+    def test_a_check_named_whose_newest_run_is_cancelled_is_judged_by_a_newer_job(self):
+        # GitHub's newest check run (by check run id) is the cancelled one; the newer job of the name decides.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success")
+        self.gh.check_ids = {1: 900, 5: 3}
+        lines = self.check()
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its cancelled job 1 is superseded by job 5 "), lines)
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_cancelled_run(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.skipped(5, 11)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.check()
+
+    def test_a_check_named_whose_newest_run_is_a_skip_is_judged_by_its_failure(self):
+        self.skipped(5, 11)
+        lines = "\n".join(self.check())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_the_rescues_green_rerun_supersedes_its_cancelled_attempt(self):
+        # The owned-pool rescue cancelled run 10 (attempt 1) and re-ran it: attempt 2 passed. GitHub still lists the
+        # cancelled attempt's check run, and gh-merge-green names the check red.
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("success", run=10, run_attempt=2)
+        lines = self.check()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith(f"ignored '{SWIFT}': its newest job 5 on {HEAD} is success, superseding 1 "
+                                            "cancelled run(s)"), lines)
+
+    def test_the_rescues_rerun_red_is_judged_by_its_failure(self):
+        self.gh.jobs[1]["conclusion"] = "cancelled"
+        self.newer("failure", run=10, run_attempt=2)
+        lines = "\n".join(self.check())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+        lines = "\n".join(self.judge())
+        self.assertIn(f"excused '{SWIFT}'", lines)
+        self.assertNotIn("ignored", lines)
+
+    def test_a_cancelled_rerun_after_a_green_attempt_stays_a_red(self):
+        # The newest attempt decides: a green attempt 1 does not hide its rerun's cancel.
+        self.gh.jobs[1]["conclusion"] = "success"
+        self.newer("cancelled", run=10, run_attempt=2)
+        with self.assertRaisesRegex(excuse.Refused, "cancelled"):
+            self.judge()
+
 
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
@@ -311,9 +550,9 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
 
 
-class BaseOwnedCrash(unittest.TestCase):
-    """A test helper crash on the base is the base's: the head's crash with the same signal is excused,
-    though the tests in flight and the crashed thread differ run to run."""
+class CrashIsNeverABaseRed(unittest.TestCase):
+    """A test helper crash is the head's own red whatever the base shows (scripts/ci/test_reds.py; cmux#26346
+    landed with its own signal 6 because its swift test job was red on the base too)."""
 
     def setUp(self):
         self.gh = FakeGitHub()
@@ -322,33 +561,43 @@ class BaseOwnedCrash(unittest.TestCase):
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
-    def test_a_crash_with_the_signal_the_base_crashed_on_is_excused(self):
+    def test_a_crash_with_the_signal_the_base_crashed_on_still_blocks(self):
         self.gh.logs[1] = crashed(SWIFT, 5, ["c()", "d()", "e()"], "swift_task_checkIsolatedSwift <- ???")
-        text = "\n".join(self.judge())
-        self.assertIn("run 20", text)
-        self.assertIn("signal 5", text)
+        with self.assertRaisesRegex(excuse.Refused, r"crashed \(signal 5\).*never a base red"):
+            self.judge()
 
     def test_a_crash_the_base_did_not_have_blocks(self):
         self.gh.logs[1] = crashed(SWIFT, 5, ["c()"], "f")
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
-        with self.assertRaisesRegex(excuse.Refused, "signal"):
+        with self.assertRaisesRegex(excuse.Refused, "signal 5"):
             self.judge()
 
-    def test_a_crash_on_another_signal_blocks(self):
-        self.gh.logs[1] = crashed(SWIFT, 11, ["c()"], "f")
-        with self.assertRaisesRegex(excuse.Refused, "signal"):
+    def test_a_non_test_job_that_died_on_a_signal_the_base_did_not_blocks(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, "error: cannot find 'x' in scope", "the test helper died on signal 11")
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, "error: cannot find 'x' in scope")
+        for job in self.gh.jobs.values():
+            job["name"] = "cmux app scheme compile (Debug)"
+        with self.assertRaisesRegex(excuse.Refused, "signal 11"):
             self.judge()
 
-    def test_a_red_test_before_the_crash_must_still_be_on_the_base(self):
-        self.gh.logs[1] = crashed(SWIFT, 5, ["c()"], "f", OTHER)
+    def test_a_web_test_shard_that_timed_out_on_both_sides_still_blocks(self):
+        web = "web / react-apps-check (1)"
+        for job in self.gh.jobs.values():
+            job["name"] = web
+        self.gh.logs[1] = self.gh.logs[2] = log(web, TEST_STEP, "START src/a.test.ts (hard limit 300s)",
+                                                "TIMEOUT src/a.test.ts (limit 300s)")
+        with self.assertRaisesRegex(excuse.Refused, "src/a.test.ts timed out"):
+            self.judge()
+
+    def test_a_red_test_the_base_does_not_fail_blocks(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             self.judge()
-        self.gh.logs[2] = crashed(SWIFT, 5, ["a()"], "g", OTHER)
-        self.assertTrue(self.judge())
+
 
 OLD_BASE = "e" * 40
 NEW_TIP = "f" * 40
-
 
 class StaleBase(unittest.TestCase):
     """2026-10-20: feat-cmux-next's CI workflow runs only when dispatched. Its newest run, from
@@ -821,6 +1070,17 @@ class ShardsAndStatusJobs(unittest.TestCase):
         _, tests, _ = excuse.signature(job, log(f"{RAC} (1)", SHARD_STEP, TABLE, LAYERS))
         self.assertEqual(tests, {"markdown table keys > Cmd-A selects the cell's text, then the whole table",
                                  "check-layers > this checkout passes with its baseline"})
+
+    def test_display_named_swift_testing_failures_are_failing_test_names(self):
+        # PR 35296's app-host shard 2: `@Test("…")` names print quoted, with no `()`; unread, the job was
+        # compared by its app log's error lines, whose pointers differ on every run.
+        job = shard_job(9, 1, HEAD, 1)
+        _, tests, _ = excuse.signature(job, log(f"{RAC} (1)", SHARD_STEP,
+            '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed',
+            '✘ Test "Hovering shows help" recorded an issue with 2 arguments n → 1 at X.swift:1:2: Expectation failed',
+            ISSUE))
+        self.assertEqual(tests, {'"A capped plan shows used/limit"', '"Hovering shows help"',
+                                 "writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()"})
 
     def test_a_red_test_in_another_shard_on_the_base_is_excused(self):
         self.base_shards(40, TIP, red_shard=4, lines=(TABLE.replace("18.20ms", "25.71ms"),))
@@ -1352,6 +1612,170 @@ class OutsideTheDiff(unittest.TestCase):
             "##[error]red check: Web bundle key inputs", "- Web bundle key inputs (failure)",
             "##[error]Process completed with exit code 1.")])
         self.assertTrue(self.judge())
+
+
+FFI_PIN = "Check the app FFI pin"
+CLASSIFIER_STEP = "Base-red classifier (per test)"
+# What a passing tests/test_next_batch.py prints from its fixtures on feat-cmux-next: an "error:" line in a green step.
+NEXT_BATCH_FIXTURE = ("[next-batch 04:08:16] base tier verdict for cmux-next daemon tests from 3 at cccccccccccc "
+                      "(created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): "
+                      "cmux-next daemon tests: error error: y")
+
+
+class StaleFfiPinOfAStepARustChange(unittest.TestCase):
+    """cmux#37292 on feat-cmux-next: a PR that changes app FFI inputs is red on "Check the app FFI pin" until its
+    merge publishes the release the re-pin names, since app-ffi-release.yml publishes only from a feat-cmux-next
+    push. gh-merge-green runs this copy, so it excuses that red the way feat's classifier does: only when the pin
+    is the job's one red, the PR changes FFI inputs, leaves the pin alone and changes no Swift. Only the red steps'
+    own output is read (2026-11-09, cmux#38923: a green test step's fixture line "... error error: y" is no red)."""
+
+    PR = 38923
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP]}
+        self.gh.jobs = {1: self.job(1, 10, HEAD), 2: self.job(2, 40, TIP, red=())}
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.logs = {1: self.head_log(), 2: ""}
+        self.gh.commit_checks[TIP] = [check_run(self.gh.jobs[2])]
+        self.files = [{"filename": "cmux-tui/crates/cmux-terminal-prediction/tests/common/mod.rs"}]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"/pulls/{self.PR}/files?per_page=100"):
+                self.gh.routes.append(route)
+                return [copy.deepcopy(self.files)]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    @staticmethod
+    def job(job_id, run_id, sha, red=(FFI_PIN,)):
+        """The cmux-next checks job: each check continues on error; only the last step fails."""
+        steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"}]
+        steps += [{"name": name, "status": "completed", "conclusion": "success"}
+                  for name in (CLASSIFIER_STEP, "Crash safety", FFI_PIN)]
+        steps.append({"name": AGGREGATE_STEP, "status": "completed", "conclusion": "failure" if red else "success"})
+        return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": CHECKS, "status": "completed",
+                "conclusion": "failure", "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}",
+                "steps": steps}
+
+    @staticmethod
+    def head_log(red=(FFI_PIN,), pin_extra=(), step_names=True):
+        """The job's log: a green classifier step printing NEXT_BATCH_FIXTURE, the pin check's words as
+        scripts/cmux-next/check-app-ffi-pin.sh prints them, a crash safety check, and the rollup."""
+        blocks = [
+            (CLASSIFIER_STEP, ["##[group]Run python3 tests/test_next_batch.py", "##[endgroup]", "Ran 25 tests in 0.667s",
+                               "OK", NEXT_BATCH_FIXTURE]),
+            ("Crash safety", ["##[group]Run bash scripts/cmux-next/check-crash-safety.sh", "##[endgroup]"]
+             + (["Sources/A.swift:3: error: fatalError in app code", "##[error]Process completed with exit code 1."]
+                if "Crash safety" in red else ["crash safety: ok"])),
+            (FFI_PIN, ["##[group]Run base=()", "##[endgroup]"]
+             + ([f"error: the app FFI sources changed since the pinned source {'0' * 40}:",
+                 " .../cmux-terminal-prediction/tests/common/mod.rs   |  4 +-",
+                 " 1 file changed, 2 insertions(+), 2 deletions(-)",
+                 "Owning lane(s), which publish the release and update the pin:",
+                 "  app FFI packaging (test triage lane: cmux-app-ffi, build-app-ffi.sh, toolchain)",
+                 "Commits since the pin:",
+                 "  4a49f0ed lawrencecchen: cmux-terminal-prediction tests: neutral host name in the simulated prompt",
+                 "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run "
+                 "says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the "
+                 "source change when possible.", *pin_extra, "##[error]Process completed with exit code 1."]
+                if FFI_PIN in red else ["app FFI pin: sources match " + "0" * 40])),
+            (AGGREGATE_STEP, ["##[group]Run failed=()", "##[endgroup]"]
+             + [f"##[error]red check: {name}" for name in red]
+             + [f"### {len(red)} cmux-next check(s) failed"] + [f"- {name} (failure)" for name in red]
+             + ["Each check's own step log has the details.", "##[error]Process completed with exit code 1."]),
+        ]
+        return "\n".join(log(CHECKS, step if step_names else excuse.UNKNOWN_STEP, *lines) for step, lines in blocks)
+
+    def judge(self, pr=PR):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, pr=pr)
+
+    def test_a_rust_only_ffi_change_is_excused_for_its_stale_pin(self):
+        self.assertEqual(self.judge(), [
+            f"excused '{CHECKS}': only '{FFI_PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #{self.PR} changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no "
+            "Swift: a step-A Rust change, pinned by the release its merge publishes"])
+
+    def test_a_job_log_with_no_step_names_is_read_by_its_run_groups(self):
+        # GitHub serves today's checks job logs with every line under UNKNOWN STEP (run 42559404221).
+        self.gh.logs[1] = self.head_log(step_names=False)
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_an_error_line_a_green_step_printed_is_no_red(self):
+        self.assertIn(NEXT_BATCH_FIXTURE, excuse.lines_of(self.gh.logs[1]))
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_another_red_check_beside_the_pin_is_judged_as_before(self):
+        self.gh.logs[1] = self.head_log(red=("Crash safety", FFI_PIN))
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_another_error_in_the_pin_step_refuses(self):
+        self.gh.logs[1] = self.head_log(pin_extra=("error: release SOURCE_SHA x is not the pinned sha y",))
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_change_to_the_pin_or_to_swift_or_with_no_ffi_input_is_refused(self):
+        for path in ("Packages/macOS/CmuxNext/Package.swift", "Packages/macOS/CmuxNext/app-ffi-pin.json",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift", "docs/ci/app-ffi-release.md"):
+            self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
+            if path.startswith("docs/"):
+                self.files = [{"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
+    def test_a_change_to_the_check_code_is_refused(self):
+        # Review of cmux#39194: a PR changing the pin check, its workflow or this classifier could make the pin error
+        # print for any change; such a PR is never excused this way.
+        for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
+                     "scripts/ci/base_red_excuse.py", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/env.sh"):
+            self.files = [{"filename": "cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, {"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
+    # cmux#37869's real file set (a new FFI crate): the release workflow's push paths, the router, the licence list and
+    # the FFI build script change with every new crate, and none of them decides the pin check's verdict (review of
+    # cmux#39471: the broad list refused every recent step-A PR).
+    STEP_A_37869 = (".github/workflows/app-ffi-release.yml", "cmux-tui/Cargo.lock", "cmux-tui/Cargo.toml",
+                    "cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-tui/crates/cmux-app-ffi/src/lib.rs",
+                    "cmux-tui/crates/cmux-cookie-sync/Cargo.toml", "cmux-tui/crates/cmux-cookie-sync/src/lib.rs",
+                    "scripts/ci/cmux_next_route.py", "scripts/cmux-next/build-app-ffi.sh",
+                    "scripts/cmux-next/check_app_crate_licenses.py", "tests/test_app_crate_licenses.py")
+
+    def test_a_new_crate_with_its_workflow_router_and_licence_changes_is_excused(self):
+        self.files = [{"filename": path} for path in self.STEP_A_37869]
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_a_json_pin_that_also_changes_the_pin_reader_is_refused(self):
+        # cmux#37645's file set: the pin file and Package.swift move the pin, and scripts/ci/app_ffi_pin.py is the pin
+        # check's reader; this rule never excuses it.
+        self.files = [{"filename": path} for path in ("Packages/macOS/CmuxNext/app-ffi-pin.json",
+                                                      "Packages/macOS/CmuxNext/Package.swift",
+                                                      "scripts/ci/app_ffi_pin.py")]
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_pr_into_another_base_is_judged_as_before(self):
+        self.assertIsNone(excuse.ffi_pin_step_a("main", self.gh.jobs[1], self.gh.logs[1],
+                                                {"cmux-tui/crates/cmux-app-ffi/src/lib.rs"}, self.PR))
+
+    def test_the_toolchain_and_the_build_script_are_ffi_inputs(self):
+        for path in ("cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"):
+            self.files = [{"filename": path}]
+            self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0], path)
+
+    def test_without_the_pull_request_nothing_is_excused(self):
+        with self.assertRaises(excuse.Refused):
+            self.judge(pr=None)
+
+    def test_the_pin_error_in_another_job_is_judged_as_before(self):
+        self.gh.jobs[1]["name"] = "cmux-next other checks"
+        self.gh.logs[1] = self.gh.logs[1].replace(CHECKS, "cmux-next other checks")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
 
 
 class Script(unittest.TestCase):

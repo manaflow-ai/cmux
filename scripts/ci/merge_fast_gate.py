@@ -48,6 +48,7 @@ from typing import Callable
 
 ROUTING = "cmux-next path routing"
 FAST_TIER = "cmux-next fast tier"
+FAST_TIER_CARGO = "cmux-next fast tier (cargo)"
 DEBUG_COMPILE = "cmux app scheme compile (Debug)"
 REACT = "react-apps-check"
 # cmux-next.yml jobs the gate waits for by name.
@@ -149,7 +150,11 @@ def canonical(name: str) -> str:
 def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
     """name -> (status, conclusion), upper case. The rollup is not ordered by time, so of
     several CheckRuns of one name (a rerun) the latest startedAt wins, then completedAt,
-    then list order; one not started yet (no startedAt, not completed) counts as newest."""
+    then list order; one not started yet (no startedAt, not completed) counts as newest.
+    A completed skipped run never replaces an older one of the same name: a skip is no verdict.
+    On 2026-11-09 a same-tree dispatch of cmux-next.yml on #39027's branch posted newer skipped
+    runs of every job it did not run, and the skipped "cmux-next checks" hid the older red. A
+    name with only skipped runs stays skipped."""
     checks: dict[str, tuple[str, str]] = {}
     newest: dict[str, tuple] = {}
     for index, item in enumerate(rollup):
@@ -160,16 +165,52 @@ def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
             continue
         name = canonical(item.get("name", ""))
         status = (item.get("status") or "").upper()
+        conclusion = (item.get("conclusion") or "").upper()
+        skipped = status == "COMPLETED" and conclusion == "SKIPPED"
         started = item.get("startedAt") or ("￿" if status != "COMPLETED" else "")
-        key = (started, item.get("completedAt") or "", index)
+        # A skipped run ranks below any run with a verdict or still going, whatever its time.
+        key = (not skipped, started, item.get("completedAt") or "", index)
         if name in newest and newest[name] > key:
             continue
         newest[name] = key
-        checks[name] = (status, (item.get("conclusion") or "").upper())
+        checks[name] = (status, conclusion)
     return checks
 
 
-def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next: bool) -> tuple[list[str], list[str], list[str]]:
+def cmux_next_cancelled(rollup: list[dict]) -> bool:
+    """Whether a check of the cmux-next workflow run is cancelled (its newest run per name). A check that names
+    another workflow does not count; one that names none (an older gh) counts, as before."""
+    ours = [item for item in rollup if item.get("workflowName") in (None, "", NEXT_WORKFLOW_NAME)]
+    return any(conclusion == "CANCELLED" for _, conclusion in latest(ours).values())
+
+
+# The `name:` of .github/workflows/cmux-next.yml: the rollup's workflowName of its check runs.
+NEXT_WORKFLOW_NAME = "cmux-next"
+# A change to these files changes the route itself, so its own route cannot excuse a skip.
+ROUTE_FILES = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/cmux-next/fast-tier.json")
+
+
+def routed_skip(checks: dict[str, tuple[str, str]], files: list[str], next_cancelled: bool | None = None) -> bool:
+    """Whether a skipped Mac fast tier was path routing's choice: path routing passed, its cargo half
+    ran (any state but skipped or cancelled), which needs push-head-preflight current, the only other
+    reason the Mac tier skips, and no check of the cmux-next run was cancelled (a cancelled run skips
+    the Mac tier too; next_cancelled, from the rollup's workflow names, else any cancelled check on the
+    head counts). #39706 (2026-11-09): a cancelled "publish to R2" of cmux-tui artifacts refused a routed
+    skip. Never for a change to the route itself: the PR's own route would excuse its own skip."""
+    if any(path in ROUTE_FILES for path in files):
+        return False
+    if checks.get(ROUTING, ("", ""))[1] != "SUCCESS":
+        return False
+    if next_cancelled is None:
+        next_cancelled = any(conclusion == "CANCELLED" for _, conclusion in checks.values())
+    if next_cancelled:
+        return False
+    cargo = checks.get(FAST_TIER_CARGO)
+    return cargo is not None and cargo[1] != "SKIPPED"
+
+
+def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next: bool,
+             next_cancelled: bool | None = None) -> tuple[list[str], list[str], list[str]]:
     """(fast lanes to wait for, fast lanes seen, completed gating reds). touches_next: the
     change is inside cmux-next.yml's pull_request paths, so a cmux-next run is coming."""
     waiting, seen, reds = [], [], []
@@ -192,9 +233,13 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
         fast = name == ROUTING or bool(FAST.match(name))
         if fast:
             if conclusion == "SKIPPED":
-                # On a PR, cmux-next.yml skips the fast tier only when push-head-preflight
-                # is not current (a runner failure or its timeout): no verdict, not a pass.
-                if name == FAST_TIER and touches_next:
+                # On a PR, cmux-next.yml skips the fast tier when push-head-preflight is not
+                # current (a runner failure or its timeout): no verdict, not a pass. It also
+                # skips it by design when path routing sends the Mac tier no Swift work
+                # (path_route fast_tier=false, e.g. a cmux-tui Rust change, PR #38743). The
+                # cargo half has the same conditions minus the path ones, so a cargo half
+                # that was not skipped proves the preflight was current: the route skipped it.
+                if name == FAST_TIER and touches_next and not routed_skip(checks, files, next_cancelled):
                     raise Refused(f"'{name}' was skipped on the exact head: no verdict to waive, "
                                   "and --override cannot bypass that; rerun it")
                 continue
@@ -293,8 +338,9 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
         if base is not None and pr.get("baseRefName") != base:
             raise Refused(f"the base changed to {pr.get('baseRefName')} (from {base}) while waiting on {sha}")
         changed = files if files is not None else [f.get("path", "") for f in pr.get("files") or []]
-        checks = latest(pr.get("statusCheckRollup") or [])
-        waiting, seen, reds = evaluate(checks, changed, touches_next)
+        rollup = pr.get("statusCheckRollup") or []
+        checks = latest(rollup)
+        waiting, seen, reds = evaluate(checks, changed, touches_next, cmux_next_cancelled(rollup))
         if not waiting:
             return clock() - start, seen, reds
         if clock() - start >= timeout:

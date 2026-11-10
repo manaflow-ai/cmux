@@ -1,0 +1,11 @@
+{
+  "about": "These files are byte-identical copies of manaflow-ai/cmuxterm-hq tools/agent-guards at commit `sha`. Change the judge there first, then copy the files here unchanged and update `sha` and `blobs` (git rev-parse SHA:tools/agent-guards/FILE). test_vendored_sync.py fails when a copy differs from its recorded blob.",
+  "repo": "manaflow-ai/cmuxterm-hq",
+  "path": "tools/agent-guards",
+  "sha": "6b89b692b2c9eedb1dcbd0abfb77f477e5b2baff",
+  "blobs": {
+    "block_polling.py": "509a474a0d709ce19323790ce4c6390f7e158aaf",
+    "polling_scan.py": "6112035ff2103b73eb68d22e789084da1b298843",
+    "test_polling_scan.py": "9cf6b15dfd0b5a6b1374405cdf7da452d00175a5"
+  }
+}

@@ -294,7 +294,10 @@ class MainTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_sweeps_are_serialized_and_never_cancelled_mid_reconcile(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        self.assertEqual(workflow["concurrency"], {"group": "ci-queue-janitor", "cancel-in-progress": False})
+        concurrency = workflow["concurrency"]
+        self.assertIs(concurrency["cancel-in-progress"], False)
+        # every run that sweeps shares one group; only a run whose job starts no sweep gets its own
+        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor' }}"), concurrency["group"])
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

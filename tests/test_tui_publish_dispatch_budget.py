@@ -20,9 +20,10 @@ verify and attest job in run 32998045028 succeeded; the dispatch step ran
 18:31:03 -> 18:35:50 and failed; both publishers failed their wait at ~18:35:17
 and skipped `publish`. 0.13.0 is absent from npm and PyPI to this day.
 
-This test pins the invariant rather than the constants: whatever budget the
-dispatcher spends after dispatching has to stay comfortably inside the shortest
-publisher wait, and losing the lookup may not fail the run.
+The dispatcher now asks each dispatch for the run it created
+(return_run_details), so it spends no time after dispatching and polls nothing.
+This test pins that: no lookup loop or sleep in the dispatch step, and a
+dispatch that names no run may not fail the run.
 """
 
 import os
@@ -73,31 +74,29 @@ def main():
                 f"{name} still refuses to publish unless the artifact run succeeded",
             )
 
-    budgets = [int(m) for m in re.findall(r"DISCOVERY_DEADLINE=\$\(\(SECONDS \+ (\d+)\)\)", release)]
-    _check(len(budgets) == 1, "the dispatcher sets exactly one shared discovery budget")
+    step = release.split("      - name: Dispatch registry publishers\n", 1)
+    _check(len(step) == 2, "the dispatcher still has its dispatch step")
+    step = re.split(r"\n      - name:|\n  \S", step[1], maxsplit=1)[0] if len(step) == 2 else ""
     _check(
-        "local discovery_deadline" not in release,
-        "the budget is shared across publishers, not restarted per publisher",
+        "return_run_details=true" in step,
+        "each dispatch answers with the run it created, so the dispatcher looks nothing up",
     )
+    _check(
+        not re.search(r"\bsleep\b|\bwhile\b|\buntil\b|gh run list|DISCOVERY_DEADLINE", step),
+        "the dispatcher spends no time after dispatching inside the publishers' wait",
+    )
+    if waits:
+        _check(min(waits.values()) >= 60, "the publishers still give the dispatching run time to conclude")
 
-    if budgets and waits:
-        budget = budgets[0]
-        shortest = min(waits.values())
-        _check(
-            budget * 2 < shortest,
-            f"the discovery budget ({budget}s) leaves room inside the shortest "
-            f"publisher wait ({shortest}s) even if both lookups use it all",
-        )
-
-    # Losing the lookup is a cosmetic loss; it must not redden the run.
-    fn = release.split("record_publisher() {", 1)
-    _check(len(fn) == 2, "the dispatcher still defines record_publisher")
+    # Losing the run id is a cosmetic loss; it must not redden the run.
+    fn = release.split("dispatch_publisher() {", 1)
+    _check(len(fn) == 2, "the dispatcher still defines dispatch_publisher")
     body = fn[1].split("\n          }", 1)[0] if len(fn) == 2 else ""
-    _check("return 1" not in body, "failing to resolve a publisher run id does not fail the step")
-    _check("return 0" in body, "the lookup returns successfully when it gives up")
+    _check("return 1" not in body, "a dispatch that names no run does not fail the step")
+    _check("return 0" in body, "the dispatcher returns successfully without a run id")
     _check(
         "::warning::" in body,
-        "giving up is still reported, so a missing summary link is visible",
+        "a missing run id is still reported, so a missing summary link is visible",
     )
 
     if FAILURES:
