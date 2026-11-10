@@ -69,6 +69,17 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(matrix.skipped("keys.rs", False, self.root, "keys.rs"), "")
         self.assertEqual(matrix.skipped("target", True, self.root, "target"), "")
 
+    def test_a_claude_start_passes_a_login_only_when_asked(self):
+        self.assertEqual(self.args.login, "")
+        self.assertEqual(matrix.start_login("claude", self.args.login), [])
+        self.assertEqual(matrix.start_login("claude", "none"), ["--login", "none"])
+        self.assertEqual(matrix.start_login("codex", "none"), [])
+
+    def test_a_stale_machine_list_refusal_is_asked_again(self):
+        self.assertTrue(matrix.list_unread("cloudStartSession unavailable: Couldn't read your Cloud machines, so claude "
+                                           "didn't start: a machine named x may already exist."))
+        self.assertFalse(matrix.list_unread("claude on x waits for your one-time OK to copy your Claude login"))
+
     def test_verdict_and_grid(self):
         cell = {"workspace": "secrets", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
@@ -76,6 +87,44 @@ class FixtureTests(unittest.TestCase):
         self.assertIn("SECRET LEAKED", matrix.verdict(cell, "c"))
         cell["result"] = matrix.verdict(cell, "c")
         self.assertIn("LEAK", matrix.grid([cell]))
+
+
+class LaunchTests(unittest.TestCase):
+    def test_socket_travels_only_as_the_next_knob(self):
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging", "/tmp/c.json")
+        envs = [argv[i + 1] for i, word in enumerate(argv) if word == "--env"]
+        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock", "CMUX_NEXT_CONFIG_FILE=/tmp/c.json"])
+        self.assertEqual(argv[-3:], ["--args", "--cloud-backend", "staging"])
+
+    def test_credentials_sign_the_launched_app_in(self):
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod", "/tmp/c.json")
+        self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
+        self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
+
+
+class GrantTests(unittest.TestCase):
+    APP = ["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
+           "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x"]
+
+    def test_grant_only_for_the_launched_app(self):
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--grant-claude-login"])
+        self.assertTrue(matrix.parse_args([*self.APP, "--grant-claude-login"]).grant_claude_login)
+
+    def test_the_consent_lives_only_in_the_runs_own_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = matrix.scratch_config(Path(folder), True)
+            self.assertEqual(json.loads(path.read_text()), {"cloud": {"useMyClaudeLoginOnMyCloudMachines": True}})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(matrix.scratch_config(Path(folder), False).read_text()), {})
+
+    def test_an_app_run_never_reads_the_shared_file_and_cleans_up(self):
+        m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login"]))
+        config = Path(m.env["CMUX_NEXT_CONFIG_FILE"])
+        self.assertTrue(config.is_file())
+        self.assertNotIn(".config/cmux", str(config))
+        m.quit()
+        self.assertFalse(config.exists())
 
 
 if __name__ == "__main__":

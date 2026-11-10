@@ -695,7 +695,7 @@ impl Mux {
         surface: SurfaceId,
         transaction: Option<Arc<str>>,
     ) {
-        let mut decorations = self.tree_decorations();
+        let mut decorations = self.tab_tree_decorations(&[surface]);
         #[cfg(test)]
         if let Some(hook) =
             self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()).clone()
