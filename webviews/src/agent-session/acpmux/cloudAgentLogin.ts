@@ -6,14 +6,25 @@ import type { AcpmuxDirectClient } from "./direct";
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
 
-/// The harnesses whose login acpmux runs on the machine (Cursor's too, Leo 2026-11-10: "if somebody
-/// has a ChatGPT subscription or a Cursor subscription").
-export type LoginAgent = "claude" | "codex" | "cursor";
+/// The harnesses whose login acpmux runs on the machine (Cursor's and OpenCode's too, Leo 2026-11-10:
+/// "if somebody has a ChatGPT subscription or a Cursor subscription ... or an OpenCode subscription
+/// and they're using one of OpenCode's models").
+export type LoginAgent = "claude" | "codex" | "cursor" | "opencode";
 
 /// Whether `agent` is one acpmux signs in on the machine.
 function loginAgent(agent: string | undefined): agent is LoginAgent {
-  return agent === "claude" || agent === "codex" || agent === "cursor";
+  return agent === "claude" || agent === "codex" || agent === "cursor" || agent === "opencode";
 }
+
+/// Whether `agent` has a sign-in page: OpenCode Zen and Go take only the key from opencode.ai/auth
+/// (acpmux `agent_login` answers `unsupported` to its `start`), so its card offers only the key.
+export function signsInWithPage(agent: LoginAgent): agent is Exclude<LoginAgent, "opencode"> {
+  return agent !== "opencode";
+}
+
+/// The page that makes `agent`'s API key, shown beside its key field (OpenCode's, whose card has no
+/// sign-in page to point there).
+export const KEY_PAGE: Partial<Record<LoginAgent, string>> = { opencode: "https://opencode.ai/auth" };
 
 /// Whether `agent`'s card offers Use an API key: Cursor's key goes in as the Cloud secret
 /// `CURSOR_API_KEY` (acpmux `agent_login` refuses one here), so its card offers only Sign in.
@@ -58,6 +69,7 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "auth.anthropic.com",
   "auth.openai.com",
   "cursor.com",
+  "opencode.ai",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.

@@ -17,7 +17,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
 import {
+  KEY_PAGE,
   LoginStepError,
+  signsInWithPage,
   takesApiKey,
   type CloudSignIn as SignIn,
   type LoginFailure,
@@ -302,6 +304,8 @@ export function CloudSignIn({
       {t("turn.signIn.openPage")}
     </button>
   );
+  // Where the agent's key is made (OpenCode's opencode.ai/auth), opened on this Mac.
+  const keyPage = KEY_PAGE[signIn.agent];
   const cancelButton = (
     <button type="button" className="cv-turn-auth-action" onClick={cancel}>
       {t("turn.signIn.cancel")}
@@ -313,7 +317,7 @@ export function CloudSignIn({
     case "starting":
       return (
         <>
-          {!keyOnly && (
+          {!keyOnly && signsInWithPage(signIn.agent) && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
@@ -327,7 +331,9 @@ export function CloudSignIn({
             <button
               type="button"
               // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
-              className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
+              className={
+                keyOnly || !signsInWithPage(signIn.agent) ? "cv-turn-auth-action" : "cv-turn-error__offer-link"
+              }
               disabled={stage.at === "starting"}
               onClick={() => setStage({ at: "key" })}
             >
@@ -454,6 +460,11 @@ export function CloudSignIn({
             </button>
             {cancelButton}
           </span>
+          {keyPage && (
+            <button type="button" className="cv-turn-error__offer-link" onClick={() => signIn.open(keyPage)}>
+              {t("turn.signIn.getKey.opencode")}
+            </button>
+          )}
           <span className="cv-turn-signin__text">{t("turn.signIn.keyStored")}</span>
         </form>
       );

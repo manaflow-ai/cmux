@@ -51,7 +51,9 @@ fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     Agent::parse(name).ok_or_else(|| {
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!("agent must be \"claude\" or \"codex\", not {name:?}"),
+            format!(
+                "agent must be \"claude\", \"codex\", \"cursor\" or \"opencode\", not {name:?}"
+            ),
         ))
     })
 }
@@ -89,6 +91,8 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
         // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
         Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
+        // `opencode acp`: its env (XDG_DATA_HOME) says where its `auth.json` is.
+        Agent::OpenCode => p.kind == HarnessKind::Acp && opencode_launch(&p.argv),
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -108,12 +112,12 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Cursor => None,
+        Agent::Claude | Agent::Cursor | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Cursor => Vec::new(),
+        Agent::Claude | Agent::Cursor | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
@@ -122,6 +126,13 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
 fn cursor_launch(argv: &[String]) -> bool {
     let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
     matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
+        && argv.get(1).is_some_and(|a| a == "acp")
+}
+
+/// Whether `argv` runs OpenCode's CLI: `opencode` (or `opencode2`), then `acp`.
+fn opencode_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    matches!(program.and_then(|p| p.to_str()), Some("opencode" | "opencode2"))
         && argv.get(1).is_some_and(|a| a == "acp")
 }
 
@@ -170,6 +181,7 @@ async fn signed_in(
         Agent::Claude => ".claude",
         Agent::Codex => ".codex",
         Agent::Cursor => ".config/cursor",
+        Agent::OpenCode => ".local/share/opencode",
     });
     if current.store(agent) == canonical
         && let Err(e) = machine.choose_own(agent)

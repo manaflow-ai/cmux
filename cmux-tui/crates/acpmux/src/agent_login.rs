@@ -43,6 +43,14 @@
 //!   `NO_OPEN_BROWSER=1` keeps it from opening one. It takes no code and no
 //!   key here: a Cursor API key reaches the agent as the Cloud secret
 //!   `CURSOR_API_KEY` instead.
+//! - OpenCode (Leo 2026-11-10: "an OpenCode subscription and they're using
+//!   one of OpenCode's models"): OpenCode Zen and OpenCode Go sign in with
+//!   the API key from `https://opencode.ai/auth` only (`opencode auth login`
+//!   asks for nothing else), so `start` is `unsupported_agent` and `api_key`
+//!   saves the key as that command does: `{"type": "api", "key"}` under both
+//!   `opencode` and `opencode-go` in
+//!   `<XDG_DATA_HOME or ~/.local/share>/opencode/auth.json`, other providers
+//!   kept, 0600, written whole ([`merge_opencode_api_key`]). No CLI runs.
 //!
 //! The CLI is the one this daemon starts the agent with (the `claude` or
 //! `codex` harness profile, else `claude`/`codex` on the login PATH), with
@@ -145,6 +153,7 @@ pub enum Agent {
     Claude,
     Codex,
     Cursor,
+    OpenCode,
 }
 
 impl Agent {
@@ -153,6 +162,7 @@ impl Agent {
             "claude" => Some(Agent::Claude),
             "codex" => Some(Agent::Codex),
             "cursor" => Some(Agent::Cursor),
+            "opencode" => Some(Agent::OpenCode),
             _ => None,
         }
     }
@@ -162,6 +172,7 @@ impl Agent {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
             Agent::Cursor => "cursor",
+            Agent::OpenCode => "opencode",
         }
     }
 
@@ -231,6 +242,12 @@ impl Cli {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| self.home().join(".config"))
                 .join("cursor"),
+            // `opencode auth login` writes `auth.json` here (`Global.Path.data`).
+            Agent::OpenCode => self
+                .var("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| self.home().join(".local/share"))
+                .join("opencode"),
         }
     }
 
@@ -416,6 +433,34 @@ pub fn merge_claude_api_key(store: &Path, key: &str) -> Result<(), String> {
     write_private(&path, &bytes).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
+/// The `auth.json` providers an OpenCode key signs in: Zen's and Go's (one console key serves both).
+pub const OPENCODE_PROVIDERS: &[&str] = &["opencode", "opencode-go"];
+
+/// Sets `{"type": "api", "key"}` for each of [`OPENCODE_PROVIDERS`] in `<store>/auth.json`, as
+/// `opencode auth login` writes it, keeping every other provider. A file that is not a JSON
+/// object is left alone (an error).
+pub fn merge_opencode_api_key(store: &Path, key: &str) -> Result<(), String> {
+    let path = store.join("auth.json");
+    let mut doc = match std::fs::read(&path) {
+        Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => Value::Object(Default::default()),
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
+            .map_err(|_| format!("{} is not valid JSON; fix it or remove it", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Default::default()),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        return Err(format!("{} is not a JSON object", path.display()));
+    };
+    for provider in OPENCODE_PROVIDERS {
+        obj.insert((*provider).into(), serde_json::json!({"type": "api", "key": key}));
+    }
+    let bytes = Zeroizing::new(
+        serde_json::to_vec_pretty(&doc).map_err(|e| format!("encode auth.json: {e}"))?,
+    );
+    private_dir(store).map_err(|e| format!("make {}: {e}", store.display()))?;
+    write_private(&path, &bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 /// Whether `agent`'s own sign-in is in `store`, read as `agent-auth.sh`
 /// reads it (`cmux_agent_has_own_login`), never the values: Claude's
 /// `.credentials.json` with `claudeAiOauth`; Codex's `auth.json` with tokens
@@ -438,6 +483,10 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
             v.as_object()
                 .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
         }),
+        // OpenCode's `auth.json`: a non-empty object, as `agent-auth.sh` reads it.
+        Agent::OpenCode => {
+            read("auth.json").is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+        }
     }
 }
 
@@ -629,6 +678,12 @@ async fn pump<R: AsyncRead + Unpin>(
 /// Starts `agent`'s own sign-in with `cli` on `machine` (module docs).
 pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started, LoginError> {
     machine.refuse_shared()?;
+    if agent == Agent::OpenCode {
+        return Err(LoginError::new(
+            reason::UNSUPPORTED_AGENT,
+            "OpenCode signs in with an API key from opencode.ai/auth",
+        ));
+    }
     // One sign-in per agent: the previous one stops, unless its finish is
     // running (it may be writing the sign-in now).
     let previous = {
@@ -667,6 +722,8 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         Agent::Claude => &["auth", "login", "--claudeai"],
         Agent::Codex => &["login", "--device-auth"],
         Agent::Cursor => &["login"],
+        // `start` refused it above.
+        Agent::OpenCode => &[],
     };
     let mut cmd = cli.command(args, &folder.0);
     if agent == Agent::Claude {
@@ -733,7 +790,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Cursor => None,
+        Agent::Codex | Agent::Cursor | Agent::OpenCode => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -817,7 +874,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 ));
             }
         },
-        Agent::Codex | Agent::Cursor => None,
+        Agent::Codex | Agent::Cursor | Agent::OpenCode => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -895,6 +952,9 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             (Agent::Cursor, _) => {
                 LoginError::new(reason::FAILED, "cursor-agent did not finish signing in")
             }
+            (Agent::OpenCode, _) => {
+                LoginError::new(reason::FAILED, "opencode did not finish signing in")
+            }
         });
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
@@ -929,6 +989,8 @@ pub async fn save_api_key(
             "Cursor takes an API key as the Cloud secret CURSOR_API_KEY",
         )),
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
+            .map_err(|e| LoginError::new(reason::FAILED, e)),
+        Agent::OpenCode => merge_opencode_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),
         Agent::Codex => {
             let store = cli.store(agent);

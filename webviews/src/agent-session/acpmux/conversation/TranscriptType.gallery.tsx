@@ -81,7 +81,7 @@ function CloudSignInStates({ agent, approve }: { agent: LoginAgent; approve: boo
           switchModel: () => {},
           cloudSignIn: gallerySignIn(agent, approve),
           route: {
-            name: agent === "claude" ? "Claude Code" : agent === "cursor" ? "Cursor" : "Codex",
+            name: { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode" }[agent],
             harness: agent,
             hostKind: "cloud",
           },
@@ -237,6 +237,18 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__text"));
+      },
+    },
+    "opencode-sign-in": {
+      props: { signIn: "opencode" },
+      note: "A Cloud chat whose OpenCode (Zen or Go models) is not signed in on its machine: OpenCode has no sign-in page, only the key from opencode.ai/auth, so Use an API key is the one button.",
+    },
+    "opencode-key-entry": {
+      props: { signIn: "opencode" },
+      note: "After Use an API key on OpenCode: the password field, Save, and Get an OpenCode API key, which opens opencode.ai/auth on this Mac; the key is saved where opencode auth login saves it, for Zen and Go.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-auth-action" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
       },
     },
     "codex-code": {

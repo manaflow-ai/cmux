@@ -1239,6 +1239,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
         ),
+        // Every agent acpmux signs in passes, with no list of them here (Cursor, OpenCode).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "cursor", "sessionId": SESSION}),
+            json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
+                   "needsCode": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"opencode","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "opencode", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1256,7 +1271,8 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     }
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"../codex"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),

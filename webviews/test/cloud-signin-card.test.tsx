@@ -221,6 +221,8 @@ test("only an allowed provider page over https opens", () => {
     "https://cursor.com/loginDeepControl?challenge=c",
   );
   expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
+  expect(signInURL("https://opencode.ai/auth")).toBe("https://opencode.ai/auth");
+  expect(signInURL("https://opencode.ai.evil.example/auth")).toBeUndefined();
 });
 
 test("each refusal reason has its own failure", () => {
@@ -261,7 +263,8 @@ test("the sign-in is offered only for a connected Cloud Claude or Codex chat on 
   expect(cloudAgentLogin(base)?.agent).toBe("claude");
   expect(cloudAgentLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
   expect(cloudAgentLogin({ ...base, harness: "cursor" })?.agent).toBe("cursor");
-  expect(cloudAgentLogin({ ...base, harness: "opencode" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "opencode" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "pi" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, machineID: undefined })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, connected: false })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, supported: false })).toBeUndefined();
@@ -475,6 +478,31 @@ test("API key: a password field, saved on the machine, then Send again", async (
   await flush();
   expect(intents).toHaveLength(1);
   expect(sent).toHaveLength(1);
+});
+
+// OpenCode (Leo 2026-11-10: "an OpenCode subscription and they're using one of OpenCode's models"):
+// OpenCode Zen and Go sign in only with the key from opencode.ai/auth, so Use an API key is the one
+// button, the key field links that page, and the key is saved on the machine for the agent.
+test("OpenCode: only Use an API key, its key page one click away, saved on the machine", async () => {
+  const opened: string[] = [];
+  const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
+  const { signIn } = signInFor(client, { harness: "opencode", opened });
+  await render(
+    { route: { name: "OpenCode", harness: "opencode", hostKind: "cloud" }, cloudSignIn: signIn },
+    "Authentication required",
+  );
+  expect(button("Sign in to OpenCode")).toBeUndefined();
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__offer-link")).toBe(false);
+  expect(calls.filter(([op]) => op === "start")).toEqual([]);
+  await act(async () => button("Use an API key")!.click());
+  await act(async () => button("Get an OpenCode API key")!.click());
+  expect(opened).toEqual(["https://opencode.ai/auth"]);
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "sk-oc-test-key");
+  await act(async () => button("Save")!.click());
+  await flush();
+  expect(calls).toContainEqual(["apiKey", "opencode", "chat-1", "sk-oc-test-key"]);
+  expect(host.innerHTML).not.toContain("sk-oc-test-key");
+  expect(sent).toEqual([]);
 });
 
 test("never sends without a gesture ticket", async () => {

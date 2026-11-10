@@ -251352,6 +251352,33 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Cursor" } }
       }
     },
+    "turn.signIn.getKey.opencode": {
+      "comment": "Agent pane: a Cloud chat's OpenCode sign-in card, the link beside the API key field that opens opencode.ai/auth, where OpenCode Zen and Go API keys are made.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Get an OpenCode API key" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الحصول على مفتاح API لـ OpenCode" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nabavi OpenCode API ključ" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Hent en OpenCode API-nøgle" } },
+        "de": { "stringUnit": { "state": "translated", "value": "OpenCode-API-Schlüssel holen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Obtener una clave de API de OpenCode" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Obtenir une clé API OpenCode" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ottieni una chiave API OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode の API キーを取得" } },
+        "km": { "stringUnit": { "state": "translated", "value": "យកសោ API របស់ OpenCode" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "OpenCode API 키 받기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Hent en OpenCode API-nøkkel" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Uzyskaj klucz API OpenCode" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Obter uma chave de API do OpenCode" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Получить ключ API OpenCode" } },
+        "th": { "stringUnit": { "state": "translated", "value": "รับคีย์ API ของ OpenCode" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "OpenCode API anahtarı al" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Отримати ключ API OpenCode" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Lấy khóa API OpenCode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "获取 OpenCode API 密钥" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取得 OpenCode API 金鑰" } }
+      }
+    },
     "turn.signIn.apiKey": {
       "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that saves an API key for the agent instead of signing in.",
       "extractionState": "manual",

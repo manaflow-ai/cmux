@@ -466,3 +466,96 @@ async fn cursor_sign_in_end_to_end_against_a_stub_cli() {
     assert!(!env.lines().any(|l| l.starts_with("XDG_CONFIG_HOME=")), "{env}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn opencode_names_and_store() {
+    assert_eq!(Agent::parse("opencode"), Some(Agent::OpenCode));
+    assert_eq!(Agent::OpenCode.name(), "opencode");
+    assert_eq!(Agent::OpenCode.program(), "opencode");
+    let root = dir("opencode-store");
+    let mut cli = Cli::default();
+    cli.env.insert("HOME".into(), root.display().to_string());
+    // An empty value is unset, whatever this test process's own XDG_DATA_HOME says.
+    cli.env.insert("XDG_DATA_HOME".into(), String::new());
+    assert_eq!(cli.store(Agent::OpenCode), root.join(".local/share/opencode"));
+    cli.env.insert("XDG_DATA_HOME".into(), root.join("xdg").display().to_string());
+    assert_eq!(cli.store(Agent::OpenCode), root.join("xdg/opencode"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The key lands as `opencode auth login` saves it (OpenCode 1.19, read back with `opencode auth
+/// list`): Zen's and Go's entries, every other provider kept, 0600; a file that is not an object
+/// is left alone.
+#[test]
+fn opencode_key_merges_into_its_auth_json() {
+    let store = dir("opencode-merge");
+    std::fs::write(
+        store.join("auth.json"),
+        r#"{"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":1},"opencode":{"type":"api","key":"old"}}"#,
+    )
+    .unwrap();
+    merge_opencode_api_key(&store, "sk-oc-new").unwrap();
+    let doc: Value =
+        serde_json::from_slice(&std::fs::read(store.join("auth.json")).unwrap()).unwrap();
+    assert_eq!(doc["opencode"], serde_json::json!({"type": "api", "key": "sk-oc-new"}));
+    assert_eq!(doc["opencode-go"], serde_json::json!({"type": "api", "key": "sk-oc-new"}));
+    assert_eq!(doc["anthropic"]["refresh"], "r", "other providers are kept");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(store.join("auth.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    assert!(signed_in_at(Agent::OpenCode, &store));
+    // A fresh machine: the store is made, owner-only.
+    let fresh = store.join("fresh/opencode");
+    merge_opencode_api_key(&fresh, "sk-oc-x").unwrap();
+    assert!(signed_in_at(Agent::OpenCode, &fresh));
+    std::fs::write(store.join("auth.json"), "[1]").unwrap();
+    assert!(merge_opencode_api_key(&store, "k").is_err());
+    std::fs::write(store.join("auth.json"), "{not json").unwrap();
+    assert!(merge_opencode_api_key(&store, "k").is_err());
+    assert_eq!(std::fs::read_to_string(store.join("auth.json")).unwrap(), "{not json");
+    let _ = std::fs::remove_dir_all(&store);
+}
+
+#[test]
+fn opencode_signed_in_reads_its_auth_json() {
+    let store = dir("opencode-auth");
+    assert!(!signed_in_at(Agent::OpenCode, &store));
+    std::fs::write(store.join("auth.json"), "{}").unwrap();
+    assert!(!signed_in_at(Agent::OpenCode, &store));
+    std::fs::write(store.join("auth.json"), r#"{"openai":{"type":"api","key":"k"}}"#).unwrap();
+    assert!(signed_in_at(Agent::OpenCode, &store));
+    // Codex reads an `auth.json` too: OpenCode's is not a Codex sign-in.
+    assert!(!signed_in_at(Agent::Codex, &store));
+    let _ = std::fs::remove_dir_all(&store);
+}
+
+/// OpenCode signs in only with a key: `start` runs no CLI and says so, `api_key` saves it with
+/// no CLI at all, and a team machine refuses both.
+#[tokio::test]
+async fn opencode_signs_in_with_a_key_only() {
+    let root = dir("opencode-key");
+    let home = root.join("home");
+    let m = Machine { root: root.clone(), home: home.clone() };
+    let mut cli = Cli { program: root.join("no-such-cli").display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), home.display().to_string());
+    cli.env.insert("XDG_DATA_HOME".into(), String::new());
+    let e = start(&m, &cli, Agent::OpenCode).await.unwrap_err();
+    assert_eq!(e.reason, reason::UNSUPPORTED_AGENT, "{e:?}");
+    assert!(e.message.contains("opencode.ai/auth"), "{e:?}");
+    let e = save_api_key(&m, &cli, Agent::OpenCode, "two words").await.unwrap_err();
+    assert_eq!(e.reason, reason::BAD_CODE, "{e:?}");
+    save_api_key(&m, &cli, Agent::OpenCode, "  sk-oc-0123456789 \n").await.expect("saved");
+    let store = home.join(".local/share/opencode");
+    assert!(signed_in_at(Agent::OpenCode, &store));
+    let doc: Value =
+        serde_json::from_slice(&std::fs::read(store.join("auth.json")).unwrap()).unwrap();
+    assert_eq!(doc["opencode"]["key"], "sk-oc-0123456789", "trimmed");
+    std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
+    std::fs::write(root.join("etc/cmux/vm-kind"), "team\n").unwrap();
+    let e = save_api_key(&m, &cli, Agent::OpenCode, "sk-oc-team").await.unwrap_err();
+    assert_eq!(e.reason, reason::SHARED_MACHINE, "{e:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}

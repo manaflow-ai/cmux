@@ -559,7 +559,14 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    // Any agent id: acpmux's `agent_login::Agent` decides which it signs in (`unsupported_agent`
+    // for the rest), so an agent it gains needs no change here (a list here once left Cursor out).
+    let agent = || {
+        text(&params.agent).filter(|a| {
+            a.len() <= 32
+                && a.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+    };
     let (body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {
