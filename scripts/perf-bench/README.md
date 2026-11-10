@@ -268,7 +268,8 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 ## Load arm `oversub` (`busy_holder.py`)
 
 A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
-per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
+per core (agents, node, cargo); a read of one gave 97 % of them below the default priority 31 (at 20 and at 4), from
+processes that also sleep on I/O. A bench "load" arm with a host load under 15 is a
 quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
 default priority and QoS beside the app under test, for a short time (shape `spin`), or N processes at utility and
 background QoS that burst, do I/O and sleep (shape `agents`).
@@ -281,7 +282,7 @@ $BH status $PID      # threads, running, priority, CPU, load
 $BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
 $BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
 $BH probe --label quiet    # the scheduling delay one thread of each QoS class gets (run quiet and under start)
-$BH selftest               # the safety rules with 4 threads for at most 10 s each
+$BH selftest               # the safety rules with 4 to 6 threads for at most 10 s each
 ```
 
 - `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
@@ -295,7 +296,7 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
   three at utility QoS (priority 20), one of three at background (4); each repeats a CPU burst of 2 to 24 ms, one
   I/O step (write 64 KiB with an fsync each 8th turn, lstat 200 system files, start `/usr/bin/true` and wait for
   it, read the 64 KiB back) and a sleep of 0 to 20 ms. Its files are in the tool's private state folder and are
-  removed at the end. Each one is a new process, not a fork: macOS refuses the QoS class call in a forked child
+  removed at the end (after a hard kill of the supervisor: by `stop PID`). Each one is a new process, not a fork: macOS refuses the QoS class call in a forked child
   (it stays at 31), and a process that does not get its class ends the holder with an error. Read the priorities
   in the arm (`ps -M`, or the `selftest` on the bench host inside your hold) before you trust a row.
   Say the shape next to each number; a row made with one shape does not pair with the other.
@@ -324,7 +325,8 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
-- `busy_holder.py`: the load arm `oversub` (N busy threads at the default priority, with hard self-limits).
+- `busy_holder.py`: the load arm `oversub` (shape `spin`: N busy threads that start at the default priority; shape
+  `agents`: N processes at utility and background QoS that burst, do I/O and sleep; hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.
 
 ## The shared `real` session (`session_real.py`)

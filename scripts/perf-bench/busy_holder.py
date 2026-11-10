@@ -9,14 +9,15 @@ takes them away again, in one of two shapes (see "Two shapes"). It is the ONE bu
 
   busy_holder.py start --owner TASK --watch-pid $$ [--threads 250] [--procs 25] [--max-seconds 240]
                        [--shape spin|agents]
-        prints the holder's PID on stdout (one line) and a JSON line on stderr; the load runs when it returns.
+        prints the holder's PID on stdout (one line) and a JSON line on stderr; the load runs when it returns
+        (`agents`: when each process has its QoS class and its file, or after 12 s).
   busy_holder.py stop PID          stops that holder (only a PID that is a busy_holder with a state file and its
                                    token on its command line), waits until it is gone, prints its summary as JSON.
   busy_holder.py status [PID]      the holder's threads as `ps -M` shows them (count, running, priority, CPU);
                                    with no PID: every live holder of this user (`live 0` = nothing is left).
   busy_holder.py cooldown [--below 8] [--max-seconds 420]
         waits until the 1-minute load average is below the limit (the hold keeps gui.lock until then).
-  busy_holder.py selftest          proves the safety rules below with 4 threads for at most 10 s each, in a temp
+  busy_holder.py selftest          proves the safety rules below with 4 to 6 threads for at most 10 s each, in a temp
                                    folder that stands in for ~/perf-lead (about 30 s; prints SELFTEST PASS|FAIL).
   busy_holder.py probe [--n 60] [--work-ms 2] [--classes ...] [--label TEXT]
         the scheduling delay that ONE thread of each QoS class gets now (timer wake delay, the wall time of a short
@@ -38,7 +39,8 @@ Two shapes (`--shape`), say which one next to each number:
           sleep on I/O). Two of three run at utility QoS (priority 20), one of three at background (4). Each one
           repeats: a CPU burst of 2 to 24 ms, ONE I/O step (write 64 KiB, with an fsync each 8th turn; or lstat
           200 system files; or start /usr/bin/true and wait for it; or read the 64 KiB back), a sleep of 0 to
-          20 ms. Its files are in the tool's private state folder (64 KiB per process) and are removed at the end.
+          20 ms. Its files are in the tool's private state folder (64 KiB per process) and are removed at the end
+          (after a hard kill of the supervisor: by `stop PID`).
           Each one is a NEW process of this file (not a fork: macOS refuses the QoS class call in a forked child,
           and such a child stays at 31), so each has its own interpreter memory. A process that does not get its
           class ends with an error and the holder ends with it: the shape never runs at the wrong priority.
@@ -59,7 +61,8 @@ SAFETY (each one is enforced here, not left to the caller):
   4. `stop` signals only a PID that it can prove is a busy_holder supervisor (state file + token on the command
      line); workers are the supervisor's own children.
   5. It refuses to start at a changed nice value (nice != 0): the load must be what a program started from a
-     terminal is. The workers are new threads at the default QoS class.
+     terminal is. The workers of `spin` are new threads at the default QoS class; each process of `agents` sets its
+     own class (utility or background) and a refused class ends the holder.
 
 PRIORITY TRAP (measured 2026-11-10, macOS 26.7): a process that ssh started has a QoS ceiling of utility. Each of
 its threads runs at scheduler priority 20 for every QoS class (background: 4), and a zsh login shell starts a `&`
@@ -110,7 +113,9 @@ def perf_lead_root() -> str:
 
 
 def state_dir() -> str:
-    d = os.path.join(os.environ.get("BUSY_HOLDER_STATE_DIR") or "/tmp", "busy-holder-%d" % os.getuid())
+    # Absolute: the files of `agents` are removed by their exact names, never by a path relative to a folder.
+    d = os.path.join(os.path.abspath(os.environ.get("BUSY_HOLDER_STATE_DIR") or "/tmp"),
+                     "busy-holder-%d" % os.getuid())
     os.makedirs(d, mode=0o700, exist_ok=True)
     # /tmp is shared: a folder that another account made first (or a symlink) could point our writes at its files.
     st = os.lstat(d)
@@ -290,6 +295,8 @@ def worker_main(threads: int, deadline: float, iters: int, supervisor: int) -> N
 AGENT_BLOCK = 65536
 AGENT_NAMES = 4000
 AGENT_QOS_REFUSED = 3  # exit status of an `agents` process that could not get its QoS class
+AGENT_READY_S = 12.0  # `start` waits at most this long for each `agents` process to have its class and its file
+AGENT_MAX_ITERS = 2000000  # upper limit of one CPU piece: the deadline and parent check come after each piece
 
 
 def agent_names() -> list:
@@ -305,18 +312,10 @@ def agent_names() -> list:
 
 def agent_main(index: int, deadline: float, iters: int, supervisor: int, folder: str, names: list) -> None:
     """One process of the shape `agents`: CPU burst, one I/O step, sleep; at utility or background QoS."""
-    left = max(1, int(deadline - time.monotonic()) + 3)
-    signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    signal.alarm(left)  # kernel alarm: the process dies at the limit also when a system call hangs
-    try:
-        resource.setrlimit(resource.RLIMIT_CPU, (left + 5, left + 5))
-    except (ValueError, OSError):
-        pass
-    if not set_qos("background" if index % 3 == 2 else "utility") and _libsystem() is not None:
+    if not set_qos("background" if index % 3 == 2 else "utility") and sys.platform == "darwin":
         os._exit(AGENT_QOS_REFUSED)  # at priority 31 this would be a second `spin`, not this shape
     rnd = random.Random(index * 7919 + os.getpid())
-    burst = max(100, iters // 2)  # about 2 ms on a quiet core
+    burst = max(100, min(iters, AGENT_MAX_ITERS) // 2)  # about 2 ms on a quiet core
     block = os.urandom(AGENT_BLOCK)
     try:
         f = open(os.path.join(folder, "a-%d.dat" % os.getpid()), "wb+", buffering=0)
@@ -362,11 +361,24 @@ def agent_main(index: int, deadline: float, iters: int, supervisor: int, folder:
 def cmd_agent(args) -> int:
     """One process of the shape `agents`, started NEW by the supervisor. It is not forked: macOS refuses the QoS
     class call in a forked child (rc 1), and such a child stays at the default priority 31."""
+    life = min(max(args.life, 0.0), HARD_LIMIT_S)
+    deadline = time.monotonic() + life
+    # SAFETY 1 first, before any other work: the kernel alarm and the CPU-time limit of this process.
+    left = max(1, int(life) + 3)
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.alarm(left)  # kernel alarm: the process dies at the limit also when a system call hangs
+    try:
+        resource.setrlimit(resource.RLIMIT_CPU, (left + 5, left + 5))
+    except (ValueError, OSError):
+        pass
     folder = agent_folder(args.supervisor)
     if os.getppid() != args.supervisor or args.supervisor <= 1 or not os.path.isdir(folder):
         return fail("_agent is started only by the supervisor of a holder")
-    life = min(max(args.life, 0.0), HARD_LIMIT_S)
-    agent_main(args.index, time.monotonic() + life, args.iters, args.supervisor, folder, agent_names())
+    refusal = lock_refusal(args.owner)  # a call by hand gets no load outside a bench host and the owner's hold
+    if refusal:
+        return fail("refused: " + refusal)
+    agent_main(args.index, deadline, args.iters, args.supervisor, folder, agent_names())
     return 0
 
 
@@ -416,68 +428,89 @@ def supervise(args) -> int:
              "load1_start": load1(), "started_utc": time.strftime("%H:%M:%SZ", time.gmtime()),
              "workers": [], "ready": False, "ended": None}
     workers = []
-    for index, n in enumerate(per):
-        if agents:  # a NEW process each (not a fork): only there does macOS permit the QoS class call
-            workers.append(os.posix_spawn(sys.executable, [
-                sys.executable, os.path.abspath(__file__), "_agent", "--index", str(index),
-                "--life", "%.1f" % max(0.0, deadline - time.monotonic()), "--iters", str(args.iters),
-                "--supervisor", str(me)], os.environ))
-            continue
-        pid = os.fork()
-        if pid == 0:
-            try:
-                worker_main(n, deadline, args.iters, me)
-            finally:
-                os._exit(0)
-        workers.append(pid)
-    state["workers"] = workers
-    set_qos("user-initiated")  # the safety loop must run on time beside its own load; the workers keep the default
-    state["ready"] = True
-    write_state(me, state)
+    reason, cpu_s, live, refused = None, 0.0, set(), 0
+    try:
+        for index, n in enumerate(per):
+            if agents:  # a NEW process each (not a fork): only there does macOS permit the QoS class call
+                workers.append(os.posix_spawn(sys.executable, [
+                    sys.executable, os.path.abspath(__file__), "_agent", "--token", args.token, "--owner", args.owner,
+                    "--index", str(index), "--life", "%.1f" % max(0.0, deadline - time.monotonic()),
+                    "--iters", str(args.iters), "--supervisor", str(me)], os.environ))
+                continue
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    worker_main(n, deadline, args.iters, me)
+                finally:
+                    os._exit(0)
+            workers.append(pid)
+        state["workers"] = workers
+        live = set(workers)
+        # The safety loop must run on time beside its own load. `spin` workers keep the default class; each `agents`
+        # process sets its own class (utility or background).
+        set_qos("user-initiated")
+        if agents:
+            # `start` returns when the load is this shape: each process makes its file after it has its QoS class.
+            t_ready = time.monotonic()
+            while time.monotonic() - t_ready < AGENT_READY_S and not stop["reason"]:
+                try:
+                    made = len(os.listdir(agent_folder(me)))
+                except OSError:
+                    made = 0
+                if made >= len(workers):
+                    break
+                time.sleep(0.05)
+            state["agents_ready_seconds"] = round(time.monotonic() - t_ready, 2)
+        state["ready"] = True
+        write_state(me, state)
 
-    reason, last_lock, cpu_s, live, refused = None, 0.0, 0.0, set(workers), 0
-    while reason is None:
-        time.sleep(0.1)
-        now = time.monotonic()
-        for pid in list(live):
+        last_lock = 0.0
+        while reason is None:
+            time.sleep(0.1)
+            now = time.monotonic()
+            for pid in list(live):
+                try:
+                    done, status, ru = os.wait4(pid, os.WNOHANG)
+                except ChildProcessError:
+                    done, status, ru = pid, 0, None
+                if done:
+                    live.discard(pid)
+                    if ru is not None:
+                        cpu_s += ru.ru_utime + ru.ru_stime
+                    if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
+                        refused += 1
+            if stop["reason"]:
+                reason = stop["reason"]
+            elif refused:
+                reason = "agents: the QoS class was refused in %d processes" % refused
+            elif now >= deadline:
+                reason = "max-seconds"
+            elif not alive(args.watch_pid):
+                reason = "parent gone (pid %d)" % args.watch_pid
+            elif not live:
+                reason = "workers ended"
+            elif now - last_lock >= 1.0:
+                last_lock = now
+                refusal = lock_refusal(args.owner)
+                if refusal:
+                    reason = "lock lost: " + refusal
+    finally:
+        # Also on an error in the lines above (a failed spawn, a full disk): no worker and no file stays.
+        for pid in set(workers) | live:
             try:
-                done, status, ru = os.wait4(pid, os.WNOHANG)
-            except ChildProcessError:
-                done, status, ru = pid, 0, None
-            if done:
-                live.discard(pid)
-                if ru is not None:
-                    cpu_s += ru.ru_utime + ru.ru_stime
+                os.kill(pid, signal.SIGKILL)  # our own children, by exact PID
+            except ProcessLookupError:
+                pass
+        for pid in set(workers) | live:
+            try:
+                _, status, ru = os.wait4(pid, 0)
+                cpu_s += ru.ru_utime + ru.ru_stime
                 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
                     refused += 1
-        if stop["reason"]:
-            reason = stop["reason"]
-        elif refused:
-            reason = "agents: the QoS class was refused in %d processes" % refused
-        elif now >= deadline:
-            reason = "max-seconds"
-        elif not alive(args.watch_pid):
-            reason = "parent gone (pid %d)" % args.watch_pid
-        elif not live:
-            reason = "workers ended"
-        elif now - last_lock >= 1.0:
-            last_lock = now
-            refusal = lock_refusal(args.owner)
-            if refusal:
-                reason = "lock lost: " + refusal
-    for pid in live:
-        try:
-            os.kill(pid, signal.SIGKILL)  # our own children, by exact PID
-        except ProcessLookupError:
-            pass
-    for pid in live:
-        try:
-            _, _, ru = os.wait4(pid, 0)
-            cpu_s += ru.ru_utime + ru.ru_stime
-        except ChildProcessError:
-            pass
-    if agents:
-        remove_agent_files(me, workers)
+            except ChildProcessError:
+                pass
+        if agents:
+            remove_agent_files(me, workers)
     wall = time.monotonic() - t_start
     cores_used = min(args.threads, os.cpu_count() or 1)
     if agents:
@@ -817,7 +850,7 @@ def cmd_probe(args) -> int:
 
 
 def cmd_selftest(args) -> int:
-    """The safety rules, proved with a real load of 4 threads for at most 10 s each (a temp folder stands in for
+    """The safety rules, proved with a real load of 4 to 6 threads for at most 10 s each (a temp folder stands in for
     ~/perf-lead; the real gui.lock is not read or changed). Prints one line per check and `SELFTEST PASS|FAIL`."""
     import shutil
     import tempfile
@@ -957,6 +990,15 @@ def cmd_selftest(args) -> int:
             check("agents: each process has its QoS class (priority: utility 20 or less, background 4 or less)",
                   len(pris) == 6 and all(x is not None and x <= 20 for x in pris)
                   and all(pris[i] is not None and pris[i] <= 4 for i in (2, 5)), "priorities %s" % pris)
+        rc, out, err = run("status")
+        seen = [json.loads(x) for x in out.splitlines()[1:] if x.startswith("{")]
+        check("agents: status sees the holder and its 6 processes (the token is on each command line)", rc == 0
+              and [len(h.get("live_pids", [])) for h in seen if h.get("pid") == pid] == [7], out[:200])
+        if sys.platform == "darwin":
+            rc, out, err = run("status", str(pid))
+            now = (json.loads(out) if out.startswith("{") else {}).get("now", {})
+            check("agents: status PID shows the 6 threads", now.get("workers_ps", {}).get("threads") == 6,
+                  str(now)[:200])
         rc, out, err = run("stop", str(pid))
         summary = json.loads(out) if out.startswith("{") else {}
         check("agents: stop leaves 0 processes and no file, no QoS refusal", rc == 0
@@ -997,7 +1039,8 @@ def main(argv=None) -> int:
         v.add_argument(flag, type=typ, required=True)
     v.set_defaults(fn=supervise)
     a = sub.add_parser("_agent")
-    for flag, typ in (("--index", int), ("--life", float), ("--iters", int), ("--supervisor", int)):
+    for flag, typ in (("--token", str), ("--owner", str), ("--index", int), ("--life", float), ("--iters", int),
+                      ("--supervisor", int)):
         a.add_argument(flag, type=typ, required=True)
     a.set_defaults(fn=cmd_agent)
     t = sub.add_parser("stop")
