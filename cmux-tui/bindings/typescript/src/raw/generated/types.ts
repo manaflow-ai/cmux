@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e. */
+/* cmux-tui mux protocol 12, IR 2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1457,6 +1457,8 @@ export type Tab = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
   "title": string;
+  "title_activity"?: (string) | null;
+  "title_text"?: string;
 };
 
 export type TabGroupEndedTerminal = {

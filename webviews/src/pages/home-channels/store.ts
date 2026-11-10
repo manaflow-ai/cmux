@@ -51,6 +51,8 @@ const LINK_PAGES = 20;
  * and older history loads only on a scroll the short timeline never has (#25570). */
 const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
+/** Conversations whose newest page stays in memory after another opens (``RecentPages``). */
+export const RECENT_PAGES = 8;
 
 export type Connection = "connecting" | "online" | "offline";
 
@@ -211,6 +213,9 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
   private readonly viewingBy = new Map<string, Set<string>>();
+  /** The newest page of the conversations shown last: going back to one draws it at once while its
+   * page is read again, instead of a blank transcript for data this page already had. */
+  private readonly recent = new RecentPages(RECENT_PAGES, PAGE);
 
   /** Participants' pictures through this store's client (none without a client: initials). */
   readonly avatars: AvatarService | undefined;
@@ -498,13 +503,19 @@ export class HomeChannelsStore {
 
   /** Opens a conversation: its newest page, then marks it read. */
   async select(id: string, opened = true): Promise<void> {
-    if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
+    // Open with its page read: nothing to do (a page still answering a revisit's kept copy reads again).
+    const { messages } = this.snapshot;
+    if (id === this.snapshot.selected && messages.length > 0 && !messages.some((m) => this.recent.seeded(m))) return;
     // Opening a conversation I marked unread reads it: the mark goes (not the page's own first
     // pick at load: a mark stays until I open the conversation).
     if (opened && this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
+    const left = this.snapshot.selected;
+    if (left && left !== id) this.recent.keep(left, this.snapshot.messages);
     this.set({
       selected: id,
-      messages: [],
+      // What this conversation showed when it was last open, until its page answers (`reloadPage`
+      // replaces it with the owner's page, as if it had not been there).
+      messages: this.recent.seed(id),
       hasOlder: false,
       thread: undefined,
       threadView: undefined,
@@ -533,9 +544,10 @@ export class HomeChannelsStore {
       // messages that end before the page starts (more than a page came in since, a reconnect)
       // would leave a hole no older page fills: the window starts at the page then (#25570).
       const kept = joining(
-        this.snapshot.messages.filter((m) => m.conversation === id),
+        this.snapshot.messages.filter((m) => m.conversation === id && !this.recent.seeded(m)),
         page.messages[0]?.seq,
       );
+      this.recent.release();
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -1202,6 +1214,7 @@ export class HomeChannelsStore {
     for (const id of batch.removed ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
       conversations.delete(id);
+      this.recent.forget(id);
     }
     for (const change of batch.inbox ?? []) {
       const current = (conversations ?? this.snapshot.conversations).get(change.conversation);
@@ -1585,6 +1598,57 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
  * while the page was read), and older ones only while they run without a gap up to the page. A
  * window that ends before the page starts (more than a page came in, a reconnect) would leave a
  * hole no older page fills, so the window then starts at the page (#25570). */
+/**
+ * The newest page of the last few conversations shown (at most `size`, each at most `page`
+ * messages, the least recently left dropped first): what a revisit draws while its page is read
+ * again. The copies drawn are marked (`seeded`) so the page's answer replaces them rather than
+ * joining them as events that came in meanwhile; an event's newer copy is a new object and joins.
+ */
+export class RecentPages {
+  private readonly pages = new Map<string, readonly HomeMessage[]>();
+  /** The copies the shown conversation was seeded with, until its page answered. */
+  private marks = new WeakSet<HomeMessage>();
+
+  constructor(
+    private readonly size: number,
+    private readonly page: number,
+  ) {}
+
+  /** `conversation` was left showing `messages` (its own; any other conversation's are ignored). */
+  keep(conversation: string, messages: readonly HomeMessage[]): void {
+    const own = messages.filter((message) => message.conversation === conversation).slice(-this.page);
+    this.pages.delete(conversation);
+    if (!own.length) return;
+    this.pages.set(conversation, own);
+    for (const oldest of this.pages.keys()) {
+      if (this.pages.size <= this.size) break;
+      this.pages.delete(oldest);
+    }
+  }
+
+  /** What `conversation` showed when it was left, marked as a seed (empty: nothing kept). */
+  seed(conversation: string): HomeMessage[] {
+    const kept = this.pages.get(conversation);
+    this.marks = new WeakSet(kept);
+    return kept ? [...kept] : [];
+  }
+
+  /** `message` is a kept copy drawn on a revisit, not one the owner sent since. */
+  seeded(message: HomeMessage): boolean {
+    return this.marks.has(message);
+  }
+
+  /** The page answered: no copy on screen is a seed any more. */
+  release(): void {
+    this.marks = new WeakSet();
+  }
+
+  /** The conversation is gone: nothing of it is drawn again. */
+  forget(conversation: string): void {
+    this.pages.delete(conversation);
+  }
+}
+
 function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
   if (first === undefined) return [...window];
   const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
