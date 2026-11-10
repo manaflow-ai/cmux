@@ -134,6 +134,22 @@ describe("saved prompts", () => {
     expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["new"]);
   });
 
+  test("a save or delete before acpmux connects keeps nothing and says it failed", async () => {
+    await expect(savePrompt("early", "text")).rejects.toThrow();
+    await expect(deletePrompt("early")).rejects.toThrow();
+    expect(savedPromptsNow()).toEqual([]);
+    // The connection's list is what acpmux holds: nothing from before it was there.
+    const saves: string[] = [];
+    setSavedPromptsTransport({
+      list: async () => ({ prompts: [] }),
+      save: async (name: string) => (saves.push(name), {}),
+      remove: async () => ({}),
+    });
+    await refreshSavedPrompts();
+    expect(saves).toEqual([]);
+    expect(savedPromptsNow()).toEqual([]);
+  });
+
   test("another acpmux starts from no list, and the old one's late answer is dropped", async () => {
     let answer: (value: unknown) => void = () => undefined;
     const old = {
