@@ -103,7 +103,9 @@ class Target:
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
                  project=STAGING_PROJECT_ID, profile_image_url=None, team_id=None):
         self.email, self.display_name, self.project = email, display_name, project
-        # The Stack team the account is made a member of on every run; None keeps it out of every team.
+        # The Stack team the account is made a member of on every run; None keeps it out of every team. An account
+        # with a team shares that team's machines with its people, so it may never take a carrier fault: cmux-tui
+        # carrier/fault.rs PROBE_ACCOUNTS takes only the targets without one (its test reads this argument).
         self.team_id = team_id
         # Set on create and on every rotation when given, so a person looking at a two-account test tells them apart.
         self.profile_image_url = profile_image_url
