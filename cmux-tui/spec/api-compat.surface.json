@@ -19924,7 +19924,6 @@
       },
       "/data/disk/checkpoints": {
         "ty": "object",
-        "required": true,
         "nullable": true
       },
       "/data/disk/checkpoints/budget_bytes": {

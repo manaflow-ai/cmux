@@ -6511,7 +6511,8 @@
     "write_path is present only when the request names it in include.",
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
-    "disk is present only when the request names it in include and the session keeps its registry on disk."
+    "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include."
    ]
   },
   "ServerStatsHookQueue": {
@@ -7429,8 +7430,9 @@
       "kind": "ref",
       "name": "ServerStatsDiskCheckpoints"
      },
-     "presence": "required",
-     "nullable": true
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
     },
     "error": {
      "type": {
@@ -7445,7 +7447,8 @@
    "constraints": [
     "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-    "journal, segments and checkpoints are null when the registry could not be read, and error says why.",
+    "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+    "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
@@ -18279,7 +18282,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
    ]
   },
   "paste-image": {

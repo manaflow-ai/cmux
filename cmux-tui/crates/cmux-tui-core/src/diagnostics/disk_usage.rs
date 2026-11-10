@@ -145,7 +145,10 @@ pub struct DiskUsageSnapshot {
     /// `null` when the registry could not be read (see `error`).
     pub journal: Option<JournalDiskSnapshot>,
     pub segments: Option<SegmentDiskSnapshot>,
-    pub checkpoints: Option<CheckpointDiskSnapshot>,
+    /// Present only when the request names `disk_checkpoints` (older SDKs
+    /// refuse unknown fields); `null` when the registry could not be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoints: Option<Option<CheckpointDiskSnapshot>>,
     pub error: Option<String>,
 }
 
@@ -246,11 +249,19 @@ struct SegmentTotals {
 }
 
 /// The sections read from the registry database itself.
-type DiskSections = (JournalDiskSnapshot, SegmentDiskSnapshot, CheckpointDiskSnapshot);
+type DiskSections = (JournalDiskSnapshot, SegmentDiskSnapshot, Option<CheckpointDiskSnapshot>);
 
-/// Reads the `disk` section of the registry at `database_path`.
-pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> DiskUsageSnapshot {
-    let mut snapshot = DiskUsageSnapshot::default();
+/// Reads the `disk` section of the registry at `database_path`, with its
+/// `checkpoints` when `with_checkpoints`.
+pub fn read_disk_usage(
+    database_path: &Path,
+    cache: &mut DiskUsageCache,
+    with_checkpoints: bool,
+) -> DiskUsageSnapshot {
+    let mut snapshot = DiskUsageSnapshot {
+        checkpoints: with_checkpoints.then_some(None),
+        ..DiskUsageSnapshot::default()
+    };
     let file_len = |suffix: &str| {
         let mut path = database_path.as_os_str().to_owned();
         path.push(suffix);
@@ -277,7 +288,8 @@ pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> Disk
             snapshot.freelist_pages = pragma("freelist_count")?;
             let journal = read_journal_tail(&connection)?;
             let segments = read_segments(&connection, file, cache)?;
-            let checkpoints = read_checkpoints(&connection)?;
+            let checkpoints =
+                if with_checkpoints { Some(read_checkpoints(&connection)?) } else { None };
             Ok((journal, segments, checkpoints))
         },
     );
@@ -285,7 +297,9 @@ pub fn read_disk_usage(database_path: &Path, cache: &mut DiskUsageCache) -> Disk
         Ok((journal, segments, checkpoints)) => {
             snapshot.journal = Some(journal);
             snapshot.segments = Some(segments);
-            snapshot.checkpoints = Some(checkpoints);
+            if with_checkpoints {
+                snapshot.checkpoints = Some(checkpoints);
+            }
         }
         Err(error) => snapshot.error = Some(format!("{error:#}")),
     }

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "fca691543e9ec75ae62355970b35e05f54f5c33008d0cb16f25288896521ad34";
+pub const ir_sha256 = "c86ac70370e57bd0e136e30694db9d059564974d0dc42a94d16d871cb3d1ab58";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2041,7 +2041,7 @@ pub const ServerStatsConnections = struct {
 };
 
 pub const ServerStatsDisk = struct {
-    checkpoints: wire.Nullable(ServerStatsDiskCheckpoints),
+    checkpoints: wire.Field(ServerStatsDiskCheckpoints) = .absent,
     @"error": wire.Nullable([]const u8),
     files: []const ServerStatsDiskFile,
     files_truncated: bool,

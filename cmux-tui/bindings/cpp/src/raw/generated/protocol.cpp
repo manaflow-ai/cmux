@@ -9197,12 +9197,10 @@ Result<ServerStatsConnections> Codec<ServerStatsConnections>::decode(const Json&
 Result<Json> Codec<ServerStatsDisk>::encode(const ServerStatsDisk& value) {
     (void)value;
     Json::Object object;
-    if (value.checkpoints) {
-        auto encoded = encode_value(*value.checkpoints);
+    if (!value.checkpoints.is_absent()) {
+        auto encoded = encode_value(value.checkpoints);
         if (!encoded) return std::move(encoded).error();
         object.emplace("checkpoints", std::move(encoded).value());
-    } else {
-        object.emplace("checkpoints", Json(nullptr));
     }
     if (value.error) {
         auto encoded = encode_value(*value.error);
@@ -9260,16 +9258,13 @@ Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
     if (!source) return std::move(source).error();
     ServerStatsDisk result{};
     const Json* field_checkpoints = value.find("checkpoints");
-    if (!field_checkpoints) {
-        return make_error(ErrorCode::decode, "missing required field 'checkpoints'");
-    }
     if (field_checkpoints) {
         if (field_checkpoints->is_null()) {
-            result.checkpoints.reset();
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>::null();
         } else {
             auto decoded = decode_value<ServerStatsDiskCheckpoints>(*field_checkpoints);
             if (!decoded) return std::move(decoded).error();
-            result.checkpoints = std::move(decoded).value();
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>(std::move(decoded).value());
         }
     }
     const Json* field_error = value.find("error");

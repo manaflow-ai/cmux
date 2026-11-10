@@ -186,11 +186,11 @@ fn disk_budget_guard() {
     // Sealing moves the rows into compressed segments, and the disk section
     // reports them; a second read adds only the segments sealed since.
     let first = seal_all(&mux, "first");
-    let early = mux.disk_usage_stats().expect("an on-disk registry");
+    let early = mux.disk_usage_stats(false).expect("an on-disk registry");
     put_session(&mux, &sessions[0], &transport(usize::MAX), &capabilities);
     let second = seal_all(&mux, "second");
     assert!(second > first);
-    let disk = mux.disk_usage_stats().expect("an on-disk registry");
+    let disk = mux.disk_usage_stats(false).expect("an on-disk registry");
     let segments = disk.segments.as_ref().expect("segments read");
     let (count, compressed, uncompressed): (i64, i64, i64) = connection
         .query_row(
@@ -259,8 +259,8 @@ fn checkpoints_within_budget(
         put_session(mux, &sessions[round % sessions.len()], &transport, capabilities);
         seal_all(mux, &format!("checkpoint-{round}"));
     }
-    let disk = mux.disk_usage_stats().expect("an on-disk registry");
-    let unpruned = disk.checkpoints.expect("checkpoints read");
+    let disk = mux.disk_usage_stats(true).expect("an on-disk registry");
+    let unpruned = disk.checkpoints.flatten().expect("checkpoints read");
     assert!(unpruned.checkpoints > rounds as u64, "{unpruned:?}");
     loop {
         let pruned = mux.workspace_registry.lock().unwrap().prune_journal_checkpoints().unwrap();
@@ -268,8 +268,8 @@ fn checkpoints_within_budget(
             break;
         }
     }
-    let disk = mux.disk_usage_stats().expect("an on-disk registry");
-    let kept = disk.checkpoints.expect("checkpoints read");
+    let disk = mux.disk_usage_stats(true).expect("an on-disk registry");
+    let kept = disk.checkpoints.flatten().expect("checkpoints read");
     let (rows, state_bytes): (i64, i64) = connection
         .query_row(
             "SELECT COUNT(*), SUM(octet_length(state_json)) FROM journal_checkpoints",

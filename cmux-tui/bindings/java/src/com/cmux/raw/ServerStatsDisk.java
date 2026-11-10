@@ -11,7 +11,7 @@ import java.util.Objects;
 
 
 public final class ServerStatsDisk implements WireValue {
-    private final ServerStatsDiskCheckpoints checkpoints;
+    private final Field<ServerStatsDiskCheckpoints> checkpoints;
     private final String error;
     private final List<ServerStatsDiskFile> files;
     private final boolean filesTruncated;
@@ -26,7 +26,6 @@ public final class ServerStatsDisk implements WireValue {
     private final UInt64 walBytes;
 
     private ServerStatsDisk(Builder builder) {
-        if (!builder.checkpointsSet) throw new IllegalArgumentException("checkpoints is required");
         this.checkpoints = builder.checkpoints;
         if (!builder.errorSet) throw new IllegalArgumentException("error is required");
         this.error = builder.error;
@@ -56,7 +55,7 @@ public final class ServerStatsDisk implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public ServerStatsDiskCheckpoints checkpoints() { return checkpoints; }
+    public Field<ServerStatsDiskCheckpoints> checkpoints() { return checkpoints; }
     public String error() { return error; }
     public List<ServerStatsDiskFile> files() { return files; }
     public boolean filesTruncated() { return filesTruncated; }
@@ -73,8 +72,10 @@ public final class ServerStatsDisk implements WireValue {
     public static ServerStatsDisk fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsDisk");
         Builder builder = builder();
-        Object rawCheckpoints = Wire.required(object, "checkpoints");
-        builder.checkpoints(rawCheckpoints == null ? null : ServerStatsDiskCheckpoints.fromWire(rawCheckpoints));
+        Object rawCheckpoints = Wire.optional(object, "checkpoints");
+        if (!Wire.isMissing(rawCheckpoints)) {
+            builder.checkpoints(rawCheckpoints == null ? null : ServerStatsDiskCheckpoints.fromWire(rawCheckpoints));
+        }
         Object rawError = Wire.required(object, "error");
         builder.error(rawError == null ? null : Wire.string(rawError, "ServerStatsDisk.error"));
         Object rawFiles = Wire.required(object, "files");
@@ -134,8 +135,7 @@ public final class ServerStatsDisk implements WireValue {
     public String toString() { return "ServerStatsDisk" + toWire(); }
 
     public static final class Builder {
-        private ServerStatsDiskCheckpoints checkpoints;
-        private boolean checkpointsSet;
+        private Field<ServerStatsDiskCheckpoints> checkpoints = Field.omitted();
         private String error;
         private boolean errorSet;
         private List<ServerStatsDiskFile> files;
@@ -162,8 +162,7 @@ public final class ServerStatsDisk implements WireValue {
         private boolean walBytesSet;
 
         public Builder checkpoints(ServerStatsDiskCheckpoints value) {
-            this.checkpoints = value;
-            this.checkpointsSet = true;
+            this.checkpoints = Field.ofNullable(value);
             return this;
         }
         public Builder error(String value) {

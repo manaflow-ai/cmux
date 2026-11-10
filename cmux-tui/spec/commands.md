@@ -591,8 +591,9 @@ section is the exception: it reads the registry on its own read-only
 connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `locks`, `hook_queue` and `disk`;
-unknown names are ignored.
+sections: `resource_projection`, `write_path`, `locks`, `hook_queue` and `disk`,
+and `disk_checkpoints`, which adds `checkpoints` to `disk`; unknown names are
+ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -653,7 +654,7 @@ object{
         compressed_bytes:uint64,uncompressed_bytes:uint64}>,
       kinds:array<object{kind:string,segments:uint64}>
     }|null,
-    checkpoints:object{
+    checkpoints?:object{
       checkpoints:uint64, bytes:uint64, largest_bytes:uint64,
       budget_bytes:uint64, over_budget:boolean
     }|null,
@@ -764,18 +765,20 @@ text and blob column plus 64 bytes a row), the rate they were written at
 (`bytes_per_day`), the kind's entry in the daemon's disk budget table and
 whether the rate is over it. `segments` sums the sealed segments by codec,
 compressed and uncompressed, and counts the segments holding each kind.
-`checkpoints` counts the journal checkpoints and their bytes (each row's id,
+`checkpoints`, present only when `include` also names `disk_checkpoints`
+(so an older SDK that asks for `disk` gets the shape it decodes, and older
+daemons never send it), counts the journal checkpoints and their bytes (each row's id,
 state and content references plus 96 bytes; `largest_bytes` is the largest
 row) against the daemon's checkpoint budget, `budget_bytes`: the newest 16
 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each.
 `over_budget` is true when `bytes` is over it.
 Cost: one directory listing (at most 20000 entries), a few header pragmas,
-two rowid seeks, the newest 1024 rows and the checkpoint rows (pruning keeps
-them few; their lengths read no overflow page) on a read-only connection
+two rowid seeks, the newest 1024 rows and, with `disk_checkpoints`, the
+checkpoint rows (pruning keeps them few; their lengths read no overflow page) on a read-only connection
 with no registry lock, never a scan of the journal; segment sums are kept
 between requests and add only segments sealed since the last one.
-`journal`, `segments` and `checkpoints` are `null` and `error` says why when
-the registry cannot be read. It is present only for a registry on disk.
+`journal`, `segments` and a requested `checkpoints` are `null` and `error`
+says why when the registry cannot be read. It is present only for a registry on disk.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

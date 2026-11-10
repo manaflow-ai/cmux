@@ -1570,7 +1570,6 @@ class ServerStatsConnections:
 @dataclass(frozen=True)
 class ServerStatsDisk:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDisk'
-    checkpoints: Union[ServerStatsDiskCheckpoints, None]
     error: Union[str, None]
     files: List[ServerStatsDiskFile]
     files_truncated: bool
@@ -1583,6 +1582,7 @@ class ServerStatsDisk:
     segments: Union[ServerStatsDiskSegments, None]
     shm_bytes: int
     wal_bytes: int
+    checkpoints: Union[ServerStatsDiskCheckpoints, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

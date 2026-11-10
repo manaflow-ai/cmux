@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fca691543e9ec75ae62355970b35e05f54f5c33008d0cb16f25288896521ad34";
+inline constexpr std::string_view kProtocolIrSha256 = "c86ac70370e57bd0e136e30694db9d059564974d0dc42a94d16d871cb3d1ab58";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5102,7 +5102,7 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
-    std::optional<ServerStatsDiskCheckpoints> checkpoints{};
+    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
