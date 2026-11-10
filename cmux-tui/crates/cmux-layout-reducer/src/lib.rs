@@ -965,6 +965,7 @@ mod proofs;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_bridge;
+pub mod sidebar_caps;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;
