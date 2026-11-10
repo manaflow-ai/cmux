@@ -11,7 +11,8 @@ package import CmuxNextSettings
 ///   a split below that pane once, then tabs in the column's lower pane (Leo 2026-10-30: "if
 ///   there's already a thing on the right, there should be logic for just putting it on the lower
 ///   pane of the right"). A terminal or browser goes to a pane there that already holds its kind,
-///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing").
+///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing"). A browser
+///   link never splits below: it is a tab in the pane there, as in classic cmux (Aziz 2026-11-09).
 ///   Unmeasured, the pane on the right gets the tab.
 /// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
 ///
@@ -107,6 +108,10 @@ package struct LinkOpenPlacement<Pane: Equatable> {
                          holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
         guard !column.isEmpty else { return .pane(right) }
         switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width, opening: kind, holds: holds) {
+        // A browser link never makes a pane when one is already on the right: a tab in it, as classic cmux does
+        // (`openTerminalBrowserLink`). Aziz 2026-11-09: "when I open a browser link, it shouldn't open in a new
+        // pane if there already exists another pane".
+        case .splitBelow(let pane) where kind == .browser: return .pane(pane)
         case .splitBelow(let pane): return .splitBelow(of: pane)
         case .tab(let pane): return .pane(pane ?? right)
         case .splitRight: return .pane(right)
