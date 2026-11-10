@@ -32,6 +32,7 @@ pub use disk_usage::{
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
 mod hook_queue;
+pub(crate) mod request_log;
 mod write_path;
 pub use hook_queue::{
     HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
@@ -246,11 +247,24 @@ pub struct LockStats {
     holder: Mutex<Option<Holder>>,
     last_stall: Mutex<Option<Stall>>,
     sites: Mutex<HashMap<LockSite, SiteStats>>,
+    /// The lock's name and the session's slow request log, which gets a line for
+    /// each hold of [`LOCK_STALL_THRESHOLD`] or more (`report_long_holds`).
+    long_holds: std::sync::OnceLock<(&'static str, std::sync::Arc<request_log::RequestLog>)>,
 }
 
 impl LockStats {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// From now on, a hold of this lock (`name`) of [`LOCK_STALL_THRESHOLD`] or more gets a
+    /// line in `log` with the holder's site.
+    pub(crate) fn report_long_holds(
+        &self,
+        name: &'static str,
+        log: std::sync::Arc<request_log::RequestLog>,
+    ) {
+        let _ = self.long_holds.set((name, log));
     }
 
     /// Call before blocking. Returns the site holding the lock at that moment
@@ -261,6 +275,9 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        if waited >= LOCK_CONTENDED_THRESHOLD {
+            request_log::add_lock_wait(waited);
+        }
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -305,6 +322,12 @@ impl LockStats {
         entry.hold_max_us = entry.hold_max_us.max(held_us);
         entry.hold.record(held_us);
         entry.wait.record(waited_us);
+        drop(sites);
+        if held >= LOCK_STALL_THRESHOLD
+            && let Some((name, log)) = self.long_holds.get()
+        {
+            log.long_hold(name, site, held, waited);
+        }
     }
 
     fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
@@ -676,9 +699,29 @@ pub struct ConnectionStats {
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
+    /// The session's slow request log (`request_log`), once the session's folder is known.
+    request_log: std::sync::OnceLock<std::sync::Arc<request_log::RequestLog>>,
 }
 
 impl ConnectionStats {
+    /// Opens the session's slow request log in `directory`, once; the log, if there is one.
+    pub(crate) fn open_request_log(
+        &self,
+        directory: &std::path::Path,
+    ) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        if self.request_log.get().is_none()
+            && let Some(log) = request_log::RequestLog::open(directory)
+        {
+            let _ = self.request_log.set(log);
+        }
+        self.request_log.get()
+    }
+
+    /// The session's slow request log, when it is open.
+    pub(crate) fn request_log(&self) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        self.request_log.get()
+    }
+
     /// Counts one connection that already holds a slot as terminal-bound, if
     /// fewer than `limit` terminal-bound connections are active. A refusal
     /// moves the connection from `accepted` to `refused`; the caller gives

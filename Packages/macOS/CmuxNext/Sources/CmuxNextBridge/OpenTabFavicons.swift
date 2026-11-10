@@ -113,7 +113,8 @@ import Observation
     /// One workspace's favicons changed: the table's entries of that workspace's sites (before and now) are found again
     /// from the first holder of each site, as ``table(_:)`` gives them. No other workspace is visited.
     private func itemChanged(_ change: ObservedItems<WorkspaceModel, [Favicon]>.Change) {
-        // A place outside the items kept is a list this owner did not read yet: read it (never keep a wrong table).
+        // A place outside the items kept comes only from ids that are not unique (the place is then wrong): read the
+        // list again, never keep a wrong table.
         guard items.indices.contains(change.position) else { return listChanged() }
         items[change.position] = change.new
         let before = Set(change.old.map(\.origin))

@@ -151,7 +151,7 @@ public final class SidebarModel {
     /// The focused workspace is always listed (sidebar-focused-visible): a
     /// new workspace selection opens the collapsed sections that hide it
     /// (`expandSections(hiding:)`), and the list scrolls it into view
-    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// (`ListViewportChange.settle`). Every selection path (a click, Cmd-P, a link,
     /// the CLI, an agent's focus, a new workspace) sets this one property.
     public var selectedItem: SidebarItem? {
         didSet {
@@ -463,6 +463,7 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
+        SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]

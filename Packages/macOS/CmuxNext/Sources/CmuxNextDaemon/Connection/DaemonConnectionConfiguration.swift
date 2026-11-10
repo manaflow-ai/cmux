@@ -71,6 +71,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
     /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
     public var requestLatency: DaemonRequestLatency?
+    /// Records each request that was slow or failed (``SlowRequestLog``). Nil: not recorded. The local
+    /// ``DaemonService`` sets its own.
+    public var slowRequestLog: SlowRequestLog?
     /// App health's sink: the first timed-out request and the first answer after one. Nil: not reported.
     public var health: DaemonHealthSink?
     /// Hands an owner the handshake refuses (another protocol, or a required capability missing)

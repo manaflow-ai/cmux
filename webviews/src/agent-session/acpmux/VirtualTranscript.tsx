@@ -169,7 +169,7 @@ import {
   jumpUpShown,
   jumpUpTarget,
   lastOwnPrompt,
-  placeOffScreen,
+  placeOffView,
   pressJumpUp,
   type JumpBack,
   type ManualMark,
@@ -5048,7 +5048,7 @@ function TranscriptView({
     : undefined;
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffScreen(upTop, renderScroll.top - origin, height, topInset);
+  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
   const upTopRef = useRef(upTop);
   upTopRef.current = upTop;
