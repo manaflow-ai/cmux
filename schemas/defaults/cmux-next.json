@@ -651,7 +651,7 @@
     "setting.notifications.attention.duration": 3,
     "setting.notifications.attention.flash": true,
     "setting.notifications.attention.flashOnTyping": true,
-    "setting.notifications.attention.moveToTop": false,
+    "setting.notifications.attention.moveToTop": true,
     "setting.notifications.attention.moveToTopOnAgentFinish": false,
     "setting.notifications.attention.persist": true,
     "setting.notifications.attention.showOnSidebar": true,
