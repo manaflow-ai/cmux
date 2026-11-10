@@ -15,6 +15,7 @@ public final class Tree implements WireValue {
     private final Field<UInt64> paneRevision;
     private final Field<String> registryId;
     private final Field<UInt64> terminalRevision;
+    private final Field<UInt64> total;
     private final Field<String> treeRevision;
     private final Field<Boolean> unchanged;
     private final Field<UInt64> workspaceRevision;
@@ -25,6 +26,7 @@ public final class Tree implements WireValue {
         this.paneRevision = builder.paneRevision;
         this.registryId = builder.registryId;
         this.terminalRevision = builder.terminalRevision;
+        this.total = builder.total;
         this.treeRevision = builder.treeRevision;
         this.unchanged = builder.unchanged;
         this.workspaceRevision = builder.workspaceRevision;
@@ -38,6 +40,7 @@ public final class Tree implements WireValue {
     public Field<UInt64> paneRevision() { return paneRevision; }
     public Field<String> registryId() { return registryId; }
     public Field<UInt64> terminalRevision() { return terminalRevision; }
+    public Field<UInt64> total() { return total; }
     public Field<String> treeRevision() { return treeRevision; }
     public Field<Boolean> unchanged() { return unchanged; }
     public Field<UInt64> workspaceRevision() { return workspaceRevision; }
@@ -61,6 +64,10 @@ public final class Tree implements WireValue {
         Object rawTerminalRevision = Wire.optional(object, "terminal_revision");
         if (!Wire.isMissing(rawTerminalRevision)) {
             builder.terminalRevision(Wire.uint64(rawTerminalRevision, "Tree.terminal_revision"));
+        }
+        Object rawTotal = Wire.optional(object, "total");
+        if (!Wire.isMissing(rawTotal)) {
+            builder.total(Wire.uint64(rawTotal, "Tree.total"));
         }
         Object rawTreeRevision = Wire.optional(object, "tree_revision");
         if (!Wire.isMissing(rawTreeRevision)) {
@@ -86,6 +93,7 @@ public final class Tree implements WireValue {
         Wire.put(object, "pane_revision", paneRevision);
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "terminal_revision", terminalRevision);
+        Wire.put(object, "total", total);
         Wire.put(object, "tree_revision", treeRevision);
         Wire.put(object, "unchanged", unchanged);
         Wire.put(object, "workspace_revision", workspaceRevision);
@@ -96,11 +104,11 @@ public final class Tree implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tree that)) return false;
-        return Objects.equals(generation, that.generation) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
+        return Objects.equals(generation, that.generation) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(total, that.total) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(generation, paneRevision, registryId, terminalRevision, treeRevision, unchanged, workspaceRevision, workspaces); }
+    public int hashCode() { return Objects.hash(generation, paneRevision, registryId, terminalRevision, total, treeRevision, unchanged, workspaceRevision, workspaces); }
 
     @Override
     public String toString() { return "Tree" + toWire(); }
@@ -110,6 +118,7 @@ public final class Tree implements WireValue {
         private Field<UInt64> paneRevision = Field.omitted();
         private Field<String> registryId = Field.omitted();
         private Field<UInt64> terminalRevision = Field.omitted();
+        private Field<UInt64> total = Field.omitted();
         private Field<String> treeRevision = Field.omitted();
         private Field<Boolean> unchanged = Field.omitted();
         private Field<UInt64> workspaceRevision = Field.omitted();
@@ -130,6 +139,10 @@ public final class Tree implements WireValue {
         }
         public Builder terminalRevision(UInt64 value) {
             this.terminalRevision = Field.of(value);
+            return this;
+        }
+        public Builder total(UInt64 value) {
+            this.total = Field.of(value);
             return this;
         }
         public Builder treeRevision(String value) {

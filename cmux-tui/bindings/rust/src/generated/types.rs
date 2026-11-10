@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4.
+// cmux-tui mux protocol 12, IR 274d7383200bcb999be1aaaf04fa508db94c9ec2dd87c36140bb68785ae0fc69.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -3127,6 +3127,8 @@ pub struct Tree {
     pub registry_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_revision: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub tree_revision: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4. */
+/* cmux-tui mux protocol 12, IR 274d7383200bcb999be1aaaf04fa508db94c9ec2dd87c36140bb68785ae0fc69. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4" as const;
+export const SDK_IR_SHA256 = "274d7383200bcb999be1aaaf04fa508db94c9ec2dd87c36140bb68785ae0fc69" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1663,6 +1663,10 @@ export const COMMAND_METADATA = {
       "known": {
         "since": 12,
         "capability": "list-workspaces-known-v1"
+      },
+      "limit": {
+        "since": 12,
+        "capability": "list-workspaces-limit-v1"
       }
     },
     "stream": null,
@@ -15137,6 +15141,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "total": {
+        "capability": "list-workspaces-limit-v1",
+        "constraints": [
+          "With limit: the number of workspaces in the session."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "tree_revision": {
         "capability": "list-workspaces-known-v1",
         "constraints": [
@@ -22234,6 +22251,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "ListWorkspacesKnown"
+          }
+        },
+        "limit": {
+          "capability": "list-workspaces-limit-v1",
+          "constraints": [
+            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         }
       },

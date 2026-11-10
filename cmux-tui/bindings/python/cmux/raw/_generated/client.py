@@ -438,8 +438,8 @@ class GeneratedClientMixin:
     def list_workspace_groups(self) -> JsonValue:
         return self._invoke_command('list-workspace-groups', ListWorkspaceGroupsRequest())
 
-    def list_workspaces(self, *, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING) -> Tree:
-        return self._invoke_command('list-workspaces', ListWorkspacesRequest(known=known))
+    def list_workspaces(self, *, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
+        return self._invoke_command('list-workspaces', ListWorkspacesRequest(known=known, limit=limit))
 
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())

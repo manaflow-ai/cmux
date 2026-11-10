@@ -9861,6 +9861,10 @@
       "/known/workspace_revision": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:machine-listening-tcp": {},
@@ -18034,6 +18038,9 @@
         "ty": "string"
       },
       "/data/terminal_revision": {
+        "ty": "uint64"
+      },
+      "/data/total": {
         "ty": "uint64"
       },
       "/data/tree_revision": {

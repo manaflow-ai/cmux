@@ -9,6 +9,7 @@ use cmux_json::JsonSet as _;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;
+use super::list_workspaces_reply_first;
 use super::list_workspaces_reply_since;
 use super::optional_surface_size;
 use super::personal;
@@ -45,15 +46,18 @@ pub(super) struct KnownTree {
 /// (#32408).
 ///
 /// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
-/// current. Without it, the reply is the same as before `known` existed, byte for byte.
+/// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
+/// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
+    limit: Option<usize>,
 ) -> anyhow::Result<Value> {
-    let mut reply = match known {
-        Some(known) => list_workspaces_reply_since(mux, known)?,
-        None => list_workspaces_reply(mux)?,
+    let mut reply = match (known, limit) {
+        (Some(known), limit) => list_workspaces_reply_since(mux, known, limit)?,
+        (None, Some(limit)) => list_workspaces_reply_first(mux, limit)?.0,
+        (None, None) => list_workspaces_reply(mux)?,
     };
     if let Some(lines) = lines_written {
         reply.set("lines_written_before_read", json!(lines));

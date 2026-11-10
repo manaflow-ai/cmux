@@ -15886,6 +15886,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_revision", std::move(encoded).value());
     }
+    if (value.total) {
+        auto encoded = encode_value(*value.total);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("total", std::move(encoded).value());
+    }
     if (value.tree_revision) {
         auto encoded = encode_value(*value.tree_revision);
         if (!encoded) return std::move(encoded).error();
@@ -15934,6 +15939,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
         if (!decoded) return std::move(decoded).error();
         result.terminal_revision = std::move(decoded).value();
+    }
+    const Json* field_total = value.find("total");
+    if (field_total) {
+        auto decoded = decode_value<std::uint64_t>(*field_total);
+        if (!decoded) return std::move(decoded).error();
+        result.total = std::move(decoded).value();
     }
     const Json* field_tree_revision = value.find("tree_revision");
     if (field_tree_revision) {
@@ -25823,6 +25834,11 @@ Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("known", std::move(encoded).value());
     }
+    if (!value.limit.is_absent()) {
+        auto encoded = encode_value(value.limit);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("limit", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -25838,6 +25854,16 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
             auto decoded = decode_value<ListWorkspacesKnown>(*field_known);
             if (!decoded) return std::move(decoded).error();
             result.known = Field<ListWorkspacesKnown>(std::move(decoded).value());
+        }
+    }
+    const Json* field_limit = value.find("limit");
+    if (field_limit) {
+        if (field_limit->is_null()) {
+            result.limit = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_limit);
+            if (!decoded) return std::move(decoded).error();
+            result.limit = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     return result;
@@ -45205,8 +45231,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand126FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand142FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand142FieldRequirements{{
     {"known", 12U, "list-workspaces-known-v1"},
+    {"limit", 12U, "list-workspaces-limit-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand155FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
