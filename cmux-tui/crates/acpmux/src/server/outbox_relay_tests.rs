@@ -212,22 +212,25 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
     let (hub, fake) = setup(FakeHub::default());
     let now = crate::store::now_ms();
     // Saved before `neverSent`, or after an attempt that went out: the peer may have run it.
-    let saved = hub.outbox.add(Delivery {
-        id: "d-reached".into(),
-        target: "huge-blue/lane".into(),
-        request: request("huge-blue/lane", "prompt-reached")["request"].clone(),
-        caller: None,
-        unproven_caller: None,
-        not_terminal: false,
-        state: State::Queued,
-        attempts: 1,
-        never_sent: false,
-        relay_post: None,
-        error: Some("peer disconnected".into()),
-        accepted: None,
-        created_at: now,
-        updated_at: now,
-    });
+    let saved = hub
+        .outbox
+        .add(Delivery {
+            id: "d-reached".into(),
+            target: "huge-blue/lane".into(),
+            request: request("huge-blue/lane", "prompt-reached")["request"].clone(),
+            caller: None,
+            unproven_caller: None,
+            not_terminal: false,
+            state: State::Queued,
+            attempts: 1,
+            never_sent: false,
+            relay_post: None,
+            error: Some("peer disconnected".into()),
+            accepted: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .unwrap();
     resume(&hub, vec![saved]);
     let d = after_attempt(&hub, "d-reached", 2).await;
     assert_eq!(d.state, State::Queued, "{d:?}");

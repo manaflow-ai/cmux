@@ -159,11 +159,22 @@ pub(super) async fn handle(
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
     // a slow disk never holds an async worker that serves other connections, and agent work at
     // its clamped priority never starves the write the sender waits on.
-    let delivery = {
+    let added = {
         let (hub, new) = (hub.clone(), new.clone());
         tokio::task::spawn_blocking(move || crate::qos::on_screen(|| hub.outbox.add(new)))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
+    };
+    // Not on disk, so not kept: the sender is told to send it again, and its attachments go.
+    let delivery = match added {
+        Ok(delivery) => delivery,
+        Err(e) => {
+            if let Some(path) = kept {
+                forget_attachments(path).await;
+            }
+            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
+                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+        }
     };
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
