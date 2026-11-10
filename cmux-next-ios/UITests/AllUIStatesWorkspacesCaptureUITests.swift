@@ -37,24 +37,6 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 ])
             },
             Scene(group: g, id: "filter-menu", args: Self.list) { app in C.tap(C.any(app, "workspaces.filter"), "filter menu") },
-            Scene(group: g, id: "filtered-to-mac", args: Self.list) { app in
-                C.steps([
-                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
-                    { C.tap(C.label(app, contains: "Mac Studio"), "Mac Studio filter") },
-                ])
-            },
-            Scene(group: g, id: "filtered-offline-mac", args: Self.list) { app in
-                C.steps([
-                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
-                    { C.tap(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'MacBook Pro'")).firstMatch, "MacBook Pro filter") },
-                ])
-            },
-            Scene(group: g, id: "grouped-by-folder", args: Self.list) { app in
-                C.steps([
-                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
-                    { C.tap(C.label(app, contains: "Folder"), "Group by Folder") },
-                ])
-            },
             Scene(group: g, id: "search", args: Self.list) { app in
                 app.swipeDown()
                 return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") }, { app.typeText("cmux"); return nil }])
@@ -118,6 +100,25 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "appearance-submenu", args: Self.list) { app in
                 C.steps([{ C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") }, { C.tap(app.buttons["Appearance"].firstMatch, "Appearance") }])
             },
+            // The filter and grouping persist across launches: these run last.
+            Scene(group: g, id: "filtered-to-mac", args: Self.list) { app in
+                C.steps([
+                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
+                    { C.tap(C.label(app, contains: "Mac Studio"), "Mac Studio filter") },
+                ])
+            },
+            Scene(group: g, id: "filtered-offline-mac", args: Self.list) { app in
+                C.steps([
+                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
+                    { C.tap(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'MacBook Pro'")).firstMatch, "MacBook Pro filter") },
+                ])
+            },
+            Scene(group: g, id: "grouped-by-folder", args: Self.list) { app in
+                C.steps([
+                    { C.tap(C.any(app, "workspaces.filter"), "filter menu") },
+                    { C.tap(C.label(app, contains: "Folder"), "Group by Folder") },
+                ])
+            },
         ])
     }
 
@@ -135,7 +136,7 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["More"].firstMatch, "grid More") }])
             },
             Scene(group: g, id: "grid-select-mode", args: Self.list) { app in
-                C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["More"].firstMatch, "grid More") }, { C.tap(C.label(app, contains: "Select Tabs"), "Select Tabs") }])
+                C.steps([{ Self.openGrid(app) }, { C.longPress(app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch, "a tab card") }, { C.tap(C.label(app, contains: "Select Tabs"), "Select Tabs") }])
             },
             Scene(group: g, id: "close-all-confirm", args: Self.list) { app in
                 C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["More"].firstMatch, "grid More") }, { C.tap(C.label(app, contains: "Close All"), "Close All Tabs") }])

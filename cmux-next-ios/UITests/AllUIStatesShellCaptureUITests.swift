@@ -164,7 +164,7 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
         scenes += [
             Scene(group: g, id: "page-transport-details", args: ["-cmux-mobile-settings-page", "transport", "-cmux-mobile-transport-details", "YES"], settle: 3.5),
             Scene(group: g, id: "devices-remove-this-phone", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
-                C.tap(C.any(app, "settings.removeThisPhone"), "Remove this iPhone")
+                C.steps([{ C.scrollDown(app, times: 3) }, { C.tap(C.any(app, "settings.removeThisPhone"), "Remove this iPhone") }])
             },
             Scene(group: g, id: "devices-mac-row-menu", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
                 C.longPress(C.label(app, contains: "Mac Studio"), "Mac Studio row")
@@ -173,7 +173,7 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                 C.swipeLeft(app.cells.containing(NSPredicate(format: "label CONTAINS[c] 'Mac Studio'")).firstMatch, "Mac Studio cell")
             },
             Scene(group: g, id: "devices-pair-scanner", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
-                C.tap(C.any(app, "settings.scanMacCode"), "Scan QR row")
+                C.steps([{ C.scrollDown(app, times: 1) }, { C.tap(C.any(app, "settings.scanMacCode"), "Scan QR row") }])
             },
             Scene(group: g, id: "chief-calls-key-typed", args: ["-cmux-mobile-settings-page", "chiefCalls"], settle: 3.5) { app in
                 C.steps([
