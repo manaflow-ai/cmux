@@ -23,6 +23,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+# deadline_http.py sits beside this script; a run with -I leaves this directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "labels.json"
@@ -38,9 +41,10 @@ def request(method: str, url: str, token: str, payload: dict[str, Any] | None = 
     if body is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            text = response.read().decode()
-            return json.loads(text) if text else None
+        # The whole call ends within 30 s, a trickled answer included (deadline_http).
+        _, raw, _ = deadline_http.request(req, 30, raise_errors=True)
+        text = raw.decode()
+        return json.loads(text) if text else None
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")
         raise SystemExit(f"{method} {url} failed: {error.code} {detail}") from error

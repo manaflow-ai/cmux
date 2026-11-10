@@ -8,7 +8,12 @@ import os
 import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+# deadline_http.py sits beside this script; a run with -I leaves this directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,10 +92,11 @@ class GitHub:
         request = urllib.request.Request(
             "https://api.github.com" + path, headers=self.headers, method=method
         )
-        with urllib.request.urlopen(request, timeout=15) as response:
-            if method == "POST":
-                return None
-            return json.load(response)
+        # The whole call ends within 15 s, a trickled answer included (deadline_http).
+        _, body, _ = deadline_http.request(request, 15, raise_errors=True)
+        if method == "POST":
+            return None
+        return json.loads(body)
 
     def open_pull_requests(self, ref_name: str) -> list[Mapping[str, Any]]:
         owner = self.repository.split("/", 1)[0]

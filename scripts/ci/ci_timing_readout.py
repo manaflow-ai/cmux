@@ -25,6 +25,12 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+# deadline_http.py sits beside this script (ci.yml's timing job checks out only the two files); a run
+# with -I leaves this directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 # Jobs that wait for everything else; the readout is about what they wait on.
 EXCLUDED_JOBS = {"ci-status", "CI timing"}
@@ -363,8 +369,9 @@ def get_json(url: str, token: str | None = None, timeout: float = 15) -> dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
         headers["X-GitHub-Api-Version"] = "2022-11-28"
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
-        return json.load(response)
+    # The whole call ends within TIMEOUT, a trickled answer included (deadline_http).
+    _, body, _ = deadline_http.request(urllib.request.Request(url, headers=headers), timeout, raise_errors=True)
+    return json.loads(body)
 
 
 def fetch_jobs(api: str, repo: str, run_id: str, attempt: str, token: str) -> list[dict]:

@@ -56,6 +56,7 @@ from typing import Any
 # and "can this workflow schedule macOS work at all". Importing them keeps one
 # answer in the tree instead of two that can drift apart.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 from queue_janitor import (  # noqa: E402
     is_macos_job,
     linux_only_workflow_paths,
@@ -1225,11 +1226,11 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                raw = response.read()
-                if response.headers.get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
-                return json.loads(raw) if raw else {}
+            # The whole call ends within 60 s, a trickled answer included (deadline_http).
+            _, raw, answer_headers = deadline_http.request(request, 60, raise_errors=True)
+            if answer_headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             endpoint = path.split("?")[0]
             remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
@@ -1239,6 +1240,9 @@ class GitHub:
             raise RuntimeError(f"{method} {endpoint} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+        except deadline_http.RequestTimeout as error:
+            # urlopen raised a connect timeout as URLError; the deadline's timeout fails the same way.
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error})") from error
 
     def runs_in_slice(self, window: Window, max_pages: int) -> tuple[SliceResult, list[str]]:
         """One slice's runs, plus whether the API stopped short of the slice."""

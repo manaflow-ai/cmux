@@ -10,7 +10,11 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+# deadline_http.py sits beside this script; a run with -I leaves this directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 MARKER_PREFIX = "submodule-forward-only: allow "
 FETCH_TIMEOUT_SECONDS = 15
@@ -182,8 +186,9 @@ def github_relation(url: str, new: str, base: str) -> str | None:
         request.add_header("Authorization", f"Bearer {token}")
     try:
         import json
-        with urlopen(request, timeout=15) as response:
-            data = json.load(response)
+        # The whole call ends within 15 s (deadline_http); its RequestTimeout is an OSError.
+        _, body, _ = deadline_http.request(request, 15, raise_errors=True)
+        data = json.loads(body)
     except (HTTPError, URLError, OSError, ValueError):
         return None
     status = data.get("status")
