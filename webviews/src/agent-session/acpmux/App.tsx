@@ -503,7 +503,6 @@ import {
   cloudStartFolder,
   cloudStartSaid,
   makeCloudSignInRetry,
-  resumeSignedIn,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
@@ -521,6 +520,7 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -4484,12 +4484,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
-  /// A `cloud.signIn` waits on the browser: leaving Cloud (another mode, chat or tab) withdraws its send.
-  const cloudSignInPending = useRef(false);
+  /// The sign-in a start waits on (cloudSignIn.ts): leaving Cloud (another mode, chat or tab) withdraws it.
+  const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
   const cancelCloudSignIn = () => {
-    if (!cloudSignInPending.current) return;
-    cloudSignInPending.current = false;
-    void callNative("cloud.signInCancel").catch(() => undefined);
+    const wait = cloudSignInWait.current;
+    cloudSignInWait.current = undefined;
+    wait?.withdraw();
   };
   /// The last accepted first send, retained so choosing This Mac after a refusal can
   /// explicitly finish its Cloud key just as the native cap-card answer does.
@@ -4559,18 +4559,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
-    const sent = startCloud(request, key, signingIn);
-    // Another Return while a start waits starts nothing, and the card keeps that start.
-    if (!sent) return undefined;
     // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
     const again = () => {
       // The browser is done: the card leaves its waiting for sign-in state for the normal start.
       setCloudStart((current) => cloudStartSignedIn(current, key));
       return startCloud({ ...request, signedIn: true }, key);
     };
-    const started = signingIn
-      ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
-      : sent;
+    let signIn: CloudSignInWait | undefined;
+    if (signingIn) {
+      // One sign-in at a time: a newer one ends the wait on an older one.
+      cancelCloudSignIn();
+      signIn = waitForCloudSignIn(callNative, key);
+      cloudSignInWait.current = signIn;
+    }
+    const wait = signIn;
+    const started = wait
+      ? startAfterSignIn(wait, () => cloudSignInWait.current === wait, again)
+      : startCloud(request, key);
+    // Another Return while a start waits starts nothing, and the card keeps that start.
+    if (!started) return undefined;
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {
@@ -4597,7 +4604,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     lastCloudAttempt.current = { key, request };
     cloudStartPending.current = true;
-    if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
       newTabCloudSent.current = true;
       // The prompt as sent, for a page that leaves no draft of its own (a prefilled location it
@@ -4619,7 +4625,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
-      if (signingIn) cloudSignInPending.current = false;
+      if (wait && cloudSignInWait.current === wait) cloudSignInWait.current = undefined;
       setCloudStartsEnded((count) => count + 1);
       // A page's draft goes back to the chat composer unless the chat opened on its machine.
       const pageDraft = cloudPageDraft.current;
