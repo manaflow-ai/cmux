@@ -3,36 +3,32 @@ import Foundation
 import os
 import CmuxNextCompat
 import CmuxNextSettings
-
-/// The starvation probe's dispatch timer (cancel is thread-safe).
-final class ProbeTimer: @unchecked Sendable {
-    let source: DispatchSourceTimer
-    init(_ source: DispatchSourceTimer) { self.source = source }
-}
+import CmuxNextWakeups
 
 extension MainThreadWatchdog {
     /// Starts the starvation probe (``Configuration/starvationProbeInterval``): a utility-queue
-    /// timer that reads the host load and, only while it is above the core count, sends the
+    /// check, once per interval while the watchdog runs, that reads the host load and, only while it is above the core count, sends the
     /// main queue one block and times its answer. The heartbeat reads a main thread asleep in
     /// its event wait as idle, so an idle main thread the Mac gives no CPU (the Dock's
     /// "Application Not Responding" with no hang file, cmuxterm-hq#8504) is seen only this way.
     func startStarvationProbe() {
         guard let interval = configuration.starvationProbeInterval else { return }
-        let nanos = Int(clamping: Self.nanos(interval))
-        let source = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        source.schedule(deadline: .now() + .nanoseconds(nanos), repeating: .nanoseconds(nanos), leeway: .nanoseconds(nanos / 5))
-        source.setEventHandler { [weak self] in self?.probeTick() }
-        probeTimer.withLock { $0 = ProbeTimer(source) }
-        source.resume()
+        scheduleProbe(after: interval)
     }
 
-    func stopStarvationProbe() {
-        probeTimer.withLock { timer in timer?.source.cancel(); timer = nil }
+    /// One-shot deadline, re-armed after each check until stop() (``DemandTimer``: the wakeup
+    /// ledger counts it under its owner).
+    private func scheduleProbe(after interval: Duration) {
+        probeTimer.schedule(after: interval) { [weak self] in
+            guard let self, running.load(ordering: .acquiring) else { return }
+            probeTick()
+            scheduleProbe(after: interval)
+        }
     }
 
     /// One probe check (utility queue): nothing reaches the main thread unless the host is overloaded.
     private func probeTick() {
-        guard running.load(ordering: .relaxed), let host = HostLoad.current(), host.isOverloaded,
+        guard let host = HostLoad.current(), host.isOverloaded,
               probeOutstanding.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged
         else { return }
         let sentAt = uptime()

@@ -204,8 +204,8 @@ public final class MainThreadWatchdog: Sendable {
     /// `uptime()` when a hang (a stall past `hangThreshold`, or a parked nested run) was last
     /// reported: a starvation probe that overlaps one adds no second record (+Starvation).
     let lastHangUptime = Atomic<UInt64>(0)
-    /// The starvation probe's timer (+Starvation), and whether its block is still on the main queue.
-    let probeTimer = Mutex<ProbeTimer?>(nil)
+    /// The starvation probe's chain of checks (+Starvation), and whether its block is still on the main queue.
+    let probeTimer = DemandTimer(owner: "MainThreadWatchdog.starvationProbe")
     let probeOutstanding = Atomic<Bool>(false)
     /// Starvation records so far: their hang files' keys (+Starvation).
     let probeSequence = Atomic<UInt64>(0)
@@ -306,10 +306,10 @@ public final class MainThreadWatchdog: Sendable {
 
     public func stop() {
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
+        probeTimer.cancel()
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
             for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
-        stopStarvationProbe()
         alarm.wake()
     }
 
