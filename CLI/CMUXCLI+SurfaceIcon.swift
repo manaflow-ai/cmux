@@ -5,7 +5,7 @@ extension CMUXCLI {
     static let surfaceIconUsage = String(localized: "cli.surface.icon.usage", defaultValue: """
     Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <SECONDS>]
            cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>
-    Asset JSON: {"frames":[{"svg":"<svg/>","duration_ms":100}],"loop":true,"static_frame":0}
+    Asset JSON: {"frames":[{"svg":"<svg viewBox='0 0 28 28'><circle cx='14' cy='14' r='10'/></svg>","duration_ms":100}],"loop":true,"static_frame":0}
     Icons have an infinite lifetime by default. --ttl accepts positive integer seconds. Omit --asset-file only with the current token and revision to send a heartbeat; omitted --ttl inherits the current lifetime interval. Targets must be UUIDs; focus and handle fallback are not supported.
     """,
     bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main

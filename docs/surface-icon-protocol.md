@@ -14,6 +14,12 @@ Send a v2 request with these parameters:
 - `ttl_seconds`: optional positive integer seconds, up to the platform's `Int.max`. Omit it on a full set for an infinite lifetime. For example, `"ttl_seconds": 600` expires the icon after 10 minutes unless renewed.
 - `asset`: an object with `frames`, `loop` and optional `static_frame` (default 0). Each frame is `{ "svg": "<svg ...>...</svg>", "duration_ms": 100 }`.
 
+Generate the process-start identity with an explicit UTC time zone and English locale; plain `ps` uses the producer's local time zone:
+
+```sh
+PROCESS_START=$(LC_ALL=C TZ=UTC /bin/ps -p "$AGENT_PID" -o lstart= | xargs)
+```
+
 An asset has 1–64 frames, each at most 16 KiB, with at most 512 KiB total SVG bytes. Each frame lasts 50–5000 ms; total duration is at most 30 seconds. Accepted SVG elements are `svg`, `g`, `path`, `rect` and `circle` with bounded geometry, transforms and literal colors. Text must be outlines. Declarations/entities, references, scripts, styles, images, filters and SVG-native animation elements are rejected. Frames are rasterized to 64×64 PNGs before display.
 
 A complete `asset` without `lease_token` or `expected_revision` sets or replaces the icon after live process/terminal authorization. This allows a restarted producer to recover without waiting for expiry. Every full replacement creates a new token and generation; the last successfully committed full set wins.

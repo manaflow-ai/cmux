@@ -138,6 +138,7 @@ struct SurfaceIconSVGRendererTests {
             "<svg viewBox='0 0 28 28'>" + String(repeating: "<g/>", count: 256) + "</svg>",
             "<svg viewBox='0 0 28 28'>" + String(repeating: "<g>", count: 32) + String(repeating: "</g>", count: 32) + "</svg>",
             "<svg viewBox='0 0 28 28'><path d='M0 0 " + String(repeating: "L1 1 ", count: 1100) + "'/></svg>",
+            "<svg viewBox='0 0 28 28'><path d='M0 0" + String(repeating: "H1", count: 2047) + "'/></svg>",
             String(repeating: " ", count: 16 * 1024 + 1)
         ] {
             #expect(throws: SurfaceIconSVGValidator.ValidationError.invalidSVG) { try validator.validate(source) }

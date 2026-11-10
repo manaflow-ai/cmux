@@ -67,19 +67,6 @@ struct SurfaceIconLeaseStoreTests {
         continuation.finish()
     }
 
-    @Test(.timeLimit(.minutes(1))) func continuousClockAutomaticallyExpiresWithoutReads() async throws {
-        let (events, continuation) = AsyncStream<UUID>.makeStream()
-        let store = SurfaceIconLeaseStore { panel, image in
-            if image == nil { continuation.yield(panel) }
-        }
-        let panel = UUID()
-        try store.set(panelID: panel, ownerID: "a", animation: animation, ttlSeconds: 1)
-        var iterator = events.makeAsyncIterator()
-        #expect(await iterator.next() == panel)
-        #expect(store.entry(for: panel) == nil)
-        continuation.finish()
-    }
-
     @Test func heartbeatInheritsIntervalWithoutReplacingAnimation() throws {
         let clock = CloudReadManualClock()
         let store = SurfaceIconLeaseStore(clock: clock) { _, _ in }

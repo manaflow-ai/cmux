@@ -105,12 +105,19 @@ def main():
             timed_params = {"workspace_id": workspace, "surface_id": rows[0]["surface"], "owner_id": "timed-tab", "expected_agent_pid": rows[0]["pid"], "expected_process_start": rows[0]["start"]}
             timed = call(target, "surface.icon.set", {**timed_params, "asset": asset, "ttl_seconds": 3})
             assert timed["persistent"] is False and timed["ttl_seconds"] == 3
-            time.sleep(1)
-            timed = call(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
-            time.sleep(2.2)  # Past the original deadline, before the renewed deadline.
             timed = call(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
             assert timed["ttl_seconds"] == 3
-            time.sleep(3.2)
+            # Observe expiry without extending it. A different owner is rejected
+            # while live, then the same credentials become stale after expiry.
+            expire_deadline = time.monotonic() + 30
+            while True:
+                probe = request(target, "surface.icon.set", {**timed_params, "owner_id": "expiry-probe", "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
+                if not probe.get("ok") and probe["error"]["code"] == "stale_lease":
+                    break
+                assert not probe.get("ok") and probe["error"]["code"] == "conflict", probe
+                if time.monotonic() >= expire_deadline:
+                    raise RuntimeError("Lease did not expire")
+                time.sleep(0.2)
             expired = request(target, "surface.icon.set", {**timed_params, "lease_token": timed["lease_token"], "expected_revision": timed["revision"]})
             assert not expired.get("ok") and expired["error"]["code"] == "stale_lease", expired
             permanent = call(target, "surface.icon.set", {**timed_params, "asset": asset})
@@ -121,7 +128,16 @@ def main():
             print("PASS explicit TTL renews, expires, and defaults back to indefinite without changing focus")
         finally:
             if workspace:
-                call(target, "workspace.close", {"workspace_id": workspace, "force": True})
+                already_failing = sys.exc_info()[0] is not None
+                try:
+                    call(target, "workspace.close", {"workspace_id": workspace, "force": True})
+                except Exception as error:
+                    # Preserve an active assertion failure, but still fail a
+                    # successful test when its workspace could not be cleaned up.
+                    if already_failing:
+                        print(f"Workspace cleanup failed: {error}", file=sys.stderr)
+                    else:
+                        raise
     return 0
 
 

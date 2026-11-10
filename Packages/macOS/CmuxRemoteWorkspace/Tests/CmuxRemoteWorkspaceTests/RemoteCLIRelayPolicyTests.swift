@@ -351,14 +351,20 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("surface icon methods have no relay contract", arguments: ["surface.icon.set", "surface.icon.clear"])
+    func surfaceIconMethodsHaveNoRelayContract(method: String) {
+        #expect(RemoteRelayRoutingSchema().parameters(for: method) == nil)
+    }
+
     @Test("external surface icons remain local-only", arguments: ["surface.icon.set", "surface.icon.clear"])
     func deniesExternalSurfaceIcons(method: String) throws {
+        let workspace = UUID()
         let alias = (remote: UUID(), local: UUID())
-        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
             let exchange = try runPolicyRelayExchange(
                 port: port, relayID: relayID, tokenHex: tokenHex,
                 commandLine: """
-                {"id":"icon","method":"\(method)","params":{"surface_id":"\(alias.remote.uuidString)","workspace_id":"\(UUID().uuidString)","owner_id":"cc-island"}}
+                {"id":"icon","method":"\(method)","params":{"surface_id":"\(alias.remote.uuidString)","workspace_id":"\(workspace.uuidString)"}}
                 """
             )
             expectDenial(exchange, unixServer, "external icon through remote relay")
