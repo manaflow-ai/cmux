@@ -411,7 +411,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
 // MARK: Scripted dialer
 
 private final class ScriptedLink: MacLink, @unchecked Sendable {
-    let transport: TransportKind = .wireGuard
+    let transport: CmuxMobileTransport.TransportKind = .wireGuard
     let connectedPath: LinkPathKind? = .direct
     let states: AsyncStream<LinkState>
     private let continuation: AsyncStream<LinkState>.Continuation
@@ -440,7 +440,7 @@ private final class ScriptedDialer: MacLinkDialer, @unchecked Sendable {
 
     func noteToken(forceRefresh: Bool) { lock.withLock { refreshes.append(forceRefresh) } }
 
-    func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let outcome = lock.withLock { () -> Outcome in
             count += 1
             return outcomes.isEmpty ? .connect : outcomes.removeFirst()
