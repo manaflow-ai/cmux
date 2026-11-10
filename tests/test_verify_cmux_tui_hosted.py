@@ -43,6 +43,15 @@ RUN_ID = "4242"
 GH_STUB = r"""#!/usr/bin/env bash
 echo "gh $*" >> "$STUB_DIR/calls.log"
 case "$*" in
+  api*"/jobs?"*)
+    # The cancelled jobs of an attempt, one "id<TAB>name" a line (FAKE_CANCELLED_JOBS: "id|name;id|name").
+    if [[ "${FAKE_JOBS_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
+    if [[ -n "${FAKE_CANCELLED_JOBS:-}" ]]; then printf '%s\n' "$FAKE_CANCELLED_JOBS" | tr ';|' '\n\t'; fi ;;
+  api*"/annotations"*)
+    # A job's annotation messages from $STUB_DIR/annotations-<id>; no file is a failed read.
+    args="$*"; job="${args#*check-runs/}"; job="${job%%/*}"
+    if [[ -f "$STUB_DIR/annotations-$job" ]]; then cat "$STUB_DIR/annotations-$job"; else
+      echo "gh: Server Error (HTTP 502)" >&2; exit 1; fi ;;
   api*)
     # FAKE_DISPATCH_FAILS: how many dispatches answer HTTP 502 (FAKE_DISPATCH_CODE) first.
     n=$(cat "$STUB_DIR/dispatches" 2>/dev/null || echo 0)
@@ -300,6 +309,32 @@ def cancelled_without_rerun_fails(failures: list[str], name: str, box: Sandbox) 
           and box.count("gh run download") == 0 and 2 <= views <= 12, box, out)
 
 
+def cancelled_attempt_names_each_jobs_canceller(failures: list[str], name: str, box: Sandbox) -> None:
+    """GitHub shows the dispatcher (the shared lawrencecchen login) as a run's actor, so agents blamed it for
+    every cancel (2026-11-09). The job annotations name the real cause: the cmux-bot owned-pool rescue
+    (run 42708918685), a job timeout (run 42712581504) or a person. A failed read says "cause unknown"."""
+    for job, text in (("501", "The run was canceled by @cmux-bot[bot].\nThe operation was canceled.\n"),
+                      ("502", "The job has exceeded the maximum execution time of 40m0s\nThe operation was canceled.\n"),
+                      ("503", "The run was canceled by @some-person.\n")):
+        (box.dir / f"annotations-{job}").write_text(text, encoding="utf-8")
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60",
+                        FAKE_CANCELLED_JOBS="501|lint (macos);502|test (macos);503|test (windows);504|test (linux)")
+    final = out.split("The run was cancelled outside this script", 1)[-1]
+    check(failures, name, code == 1 and box.count("gh run cancel") == 0 and box.count("gh run download") == 0
+          and "lint (macos): cancelled by cmux-bot owned-pool rescue or queue janitor, re-run follows" in final
+          and "test (macos): job timeout 40m" in final
+          and "test (windows): cancelled by @some-person" in final
+          and "test (linux): cause unknown" in final
+          and box.count("gh api repos/manaflow-ai/cmux/check-runs/") <= 4, box, out)
+
+
+def cancelled_attempt_with_unreadable_jobs_says_cause_unknown(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60",
+                        FAKE_JOBS_FAILS="1")
+    final = out.split("The run was cancelled outside this script", 1)[-1]
+    check(failures, name, code == 1 and "cause unknown" in final and box.count("gh run download") == 0, box, out)
+
+
 def cancel_on_timeout_flag_cancels(failures: list[str], name: str, box: Sandbox) -> None:
     code, out = box.run(["--cancel-on-timeout", "--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="30",
                         CMUX_TUI_HOSTED_TIMEOUT_SECONDS="3")
@@ -436,6 +471,10 @@ def main() -> int:
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
         ("a run cancelled by the CI rescue and re-run is followed", rescue_rerun_is_followed),
         ("a run cancelled by someone else and not re-run fails without a cancel", cancelled_without_rerun_fails),
+        ("a cancelled attempt names each cancelled job's canceller from its annotations",
+         cancelled_attempt_names_each_jobs_canceller),
+        ("a cancelled attempt whose jobs cannot be read says cause unknown",
+         cancelled_attempt_with_unreadable_jobs_says_cause_unknown),
         ("a deadline inside the rescue window is still running (exit 3)", deadline_inside_rescue_window_is_still_running),
         ("glaeda-gh down: one round of gh run watch, then glaeda-gh again", daemon_down_falls_back_for_one_round),
         ("--cancel-on-timeout cancels at the deadline", cancel_on_timeout_flag_cancels),
