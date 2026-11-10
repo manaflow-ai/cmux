@@ -124,6 +124,34 @@ fn geometry_authority_moves_between_views_of_one_terminal() {
     assert!(mux.client_size_participates(projected.id, 0));
 }
 
+/// A program that prints a burst of BEL bytes (`yes $'\a'`, `cat` of a binary file) never
+/// overflows an event subscriber. Before, every bell was its own pending event, so 4096 bells
+/// between two reads of a subscriber closed its mailbox: the client stream ended with an
+/// overflow and the apps event thread stopped for good.
+#[test]
+fn a_bell_burst_never_overflows_a_subscriber() {
+    let mux = test_mux();
+    let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let events = mux.subscribe();
+    for _ in 0..10_000 {
+        mux.emit_terminal_bell(source.id);
+    }
+    mux.emit_terminal_title(source.id, Arc::from("after the bells"));
+    assert!(!events.overflowed(), "a bell burst closed the subscriber");
+    let mut bells = 0;
+    let mut title = false;
+    while let Ok(event) = events.try_recv() {
+        match event {
+            MuxEvent::Bell(surface) if surface == source.id => bells += 1,
+            MuxEvent::TitleChanged { surface, .. } if surface == source.id => title = true,
+            _ => {}
+        }
+    }
+    assert!(bells >= 1, "the bell still arrives");
+    assert!(bells <= 2, "a burst is one pending bell, not {bells}");
+    assert!(title, "events after the burst still arrive");
+}
+
 #[test]
 fn terminal_runtime_events_fan_out_only_to_materialized_views() {
     let mux = test_mux();
