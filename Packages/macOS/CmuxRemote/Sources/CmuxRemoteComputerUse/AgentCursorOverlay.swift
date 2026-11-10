@@ -152,6 +152,8 @@ private final class SessionCursor {
     }
 
     static let pointerSize = CGSize(width: 18, height: 24)
+    /// The widest the agent's name gets (points).
+    static let maxNameWidth: CGFloat = 200
     /// The pointer's tip inside its bounds (y up).
     static let tipPoint = CGPoint(x: 2, y: 22)
     static var captionSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption1).pointSize }
@@ -414,9 +416,11 @@ private final class SessionCursor {
         let radius: CGFloat = button == "middle" ? 10 : 15
         for n in 0..<max(1, min(count, 3)) {
             let ring = effect(CAShapeLayer())
-            ring.path = CGPath(ellipseIn: CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2), transform: nil)
+            // Each later click's ring is wider, so even a still frame shows how many there were.
+            let r = radius + CGFloat(n) * 7
+            ring.path = CGPath(ellipseIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2), transform: nil)
             ring.position = center
-            ring.fillColor = AgentCursorOverlay.blue.withAlphaComponent(n == 0 ? 0.2 : 0.08).cgColor
+            ring.fillColor = AgentCursorOverlay.blue.withAlphaComponent(n == 0 ? 0.2 : 0).cgColor
             ring.strokeColor = AgentCursorOverlay.blue.cgColor
             ring.lineWidth = 2
             if button == "right" { ring.lineDashPattern = [4, 3] }
@@ -484,9 +488,11 @@ private final class SessionCursor {
             mark.lineCap = .round
             mark.lineJoin = .round
             mark.fillColor = nil
-            let step = CGFloat(n + 1) * 9 * sign
-            mark.position = vertical ? CGPoint(x: origin.x + 26, y: origin.y - 8 + step)
-                                     : CGPoint(x: origin.x + 8 + step, y: origin.y - 30)
+            // Left of the pointer for vertical scrolls, above it for horizontal ones: clear of the
+            // name tag, which sits below and right of the tip.
+            let step = CGFloat(n) * 8 * sign
+            mark.position = vertical ? CGPoint(x: origin.x - 14, y: origin.y - 10 + step)
+                                     : CGPoint(x: origin.x + 4 + step, y: origin.y + 12)
             if animated {
                 // motion: allow gated by `animated` (cursor switches, Reduce Motion), speed from ui.animationSpeed.
                 let fade = CABasicAnimation(keyPath: "opacity")
@@ -646,7 +652,9 @@ private final class SessionCursor {
         CATransaction.setDisableActions(true)
         name.string = label
         nameTag.isHidden = label.isEmpty
-        let size = Self.size(of: label, size: Self.captionSize, weight: .semibold)
+        var size = Self.size(of: label, size: Self.captionSize, weight: .semibold)
+        // A long name ends in an ellipsis instead of running off the screen.
+        size.width = min(size.width, Self.maxNameWidth)
         let padX: CGFloat = 8, padY: CGFloat = 3
         let dotSpace: CGFloat = 12
         let tagSize = CGSize(width: size.width + padX * 2 + dotSpace, height: size.height + padY * 2)
