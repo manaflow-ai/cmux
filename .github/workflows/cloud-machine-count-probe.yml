@@ -15,7 +15,8 @@ on:
       count:
         description: "Machines to create (1-10). Passes when one is accepted while the account already holds five or more."
         required: true
-        default: "6"
+        type: number
+        default: 6
 
 permissions:
   contents: read
