@@ -164,6 +164,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         };
         let Some(mux) = mux.upgrade() else { return };
+        // The measurement first: it is short, and a write pass can wait for the disk.
         if turn.memory {
             memory_pass(&mux, &mux.output_store);
         }
@@ -187,19 +188,18 @@ struct Turn {
     trim: bool,
 }
 
-/// The turn to run at `now`, taken out of `state`; `None`: wait. A due snapshot pass runs in the turn that
-/// takes it (it measures too), so a stream of measurement requests never starves snapshots.
+/// The turn to run at `now`, taken out of `state`; `None`: wait. A due write pass and a request for a
+/// measurement go into the same turn, so a stream of requests never starves snapshots, and a write pass never
+/// takes a request away: the write pass runs the budget only once per interval (`OutputStore::enforce_due`),
+/// and a terminal whose request is open does not ask again (`LogState::measure_due`), so a request dropped
+/// here left the budget to that interval.
 fn take_turn(state: &mut WriterState, now: Instant) -> Option<Turn> {
+    let memory = std::mem::take(&mut state.memory_due);
     if state.due.is_some_and(|due| now >= due) {
         state.due = None;
-        state.memory_due = false;
-        return Some(Turn { memory: false, write: true, trim: take_trim(state) });
+        return Some(Turn { memory, write: true, trim: take_trim(state) });
     }
-    std::mem::take(&mut state.memory_due).then_some(Turn {
-        memory: true,
-        write: false,
-        trim: false,
-    })
+    memory.then_some(Turn { memory: true, write: false, trim: false })
 }
 
 /// Whether this pass runs the parked snapshots' trim: once a day, however busy the session is. The store's prune
