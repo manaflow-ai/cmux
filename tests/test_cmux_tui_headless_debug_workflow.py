@@ -34,6 +34,11 @@ def zig_versions(job: dict) -> list[str]:
     return [str(s["with"]["version"]) for s in job["steps"] if str(s.get("uses", "")).startswith("mlugg/setup-zig@")]
 
 
+def ghostty_zig_setups(job: dict) -> list[dict]:
+    """Inputs of each shared Ghostty Zig step (it resolves the version from the Ghostty source)."""
+    return [s.get("with") or {} for s in job["steps"] if s.get("uses") == "./.github/actions/setup-ghostty-zig"]
+
+
 class HeadlessDebugDaemon(unittest.TestCase):
     def setUp(self) -> None:
         self.producer_doc = load("cmux-tui-headless-debug.yml")
@@ -53,8 +58,11 @@ class HeadlessDebugDaemon(unittest.TestCase):
         build = "Build exact headless cmux-tui"
         self.assertEqual(step(self.producer, build)["run"], step(self.consumer, build)["run"])
         self.assertEqual(step(self.producer, build)["working-directory"], step(self.consumer, build)["working-directory"])
-        # Ghostty's zig is the first one conformance installs; the second is the SDKs'.
-        self.assertEqual(zig_versions(self.producer), zig_versions(self.consumer)[:1])
+        # Both install Ghostty's zig through the shared action, with the same inputs; the
+        # literal setup-zig pin in conformance is the SDKs' own zig, which the producer never needs.
+        self.assertEqual(len(ghostty_zig_setups(self.producer)), 1)
+        self.assertEqual(ghostty_zig_setups(self.producer), ghostty_zig_setups(self.consumer))
+        self.assertEqual(zig_versions(self.producer), [])
         self.assertEqual(self.producer["env"]["GHOSTTY_ZIG_SOURCE"], self.consumer["env"]["GHOSTTY_ZIG_SOURCE"])
         # An inherited CMUX_GHOSTTY_SRC would build another libghostty-vt
         # source under the gitlink-derived key.
