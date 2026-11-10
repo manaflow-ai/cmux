@@ -8394,6 +8394,82 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:cloud-spare-warm": {
+      "/access_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/account": {
+        "ty": "string",
+        "required": true
+      },
+      "/api": {
+        "ty": "string",
+        "required": true
+      },
+      "/claimed": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/consent": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/dogfood": {
+        "ty": "boolean"
+      },
+      "/install_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/login_scopes": {
+        "ty": "array"
+      },
+      "/login_scopes/*": {
+        "ty": "string"
+      },
+      "/platform": {
+        "ty": "string",
+        "required": true
+      },
+      "/setting": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/stored_choice": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/team": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:cloud-spare-warm-consent": {
+      "/consent": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:cloud-start-chat-reservation": {
+      "/access_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/install_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/release": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/request": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -13582,6 +13658,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-spare-warm": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-spare-warm-consent": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-start-chat-reservation": {
       "/data": {
         "ty": "json",
         "required": true
