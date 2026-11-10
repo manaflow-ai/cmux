@@ -323,4 +323,4 @@ impl FaultPlan {
 
 #[cfg(test)]
 #[path = "fault_tests.rs"]
-mod tests;
+pub(crate) mod tests;
