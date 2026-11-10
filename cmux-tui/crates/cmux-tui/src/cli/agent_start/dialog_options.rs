@@ -503,6 +503,85 @@ mod tests {
         );
     }
 
+    /// Claude Code 2.1.322 after Escape denied a permission dialog (real
+    /// build, W6-BC deny run): its empty input box and footer hint.
+    const DENIED_CLAUDE_2_1_322: &str = "\
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Cooked for 20s · done 10:00 AM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ \n\
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts                          ● high · /effort";
+
+    /// The same agent while the permission dialog still shows.
+    const PERMISSION_CLAUDE_2_1_322: &str = "\
+⏺ Bash(touch /tmp/w6bc-rb)
+  ⎿  Waiting…
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ touch /tmp/w6bc-rb
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. No
+
+ Esc to cancel · Tab to amend";
+
+    /// A terminal whose own OSC 7501 record went idle after a permission
+    /// dialog, with the agent records `agents`.
+    fn denied_terminal(agents: Value) -> (Value, Vec<Value>) {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+            "program_status": [{"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]}});
+        (terminal, agents.as_array().cloned().unwrap_or_default())
+    }
+
+    /// W6-BC review (real build): after Escape denied the dialog, the
+    /// screen-detection plugin read the screen once before Claude redrew it,
+    /// wrote `blocked` 265 ms after Claude's own idle record, and never read
+    /// it again. That screen guess is no dialog once the screen shows the
+    /// input box: `wait --until idle`, `send`, `terminal status` and `agents
+    /// dialog list` read it through `blocked_dialog`.
+    #[test]
+    fn w6bc_a_stale_screen_guess_of_blocked_is_no_dialog() {
+        let (terminal, agents) = denied_terminal(json!([
+            {"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
+             "updated_at_ms": "1100", "extra": {"agent": "claude"}},
+            {"terminal_id": "term_w6bc", "state": "blocked", "source": "plugin",
+             "updated_at_ms": "1902", "extra": {"agent": "claude-code"}},
+        ]));
+        let stale = blocked_dialog(&terminal, &agents, DENIED_CLAUDE_2_1_322);
+        assert!(stale.is_none(), "{stale:?}");
+        // The guess still holds while the screen shows the dialog, and
+        // before the caller has read the screen.
+        let live = blocked_dialog(&terminal, &agents, PERMISSION_CLAUDE_2_1_322);
+        assert_eq!(
+            live.as_ref().map(|dialog| dialog["options"][2]["label"].clone()),
+            Some(json!("No"))
+        );
+        assert!(blocked_dialog(&terminal, &agents, "").is_some());
+        // The agent's own report of blocked is never overruled by the screen.
+        let (terminal, agents) = denied_terminal(json!([
+            {"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
+             "updated_at_ms": "1902", "extra": {"agent": "claude"}},
+        ]));
+        assert!(blocked_dialog(&terminal, &agents, DENIED_CLAUDE_2_1_322).is_some());
+    }
+
+    /// W6-BC review: a footer hint (`? for shortcuts`) is no question.
+    #[test]
+    fn w6bc_a_footer_hint_is_no_question() {
+        let dialog = dialog_json("agent_question", None, DENIED_CLAUDE_2_1_322);
+        let msg = dialog["msg"].as_str().unwrap_or_default();
+        assert!(!msg.contains("manual mode") && !msg.contains("shortcuts"), "{dialog}");
+        let footer = " Pick one\n ❯ 1. Yes\n   2. No\n  ⏵⏵ accept edits on · ? for shortcuts";
+        assert!(dialog_json("agent_question", None, footer)["msg"].is_null());
+        let dialog = dialog_json("permission", None, PERMISSION_CLAUDE_2_1_322);
+        assert_eq!(dialog["msg"], "Do you want to proceed?", "{dialog}");
+    }
+
     /// W5-Q review (PR C): the folder-trust reason is localized, names the
     /// terminal (never the placeholder `NAME`), names the option the keys
     /// pick, and warns when that option also turns approvals off (a Codex

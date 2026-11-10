@@ -583,6 +583,25 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
     assert_eq!(daemon.writes().len(), 2);
 }
 
+/// W6-BC review (real build): a `blocked` that only the screen-detection
+/// plugin guessed, from a screen read before the agent redrew, does not
+/// refuse a send once the screen shows the agent's input box and no dialog.
+#[test]
+fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
+    let mut stale = snapshot();
+    stale["agents"][1]["source"] = json!("plugin");
+    let screen = "› \n\n  ? for shortcuts                                100% context left";
+    let daemon = FakeDaemon::new(stale, &[(1, screen)]);
+    let request = SendRequest {
+        target: "term_c0dec000000000000000000000000004".into(),
+        wait: Wait::None,
+        ..quick("yes")
+    };
+    let sent = send::run(&daemon, None, &request);
+    assert!(sent.is_ok(), "{:?}", sent.err().map(|failure| failure.failure.error));
+    assert_eq!(daemon.writes().len(), 2);
+}
+
 #[test]
 fn send_finds_terminals_by_tab_prefix_and_title() {
     let snapshot = snapshot();
