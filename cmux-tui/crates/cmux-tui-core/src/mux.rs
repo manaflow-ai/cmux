@@ -4,6 +4,7 @@
 mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
+mod agent_hooks_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -27,6 +28,7 @@ use terminal_host_records::{
     terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
+pub(crate) use agent_hooks_at_rest::JournalRowFollower;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
@@ -176,7 +178,8 @@ pub(crate) use browser_tab_create::{
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
 pub(crate) use spawn_options::{
-    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+    AROUND_SPLIT_FIELD, CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD,
+    terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) use topology_ops::split_direction_field;
@@ -236,6 +239,7 @@ use agent_types::{
     agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
     parse_projection_agent_state, published_agent_session_id,
 };
+mod divider_visibility;
 mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
@@ -360,6 +364,8 @@ pub(crate) use agent_chat_columns::{
     is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
+pub(crate) use divider_visibility::DIVIDER_HIDDEN_FIELD;
+pub use divider_visibility::{DividerVisibilityError, SPLIT_DIVIDER_VISIBILITY_CAPABILITY};
 pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
@@ -667,6 +673,8 @@ pub struct Mux {
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Orders durable hook catch-up and live projection as one operation.
     agent_hook_projection: Mutex<()>,
+    /// Which hook reports change nothing the journal holds (`agent_hooks_at_rest.rs`).
+    agent_hooks_at_rest: agent_hooks_at_rest::AgentHooksAtRest,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
@@ -851,8 +859,8 @@ pub struct Mux {
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
-    /// The running reaper's event receiver, so keep and grace changes can wake it.
-    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The reaper's event receiver while it runs, and its announcement.
+    terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// The settings owner (the settings file), started on first use or at

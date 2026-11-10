@@ -104,7 +104,8 @@ public final class DaemonService {
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
-        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
+        // Each batch is a recorded frame task of `daemon.store.drain` (main-thread-scheduling.md G4).
+        drainScheduler = FrameBatcher(owner: "daemon.store.drain", frameOn: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -114,8 +115,8 @@ public final class DaemonService {
     /// `daemon_version_handoff`) for every service. The App sets it to its launch
     /// timing log (`DebugTimings.markLaunch`) before the first service starts.
     public nonisolated static var launchMark: @Sendable (String) -> Void {
-        get { launchMarkSink.withLock { $0 } }
-        set { launchMarkSink.withLock { $0 = newValue } }
+        get { launchMarkSink.load() }
+        set { launchMarkSink.store(newValue) }
     }
     /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
     /// `debug.daemon_requests` reads it off the main actor.
