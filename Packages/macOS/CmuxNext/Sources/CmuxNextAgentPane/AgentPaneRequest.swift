@@ -209,6 +209,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
+    /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
+    case cloudTurnRewind(AgentPaneCloudTurnRewind)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
