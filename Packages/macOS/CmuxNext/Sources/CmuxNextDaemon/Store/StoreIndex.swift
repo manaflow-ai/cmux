@@ -43,6 +43,12 @@ import Foundation
     private(set) var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     private(set) var workspacesByID: [String: WorkspaceModel] = [:]
     private(set) var workspacesByResource: [ResourceID: WorkspaceModel] = [:]
+    /// The cells of the waits for one workspace public id (``DaemonStore/listedWorkspace(resourceID:)``): touched each
+    /// time a workspace is keyed under an id it did not hold, or dropped from one. Kept by ``rebuild(_:)``.
+    private(set) var workspaceResourceWaits = IDWaitCells<ResourceID>()
+    /// The cells of the waits for one workspace key (``DaemonStore/listsConversationTab(inWorkspace:)``): touched each
+    /// time a workspace is keyed under a key it did not hold, or dropped from one. Kept by ``rebuild(_:)``.
+    private(set) var workspaceKeyWaits = IDWaitCells<WorkspaceKey>()
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
@@ -105,9 +111,20 @@ import Foundation
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
         let counted = indexedRecords
-        self = StoreIndex()
+        let waits = workspaceResourceWaits
+        let keyedBefore: [ResourceID: WorkspaceModel] = workspacesByResource
+        let keyWaits = workspaceKeyWaits
+        let keysBefore: [WorkspaceKey: WorkspaceModel] = workspacesByKey
+        self = StoreIndex() // its own new cells, which no wait reads: the inserts below touch none of `waits`
         indexedRecords = counted
         for workspace in workspaces { insert(workspace) }
+        workspaceResourceWaits = waits
+        // Only an id whose workspace changed (came, went, or another record) wakes its waits.
+        for (id, record) in keyedBefore where workspacesByResource[id] !== record { waits.touch(id) }
+        for (id, record) in workspacesByResource where keyedBefore[id] !== record { waits.touch(id) }
+        workspaceKeyWaits = keyWaits
+        for (key, record) in keysBefore where workspacesByKey[key] !== record { keyWaits.touch(key) }
+        for (key, record) in workspacesByKey where keysBefore[key] !== record { keyWaits.touch(key) }
         tabOrderChanged = true
     }
 
@@ -203,8 +220,14 @@ import Foundation
             guard let workspace = record as? WorkspaceModel else { return }
             workspacesByHandle[handle] = workspace
             workspacesByID[id] = workspace
-            if let key { workspacesByKey[key] = workspace }
-            if let resource { workspacesByResource[resource] = workspace }
+            if let key {
+                if workspacesByKey[key] !== workspace { workspaceKeyWaits.touch(key) }
+                workspacesByKey[key] = workspace
+            }
+            if let resource {
+                if workspacesByResource[resource] !== workspace { workspaceResourceWaits.touch(resource) }
+                workspacesByResource[resource] = workspace
+            }
         case .screen(let handle, let id, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
@@ -233,8 +256,14 @@ import Foundation
         case .workspace(let handle, let key, let id, let resource):
             Self.drop(handle, from: &workspacesByHandle, if: record)
             Self.drop(id, from: &workspacesByID, if: record)
-            if let key { Self.drop(key, from: &workspacesByKey, if: record) }
-            if let resource { Self.drop(resource, from: &workspacesByResource, if: record) }
+            if let key, workspacesByKey[key] === record {
+                workspacesByKey[key] = nil
+                workspaceKeyWaits.touch(key)
+            }
+            if let resource, workspacesByResource[resource] === record {
+                workspacesByResource[resource] = nil
+                workspaceResourceWaits.touch(resource)
+            }
         case .screen(let handle, let id, let resource):
             Self.drop(handle, from: &screensByHandle, if: record)
             Self.drop(id, from: &screensByID, if: record)
