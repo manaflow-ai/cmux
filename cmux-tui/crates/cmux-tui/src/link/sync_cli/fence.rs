@@ -16,10 +16,12 @@ use serde_json::{Value, json};
 
 use super::remote::FsRefusal;
 
-/// The requests that change the machine's folder, by hand or through the store (a fetch
-/// the machine writes in).
-const WRITES: [&str; 6] =
-    ["fs.write", "fs.mkdir", "fs.rename", "fs.delete", "fs.symlink", "blob.fetch.start"];
+/// The requests that change the machine's folder, each sent naming the hold.
+const WRITES: [&str; 5] = ["fs.write", "fs.mkdir", "fs.rename", "fs.delete", "fs.symlink"];
+
+/// A store fetch names no hold the machine checks when it writes: a held copy starts none
+/// ([`super::store::usable`]), and one asked for under the fence is refused.
+const UNHELD_WRITES: [&str; 1] = ["blob.fetch.start"];
 
 static FENCE: Mutex<Option<Held>> = Mutex::new(None);
 
@@ -72,14 +74,26 @@ pub(in crate::link) fn confirm() -> anyhow::Result<()> {
     check("fs.write")
 }
 
+/// Whether a held copy's fence is up in this process.
+pub(super) fn raised() -> bool {
+    lock().is_some()
+}
+
 /// Before `cmd` goes to the machine: a write under a fence whose hold is not known to run
-/// is refused.
+/// is refused, and so is a store fetch.
 pub(super) fn check(cmd: &str) -> anyhow::Result<()> {
-    if !WRITES.contains(&cmd) {
+    if !WRITES.contains(&cmd) && !UNHELD_WRITES.contains(&cmd) {
         return Ok(());
     }
     let mut fence = lock();
     let Some(held) = fence.as_mut() else { return Ok(()) };
+    if UNHELD_WRITES.contains(&cmd) {
+        return Err(FsRefusal {
+            code: "seed.copy_failed".to_owned(),
+            message: "a held copy writes every file itself, never through the store".to_owned(),
+        }
+        .into());
+    }
     let (socket, job) = (held.socket.clone(), held.job.clone());
     held.allows(now(), || {
         let answer = super::machine_call(&socket, "git.seed.status", json!({"job": job}));
@@ -266,5 +280,7 @@ mod tests {
     fn only_writes_are_fenced() {
         check("fs.stat").unwrap();
         check("blob.fetch.status").unwrap();
+        // No fence up: a store fetch goes.
+        check("blob.fetch.start").unwrap();
     }
 }
