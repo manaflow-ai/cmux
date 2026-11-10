@@ -21,6 +21,7 @@ against a fake `gh` and `curl` that play each outcome.
 """
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import importlib.util
 import json
@@ -757,6 +758,69 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["fetch-depth"], 0)
         self.assertEqual(checkout["with"]["filter"], "tree:0")
+
+
+
+def load_module(name: str, path: Path):
+    """A scripts/ci module by path, with scripts/ci importable for its own imports."""
+    sys.path.insert(0, str(path.parent))
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
+    """The release build takes a Blacksmith slot ahead of the PR queue when no promote runner is idle, and the
+    promote pool once CI_NEXT_PROMOTE_POOL is set (2026-11-10: run 42833220418's build queued 66 minutes on
+    blacksmith-6vcpu-macos-26 behind pull request jobs, and the base stayed red 5 h 14 min)."""
+
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
+    SMALL = "blacksmith-6vcpu-macos-26"
+
+    def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
+        build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
+        return evaluate(build["runs-on"], {
+            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
+            "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})
+
+    def snapshot(self, path: str) -> dict:
+        janitor = load_module("queue_janitor", ROOT / "scripts/ci/queue_janitor.py")
+        runs = [{"id": 1, "name": "app FFI release", "path": path}]
+        jobs = {1: [{"labels": [self.SMALL], "status": "queued", "created_at": "2026-11-10T14:21:18Z",
+                     "name": "build xcframework"}]}
+        now = dt.datetime(2026, 11, 10, 14, 30, tzinfo=dt.timezone.utc)
+        return janitor.pool_load_snapshot(runs, jobs, now=now)["pools"][self.SMALL]
+
+    def test_a_push_takes_the_promote_pool_once_it_is_set(self):
+        self.assertEqual(self.runner(self.PROMOTE), self.PROMOTE)
+
+    def test_with_no_promote_pool_a_push_takes_blacksmith(self):
+        self.assertEqual(self.runner(""), self.SMALL)
+
+    def test_a_rerun_or_a_dispatch_takes_blacksmith_even_with_the_promote_pool_set(self):
+        self.assertEqual(self.runner(self.PROMOTE, attempt=2), self.SMALL)
+        self.assertEqual(self.runner(self.PROMOTE, event="workflow_dispatch"), self.SMALL)
+
+    def test_its_queued_build_holds_the_label_against_pull_request_placements(self):
+        held = self.snapshot(".github/workflows/app-ffi-release.yml")
+        self.assertEqual((held["queued"], held["reserved_queued"]), (1, 1))
+        # Only this workflow's path: a look-alike file name reserves nothing.
+        for path in (".github/workflows/my-app-ffi-release.yml", ".github/workflows/app-ffi-release-shadow.yml",
+                     ".github/workflows/app-ffi-repin.yml"):
+            self.assertEqual(self.snapshot(path)["reserved_queued"], 0, path)
+
+    def test_the_cascade_gives_a_held_label_to_a_nightly_feed_not_to_a_pull_request_job(self):
+        cascade = load_module("next_macos_cascade", ROOT / "scripts/ci/next_macos_cascade.py")
+        held = (self.SMALL,)
+        # The build queued on 6 vCPU: the pool has room, and 12 vCPU takes nothing while any Mac job queues.
+        live, waiting = {cascade.LARGE: 0, self.SMALL: 0}, {self.SMALL: 1}
+        pr = cascade.cascade(["fast-tier"], live, waiting, reserved=held)
+        self.assertEqual(pr[self.SMALL], ())
+        nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
+        self.assertEqual(nightly[self.SMALL], ("release-compile",))
 
 
 if __name__ == "__main__":

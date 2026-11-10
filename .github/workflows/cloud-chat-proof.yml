@@ -463,7 +463,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -676,7 +676,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

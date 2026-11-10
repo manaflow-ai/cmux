@@ -1,6 +1,7 @@
 //! What a connection's own line and key paths read about the session's connections: the client registry's
 //! published projection (R-DAEMON-STATE stage S1), and the reads made from it.
 use super::{ClientRegistry, ClientRegistryState, ClientTransport, DaemonHandoffReservation};
+use crate::diagnostics::request_log::Label;
 use crate::{SurfaceId, panic_free::RecoverPoison};
 use std::collections::HashMap;
 
@@ -28,6 +29,8 @@ pub(in crate::server) struct ConnectionFacts {
     /// The surfaces the connection is attached to, each with whether it can type into it
     /// (`AttachedSurface::can_type`): its keys there are the person's (server/input_qos.rs).
     pub(in crate::server) attached: Vec<(SurfaceId, bool)>,
+    /// The connection's name and kind (`set-client-info`), as the slow request log writes them.
+    pub(in crate::server) log_labels: (Option<Label>, Option<Label>),
 }
 
 impl ClientFacts {
@@ -55,6 +58,10 @@ impl ClientFacts {
                         ),
                     actor: record.origin.actor(),
                     attached,
+                    log_labels: (
+                        record.name.as_deref().and_then(Label::client),
+                        record.kind.as_deref().and_then(Label::client),
+                    ),
                 };
                 (*client, facts)
             })
@@ -64,6 +71,17 @@ impl ClientFacts {
 }
 
 impl ClientRegistry {
+    /// `client`'s name and kind for the slow request log. Reads the published facts, never the
+    /// registry lock: every request line asks. With the published facts off there are none to
+    /// read, and the record has the client's number only.
+    pub(in crate::server) fn log_labels(&self, client: u64) -> (Option<Label>, Option<Label>) {
+        if !self.input_lane.on() {
+            return (None, None);
+        }
+        let facts = self.state.load().recover_poison();
+        facts.clients.get(&client).map_or((None, None), |connection| connection.log_labels)
+    }
+
     /// Whether `client` is attached to `surface` and can type into it (`AttachedSurface::can_type`): its keys there
     /// are the person's. Reads the published facts, never the registry lock; only the input lane calls it.
     pub(in crate::server) fn types_into(&self, client: u64, surface: SurfaceId) -> bool {
