@@ -23,8 +23,17 @@ The kick runs serialized (its workflow's concurrency group, cancel-in-progress f
 the window and the newest pending one replaces older pending ones, which never started. It waits once
 (one sleep, never a polling loop), takes the tip (a push kick: the push's own sha, not a ref read), and
 dispatches. A call GitHub refuses on the repository token's spent REST quota (every workflow shares it)
-is retried after one sleep until the quota resets while that fits the job's time (API_DEADLINE_S);
-past that the kick fails with one line naming the quota and its reset, not a traceback.
+is retried after one sleep until the quota resets while that fits the job's time; past that the kick
+fails with one line naming the quota and its reset, not a traceback.
+
+The job has one deadline (JOB_TIMEOUT_S, its workflow's timeout-minutes, less MARGIN_S), taken once on
+the monotonic clock when the process starts. The quota retries, the window wait and the settle after the
+dispatch all read the time left from it, never a budget of their own: a 601 s quota wait followed by a
+full window would otherwise have dispatched at 1400 s, past the 1200 s job timeout, and been killed
+(cmuxterm-hq docs/handbook/budget-summed-from-constants.md). When the window would end too late to
+dispatch inside the deadline, the kick fails with one line and dispatches nothing: dispatching early
+would break the one-run-per-window rule, and the newest push's kick, pending behind this one, takes a
+tip that contains this push.
 
 Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
 and created before the newest base tier run is superseded and the kick cancels it (first attempts
@@ -72,10 +81,14 @@ MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app sch
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-# How long after the process starts its GitHub calls may wait out a spent rate limit: the kick job has
-# timeout-minutes 20 and may first sleep up to WINDOW_S, so a wait past this would be killed anyway.
-API_DEADLINE_S = 18 * 60
-STARTED = time.time()
+# cmux-next-base-tier-kick.yml's timeout-minutes (a test reads it), and what the job's one deadline keeps
+# back from it for the runner's start and the checkout before this process starts.
+JOB_TIMEOUT_S = 20 * 60
+MARGIN_S = 2 * 60
+# Of the time left when the window opens, what the steps after it need: the listing, the compare, the
+# dispatch, SETTLE_S and the cancels. A window that would leave less is not waited for.
+AFTER_WINDOW_S = SETTLE_S + 60
+STARTED = time.monotonic()
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -117,19 +130,32 @@ def quota_wait(status: int, headers: dict[str, str], payload: bytes, attempt: in
     return None
 
 
+class Deadline:
+    """One deadline for the whole job, taken once on the monotonic clock. Every step that waits (a quota
+    retry, the window, the settle) reads its time from left(), so a step nobody named still comes out of
+    the same total (cmuxterm-hq docs/handbook/budget-summed-from-constants.md)."""
+
+    def __init__(self, seconds: float, clock: Callable[[], float] = time.monotonic):
+        self.clock = clock
+        self.at = clock() + seconds
+
+    def left(self) -> float:
+        return self.at - self.clock()
+
+
 class QuotaGitHub(GitHub):
     """tree notify's client, for this kick only (tree notify's own client never sleeps). Every workflow's
     GITHUB_TOKEN in a repository shares one REST quota, so another workflow can spend it under a job
-    that makes a handful of calls. With DEADLINE (an epoch time), a read (GET) refused on a spent rate
+    that makes a handful of calls. With DEADLINE (the job's one Deadline), a read (GET) refused on a spent rate
     limit (a 403 or 429 with x-ratelimit-remaining 0, a retry-after, or a body that says "rate limit")
-    is retried after one sleep until the limit lifts, while that fits DEADLINE; past it,
+    is retried after one sleep until the limit lifts, while that fits the time DEADLINE has left; past it,
     QuotaExhausted. A write (POST, PATCH, DELETE: a cancel, a dispatch) refused on a rate limit raises
     QuotaExhausted at once and is never retried after a sleep: what made it right (a run whose Mac job
     had not started) may not hold minutes later, so a caller that wants a retry reads its precondition
     again and calls again. With no DEADLINE nothing is retried and a refusal reads as tree notify's
     client reads it: get() raises RuntimeError, post() and delete() return the status."""
 
-    def __init__(self, token: str, api_url: str = "https://api.github.com", *, deadline: float | None = None,
+    def __init__(self, token: str, api_url: str = "https://api.github.com", *, deadline: Deadline | None = None,
                  now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep):
         super().__init__(token, api_url)
         self.deadline = deadline
@@ -162,8 +188,9 @@ class QuotaGitHub(GitHub):
             where = f"{method} {url.removeprefix(self.api_url + '/')}: HTTP {status}: {why}"
             if method != "GET":
                 raise QuotaExhausted(f"{where}; a write is not retried after a wait")
-            if self.now() + wait > self.deadline:
-                raise QuotaExhausted(f"{where}, past this job's budget ({utc(self.deadline)})")
+            left = self.deadline.left()
+            if wait > left:
+                raise QuotaExhausted(f"{where}, past this job's deadline ({max(0, int(left))} s left)")
             # One sleep until the limit lifts, never a polling loop.
             self.sleep(wait)
             attempt += 1
@@ -347,15 +374,28 @@ def event_tip(env: dict[str, str]) -> str | None:
     return None
 
 
+class PastDeadline(RuntimeError):
+    """The window (or the dispatch) would end past the job's deadline; one line saying so."""
+
+
 def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
          now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
-         log: Callable[[str], None] = print, pushed: str | None = None) -> str | None:
+         log: Callable[[str], None] = print, pushed: str | None = None,
+         deadline: Deadline | None = None) -> str | None:
     """Dispatch the base tier at the tip when it is due; returns the sha it asked for, or None.
-    PUSHED is the push event's own sha (event_tip); the tip is read from the branch ref only without it."""
+    PUSHED is the push event's own sha (event_tip); the tip is read from the branch ref only without it.
+    NOW is the wall clock (it is compared with GitHub's created_at); DEADLINE is the job's one deadline,
+    shared with the client's quota retries. A window that ends too late for the dispatch to follow it
+    inside DEADLINE raises PastDeadline before any sleep, and nothing is dispatched."""
     firsts = base_tier_runs(api, repo)
     last_sha, last_at = max(firsts.items(), key=lambda item: item[1]) if firsts else (None, None)
     if last_at is not None and (wait := last_at + window - now()) > 0:
         wait = min(wait, window)
+        if deadline is not None and wait + AFTER_WINDOW_S > (left := deadline.left()):
+            raise PastDeadline(f"the window opens in {int(wait)} s but this job has {max(0, int(left))} s left "
+                               f"before its deadline (it needs {AFTER_WINDOW_S} s after the window); "
+                               f"not dispatching; the next push's kick dispatches at a tip that contains "
+                               f"{(pushed or 'this push')[:12]}")
         log(f"the last base tier run ({last_sha[:12]}) started {int(window - wait)} s ago; "
             f"waiting {int(wait)} s for the window to open")
         sleep(wait)
@@ -395,11 +435,19 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         log(why)
         if not due:
             return None
+    if deadline is not None and deadline.left() <= 0:
+        raise PastDeadline(f"the reads before the dispatch used this job's time to its deadline; not dispatching "
+                           f"{tip[:12]}; the next push's kick dispatches at a tip that contains it")
     status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
                       {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
     if status != 204:
         raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
     log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
+    if deadline is not None and deadline.left() < SETTLE_S:
+        # The settle and the cancels after it come out of the same deadline; the next kick cancels.
+        log(f"{max(0, int(deadline.left()))} s left before the job's deadline; "
+            "leaving superseded runs to the next kick")
+        return tip
     sleep(SETTLE_S)
     cancel_superseded(api, repo, tip, log)
     return tip
@@ -426,13 +474,17 @@ def main(argv: list[str] | None = None) -> int:
         print("error: GH_TOKEN is not set", file=sys.stderr)
         return 2
     patterns = push_paths(args.workflow_file.read_text(encoding="utf-8")) if args.workflow_file.is_file() else []
-    deadline = STARTED + float(os.environ.get("BASE_TIER_API_DEADLINE_S") or API_DEADLINE_S)
+    # The job's one deadline, from when this process started; every wait below reads what is left of it.
+    deadline = Deadline(JOB_TIMEOUT_S - MARGIN_S - (time.monotonic() - STARTED))
     try:
         kick(QuotaGitHub(token, deadline=deadline), args.repo, patterns, window=max(0.0, args.window),
-             pushed=event_tip(dict(os.environ)))
+             pushed=event_tip(dict(os.environ)), deadline=deadline)
     except QuotaExhausted as error:
         # One line, no traceback: the quota is another workflow's spend, not a bug here.
         print(f"error: the base tier kick could not reach GitHub: {error}", file=sys.stderr)
+        return 1
+    except PastDeadline as error:
+        print(f"error: the base tier kick ran out of job time: {error}", file=sys.stderr)
         return 1
     return 0
 
