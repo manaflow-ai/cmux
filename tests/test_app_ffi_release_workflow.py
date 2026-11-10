@@ -766,6 +766,7 @@ def load_module(name: str, path: Path):
     sys.path.insert(0, str(path.parent))
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
     spec.loader.exec_module(module)
     return module
 
@@ -814,7 +815,8 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     def test_the_cascade_gives_a_held_label_to_a_nightly_feed_not_to_a_pull_request_job(self):
         cascade = load_module("next_macos_cascade", ROOT / "scripts/ci/next_macos_cascade.py")
         held = (self.SMALL,)
-        live, waiting = {cascade.LARGE: 5, self.SMALL: 0}, {self.SMALL: 1}
+        # The build queued on 6 vCPU: the pool has room, and 12 vCPU takes nothing while any Mac job queues.
+        live, waiting = {cascade.LARGE: 0, self.SMALL: 0}, {self.SMALL: 1}
         pr = cascade.cascade(["fast-tier"], live, waiting, reserved=held)
         self.assertEqual(pr[self.SMALL], ())
         nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
