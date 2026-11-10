@@ -107,7 +107,7 @@ public struct HomeComposerIntake {
             HomeAttachmentPanel(openPanel: openPanel).present(for: window) { urls in
                 guard let urls, !urls.isEmpty else { return }
                 // task-owner: one page call for the person's pick; ends with its answer (bounded by `deadline`)
-                Task { @MainActor in _ = await attach(paths: urls.map(\.path), via: .pick) }
+                Task { _ = await attach(paths: urls.map(\.path), via: .pick) }
             }
         }
     }

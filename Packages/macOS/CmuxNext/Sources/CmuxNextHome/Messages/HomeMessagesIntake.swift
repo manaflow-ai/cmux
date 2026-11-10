@@ -1,4 +1,5 @@
 public import CmuxNextPages
+import CmuxNextCompat
 import Foundation
 import UniformTypeIdentifiers
 
@@ -63,7 +64,7 @@ public final class HomeMessagesIntake {
 
     /// A regular file's size (a stat off the main actor); nil for anything else.
     @concurrent nonisolated static func fileSize(_ url: URL) async -> Int? {
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true else { return nil }
+        guard let values = try? url.blockingResourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true else { return nil }
         return values.fileSize
     }
 }
