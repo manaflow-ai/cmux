@@ -250,8 +250,20 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
   `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
 - Not possible by this method (9 rows stay "not run", each with its reason): native field key, Cmd-T to
   interactive, split resize, the 2 hover rows, the 2 drag rows, the 2 launch rows. They need the HID method.
+- Blind inputs (cmux latency rows). The recorder's ScreenCaptureKit stream sometimes stops right after a change on
+  the display: no callback of any kind until the next change, and no frame for that change. The key is on the
+  display (a film by another process shows it in its own frame) but the recorder has no frame of it. An input is
+  `blind` when the stream called back after it, inside 4 refreshes, and then gave no callback for more than 6.5
+  refreshes up to the response frame or the end of the input's span. A blind input is no sample and is not `lost`.
+  Each result has the count, the run list shows `n / lost / blind / inputs`, and a verdict with blind inputs says
+  "N of M cmux inputs blind (not measured)". A window that changes nothing keeps its idle callbacks, so a frozen
+  window stays `lost` (60 keys into a blocked main thread: 58 lost, 0 blind). More than 10% blind inputs in a run
+  (and more than 2) is `not run`. Limit: a silence can follow any change, also one outside the row's region, so a
+  frame that the app really holds can read as blind. Measured chance: 0.15% of the times with no input (worst run
+  0.56%); blind typed keys: 56 of 1840. A blind count far above that is a finding, not noise.
 - `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
-  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
+  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`, and
+  the blind rule on made-up callback lists.
 
 ## Load arm `oversub` (`busy_holder.py`)
 
@@ -332,18 +344,59 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
 - Only a tagged DEV build: each command refuses a daemon whose session is not `cmux-app-<tag>`
   (the release session, a shipped build's (`nightly`, `rc`, `staging`, `cmux-next`), an untagged build's, a person's own session).
-- `launch` ends with exit 1 when the model did not load, a step failed or the `clients` step
-  ended early; it quits the app and takes the installed session away first.
-- `clients --total 13` reads the daemon's client list and holds what is missing. The list moves
-  (a hook call is a client for a moment, the app's own connections come and go), so it prints
-  the count it reached and `SESSION-REAL-CLIENTS-DIFFER` when that is not the count asked for.
+- Exit codes: 0 done; 1 refused or stopped, and `launch` with a failure (the model did not load, a
+  step gave a non-zero exit, the `clients` step ended early or gave exit 3, the quit or the uninstall
+  failed); 2 wrong arguments; 3 the command ran to its end and wrote its output, but the result has
+  failures: it prints `SESSION-REAL-FAULTS <command> [...]` first. `make`: a count read back is not
+  the count asked for. `agents`: a `restart-tab` failed, a terminal took no input, or the agent
+  programs that run are not one per agent terminal. `clients`: the count is not the one asked for, or
+  the daemon closed a held connection. `map`: a row failed, was cut by the time budget, has fewer
+  runs than asked, has a failed run or a good run with no commit time, or a set-up action failed. A
+  slow action (`unusable`, over 1 s) is a result of the app, not a fault. Check the exit code.
+- `launch` quits the app, ends the tag's processes and takes the installed session away at its end,
+  each part also when the part before fails or SIGTERM comes. If the uninstall cannot run (the tag
+  still has processes) it prints `SESSION-REAL-STATE-LEFT` with the command to run.
+- `launch` sets `CMUX_MOCK_KEYCHAIN=1` for the app, so a Release or nightly bundle shows no keychain
+  dialog over the window on a host whose keychain is locked.
+- `launch` times (`window_and_socket_s`, `model_loaded_s`, `kept_terminals_restarted_s`) all start at
+  the spawn of the app; `before_spawn_s` is the time of the checks before it.
+- What the tool removes: only a folder that it made itself in this run, proved by a mark file in it
+  (a token of this process and the folder's inode), never by a name. `install` copies beside the
+  tag's state and changes the tag only at the end, by two renames that no signal can part: a failed
+  or killed copy leaves the tag as it was. `install` refuses when the tag has a state that is not an
+  installed copy and `<tag>.before-session-real` is there too. `launch --saved` deletes the copy
+  that it installed. The `uninstall` command of a later run does not delete: it moves the installed
+  copy to `<tag>.session-real-removed-<time>-<id>` beside the tag's state, puts the old state back and
+  prints the path (an APFS clone: it uses little disk; remove it yourself).
+- `clients --total 13` makes the daemon's list of steady clients 13 long and reads it back. A steady
+  client is named, or connected 10 s or more; an agent's hook call is an unnamed client for a moment
+  (p50 0.3 s, longest 9 s), and the app holds 2 named connections and 0 to 2 unnamed ones. So the
+  command holds 9 to 11 connections for a total of 13, not always 11. It prints `held`, `steady` and
+  `listed_with_short_ones`; a count that is not the one asked for is a fault (exit 3 at its end).
   A held client reads its events at once: the daemon closes a subscriber that does not read.
+- `agents` counts the agent programs in this daemon's own agent terminals (the daemon's
+  `terminal-resources`), not every program of that name on the host, and refuses counts that are
+  not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
+  lower bound that is not judged; an error reply of the command is exit 1.
+- A RESTORED session does not run 170 bench agents (measured 2026-11-10, aws-m4pro-3, a host with `claude` on its PATH):
+  the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on) types the stored resume command, so
+  157 of the 170 agent terminals ran the real `claude --resume session-real-real-NNNN` (12.6 GB footprint, 1273 wakeups/s
+  in `measure`, group `daemon_other`) and only the 13 that got a new shell ran the bench program. `agents` types its
+  command into those terminals too, starts nothing there, and now says it: exit 3, "13 agent programs run in this
+  daemon's terminals, the session has 170 agent terminals". The tool before gave exit 0. Until the session or the tool
+  handles it, the memory and CPU rows of a restored run include those `claude` processes.
+- `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
+  terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
+- `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says
+  that its times are not a person's. Use it for counts, memory and exit codes only.
+- `ptys_in_use_machine` counts this user's processes only (`ptys_in_use_scope` says so).
 - The daemon serves 64 connections. A start of 170 agents (about 500 hook calls) fills them for about
   2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
   try again for 20 s; a bench driver of your own must do the same.
 - `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from
   `debug.action_budget`), the longest frame and the main-thread gap, and the longest stall the
   watchdog recorded with its frames. `--sample-rows <row>` runs a row beside a `sample` of the app:
-  those times are then not for a table. For the same map at another size, give `build` and `agents`
+  those times are then not for a table. The cold-switch row shows each workspace one time: with
+  fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.
