@@ -89,9 +89,8 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     if plugin_copy::stands_down(&args.source, &args.native_event, session, getenv) {
         return Ok(());
     }
-    plugin_copy::claim_terminal(&args.source, &args.native_event, session, getenv);
     let context = session_context::applies(&args.source, &args.native_event, getenv);
-    let route = deliver(&args, exe_prefix, &payload)?;
+    let route = deliver(&args, exe_prefix, &payload, session)?;
     if context {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
@@ -113,6 +112,7 @@ fn deliver(
     args: &Args,
     exe_prefix: &[&str],
     payload: &[u8],
+    session: Option<&str>,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         return Ok(None);
@@ -121,7 +121,15 @@ fn deliver(
         return Ok(None);
     }
     let Some((socket, terminal)) = session_route() else { return Ok(None) };
+    // The route's terminal: also a tmux route, whose environment names none
+    // (plugin_copy.rs).
+    if plugin_copy::claimed_elsewhere(&args.source, terminal.as_deref(), session, |name| {
+        env::var_os(name)
+    }) {
+        return Ok(None);
+    }
     let native = read_native_payload(payload)?;
+    let start_source = native.get("source").and_then(Value::as_str).map(str::to_owned);
     let ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
@@ -132,12 +140,57 @@ fn deliver(
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => Ok(Some((socket, terminal))),
+        Handoff::Sent => {
+            claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source);
+            Ok(Some((socket, terminal)))
+        }
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
     }
+}
+
+/// After a reported Claude `SessionStart`: claims the route's terminal for
+/// this session (plugin_copy.rs), unless the terminal already has another
+/// agent (terminal_agent.rs). Runs after the handoff, so it never delays the
+/// event, and its read starts no thread before the detached child forks.
+fn claim_unless_nested(
+    args: &Args,
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<String>,
+) {
+    if args.source != "claude" || args.native_event != "SessionStart" {
+        return;
+    }
+    let start_source = start_source.as_deref();
+    if (terminal_agent::Run { socket, terminal, session, start_source }).is_nested() {
+        return;
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, terminal, session, |name| {
+        env::var_os(name)
+    });
+}
+
+/// Whether a Claude in `terminal` with `session` (its `SessionStart` from
+/// `start_source`) is not the terminal's agent but one it started: its
+/// environment claims the terminal for another session (plugin_copy.rs), or
+/// the terminal has another agent (terminal_agent.rs). The
+/// `agent session-context` hook then adds no context.
+#[allow(
+    dead_code,
+    reason = "only cmux-tui's `agent session-context` calls it; the standalone helper builds this file too"
+)]
+pub(crate) fn claude_is_nested(
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<&str>,
+) -> bool {
+    plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
+        || terminal_agent::Run { socket, terminal, session, start_source }.is_nested()
 }
 
 /// Set to `launch` by a hook command that carries its own route (the Codex
@@ -401,6 +454,10 @@ pub(crate) mod session_context;
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]
 pub(crate) mod plugin_copy;
+
+/// Which Claude in a terminal is the terminal's agent.
+#[path = "cmux-tui-hook/terminal_agent.rs"]
+mod terminal_agent;
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     // Codex SessionStart also reads the session context after the handoff
