@@ -65,7 +65,7 @@ enum AgentPaneCapture {
         }
         let taken = Date()
         let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
-            Self.keepRecording(file, taken: taken, in: recordingsFolder())
+            Self.keepRecording(file, taken: taken, in: Self.recordingsFolder())
         }.value
         return AgentPaneReply.success(value)
     }

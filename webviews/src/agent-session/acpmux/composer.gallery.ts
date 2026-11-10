@@ -2511,6 +2511,13 @@ export default agentPaneEntry({
     "record-screen": {
       note: "Play: + > Record Screen… asks the host for a recording (mode video); the movie it kept comes back by its path and goes in as a video chip with its poster and length, wearing cmux as its source, and focus goes back to the prompt.",
       snapshot: chat(finished),
+      checks: {
+        anchorMovePx: {
+          value: 30,
+          reason: "The recording's video chip goes in at the caret and the prompt grows by its row, the same growth a dropped recording makes.",
+        },
+        layoutShiftMax: { value: 0.02, reason: "The video chip's row the recording adds to the prompt." },
+      },
       native: {
         "composer.capture": {
           path: RECORDING_PATH,
