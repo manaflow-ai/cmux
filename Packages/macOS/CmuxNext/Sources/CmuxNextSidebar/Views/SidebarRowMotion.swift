@@ -185,7 +185,7 @@ struct RowMotion {
         Motion.withoutAnimation {
             for (key, view) in list.rowViews where view.closingEnd == nil {
                 guard let row = list.displayed.row(for: key) else { continue }
-                let target = list.frame(for: row)
+                let target = list.drawnFrame(for: row)
                 if view.frame != target { view.frame = target }
             }
             list.groupLineViews.land()

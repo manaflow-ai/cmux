@@ -23,6 +23,7 @@ extension SidebarListViewComponents {
         view.closingEnd = nil
         fadingRows[ObjectIdentifier(view)] = nil
         view.clearFoldClip()
+        view.layer?.zPosition = 0 // a stuck header's raise belongs to the header it stood for
         // A parked view must not retain a render-server move from the list it just left. In
         // particular, a non-animated reload removes a row by recycling it directly, without
         // passing it through RowMotion.run's stop set; leaving its additive spring active would
@@ -54,6 +55,14 @@ extension SidebarListViewComponents {
         case (.block, let view as SidebarBlockRowView):
             // On every dequeue: a parked block comes back in the sidebar's state now (its edit mode).
             view.region.docList = self
+            // The block's items realize as the list's rows do: only those in the list's realization rect, at the block's
+            // row (its layout slot, not its view's frame, which a recycled view has not taken yet). Unvirtualized long lists.
+            view.region.itemWindow = { [weak self, weak view] in
+                guard let self, let view, let row = self.displayed.row(for: view.key) else { return nil }
+                let realize = self.realizationRect()
+                guard !realize.isNull else { return .null }
+                return NSRect(x: -1e6, y: realize.minY - row.y, width: 2e6, height: realize.height)
+            }
             configureBlockRegion?(view.region)
         case let (.group(id), view as GroupHeaderRowView) where SidebarGroup.hostMachine(id) != nil:
             // A remote group: its more button shows the machine's menu (no group editor: it has no name or color of
