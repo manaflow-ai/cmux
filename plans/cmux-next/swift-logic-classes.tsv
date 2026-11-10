@@ -1422,7 +1422,6 @@ CmuxNextApp	class	ChromiumRuntimeService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextApp	enum	ClipboardReadStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ClipboardReads/ClipboardReadStrings.swift	localized string table
 CmuxNextApp	class	TerminalClipboardReadService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ClipboardReads/TerminalClipboardReadService.swift	from class TerminalClipboardReadService:18: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	AgentPaneCloudMachines	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AgentPaneCloudMachines+App.swift	Cloud machines wiring into agent pane (composition)
-CmuxNextApp	class	AgentToolCards	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AgentToolCards.swift	from class AgentToolCards:8: Registry of tool cards raised in chats by tab (state keyed by chat tab)
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	AppServices Cloud composition-root wiring
 CmuxNextApp	extension	AppServices	1	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	phoneCloudDesktop: phone Cloud desktop access rule (setting gate, one owned link, same account, running, live check), a Swift copy of hostd cloud_desktop_access; phoneCloudLinks: link list rule (#31795); F14. Other members PLATFORM wiring
 CmuxNextApp	class	CloudAccessAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessAsks.swift	from class CloudAccessAsks:22: Poll/ask state for moved chats file and secret requests (cards, timing)
@@ -6832,9 +6831,7 @@ CmuxNextDesignTokens	enum	CalmMode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Source
 CmuxNextDesignTokens	enum	MotionCategory	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionCategory.swift	Motion speed/bounce/category choices; cmux-motion owns them
 CmuxNextDesignTokens	enum	MotionFade	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionFadeTokens.swift	Fade tokens; cmux-motion fade.rs
 CmuxNextDesignTokens	enum	MotionLoop	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionFadeTokens.swift	from enum MotionFade:4: Fade tokens; cmux-motion fade.rs
-CmuxNextDesignTokens	enum	MotionBounce	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	Motion speed/bounce/category choices; cmux-motion owns them
-CmuxNextDesignTokens	enum	MotionKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	from enum MotionBounce:7: Motion speed/bounce/category choices; cmux-motion owns them
-CmuxNextDesignTokens	extension	MotionSpring	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	from enum MotionBounce:7: Motion speed/bounce/category choices; cmux-motion owns them
+CmuxNextDesignTokens	enum	MotionKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionKinds.swift	Motion kind switches (ui.animations.newTab, newWorkspace); cmux-motion owns them
 CmuxNextDesignTokens	struct	MotionPolicy	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionPolicy.swift	Swift spring/policy math; cmux-motion already has spring.rs and policy.rs
 CmuxNextDesignTokens	struct	MotionScale	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextDesignTokens	enum	MotionSpeed	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionTokens.swift	Motion speed/bounce/category choices; cmux-motion owns them
@@ -9239,7 +9236,6 @@ CmuxNextResources	struct	TaskManagerSampleSet	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextResources	protocol	TaskManagerSampleSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerSampleSource.swift	process/OS plumbing or view
 CmuxNextResources	struct	TaskManagerSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerSnapshot.swift	task manager snapshot: rows from two samples, CPU delta, each process once
 CmuxNextResources	struct	TaskManagerStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerStrings.swift	localized string tables
-CmuxNextResources	struct	TaskManagerView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerView.swift	process/OS plumbing or view
 CmuxNextResources	struct	WebContentProcess	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/WebContentProcess.swift	process/OS plumbing or view
 CmuxNextScreenshots	struct	ScreenshotDropSaver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/ScreenshotDropSaver.swift	from struct ScreenshotDropSaver:11: view, workspace or file-system plumbing
 CmuxNextScreenshots	struct	ScreenshotDropValue	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/ScreenshotDropValue.swift	view, workspace or file-system plumbing
@@ -10317,10 +10313,11 @@ CmuxNextSidebar	class	SidebarCardSlotMotion	0	PLATFORM	0	0	Packages/macOS/CmuxNe
 CmuxNextSidebar	class	SidebarCardSwitch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarCardSwitch.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	class	SidebarCardTextButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarCardTextButton.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	struct	SidebarCardTransition	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarCardTransition.swift	from struct SidebarCardTransition:24: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	class	SidebarChatHistoryHeader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryRow.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	class	SidebarChatHistoryRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryRow.swift	from class SidebarChatHistoryHeader:7: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	class	SidebarChatHistoryView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryView.swift	from class SidebarChatHistoryViews:8: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	class	SidebarChatHistoryViews	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryView.swift	from class SidebarChatHistoryViews:8: AppKit/SwiftUI view, drawing, gesture or animation code
+CmuxNextSidebar	class	SidebarChatHistoryHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryHost.swift	AppKit host of the React chat history block (webviews pages/sidebar-chats): page, sizing, menu presentation
+CmuxNextSidebar	class	SidebarChatHistoryViews	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryHost.swift	places the two chat history block hosts in the list's gaps (AppKit frames and springs)
+CmuxNextSidebar	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryPage.swift	the sidebar chat history page's descriptor
+CmuxNextSidebar	class	SidebarChatHistoryProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryPage.swift	page bridge: block stream and gesture-checked calls to SidebarChatHistory
+CmuxNextSidebar	struct	SidebarChatHistoryBlock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryPage.swift	the page's snapshot: SidebarChatHistoryState rows plus SidebarStyle grid metrics as JSON
 CmuxNextSidebar	struct	SidebarChromeReveal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChromeReveal.swift	hover chrome opacity value
 CmuxNextSidebar	extension	SidebarContainerView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView+DebugMenu.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	extension	SidebarContainerView	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView+DebugMenu.swift	AppKit/SwiftUI view, drawing, gesture or animation code
@@ -10724,6 +10721,8 @@ CmuxNextTabs	struct	TabUserIcon	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextTabs	class	ThemeHookView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/ThemeHookView.swift	Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
 CmuxNextTabs	class	WindowMainObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/WindowMainObserver.swift	from class WindowMainObserver:7: Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
 CmuxNextTabs	class	WindowVisibilityObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/WindowVisibilityObserver.swift	from class WindowVisibilityObserver:8: Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
+CmuxNextTaskManagerPage	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTaskManagerPage/TaskManagerPages.swift	task manager page descriptor
+CmuxNextTaskManagerPage	class	TaskManagerPages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTaskManagerPage/TaskManagerPages.swift	page bridge: model lifetime, kill policy inputs, snapshot stream, select and gesture-only kill
 CmuxNextTerminal	enum	GhosttyAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyAction.swift	Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	enum	GhosttyActionDecoder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyActionDecoder.swift	Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	enum	GhosttyActionDispatcher	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyActionDispatcher.swift	Ghostty FFI, config adaption and key translation

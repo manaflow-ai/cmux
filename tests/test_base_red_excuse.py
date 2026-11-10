@@ -6359,5 +6359,132 @@ class GalleryBaseLoadCrash(unittest.TestCase):
         self.assertEqual(killed[0], (4242, excuse.signal.SIGKILL))
 
 
+
+class FailingStepLogOnly(unittest.TestCase):
+    """The excuse quotes, and compares with the base, only the failing step's own lines. On cmux#40369 the static
+    checks job failed in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641
+    and 42820590433), yet the excuse quoted "pinned license manifest digest changed": expected stderr of a passing
+    negative-case test (test_ghostty_licenses.py's `fails("changed manifest", ...)`) in another step, which sent an
+    agent after the wrong cause."""
+
+    NAME = ("cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, "
+            "page strings)")
+    LICENSES = "The nightly's Ghostty license checks pass on fixtures"
+    STRINGS = "Every page's strings generate with no missing translation"
+    DIGEST = ("collect-ghostty-licenses.py: error: pinned license manifest is unusable: pinned license manifest "
+              f"digest changed: {'1' * 64} != {'2' * 64}")
+    COLLECT = "could not collect Ghostty licenses: pinned license manifest digest changed"
+
+    def job(self, job_id, run_id, sha):
+        return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": self.NAME, "status": "completed",
+                "conclusion": "failure", "steps": [
+                    {"name": "Set up job", "status": "completed", "conclusion": "success",
+                     "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
+                    {"name": self.LICENSES, "status": "completed", "conclusion": "success",
+                     "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                    {"name": self.STRINGS, "status": "completed", "conclusion": "failure",
+                     "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]}
+
+    def sections(self, missing, digest=True):
+        """(step, second, text) lines: the license step's negative case prints the digest stderr and passes; the
+        strings step fails with its own count."""
+        licenses = [(self.LICENSES, 10, "##[group]Run python3 cmux-tui/build-support/notices/ghostty/"
+                                        "test_ghostty_licenses.py"),
+                    (self.LICENSES, 10, "python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py"),
+                    (self.LICENSES, 10, "##[endgroup]")]
+        if digest:
+            licenses += [(self.LICENSES, 11, self.DIGEST), (self.LICENSES, 11, self.COLLECT)]
+        licenses.append((self.LICENSES, 11, "ok: changed manifest is refused"))
+        strings = [(self.STRINGS, 20, "##[group]Run node webviews/scripts/pages/gen-strings.mjs"),
+                   (self.STRINGS, 20, "node webviews/scripts/pages/gen-strings.mjs"),
+                   (self.STRINGS, 20, "##[endgroup]"),
+                   *((self.STRINGS, 21, line) for line in missing),
+                   (self.STRINGS, 21, "##[error]Process completed with exit code 1.")]
+        return licenses + strings
+
+    def raw(self, lines):
+        # The job-log endpoint judge reads (GitHub.log): a timestamp per line, no step column.
+        return "\n".join(f"2026-11-10T12:00:{second:02d}.5000000Z {text}" for _, second, text in lines)
+
+    def columns(self, lines):
+        # `gh run view --log`: job and step columns before the timestamp.
+        return "\n".join(f"{self.NAME}\t{step}\t2026-11-10T12:00:{second:02d}.5000000Z {text}"
+                         for step, second, text in lines)
+
+    def github(self, head, base):
+        github = FakeGitHub()
+        github.jobs = {1: self.job(1, 10, HEAD), 2: self.job(2, 20, BASE_SHA)}
+        github.logs = {1: head, 2: base}
+        return github
+
+    def test_the_excuse_quotes_the_failing_steps_error_not_a_passing_steps_negative_case_stderr(self):
+        missing = ["settings: 42 strings missing", "  settings.title: missing ja"]
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections(missing)), fmt(self.sections(missing)))
+                text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                self.assertIn("excused", text)
+                self.assertIn("settings: # strings missing", text)
+                self.assertNotIn("digest changed", text)
+                self.assertNotIn("could not collect Ghostty licenses", text)
+
+    def test_a_refusal_names_the_failing_steps_error_not_a_passing_steps_negative_case_stderr(self):
+        # The base's license step printed no digest line; its strings step failed on another page. Only the strings
+        # error is the head's own, and only it may be named.
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections(["settings: 42 strings missing"])),
+                                     fmt(self.sections(["home: 3 strings missing"], digest=False)))
+                with self.assertRaises(excuse.Refused) as raised:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                self.assertIn("settings: # strings missing", str(raised.exception))
+                self.assertNotIn("digest changed", str(raised.exception))
+
+    def test_the_failing_steps_errors_are_matched_with_the_bases_same_step(self):
+        # The head's strings error printed by the base only in a passing step is not the base failing that way.
+        line = "settings: 42 strings missing"
+        base = self.sections(["home: 3 strings missing"])
+        base.insert(3, (self.LICENSES, 11, line))
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections([line])), fmt(base))
+                with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: settings"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+    def test_a_continue_on_error_step_that_failed_still_counts(self):
+        # The jobs API reads a continue-on-error step that failed as a success, and the job's rollup step fails for
+        # it. Its section's own `##[error]Process completed` line keeps its errors compared: a different red there
+        # is never excused by the rollup lines alone.
+        check, rollup = "Main-thread concurrency", "Fail on any red check"
+
+        def job(job_id, run_id, sha):
+            found = self.job(job_id, run_id, sha)
+            found["steps"] = [
+                {"name": check, "status": "completed", "conclusion": "success",
+                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                {"name": rollup, "status": "completed", "conclusion": "failure",
+                 "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]
+            return found
+
+        def lines(error):
+            return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
+                    (check, 10, "##[endgroup]"),
+                    (check, 11, f"concurrency: error: {error}"),
+                    (check, 11, "##[error]Process completed with exit code 1."),
+                    (rollup, 20, "##[group]Run scripts/ci/rollup.sh"),
+                    (rollup, 20, "##[endgroup]"),
+                    (rollup, 21, f"##[error]red check: {check}"),
+                    (rollup, 21, "##[error]Process completed with exit code 1.")]
+
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(lines("Sources/New.swift:9 blocks the main thread")),
+                                     fmt(lines("Sources/Old.swift:3 blocks the main thread")))
+                github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+                with self.assertRaisesRegex(excuse.Refused, "New.swift"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
 if __name__ == "__main__":
     unittest.main()

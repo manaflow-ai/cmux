@@ -467,7 +467,57 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
     let mut rewritten = before.to_vec();
     rewritten.push("cloud".to_owned());
-    rewritten.extend(after.iter().cloned());
+    rewritten.extend(yes_as_confirm(after));
+    Some(rewritten)
+}
+
+/// `words` (a Cloud verb and its words) with `--yes` (`-y`), every delete's yes (`vm rm dev
+/// --yes`), as the `--confirm` the app's Cloud actions read. Only a verb that deletes gets it
+/// (anywhere else a `--yes` is a value, as in `start-chat --prompt --yes`); from `--` on, words
+/// are text.
+fn yes_as_confirm(words: &[String]) -> Vec<String> {
+    let verb = words.iter().find(|word| !word.starts_with('-')).map_or("", String::as_str);
+    yes_words(verb, words)
+}
+
+/// `words` of Cloud's `verb` with its yes (`--yes`, `-y`) as the app's `--confirm`, when `verb`
+/// deletes something. A delete's other flags all take a value (`--path -y` removes the file
+/// `-y`), so a word right after one stays as typed, as does every word from `--` on.
+pub(super) fn yes_words(verb: &str, words: &[String]) -> Vec<String> {
+    if !super::cloud_help::confirms(verb) {
+        return words.to_vec();
+    }
+    let mut text = false;
+    let mut value_next = false;
+    words
+        .iter()
+        .map(|word| {
+            text |= word == "--";
+            let value = std::mem::replace(
+                &mut value_next,
+                word.starts_with("--")
+                    && !word.contains('=')
+                    && !matches!(word.as_str(), "--" | "--yes" | "--confirm" | "--json"),
+            );
+            match word.as_str() {
+                "--yes" | "-y" if !text && !value => "--confirm".to_owned(),
+                _ => word.clone(),
+            }
+        })
+        .collect()
+}
+
+/// `cmux cloud VERB … --yes` (`cloud`, `vm`'s old name): the same `--confirm`, `None` when there
+/// is no `--yes` to respell.
+pub(super) fn cloud_yes(args: &[String]) -> Option<Vec<String>> {
+    let (_, at) = scope_at(args, |word| word == "cloud")?;
+    let after = args.get(at + 1..)?;
+    let respelled = yes_as_confirm(after);
+    if respelled == after {
+        return None;
+    }
+    let mut rewritten = args[..=at].to_vec();
+    rewritten.extend(respelled);
     Some(rewritten)
 }
 
@@ -657,7 +707,8 @@ pub(super) fn app_present(
 const NEW_HELP: &str = "\
 usage: cmux vm new [--name NAME] [--size small|medium|large|xlarge] [--persistent]
                    [--repo OWNER/NAME[@REF]] [--machine-config FILE]
-                   [--bootstrap lane --bootstrap-script FILE] [--json]
+                   [--bootstrap lane --bootstrap-script FILE]
+                   [--wait [--timeout SECONDS]] [--json]
 
 Make a Cloud VM. With the cmux app signed in, this is the same VM
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
@@ -669,6 +720,13 @@ running; a few minutes on cmux Cloud) and resumes when you open it again.
 
   cmux vm new
   cmux vm new --name api-dev --size medium --repo OWNER/NAME
+  cmux vm new --name api-dev --machine-config .cmux/machine.toml --wait
+
+--wait answers once the VM is ready: running, its machine config applied
+(--machine-config, or the --repo checkout's .cmux/machine.toml) and the
+secrets that file names delivered from this Mac (`cmux vm secret set NAME`).
+A failed setup answers with its status and the log to read. --timeout
+SECONDS (default 1200) ends the wait; the VM goes on starting.
 
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
@@ -713,9 +771,9 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     Some(format!(
         "Created Cloud VM {name}: {status}.\n\n\
          Next:\n  \
-         open a terminal:  {cmux} vm ssh --target {target}\n  \
-         start an agent:   {cmux} vm start-session --target {target} --agent claude\n  \
-         run a command:    {cmux} vm exec --target {target} --command 'uname -a'\n"
+         open a terminal:  {cmux} vm ssh {id}\n  \
+         start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \
+         run a command:    {cmux} vm exec {id} -- uname -a\n"
     ))
 }
 
@@ -793,6 +851,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             || super::app::connect_command(&global).is_ok(),
             super::cloud_machines::app_found,
         );
+        // `--wait`: the create, then the waits a person does by hand (vm_ready.rs). The app's verbs only.
+        if app_present
+            && new_route(tail, app_present) == NewRoute::App
+            && let Some(code) = super::vm_ready::run_if_requested(&global, tail)
+        {
+            return Some(code);
+        }
         if new_route(tail, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {

@@ -499,8 +499,9 @@ app_path = str(Path(args.app).resolve())
 open_tool = os.environ.get("CMUX_PROOF_OPEN_TOOL", "/usr/bin/open")
 launch = [open_tool, "-W", "-g", "-n"]
 # LaunchServices starts the app with its own environment, not this process's ENV, so the proof's socket
-# must travel as --env: the published app otherwise listens on its default socket and the CLI never finds it.
-launch.extend(["--env", f"CMUX_SOCKET_PATH={SOCKET_PATH}", "--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+# must travel as --env, and only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH is a marker of another cmux,
+# and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
+launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
 if args.credentials_file:
     try:
         credentials_file = validate_credentials_file(args.credentials_file)

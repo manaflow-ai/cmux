@@ -155,6 +155,19 @@ final class SpaceSwitchBench {
                       drawMs: (drawn - shown) * 1_000, counters: counters)
     }
 
+    /// One switch to `room` and every main-actor turn it starts (the observation hops of the sidebar's passes, the
+    /// row flushes), then the sidebar's counters of all of it: the work one switch costs, not only its own turn.
+    func settledSwitch(to room: ProfileID) async throws -> [String: Int] {
+        _ = SidebarView.perfCounters(reset: true)
+        services.windows.switchProfile(room, in: state)
+        guard shows(room) else { throw BenchError.neverShown(room.rawValue) }
+        for _ in 0..<16 {
+            drain()
+            await Task.yield()
+        }
+        return SidebarView.perfCounters(reset: true).filter { !$0.key.contains("@") }
+    }
+
     /// `rounds` switches back and forth between the first two rooms (after one warm-up each way).
     func run(rounds: Int) async throws -> [Sample] {
         _ = try await switchTo(rooms[1])
