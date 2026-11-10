@@ -128,6 +128,29 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       ...Array.from({ length: 10 }, (_, at) => bigPaste(`q-${at + 1}`, 300)),
       ...Array.from({ length: 2 }, (_, at) => turn(at + 15)).flat(),
     ]),
+    // The user, 2026-11-03 ("the whole chat transcript didn't load, it just loaded my last message"):
+    // one first turn thousands of records long, its work split into background turns, then one short
+    // question. The open page starts inside the last reply, under that reply's prompt, and the only
+    // turn older than it is thousands of records and many pages back.
+    longFirstTurn: history([
+      ["mux", "user_message", { text: "Lane report 1: finish the pull request.", promptId: "p-1" }],
+      ["mux", "turn_started", {}],
+      ["in", "agent_message_chunk", say("Answer 1. On it.")],
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+      ...Array.from({ length: 40 }, (_, run) =>
+        [
+          ["mux", "background_turn", { id: `bg-${run}`, state: "started", trigger: "system" }],
+          ...Array.from({ length: 60 }, (_, at) => ["in", "agent_message_chunk", say(`run ${run} part ${at} ${"x".repeat(1000)} `)]),
+          ["mux", "background_turn", { id: `bg-${run}`, state: "ended", reason: "result", trigger: "system" }],
+        ] as Step[],
+      ).flat(),
+      ["mux", "stopped", { code: 1, hibernated: true }],
+      ["mux", "resumed", { level: "exact", wake: true }],
+      ["mux", "user_message", { text: "where is my pr", promptId: "p-2" }],
+      ["mux", "turn_started", {}],
+      ...Array.from({ length: 600 }, (_, at) => ["in", "agent_message_chunk", say(`word${at} `)] as Step),
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+    ]),
     // No oversized record: a plain long chat, well past the open's cap in total.
     longText: history(
       Array.from(
@@ -216,6 +239,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       () => `the pane kept asking acpmux: ${inFlight} in flight, last answer ${answeredAt}`,
     );
 
+  let stallAbovePrompt = 0;
   let olderReads = 0;
   /// The byte caps the pane asked for, which is the whole of what bounds a page: acpmux caps one
   /// only when the client says to (`max_bytes`, paging.rs). A pane that stopped asking would be
@@ -289,6 +313,15 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
+          // Reads above the last prompt never answer, as a slow walk of a long turn does not yet.
+          const asks = message.params ?? {};
+          if (
+            stallAbovePrompt &&
+            message.method === "_acpmux/events" &&
+            asks.kinds?.includes("transcript") &&
+            Number(asks.beforeSeq) <= stallAbovePrompt
+          )
+            return;
           inFlight += 1;
           // A loaded runner answers no faster than this; CMUX_REOPEN_TEST_LATENCY_MS makes a slow
           // one on purpose, to show that what is measured below does not depend on the speed of
@@ -481,6 +514,18 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     await page.locator(".acpmux-scroll .acpmux-row").first().waitFor({ timeout: 25_000 });
     return page;
   };
+
+  test("a reply cut by the open page is whole before the long turn above it is read", async () => {
+    stallAbovePrompt = CHATS.longFirstTurn.find((record) => record.msg.promptId === "p-2")!.seq;
+    try {
+      const page = await openChat("longFirstTurn");
+      // Past the open page's 400 records, so only an older page can bring it.
+      await page.getByText("word0 ", { exact: false }).first().waitFor({ state: "attached", timeout: 25_000 });
+      await page.close();
+    } finally {
+      stallAbovePrompt = 0;
+    }
+  });
 
   for (const name of Object.keys(CHATS) as ChatName[]) {
     test(`a reopened ${name} chat shows its history under the composer, with no blank band`, async () => {
