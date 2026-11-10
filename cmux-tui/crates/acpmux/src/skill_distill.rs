@@ -548,9 +548,6 @@ impl Records {
     }
 }
 
-/// The longest draft prompt, in bytes (`complete::MAX_PROMPT_BYTES`).
-const MAX_DRAFT_PROMPT: usize = crate::complete::MAX_PROMPT_BYTES;
-
 /// The headless prompt that asks the chat's harness for the skill, from the pattern's chats.
 pub fn draft_prompt(chats: &[Shape]) -> String {
     let mut out = String::from(
@@ -579,7 +576,7 @@ pub fn draft_prompt(chats: &[Shape]) -> String {
                 part.push('\n');
             }
         }
-        if out.len().saturating_add(part.len()) > MAX_DRAFT_PROMPT {
+        if out.len().saturating_add(part.len()) > crate::complete::MAX_PROMPT_BYTES {
             break;
         }
         out.push_str(&part);
