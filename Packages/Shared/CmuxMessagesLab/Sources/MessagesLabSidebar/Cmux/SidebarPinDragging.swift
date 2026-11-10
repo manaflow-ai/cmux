@@ -379,8 +379,11 @@ extension SidebarController {
     static func pinDragSpring(_ keyPath: String) -> CASpringAnimation {
         let a = CASpringAnimation(keyPath: keyPath)
         a.mass = 1
-        a.stiffness = 320
-        a.damping = 30
+        // Critically damped (damping ratio 1): it never passes its target. 95 % of the way in 202 ms,
+        // the time of the spring before it (stiffness 320, damping 30, ratio 0.84, 0.8 % past the
+        // target): stiffness = (4.744 / 0.2019 s)^2.
+        a.stiffness = 552
+        a.damping = 2 * a.stiffness.squareRoot()
         a.duration = a.settlingDuration
         return a
     }
