@@ -78,7 +78,7 @@ def measure(app, session, report, opts):
             reply = app.rpc("debug.open_panel_bench", {"mode": mode}, timeout=90) or {}
             stuck.cancel()
             frames = reply.get("frames") or {}
-            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "live_panels_before", "init_ms", "begin_ms",
+            run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "live_panels_before", "directory", "init_ms", "begin_ms",
                                              "sync_ms", "visible_ms", "error")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
                        intervals_ms=frames.get("intervals_ms"), prompt_nil=reply.get("prompt_nil"),

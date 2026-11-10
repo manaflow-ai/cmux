@@ -11,20 +11,20 @@ public import AppKit
 /// file-system event (DesktopServicesPriv `TNode::SynchronizeChildren`), 2.8 to 4.8 % of a core for the life of
 /// each app on a busy Mac. The numbers of both paths are in plans/cmux-next/picker.md.
 ///
-/// What stays of the warm-up: `NSOpenPanel()` costs more for the process's first panel (about 300 ms on the main
-/// thread: the frameworks load and the panel service answers for the first time) than for a later one (105 to
-/// 120 ms). So the first panel of the process is made while the person is idle, at a pause or while cmux is in
-/// the background, and let go at once. The warm-up has no deadline: AppKit makes the panel only on the main
+/// What stays of the warm-up: `NSOpenPanel()` costs more for the process's first panel (the frameworks load and
+/// the panel service answers for the first time) than for a later one (measured, base and head: the table in
+/// plans/cmux-next/picker.md). So the first panel of the process is made while the person is idle, at a pause or
+/// while cmux is in the background, and let go at once. The warm-up has no deadline: AppKit makes the panel only on the main
 /// thread and cannot ask its view service first, so with a hung panel service the warm-up (or a click) blocks
 /// the main thread once, up to about 40 s, before the dead panel stops further warm-ups. The logic is
 /// ``MadeAheadPanelStore``'s; when the warm-up may run is ``OpenPanelWarmGate``'s.
 ///
 /// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
-/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and a WebKit view's
-/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` for a cmux page on WebKit, and the WebKit
-/// browser engine's `fileInput`). Chromium does not take it: a Chromium browser tab or a cmux page hosted in
-/// Chromium (the default engine) has no file-dialog handler in the CEF shim, so Chromium makes its own new
-/// `NSOpenPanel` on the main thread for each click, with no dead-panel guard (open, routed to the CEF owners).
+/// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's composer (`HomeComposerHandoff`), and a page's
+/// `<input type="file">` (``WebFileInputAnswering``: `PageOpenPanel` for a cmux page on WebKit, and the browser
+/// engines' `fileInput`). A Chromium tab takes it only for the choosers Chromium sends to the app (while an
+/// agent's file offer stands, or a cmux page that records the pick: `CEFRuntime+FileDialogs`); for the others
+/// Chromium makes its own new `NSOpenPanel` on the main thread for each click, with no dead-panel guard.
 @MainActor
 public final class MadeAheadOpenPanel {
     private let store: MadeAheadPanelStore<NSOpenPanel>

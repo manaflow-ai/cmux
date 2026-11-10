@@ -77,7 +77,7 @@ final class CEFRuntime {
     /// (`CEFRuntime+FileDialogs`).
     var agentFileOffers: Set<ObjectIdentifier> = []
     /// Asks the person for files when a chooser reaches the app with no offer for its tab (the App's
-    /// made-ahead panel, as WebKit tabs use); nil cancels such a chooser.
+    /// open panel, as WebKit tabs use); nil cancels such a chooser.
     var fileInput: (any WebFileInputAnswering)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.

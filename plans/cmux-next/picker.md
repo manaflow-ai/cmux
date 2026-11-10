@@ -21,8 +21,8 @@ Diff: `DiffPageService` conforms to `DiffViewerOpening` and is `ViewerService.di
 ## The system open panel on the click path (PL-fleet-gui, 2026-10-23)
 
 Home's "+", an agent composer's Add Files / Attach and every WebKit view's `<input type="file">` (cmux pages on WebKit and
-WebKit browser tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (the made-ahead `MadeAheadOpenPanel`, one
-instance made at the composition root).
+WebKit browser tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (`MadeAheadOpenPanel`, one
+instance made at the composition root; since 2026-11-10 it makes a new panel for each request and keeps none).
 
 Chromium is not on that path. Chromium is the default engine for browser tabs and for cmux pages (`PageWebView` follows
 `browser.defaultEngine`), and the CEF shim (`shim_client.mm`) has no `CefDialogHandler`: a Chromium file input runs

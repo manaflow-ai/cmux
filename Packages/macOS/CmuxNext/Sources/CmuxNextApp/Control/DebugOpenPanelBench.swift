@@ -46,9 +46,9 @@ enum DebugOpenPanelBench {
         }
         let made = ContinuousClock.now
         if mode == "window" {
-            panel.begin { _ in }
+            panel.begin { _ in _ = panel.urls } // the handler holds its panel, as each real caller's does
         } else {
-            panel.beginSheetModal(for: window) { _ in }
+            panel.beginSheetModal(for: window) { _ in _ = panel.urls }
         }
         let begun = ContinuousClock.now
         let visible = await frames.settled(until: {

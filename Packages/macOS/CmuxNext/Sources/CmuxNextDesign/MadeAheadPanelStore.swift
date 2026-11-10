@@ -29,9 +29,9 @@ final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
     /// The panels made here that are still alive: one per picker on screen, and 0 at rest. The store holds none;
     /// a request's panel lives as long as its caller and its sheet keep it.
     var livePanels: Int { madePanels.count(where: { $0.panel != nil }) }
-    /// Whether the last panel made came back dead (no prompt: its view service never answered). No warm-up runs
-    /// again until a click makes a working panel: each `NSOpenPanel()` with no view service blocks the main
-    /// thread about 40 s (no GUI session, 2026-10-23).
+    /// Whether a panel made here came back dead (no prompt: its view service never answered). No warm-up runs
+    /// after that: each `NSOpenPanel()` with no view service blocks the main thread about 40 s (no GUI session,
+    /// 2026-10-23), and a click that then makes a working panel has paid the first panel (``isWarm``).
     private(set) var warmGaveUp = false
     /// The dead panels dropped so far.
     private(set) var droppedPanels = 0
@@ -49,7 +49,7 @@ final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
 
     /// - Parameters:
     ///   - clock: The clock of the warm-up's checks; tests pass a manual clock.
-    ///   - makePanel: Makes a new panel (`NSOpenPanel()`, 105 to 300 ms on the main thread).
+    ///   - makePanel: Makes a new panel (`NSOpenPanel()`, synchronous on the main thread).
     ///   - warmCheck: Whether a warm-up may make its panel now; read when a check fires.
     init(clock: any Clock<Duration> = ContinuousClock(), makePanel: @escaping @MainActor () -> Panel,
          warmCheck: @escaping @MainActor () -> OpenPanelWarmCheck) {
@@ -75,7 +75,6 @@ final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
             return nil
         }
         isWarm = true
-        warmGaveUp = false
         return panel
     }
 
@@ -88,7 +87,7 @@ final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
 
     /// Makes one panel and lets it go at once: the process has then loaded what a panel needs, and no panel
     /// stays alive to keep its service at work. A panel whose view service never answered (no prompt) ends the
-    /// warm-ups until a click makes a working one.
+    /// warm-ups.
     private func warm() {
         let panel = make()
         guard panel.openPanelPrompt != nil else {
@@ -106,14 +105,14 @@ final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
         return panel
     }
 
-    /// Records a dead panel: no warm-up runs until a click makes a working one, and a notice says so.
+    /// Records a dead panel: no warm-up runs after it, and a notice says so.
     private func dropDead(onClick: Bool) {
         warmGaveUp = true
         droppedPanels += 1
         let dropped = droppedPanels
         let source = onClick ? "click (no picker shown)" : "warm-up"
         logger.notice(
-            "open panel dropped from a \(source, privacy: .public) (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
+            "open panel dropped from a \(source, privacy: .public) (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no further warm-up"
         )
     }
 
