@@ -280,6 +280,20 @@ struct TabCloseSelectionTests {
         #expect(pane.memory.closeRule.isEmpty)
     }
 
+    /// The pane's strip does not change when the daemon commits a close whose tab it already hid: the tab leaves
+    /// the rule's state before the next pick of its pane, with no apply in between.
+    @Test func aCommittedCloseIsKnownBeforeTheNextPickOfItsPane() {
+        let pane = Pane(["a", "b", "c", "d"], selected: "b")
+        pane.newTab("n")
+        pane.linkTab("l", from: "n", after: "n")
+        #expect(pane.press("n") == "l")
+        pane.closing = []
+        #expect(pane.press("l") == "b")
+        pane.closing = []
+        pane.sync()
+        #expect(pane.memory.closeRule.isEmpty)
+    }
+
     // MARK: Nothing for automation, and a relation holds inside one pane
 
     @Test func aScriptsNewTabHasNoOpener() {

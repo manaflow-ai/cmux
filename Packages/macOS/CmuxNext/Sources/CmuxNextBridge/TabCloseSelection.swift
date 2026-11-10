@@ -31,6 +31,8 @@ public final class TabCloseSelection {
     private var gesture: (pane: String, tab: String)?
     /// The selection a close is about to cause: never a gesture (``closeSelects(_:in:)``).
     private var closePick: (pane: String, tab: String)?
+    /// A close's own selection runs (``closeSelects(_:)``): it is not a move the rule hears of.
+    private var inClosePick = false
     /// A tab that took another's place: its id to the id the state knows, and back.
     private var known: [String: String] = [:]
     private var shownAs: [String: String] = [:]
@@ -63,6 +65,17 @@ public final class TabCloseSelection {
         closePick = home.isEmpty ? nil : (pane, tab)
     }
 
+    /// Runs the selection a close causes (the pick after the selected tab left, or a move at the press of a
+    /// close). The rule does not hear of that move: the committed close ends the tab's relations
+    /// (``settle(_:lists:before:closing:)``), and a close that is cancelled or refused leaves them as they
+    /// were, a quick look-up's too. Nothing is kept after `body` returns.
+    public func closeSelects<T>(_ body: () -> T) -> T {
+        let outer = inClosePick
+        inClosePick = true
+        defer { inClosePick = outer }
+        return body()
+    }
+
     /// `tab` was made in `pane` from `opener`, by a link or by an action inside `opener`, in the foreground
     /// or the background (a task opener). `quick`: a person's new tab put away from the current one.
     /// A foreground `quick` tab first forgets every relation of the pane.
@@ -79,7 +92,7 @@ public final class TabCloseSelection {
     func selected(_ new: String, after old: String?, in pane: String, standIn: String?) { // perf-hot: 10ms tab-switch
         let person = gesture.map { $0.pane == pane && $0.tab == new } ?? false
         if gesture?.pane == pane { gesture = nil }
-        guard !home.isEmpty || !expected.isEmpty else { return }
+        guard !inClosePick, !home.isEmpty || !expected.isEmpty else { return }
         let from = old.map { id($0) }
         if let standIn { adopt(new, inPlaceOf: standIn) }
         let to = id(new)
@@ -100,7 +113,7 @@ public final class TabCloseSelection {
     /// The tab a pane selects after `closed` left it: a tab it opened, a tab its opener opened, its
     /// opener, else the next shown tab, and the previous one only when it was the last. `old` is the
     /// pane's order before, `tabs` its tabs now, `hidden` the members of a collapsed group. Call it
-    /// before ``settle(_:lists:)``.
+    /// before ``settle(_:lists:before:closing:)`` for the tabs that left in this change.
     public func successor(of closed: String, old: [String], tabs: [String], hidden: Set<String> = []) -> String? {
         let shown = hidden.isEmpty ? Set(tabs) : Set(tabs).subtracting(hidden)
         guard !known.isEmpty else { return openers.successor(ofTab: closed, old: old, surviving: tabs, shown: shown) }
@@ -131,15 +144,25 @@ public final class TabCloseSelection {
         forgetWhenEmpty()
     }
 
-    /// After the pick: `pane` lists `tabs` now. A tab of the state that it no longer lists left its
-    /// strip (closed, or moved to another pane), so its relations end: a relation holds inside one pane.
-    func settle(_ pane: String, lists tabs: [String]) {
+    /// `pane` lists `tabs` now. A tab of the state that it no longer lists left its strip (its close is
+    /// committed, or it moved to another pane), so its relations end: a relation holds inside one pane.
+    /// A tab that a pending close only hides (`closing`: the store's close intents) stays: the press of a
+    /// close keeps the relation, so a cancelled or refused close shows the tab again with its opener, and
+    /// the committed close ends it. Call it after the pick; and before the pick with `old`, the pane's
+    /// order before this change, so that a tab whose close was committed since the last call leaves first
+    /// (the tabs it opened take its opener) while the tabs that leave in this change still count.
+    /// `closing` is asked only when a tab of the state is not listed.
+    func settle(_ pane: String, lists tabs: [String], before old: [String] = [], closing: () -> Set<String> = { [] }) {
         if !expected.isEmpty, let made = expected[pane], !tabs.contains(made.opener) { expected[pane] = nil }
         guard !home.isEmpty else { return }
         let held = home.filter { $0.value == pane }.map(\.key)
         guard !held.isEmpty else { return }
-        let live = Set(tabs)
-        for item in held where !live.contains(shownAs[item] ?? item) { left(item) }
+        let live = Set(tabs).union(old)
+        let gone = held.filter { !live.contains(shownAs[$0] ?? $0) }
+        if !gone.isEmpty {
+            let pending = closing()
+            for item in gone where !pending.contains(shownAs[item] ?? item) { left(item) }
+        }
         forgetWhenEmpty()
     }
 
