@@ -11,6 +11,7 @@ mod kitty_file_media;
 mod launch_codec;
 mod parser_failure;
 mod parser_order;
+mod slow_client_reader;
 mod smart_viewer_exit;
 mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
