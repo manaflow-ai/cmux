@@ -9,16 +9,16 @@ import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.composer";
-const SCENES = [
-  "attachments-menu-inline",
-  "attachments-menu-picked-top",
-  "attachments-menu-top-checked",
-  "attachments-menu-picked-inline",
-];
-
 await requireBrowserLane("composer-attachment-view-menu.test.ts", async () => {
   setDefaultTimeout(180_000);
+  type PlayWindow = Window & { cmuxGalleryPlayReport?: { steps: { status: string }[] } };
+  const ENTRY = "agent-pane.composer";
+  const SCENES = [
+    "attachments-menu-inline",
+    "attachments-menu-picked-top",
+    "attachments-menu-top-checked",
+    "attachments-menu-picked-inline",
+  ];
   try {
     await (await chromium.launch({ headless: true, timeout: 30_000 })).close();
   } catch {
@@ -72,8 +72,7 @@ await requireBrowserLane("composer-attachment-view-menu.test.ts", async () => {
       const state = await page.evaluate(() => ({
         ready: document.documentElement.dataset.galleryReady,
         play: document.documentElement.dataset.galleryPlay,
-        failed: (window as { cmuxGalleryPlayReport?: { steps: { status: string; detail?: string }[] } })
-          .cmuxGalleryPlayReport?.steps.filter((step) => step.status === "fail"),
+        failed: (window as PlayWindow).cmuxGalleryPlayReport?.steps.filter((step) => step.status === "fail"),
       }));
       expect({ scene, ready: state.ready, failed: state.failed, errors }).toEqual({
         scene,
