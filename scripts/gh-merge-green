@@ -458,6 +458,28 @@ fast=0
 [ "$base" = feat-cmux-next ] && [ "$full" -eq 0 ] && [ "$fix" -eq 0 ] && fast=1
 gate_mode=full
 [ "$fast" -eq 1 ] && gate_mode=fast
+# The protected gate paths: workflows, shared CI scripts, gh-merge-green itself and gate
+# config. The one list is the helper checkout's own scripts/ci/merge-fast-gate-protected-paths.txt,
+# read with the gate code it guards: no pull request into feat-cmux-next can change it
+# (feat-cmux-next never carried it; #20566 landed on main after the fork). The fast gate reads it
+# before it reads or waits for anything (review protpaths-1 of #39942, F1): a missing, unreadable
+# or empty list refuses here, not after a wait and a dispatched run.
+protected_list=''
+if [ "$fast" -eq 1 ] && ! protected_list=$(python3 -c '
+import sys
+try:
+    with open(sys.argv[1]) as handle:
+        text = handle.read()
+except (OSError, UnicodeDecodeError) as error:
+    sys.exit(f"cannot read {sys.argv[1]}: {error}")
+prefixes = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+if not prefixes:
+    sys.exit(f"{sys.argv[1]} lists no path")
+print("\n".join(prefixes))
+' "$script_dir/ci/merge-fast-gate-protected-paths.txt"); then
+  refuse "not merged: cannot read the protected gate paths ($script_dir/ci/merge-fast-gate-protected-paths.txt) for $ref" \
+    "restore scripts/ci/merge-fast-gate-protected-paths.txt in the helper checkout from origin/main (git -C $script_dir checkout origin/main -- ci/merge-fast-gate-protected-paths.txt), then retry"
+fi
 [ "$fix" -eq 1 ] && gate_mode=main-fix
 # The full gate refuses an untrusted fork in merged_head_checks; the fast gate
 # may skip those, so it refuses the fork here, before it reads or waits for
@@ -1444,26 +1466,15 @@ merged_head_checks() {
     exit 1
   fi
 }
-# The changed files under a protected gate path: workflows, shared CI scripts,
-# gh-merge-green itself and gate config. The one list is the helper checkout's own
-# scripts/ci/merge-fast-gate-protected-paths.txt, read with the gate code it guards: no
-# pull request into feat-cmux-next can change it (feat-cmux-next never carried it; #20566
-# landed on main after the fork). A missing, unreadable or empty list fails; the caller refuses.
+# The changed files under a protected gate path (one per line), matched against protected_list.
 protected_gate_paths() {
   python3 -c '
 import sys
-try:
-    with open(sys.argv[1]) as handle:
-        text = handle.read()
-except (OSError, UnicodeDecodeError) as error:
-    sys.exit(f"cannot read {sys.argv[1]}: {error}")
-prefixes = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-if not prefixes:
-    sys.exit(f"{sys.argv[1]} lists no path")
+prefixes = sys.argv[1].split()
 for name in open(sys.argv[2]).read().split():
     if any(name == p or (p.endswith("/") and name.startswith(p)) for p in prefixes):
         print(name)
-' "$script_dir/ci/merge-fast-gate-protected-paths.txt" <(printf '%s\n' "$changed")
+' "$protected_list" <(printf '%s\n' "$changed")
 }
 # The full gate runs the merged-tree checks on every feat-cmux-next PR. The fast gate
 # leaves vp check and the god-file check to the post-merge suites (they take minutes
@@ -1482,8 +1493,7 @@ merged_tree_checks() {
     merged_head_checks
   elif [ "$fast" -eq 1 ]; then
     if ! protected=$(protected_gate_paths); then
-      refuse "not merged: cannot match $ref against the protected gate paths ($script_dir/ci/merge-fast-gate-protected-paths.txt)" \
-        "restore scripts/ci/merge-fast-gate-protected-paths.txt in the helper checkout from origin/main (git -C $script_dir checkout origin/main -- ci/merge-fast-gate-protected-paths.txt), then retry"
+      refuse "not merged: cannot match $ref against the protected gate paths" 'retry; python3 is required'
     fi
     if [ -n "$protected" ]; then
       printf 'note: %s touches protected gate paths (%s); running the merged-tree checks\n' "$ref" \
