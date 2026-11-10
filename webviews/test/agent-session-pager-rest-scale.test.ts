@@ -92,3 +92,28 @@ test("a newer session_changed and a purge beat an in-flight stale page", async (
   expect(held.filter((row) => row.sessionId === "s250")).toEqual([changed]);
   expect(held.some((row) => row.sessionId === "s260")).toBe(false);
 });
+
+// Once the list is whole the pane's own list takes every change: the pager keeps none of them. Kept,
+// every chat ever closed stayed in `purged` for the pane's life (test/state-growth.test.ts, session-churn).
+test("after the list is whole, changes and purges are not kept", async () => {
+  const { pager } = daemon();
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  const add = (fresh: Session[]) => void (held = [...held, ...fresh]);
+  expect(await pager.rest(first, () => held, add)).toBe(true);
+  pager.done(first.run);
+  for (let n = 0; n < 1_000; n++) {
+    pager.changedSession({ sessionId: `new${n}`, updatedAt: n });
+    pager.purgedSession(`new${n}`);
+  }
+  const kept = pager as unknown as { purged: Set<string>; changed: Map<string, Session> };
+  expect([kept.purged.size, kept.changed.size]).toEqual([0, 0]);
+  // A newer list keeps its own changes until it is whole, and an older list's `done` does not end them.
+  const again = await pager.first();
+  pager.purgedSession("s5");
+  pager.done(first.run);
+  expect(pager.settle(again!.sessions).some((row) => row.sessionId === "s5")).toBe(false);
+  pager.done(again!.run);
+  expect(kept.purged.size).toBe(0);
+});
