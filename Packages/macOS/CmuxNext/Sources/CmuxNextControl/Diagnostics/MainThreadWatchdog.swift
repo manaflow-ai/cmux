@@ -91,8 +91,8 @@ public final class MainThreadWatchdog: Sendable {
     /// to crash reporting). Called at most once per stall and once per
     /// `hangReportInterval`; it must not wait for the main thread.
     public var onHang: (@Sendable (Hang) -> Void)? {
-        get { hangSink.withLock { $0 } }
-        set { hangSink.withLock { $0 = newValue } }
+        get { hangSink.load() }
+        set { hangSink.store(newValue) }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
     /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
@@ -100,8 +100,8 @@ public final class MainThreadWatchdog: Sendable {
     /// app sends lag spikes to crash reporting. It must return at once: no
     /// symbolication, I/O or allocation-heavy work on this thread.
     public var onStall: (@Sendable (HangRecord) -> Void)? {
-        get { stallSink.withLock { $0 } }
-        set { stallSink.withLock { $0 = newValue } }
+        get { stallSink.load() }
+        set { stallSink.store(newValue) }
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
@@ -355,7 +355,7 @@ public final class MainThreadWatchdog: Sendable {
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
         if nanos >= hangNanos { hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } } }
-        stallSink.withLock { $0 }?(record)
+        stallSink.load()?(record)
     }
 
     // MARK: - Watchdog thread
@@ -398,7 +398,7 @@ public final class MainThreadWatchdog: Sendable {
                     // Published before the main thread resumes: atomics only in here.
                     _ = sampler.sample { count in publishSample(board: board, count: count, beat: beat) }
                     #if DEBUG
-                    afterSampleForTesting.withLock { $0 }?()
+                    afterSampleForTesting.load()?()
                     #endif
                 }
             }
@@ -425,7 +425,7 @@ public final class MainThreadWatchdog: Sendable {
     /// count each return (tests read the count).
     private func waitForAlarm(nanos: UInt64?) {
         #if DEBUG
-        beforeWaitForTesting.withLock { $0 }?(nanos)
+        beforeWaitForTesting.load()?(nanos)
         #endif
         // concurrency-allow: the dedicated watchdog thread's kevent wait; never the main thread.
         alarm.wait(nanos: nanos)
