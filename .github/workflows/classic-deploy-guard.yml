@@ -10,7 +10,9 @@ name: classic deploy guard
 # Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont
 # change it for clasisc".
 #
-# workflow_dispatch judges one commit and never cancels anything (a dry run, for checking the guard).
+# Each run judges every commit since the last green push run of this workflow (the last deploy it passed), so a
+# refused commit stays refused on later pushes until it is approved or reverted; a push that rewrote history past
+# that baseline is refused. workflow_dispatch judges one commit and never cancels anything (a dry run).
 on:
   push:
     branches: [main]
@@ -41,6 +43,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
+      actions: read # the last green push run: the baseline every later commit is judged from
       contents: read
       pull-requests: read
     steps:
@@ -62,7 +65,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.after }}
-        run: python3 scripts/ci/classic_deploy_guard.py check --repo "$REPOSITORY" --before "$BEFORE" --after "$AFTER"
+          BASELINE: ${{ github.event_name == 'workflow_dispatch' && 'before' || 'auto' }}
+        run: python3 scripts/ci/classic_deploy_guard.py check --repo "$REPOSITORY" --before "$BEFORE" --after "$AFTER" --baseline "$BASELINE"
 
       - name: Cancel the refused Vercel production deployment
         if: ${{ failure() && steps.check.outcome == 'failure' && github.event_name == 'push' && inputs.role != 'docs' }}

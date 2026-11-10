@@ -20,6 +20,7 @@ jobs:
   guard:
     if: github.ref == 'refs/heads/main'
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/classic-deploy-guard.yml

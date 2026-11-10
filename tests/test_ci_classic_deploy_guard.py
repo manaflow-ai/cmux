@@ -121,11 +121,24 @@ class FakeApi:
 
 class GitHubReaderTests(unittest.TestCase):
     def test_new_branch_push_judges_the_head(self) -> None:
-        self.assertEqual(guard.GitHub("o/r", None, FakeApi({})).commits(guard.ZERO_SHA, SHA), [SHA])
+        self.assertEqual(guard.GitHub("o/r", None, FakeApi({})).commits(guard.ZERO_SHA, SHA), ([SHA], None))
 
     def test_compare_lists_the_pushed_commits(self) -> None:
-        api = FakeApi({"compare/": {"status": "ahead", "total_commits": 2, "commits": [{"sha": "1"}, {"sha": "2"}]}})
-        self.assertEqual(guard.GitHub("o/r", None, api).commits("0" * 39 + "1", SHA), ["1", "2"])
+        api = FakeApi({"compare/": {"status": "ahead", "total_commits": 2, "commits": [{"sha": "1"}, {"sha": "2"}],
+                                    "files": [{"filename": "web/a.ts", "previous_filename": "web/b.ts"}]}})
+        self.assertEqual(guard.GitHub("o/r", None, api).commits("0" * 39 + "1", SHA),
+                         (["1", "2"], {"web/a.ts", "web/b.ts"}))
+
+    def test_a_capped_compare_file_list_is_unknown(self) -> None:
+        files = [{"filename": f"x/{i}"} for i in range(guard.COMPARE_FILES_CAP)]
+        api = FakeApi({"compare/": {"status": "ahead", "total_commits": 1, "commits": [{"sha": "1"}], "files": files}})
+        self.assertEqual(guard.GitHub("o/r", None, api).commits("c" * 40, SHA), (["1"], None))
+
+    def test_a_push_that_rewrote_history_is_not_forward(self) -> None:
+        for status in ("diverged", "behind"):
+            api = FakeApi({"compare/": {"status": status, "total_commits": 1, "commits": [{"sha": "1"}]}})
+            with self.assertRaises(guard.NotForward):
+                guard.GitHub("o/r", None, api).commits("c" * 40, SHA)
 
     def test_a_truncated_compare_is_unreadable(self) -> None:
         api = FakeApi({"compare/": {"status": "ahead", "total_commits": 300, "commits": [{"sha": "1"}]}})
@@ -143,15 +156,97 @@ class GitHubReaderTests(unittest.TestCase):
     def test_check_cli_exit_codes(self) -> None:
         for labels, code in (((), 1), (("classic-migration",), 0)):
             api = FakeApi({rf"commits/{SHA}\?": {"files": [{"filename": "web/app/api/vm/route.ts"}]},
-                           rf"commits/{SHA}/pulls": [pr(labels=labels)]})
-            original = guard._request
-            guard._request = api
-            try:
-                with contextlib.redirect_stdout(io.StringIO()) as out:
-                    got = guard.main(["check", "--repo", "o/r", "--before", "", "--after", SHA])
-            finally:
-                guard._request = original
-            self.assertEqual(got, code, out.getvalue())
+                           rf"commits/{SHA}/pulls": [pr(labels=labels)], "actions/workflows/": NO_RUNS})
+            got, out = run_check(api, "--before", "", "--after", SHA)
+            self.assertEqual(got, code, out)
+
+
+NO_RUNS = {"workflow_runs": []}
+BASE, A, R, B = "0" * 39 + "1", "1" * 40, "2" * 40, "3" * 40
+API, PAGE = "web/app/api/vm/route.ts", "web/app/(site)/pricing/page.tsx"
+
+
+def run_check(api: "FakeApi", *args: str) -> tuple[int, str]:
+    original = guard._request
+    guard._request = api
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            got = guard.main(["check", "--repo", "o/r", *args])
+    finally:
+        guard._request = original
+    return got, out.getvalue()
+
+
+def push_api(baseline: str | None, compare: dict, files: dict[str, list[str]], pulls: dict[str, list[dict]]) -> "FakeApi":
+    routes: dict[str, object] = {
+        "actions/workflows/classic-deploy-guard.yml/runs\\?branch=main&event=push&status=success":
+            {"workflow_runs": [{"head_sha": baseline}] if baseline else []},
+        "compare/": lambda url: {**compare, "_url": url},
+    }
+    for sha, paths in files.items():
+        routes[rf"commits/{sha}\?"] = {"files": [{"filename": p} for p in paths]}
+        routes[rf"commits/{sha}/pulls"] = pulls[sha]
+    return FakeApi(routes)
+
+
+class BaselineTests(unittest.TestCase):
+    """F1 and F2 of the #40119 review: what ships is everything since the last passed deploy, not only the push."""
+
+    def test_two_pushes_a_later_approved_push_does_not_ship_an_earlier_refused_one(self) -> None:
+        # Push 1 lands A (our lane, no label): refused, so the baseline stays at BASE.
+        api1 = push_api(BASE, {"status": "ahead", "total_commits": 1, "commits": [{"sha": A}],
+                               "files": [{"filename": API}]}, {A: [API]}, {A: [pr(1, sha=A)]})
+        code1, out1 = run_check(api1, "--before", BASE, "--after", A)
+        self.assertEqual(code1, 1, out1)
+        # Push 2 lands B (a teammate's page): B alone passes, but the deploy ships A's change too.
+        compare = {"status": "ahead", "total_commits": 2, "commits": [{"sha": A}, {"sha": B}],
+                   "files": [{"filename": API}, {"filename": PAGE}]}
+        api2 = push_api(BASE, compare, {A: [API], B: [PAGE]}, {A: [pr(1, sha=A)], B: [pr(2, user=MATE, sha=B)]})
+        code2, out2 = run_check(api2, "--before", A, "--after", B)
+        self.assertEqual(code2, 1, out2)
+        self.assertIn(A[:12], out2)
+        self.assertIn(f"compare/{BASE}...{B}", " ".join(url for _m, url in api2.calls))
+        # The same second push judged only before..after (the old behaviour) would have passed.
+        api3 = push_api(None, {"status": "ahead", "total_commits": 1, "commits": [{"sha": B}],
+                               "files": [{"filename": PAGE}]}, {B: [PAGE]}, {B: [pr(2, user=MATE, sha=B)]})
+        self.assertEqual(run_check(api3, "--before", A, "--after", B)[0], 0)
+
+    def test_labelling_the_refused_pr_later_lets_the_next_push_through(self) -> None:
+        compare = {"status": "ahead", "total_commits": 2, "commits": [{"sha": A}, {"sha": B}],
+                   "files": [{"filename": API}, {"filename": PAGE}]}
+        api = push_api(BASE, compare, {A: [API], B: [PAGE]},
+                       {A: [pr(1, sha=A, labels=("classic-migration",))], B: [pr(2, user=MATE, sha=B)]})
+        self.assertEqual(run_check(api, "--before", A, "--after", B)[0], 0)
+
+    def test_a_reverted_refused_change_ships_nothing(self) -> None:
+        compare = {"status": "ahead", "total_commits": 3, "commits": [{"sha": A}, {"sha": R}, {"sha": B}],
+                   "files": [{"filename": PAGE}]}  # A's API change and its revert R cancel out
+        api = push_api(BASE, compare, {A: [API], R: [API], B: [PAGE]},
+                       {A: [pr(1, sha=A)], R: [pr(3, sha=R)], B: [pr(2, user=MATE, sha=B)]})
+        code, out = run_check(api, "--before", R, "--after", B)
+        self.assertEqual(code, 0, out)
+
+    def test_a_force_push_past_the_baseline_is_refused(self) -> None:
+        api = push_api(BASE, {"status": "diverged", "total_commits": 1, "commits": [{"sha": B}]},
+                       {B: ["web/README.md"]}, {B: []})
+        code, out = run_check(api, "--before", A, "--after", B)
+        self.assertEqual(code, 1)
+        self.assertIn("does not contain", out)
+
+    def test_no_green_run_yet_falls_back_to_before(self) -> None:
+        api = push_api(None, {"status": "ahead", "total_commits": 1, "commits": [{"sha": B}],
+                              "files": [{"filename": PAGE}]}, {B: [PAGE]}, {B: [pr(2, user=MATE, sha=B)]})
+        self.assertEqual(run_check(api, "--before", A, "--after", B)[0], 0)
+        self.assertIn(f"compare/{A}...{B}", " ".join(url for _m, url in api.calls))
+
+    def test_unreadable_runs_refuse(self) -> None:
+        api = FakeApi({})
+        self.assertEqual(run_check(api, "--before", A, "--after", B)[0], 1)
+
+    def test_dispatch_judges_one_commit_without_the_baseline(self) -> None:
+        api = push_api("f" * 40, {}, {B: [PAGE]}, {B: [pr(2, user=MATE, sha=B)]})
+        self.assertEqual(run_check(api, "--before", "", "--after", B, "--baseline", "before")[0], 0)
+        self.assertFalse([url for _m, url in api.calls if "actions/workflows" in url])
 
 
 class CancelTests(unittest.TestCase):
@@ -224,6 +319,8 @@ class WiringTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", cancel)
         self.assertIn("inputs.role != 'docs'", cancel)
         self.assertIn("steps.check.outcome == 'failure'", cancel)
+        self.assertIn("actions: read", text)
+        self.assertIn("'before' || 'auto'", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0])
 
     def test_docs_deploy_waits_for_the_guard(self) -> None:
@@ -231,6 +328,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/classic-deploy-guard.yml", text)
         nightly = text[text.index("  nightly:"):text.index("  release:")]
         self.assertIn("needs: guard", nightly)
+        self.assertIn("actions: read", text[text.index("  guard:"):text.index("  nightly:")])
 
 
 if __name__ == "__main__":
