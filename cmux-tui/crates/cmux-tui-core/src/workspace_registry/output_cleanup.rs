@@ -180,6 +180,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// The retention floor of the start that reads `source`
+/// (`journal_retention::journal_retention_floor`): what this build still
+/// reads from the journal.
+fn start_floor(source: &Connection) -> anyhow::Result<u64> {
+    #[cfg(test)]
+    if let Some(floor) = START_FLOOR_FOR_TEST.with(std::cell::Cell::get) {
+        return Ok(floor);
+    }
+    super::journal_retention::journal_retention_floor(source)
+}
+
 fn disk_margin() -> u64 {
     #[cfg(test)]
     if let Some(bytes) = DISK_MARGIN_FOR_TEST.with(std::cell::Cell::get) {

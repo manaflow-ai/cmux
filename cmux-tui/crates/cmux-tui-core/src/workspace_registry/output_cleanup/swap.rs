@@ -29,7 +29,7 @@ use super::{
     DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
     failed_for_this_build, file_len, free_space_refusal, is_temporary, mebibytes, previous_path,
     remove_if_present, remove_staging, rollback_pending_path, staged_bytes_refusal, staging_path,
-    write_failure_marker,
+    start_floor, write_failure_marker,
 };
 use crate::platform;
 
@@ -566,6 +566,25 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     let source = open_registry_database_read_only(db_path)?;
     source.busy_timeout(Duration::from_secs(5))?;
     check_staged_prefix(&source, &staged)?;
+    // The floor of THIS start. It can be lower than at the build: an update
+    // whose roster or agent history reducer has another version folds from
+    // the first record it finds, and so does a hook that is enabled again. A
+    // file that left out records this start reads is not installed; the
+    // cleanup worker builds again at the floor it finds.
+    // A file with no floor recorded (an earlier format) left out no run.
+    let built_floor =
+        state(&staged, "floor").ok().and_then(|floor| floor.parse::<u64>().ok()).unwrap_or(0);
+    let floor = start_floor(&source)?;
+    if built_floor > floor {
+        eprintln!(
+            "cmux-tui: output cleanup: the new registry was built without the journal through \
+             {built_floor} and this start reads it after {floor}; discarding it"
+        );
+        drop(source);
+        drop(staged);
+        remove_staging(db_path)?;
+        return Ok(Swap::NotReady);
+    }
     let built_head = state_u64(&staged, "built_head")?;
     let head = query_journal_head(&source)?;
     // A catch-up stopped before it packed leaves staged records unpacked;
