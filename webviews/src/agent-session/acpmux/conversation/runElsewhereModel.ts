@@ -114,9 +114,9 @@ const NONE = () => () => undefined;
 
 /** Tool call `toolCallId`'s run, re-read only when it changes. */
 export function useRun(runs: RunElsewhere | undefined, toolCallId: string): RunState | undefined {
-  return useSyncExternalStore(runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE, () =>
-    runs?.store.get(toolCallId),
-  );
+  const read = () => runs?.store.get(toolCallId);
+  // The same read serves a server render (renderToString), which has no store to wait on.
+  return useSyncExternalStore(runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE, read, read);
 }
 
 /** When the chip shows: a shell call with a command line, still running, from `startedAt` +
