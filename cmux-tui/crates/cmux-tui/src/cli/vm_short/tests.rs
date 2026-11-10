@@ -156,6 +156,19 @@ fn shutdown_is_pause() {
 /// the command as the words after it.
 #[test]
 fn exec_ssh_and_move_name_the_vm_by_position() {
+    // The app's own form, `--arg command=…`, keeps its value.
+    let legacy =
+        parse(&words(&["vm", "exec", "--target", "vm:vm_a1", "--arg", "command=uname -a"]))
+            .unwrap();
+    assert!(legacy.targeted && legacy.command.is_empty());
+    assert_eq!(
+        cloud_words(&legacy, None),
+        words(&["--target", "vm:vm_a1", "--arg", "command=uname -a"])
+    );
+    // `--yes` is a delete's yes, never another verb's value.
+    let value = parse(&words(&["vm", "exec", "dev", "--arg", "-y"])).unwrap();
+    assert_eq!(value.tail, words(&["--arg", "-y"]));
+    assert_eq!(cloud_words(&value, Some("vm_a1"))[2..], words(&["--arg", "-y"])[..]);
     for typed in [
         &["vm", "exec", "dev", "--", "uname", "-a"][..],
         &["vm", "exec", "dev", "uname", "-a"],

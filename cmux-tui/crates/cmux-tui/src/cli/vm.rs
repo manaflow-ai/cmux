@@ -471,9 +471,15 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     Some(rewritten)
 }
 
-/// `words` with `--yes` (`-y`), every delete's yes (`vm rm dev --yes`), as the `--confirm` the
-/// app's Cloud actions read; from `--` on, words are text.
+/// `words` (a Cloud verb and its words) with `--yes` (`-y`), every delete's yes (`vm rm dev
+/// --yes`), as the `--confirm` the app's Cloud actions read. Only a verb that deletes gets it
+/// (anywhere else a `--yes` is a value, as in `start-chat --prompt --yes`); from `--` on, words
+/// are text.
 fn yes_as_confirm(words: &[String]) -> Vec<String> {
+    let verb = words.iter().find(|word| !word.starts_with('-')).map_or("", String::as_str);
+    if !super::cloud_help::confirms(verb) {
+        return words.to_vec();
+    }
     let mut text = false;
     words
         .iter()

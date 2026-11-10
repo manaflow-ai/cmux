@@ -685,6 +685,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
             &["vm", "kill-machine", "--target", "machine:m", "--confirm"],
             &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
         ),
+        (
+            &["vm", "kill-machine", "--target", "machine:m", "--yes"],
+            &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
+        ),
+        // Only a verb that deletes reads `--yes` as its yes; anywhere else it is a value.
+        (
+            &["vm", "exec", "--target", "machine:m", "--command", "--yes"],
+            &["cloud", "exec", "--target", "machine:m", "--command", "--yes"],
+        ),
         (&["vm", "secret", "ls"], &["cloud", "secret", "ls"]),
         (&["vm", "env", "get"], &["cloud", "env", "get"]),
         // The Cloud forms of `exec` and `client-session` name a target.
@@ -712,6 +721,15 @@ fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
     ] {
         assert_eq!(cloud_alias(&args(typed)), None, "{typed:?}");
     }
+}
+
+/// `cmux cloud … --yes` is the app's `--confirm` only on a verb that deletes.
+#[test]
+fn a_yes_that_is_a_value_stays_as_typed() {
+    let typed = args(&["cloud", "start-chat", "--target", "vm:m", "--prompt", "--yes"]);
+    assert_eq!(cloud_yes(&typed), None);
+    let rm = args(&["cloud", "file-remove", "--target", "vm:m", "--path", "/f", "-y"]);
+    assert_eq!(cloud_yes(&rm).unwrap().last().map(String::as_str), Some("--confirm"));
 }
 
 /// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.

@@ -599,6 +599,17 @@ it, it says where the app offers it.
 ";
 
 /// The new spelling of a hidden old verb.
+/// Whether Cloud's `verb` deletes something and so takes `--yes` (the app's `--confirm`): its
+/// usage here says `--yes`. Only these verbs get `--yes` respelled, so a `--yes` that is another
+/// verb's value (`start-chat --prompt --yes`) stays as typed.
+pub(super) fn confirms(verb: &str) -> bool {
+    verb == ARCHIVE
+        || GROUPS
+            .iter()
+            .flat_map(|group| group.verbs.iter())
+            .any(|known| known.name == verb && known.usage.contains("--yes"))
+}
+
 pub(super) fn renamed(name: &str) -> Option<&'static str> {
     HIDDEN.iter().find(|(old, _)| *old == name).map(|(_, new)| *new)
 }
