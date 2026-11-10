@@ -79,6 +79,31 @@ export const CELLS: Cell[] = [
     args: ["--agent", "cursor", "--skip", "lifecycle", "--chat-timeout", "120"],
     expect: { step: "reply", error: /authenticat|not (?:logged|signed) in|log ?in|sign ?in/i, withinMs: 60_000 },
   },
+  // Lane cloud-grok-gemini-opencode. Under each Cloud cell, acp-agent-contract.py proves the agent's own ACP
+  // with no account (first, follow-up, session/load resume; the signed-out refusal).
+  {
+    id: "opencode-zen",
+    agent: "opencode",
+    signIn: "none: OpenCode's free Zen models",
+    proof: "live",
+    args: ["--agent", "opencode", "--lifecycle"],
+  },
+  {
+    id: "gemini-signed-out",
+    agent: "gemini",
+    signIn: "none: must fail fast with Gemini CLI's sign-in error",
+    proof: "expect",
+    args: ["--agent", "gemini", "--skip", "lifecycle", "--chat-timeout", "120"],
+    expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+  },
+  {
+    id: "grok-signed-out",
+    agent: "grok",
+    signIn: "none: must fail fast with the grok CLI's sign-in error",
+    proof: "expect",
+    args: ["--agent", "grok", "--skip", "lifecycle", "--chat-timeout", "120"],
+    expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+  },
 ];
 
 /** The steps a row reports, with their latencies. */
