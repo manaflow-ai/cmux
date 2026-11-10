@@ -365,6 +365,15 @@ impl Mux {
         {
             return;
         }
+        // The coalesced activity row changes no roster entry (it has no
+        // terminal). A fold request for it would put the roster's cursor
+        // behind what is wanted until the owner's next pass, and until then
+        // every completed tool call is a journal row
+        // (`tool_completion_may_resume_agent`): a row per tool report, each 5
+        // minutes. The owner folds past it with the next agent row.
+        if agent_hooks_at_rest::is_agent_activity_row(ingress) {
+            return;
+        }
         self.request_roster_work(Some(commit.sequence), None);
     }
 

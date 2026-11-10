@@ -19,6 +19,7 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { startGalleryLoad } from "./load";
+import { installSystemFontStandIn } from "./systemFontStandIn";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
@@ -129,6 +130,8 @@ if (!appHosted) {
   document.head.append(bootstrap);
   bootstrap.remove();
 }
+// Off a Mac, a face for the stack's Apple names, so text is not measured in the host's fallback.
+if (!appHosted) installSystemFontStandIn();
 if (!appHosted)
   (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
     webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),

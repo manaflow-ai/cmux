@@ -4,8 +4,12 @@
 use super::*;
 use std::collections::HashMap;
 
+#[cfg(unix)]
+mod agent_activity;
 mod agent_hook_fences;
 mod agent_hook_retry;
+#[cfg(unix)]
+mod agent_hooks_at_rest;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
@@ -24,9 +28,11 @@ mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
 mod disk_budget;
+mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
@@ -39,7 +45,9 @@ mod matrix;
 mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
+mod project_observe_at_rest;
 mod read_paths;
+mod registry_premigrate;
 mod registry_reads;
 mod resource_effects;
 mod resource_restore;
@@ -47,6 +55,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod session_lists;
 mod signaled_mutex;
 mod split_ratio;
 mod stack_layout;
@@ -60,6 +69,10 @@ mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
 mod viewport_columns;
+#[cfg(unix)]
+mod workspace_close_cost;
+#[cfg(unix)]
+mod workspace_close_time;
 mod workspace_materialize;
 mod workspaces;
 mod writer_lock_order;
@@ -232,6 +245,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
     let boundary_split = restore_split_id(2);
     let base_column = restore_split_id(3);
     let first_column_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal_split,
         direction: "down".into(),
         ratio: 0.6,
@@ -242,6 +256,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         second: Box::new(RegistryLayoutNode::Leaf { pane: panes[2].clone() }),
     };
     let first_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: boundary_split.clone(),
         direction: "right".into(),
         ratio: 0.8 / (0.8 + 0.4),

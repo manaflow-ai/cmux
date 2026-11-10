@@ -48,6 +48,8 @@ public final class Events {
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
+    public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
@@ -143,6 +145,8 @@ public final class Events {
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
+        values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
+        values.put("feed-view-changed", FEED_VIEW_CHANGED);
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);

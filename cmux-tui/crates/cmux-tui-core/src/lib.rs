@@ -43,6 +43,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+pub mod feed_client;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -92,6 +93,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
 mod session_shutdown;
@@ -124,6 +126,8 @@ mod terminal_loss_log;
 mod terminal_metadata;
 mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
+#[cfg(test)]
+mod walk_counters;
 mod workspace_registry;
 /// A synthetic registry of a long-lived owner's shape (startup measurements).
 pub use workspace_registry::synth as synth_registry;
@@ -217,6 +221,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
@@ -224,14 +229,17 @@ pub use workspace_registry::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
     JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
     PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
-    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    PersistentSessionStateResetter, PresentationSnapshot, ProjectionCommit, RegistryCommit,
+    RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot,
+    RegistryWorkspace, SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
 pub use ghostty_vt::{CursorShape, Rgb};
+pub use workspace_registry::premigrate::{
+    PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry,
+};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
