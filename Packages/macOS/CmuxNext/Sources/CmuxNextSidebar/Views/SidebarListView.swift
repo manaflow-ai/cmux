@@ -200,6 +200,15 @@ final class SidebarListView: NSView {
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?
+    /// How long a scroll rests before the row it left under a still pointer is forwarded
+    /// (`onHoverTab`, `onHoverWorkspace`). A scroll moves the hover to a new row almost every frame,
+    /// and each forward is cross-process work (a `chat.prefetch` script into the chat page on screen,
+    /// a hibernation hover intent), so forwarding every row the scroll passed cost every scroll frame
+    /// (Leo 2026-11-10, ask-7778f8202e: "our fucking thing is too slow to scroll through the side bar").
+    /// Chromium holds hover during a scroll and sends one fake mouse move after it settles; so does this.
+    /// The hover pill still follows the rows at once; only the forward waits.
+    var scrollHoverSettle: Duration = .milliseconds(100)
+    let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -421,7 +430,15 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
-        forwardHover(key)
+        guard hoverFollowsScroll else {
+            scrollHoverForward.cancel()
+            return forwardHover(key)
+        }
+        // A scroll moved this row under a still pointer: forward the row it rests on, once (`scrollHoverSettle`).
+        scrollHoverForward.schedule(after: scrollHoverSettle) { @MainActor [weak self] in
+            guard let self else { return }
+            self.forwardHover(self.hoveredKey)
+        }
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered
