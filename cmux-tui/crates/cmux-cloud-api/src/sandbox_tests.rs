@@ -491,7 +491,8 @@ fn a_run_whose_account_changed_before_its_launch_never_runs() {
 fn a_runs_reply_outlives_a_restart_but_an_incognito_ones_never_reaches_the_file() {
     // Codex's review of #39022 at 551a7dca (F2): a Run that ended answers its reply and error after
     // the daemon starts again (its machine is deleted, so nothing else has them); an incognito
-    // send's never touch the file.
+    // send's never touch the file. At 946e940e (F1): an incognito send never starts a Run here at
+    // all (it would be an ordinary chat in the app); classic Cloud runs it.
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("cloud-runs.json");
     let failed = || {
@@ -507,23 +508,22 @@ fn a_runs_reply_outlives_a_restart_but_an_incognito_ones_never_reaches_the_file(
     settled(&engine, &id, "destroyed");
     let mut incognito = body("private", "team_1");
     incognito["incognito"] = json!(true);
-    let hidden = engine.perform("runs.create", &args(incognito)).unwrap();
-    let hidden = hidden["id"].as_str().unwrap().to_owned();
-    let live = settled(&engine, &hidden, "destroyed");
-    assert_eq!(live["receipt"]["reply"], "the-reply-text", "the live Run still answers it");
-    // The store holds the ordinary Run's answer once, never the incognito one's twice.
+    let refused = engine.perform("runs.create", &args(incognito)).unwrap_err();
+    assert!(
+        matches!(&refused, Failure::Http { status: 409, code: Some(code), .. } if code == "run_incognito_unavailable"),
+        "{refused:?}"
+    );
+    // The store holds the ordinary Run's answer once, and nothing of the incognito send.
     let saved = std::fs::read_to_string(&store).unwrap();
     assert_eq!(saved.matches("the-reply-text").count(), 1, "{saved}");
     assert_eq!(saved.matches("the-error-text").count(), 1, "{saved}");
+    assert!(!saved.contains("private"), "{saved}");
     // A new daemon over the same store.
     let reopened = Engine::open(Some(store), Fake::new(None, vec![]), quick());
     let snapshot = settled(&reopened, &id, "destroyed");
     assert_eq!(snapshot["run"]["status"], "failed");
     assert_eq!(snapshot["receipt"]["reply"], "the-reply-text");
     assert!(snapshot["receipt"]["error"].as_str().unwrap().contains("the-error-text"));
-    let snapshot = settled(&reopened, &hidden, "destroyed");
-    assert_eq!(snapshot["receipt"]["reply"], Value::Null);
-    assert_eq!(snapshot["receipt"]["error"], Value::Null);
 }
 
 /// Codex's review of #39022 at 8c2c83b0 (F1, after 551a7dca's F3): when the app switched account
@@ -614,6 +614,25 @@ fn a_cleanup_the_app_could_not_hear_is_never_given_up() {
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(fake.removes.load(Ordering::Acquire), asked, "the cleanup stopped: given up");
     assert!(asked < 1_000, "given up after the time the app answered, not at the list's end");
+}
+
+/// #39022 review at 946e940e, F2: a create of the Run's machine still on its way (a start waiting
+/// on the person's Start) was read again as "later" and given up after three days of it, so a Start
+/// after that made a machine nothing deleted. That time never counts now: the cleanup waits for the
+/// create, then deletes what it made.
+#[test]
+fn a_cleanup_never_gives_up_while_its_machine_can_still_be_made() {
+    let replied = || Outcome::Replied { reply: "hi".into(), machine: None };
+    let quiet = Timing { give_up: Duration::from_millis(40), ..quick() };
+    let mut passes: Vec<Removal> =
+        (0..15).map(|_| Removal::Creating("sandbox-r is still being created".into())).collect();
+    passes.push(Removal::Later("machine m-1 is being deleted".into()));
+    let fake = Fake::new(Some(replied()), passes);
+    let engine = Engine::open(None, fake.clone(), quiet);
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed", "{snapshot}");
+    assert_eq!(fake.removes.load(Ordering::Acquire), 17, "read again until the create ended");
 }
 
 /// The same audit (P2): a store this build cannot read was written over with an empty list, and

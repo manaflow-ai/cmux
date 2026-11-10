@@ -147,6 +147,32 @@ struct CloudListMachinesTests {
         #expect(byName["nightly-check"]?["reason"] != nil)
     }
 
+    /// #39022 review at 946e940e, F2: a `cloud start-session` create (one waiting on the person's Start too) is listed under
+    /// `creating`, so a sandboxed Run's cleanup waits for its machine instead of taking it for gone while a Start can still make it.
+    @Test func aStartSessionsCreateIsListedWhileItCanStillMakeTheMachine() async throws {
+        let services = Self.services()
+        let runs = services.cloud.startSessionRuns, account = services.cloud.account
+        let (gate, open) = AsyncStream<Void>.makeStream(), (entered, enter) = AsyncStream<Void>.makeStream()
+        let making = Task { @MainActor in
+            try await runs.creating("sandbox-r1", account: account) {
+                enter.yield()
+                for await _ in gate { break }
+                throw CloudCreationTestError()
+            }
+        }
+        for await _ in entered { break }
+        let names = { () -> [ActionResultValue] in
+            guard case .array(let rows)? = CloudHandlers.machineListFields(AppActionContext(services: services), loaded: true)["creating"] else { return [] }
+            return rows.compactMap { Self.members($0)?["name"] }
+        }
+        #expect(names() == [.string("sandbox-r1")])
+        #expect(runs.creatingNames(account: ["someone-else", nil]).isEmpty, "another account's list never shows it")
+        open.yield()
+        open.finish()
+        _ = try? await making.value
+        #expect(names().isEmpty, "a create that ended can make nothing more")
+    }
+
     /// A person's palette run shows the Cloud sidebar instead; it leaves no result to capture.
     @Test func aPersonsRunAnswersNoResult() async throws {
         let services = Self.services()

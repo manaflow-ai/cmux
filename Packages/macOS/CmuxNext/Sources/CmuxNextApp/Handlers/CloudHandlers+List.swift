@@ -54,7 +54,7 @@ extension CloudHandlers {
     /// machine in the store), `count`, `creating` and `account`.
     ///
     /// `creating` lists this app's creates whose machine the server has not returned yet
-    /// (``CloudCreations``): the name asked for, and `creating` or `failed` with its reason.
+    /// (``CloudCreations``, and `cloud start-session`'s, ``CloudStartRuns/creatingNames(account:)``): the name asked for, and `creating` or `failed` with its reason.
     /// A machine joins `machines` only when its create returns, which can take minutes, so an
     /// agent that checks for its machine by name sees one still on its way and makes no second.
     ///
@@ -78,7 +78,7 @@ extension CloudHandlers {
             var failed: String?
             if case .failed(let reason) = creation.phase { failed = reason }
             return ["creationId": creation.id.uuidString.lowercased(), "name": creation.request.name as Any, "failed": failed as Any].compacted
-        }
+        } + cloud.startSessionRuns.creatingNames(account: cloud.account).map { ["creationId": "start-session", "name": $0] as [String: Any] } // its Start pending too
         // The list is fetched for the account's team when it has one (the `X-Cmux-Team-Id` the API
         // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,

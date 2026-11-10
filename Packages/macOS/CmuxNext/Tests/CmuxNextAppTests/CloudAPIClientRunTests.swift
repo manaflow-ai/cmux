@@ -217,6 +217,25 @@ struct CloudAPIClientRunTests {
         #expect((daemon.requests.last?["args"] as? [String: Any])?["classicApi"] == nil)
     }
 
+    /// #39022 review at 946e940e, F1: an incognito send's Run runs on classic Cloud with no chat in the app, so its create
+    /// carries the classic session; without one the create carries none and the daemon refuses it.
+    @Test func anIncognitoCreateCarriesTheClassicSessionAnOrdinaryOneNever() async throws {
+        let daemon = FakeDaemon { _, _, _ in Self.created }
+        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_now" },
+                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        let api = api(daemon).drainingClassic(classic).pinningTeam("team_stack")
+        _ = try await api.createSandboxRun(task: "private", idempotencyKey: "k-private", incognito: true)
+        let incognito = try #require(daemon.requests.last)
+        #expect(incognito["refresh"] as? String == "stack-refresh")
+        #expect((incognito["args"] as? [String: Any])?["classicApi"] as? String == "https://classic.standin.invalid")
+        #expect((incognito["args"] as? [String: Any])?["classicTeam"] as? String == "team_stack")
+        _ = try await api.createSandboxRun(task: "hi", idempotencyKey: "k-open")
+        #expect(daemon.requests.last?["refresh"] == nil)
+        _ = try await self.api(daemon).createSandboxRun(task: "private", idempotencyKey: "k-none", incognito: true)
+        #expect(daemon.requests.last?["refresh"] == nil, "no classic session: nothing to send, the daemon refuses")
+    }
+
     @Test func everyCreateNamesTheAccountItWasSentUnderAndNoneGoesWithout() async throws {
         let daemon = sandbox(dropCreates: 1)
         _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4")

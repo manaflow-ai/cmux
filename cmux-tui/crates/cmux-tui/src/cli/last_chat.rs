@@ -58,10 +58,22 @@ fn now_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Set (non-empty) on the cmux daemon's own children (a sandboxed Run's `cloud start-chat`): their
+/// chat is the daemon's, never the one a person's next command goes to (#39022 review, F3).
+const OFF: &str = "CMUX_LAST_CHAT_OFF";
+
+/// Whether a command run with `off` as [`OFF`]'s value records its chat.
+fn records(off: Option<&std::ffi::OsStr>) -> bool {
+    off.is_none_or(std::ffi::OsStr::is_empty)
+}
+
 /// Records `session` (on Cloud VM `vm`, if any) as this terminal's last chat.
 pub(super) fn remember(session: &str, vm: Option<&str>) {
     // Unit tests drive the starts with fake runners: they never write a person's state.
     if session.is_empty() || (cfg!(test) && std::env::var_os("CMUX_LAST_CHAT_FILE").is_none()) {
+        return;
+    }
+    if !records(std::env::var_os(OFF).as_deref()) {
         return;
     }
     let Some(path) = path() else { return };
@@ -142,6 +154,13 @@ mod tests {
                 ((*terminal).to_owned(), json!({"session": session, "vm": vm, "at": at}))
             })
             .collect()
+    }
+
+    #[test]
+    fn the_daemons_own_children_record_no_chat() {
+        assert!(records(None));
+        assert!(records(Some(std::ffi::OsStr::new(""))));
+        assert!(!records(Some(std::ffi::OsStr::new("1"))));
     }
 
     #[test]

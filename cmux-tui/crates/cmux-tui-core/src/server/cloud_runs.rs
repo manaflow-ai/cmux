@@ -98,6 +98,10 @@ struct AppVerbs {
     elsewhere: Mutex<HashMap<String, Vec<String>>>,
 }
 
+/// The variable that keeps a child from recording its chat as the last one (cmux-tui
+/// `cli/last_chat.rs` reads the same name).
+pub(super) const NO_LAST_CHAT: &str = "CMUX_LAST_CHAT_OFF";
+
 /// A child's leading words: `--json`, and the app's control socket when it is known.
 pub(super) fn leading_args(app_socket: Option<&Path>) -> Vec<std::ffi::OsString> {
     let mut args = vec![std::ffi::OsString::from("--json")];
@@ -116,6 +120,19 @@ struct Ran {
 }
 
 impl AppVerbs {
+    /// The child `exe words`: the app's socket, this daemon's, and no last-chat record. A Run's
+    /// chat is the daemon's, on a machine deleted at its end: it is never the chat a person's next
+    /// `cmux chat send` goes to (#39022 review at 946e940e, F3; cmux-tui `cli/last_chat.rs`).
+    fn child(&self, exe: &Path, words: &[&str]) -> Command {
+        let mut command = Command::new(exe);
+        command
+            .args(leading_args(self.app_socket.as_deref()))
+            .args(words)
+            .env("CMUX_TUI_SOCKET", &self.socket)
+            .env(NO_LAST_CHAT, "1");
+        command
+    }
+
     fn cmux(
         &self,
         words: &[&str],
@@ -125,11 +142,8 @@ impl AppVerbs {
     ) -> Ran {
         let failed = |message: String| Ran { code: None, stdout: String::new(), stderr: message };
         let Some(exe) = &self.exe else { return failed("the cmux binary is not known".into()) };
-        let mut command = Command::new(exe);
+        let mut command = self.child(exe, words);
         command
-            .args(leading_args(self.app_socket.as_deref()))
-            .args(words)
-            .env("CMUX_TUI_SOCKET", &self.socket)
             .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -189,6 +203,9 @@ pub(super) enum Judgement {
     Kill(String),
     /// Read again later, for this reason.
     Wait(String),
+    /// The Run's own account's list shows a create of its name on its way: read again later, and
+    /// never give up while it can still make the machine ([`Removal::Creating`]).
+    Creating(String),
     /// A list of this other account, one the app was on during the start, shows none of it.
     Cleared(String),
 }
@@ -266,7 +283,7 @@ pub(super) fn judge_everywhere(
         };
     }
     if rows("creating").any(|row| field(row, "name").as_deref() == Some(machine_name)) {
-        return Judgement::Wait(format!("{machine_name} is still being created"));
+        return Judgement::Creating(format!("{machine_name} is still being created"));
     }
     Judgement::Gone
 }
@@ -509,6 +526,7 @@ impl Steps for AppVerbs {
             Judgement::Gone => return Removal::Gone,
             Judgement::Cleared(other) => return Removal::Cleared(other),
             Judgement::Wait(reason) => return Removal::Later(reason),
+            Judgement::Creating(reason) => return Removal::Creating(reason),
             Judgement::Kill(id) => id,
         };
         let target = format!("machine:{id}");
@@ -530,6 +548,24 @@ impl Steps for AppVerbs {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_runs_child_never_records_the_persons_last_chat() {
+        let verbs = AppVerbs {
+            exe: None,
+            socket: PathBuf::from("/tmp/daemon.sock"),
+            app_socket: Some(PathBuf::from("/tmp/app.sock")),
+            elsewhere: Mutex::default(),
+        };
+        let child = verbs.child(Path::new("/bin/cmux"), &["cloud", "start-chat"]);
+        let envs: Vec<_> = child.get_envs().collect();
+        assert!(
+            envs.contains(&(std::ffi::OsStr::new(NO_LAST_CHAT), Some(std::ffi::OsStr::new("1")))),
+            "{envs:?}"
+        );
+        let args: Vec<_> = child.get_args().collect();
+        assert_eq!(args, ["--json", "--app-socket", "/tmp/app.sock", "cloud", "start-chat"]);
+    }
 
     #[test]
     fn a_reply_is_the_runs_answer_and_names_its_machine() {
@@ -742,7 +778,7 @@ mod tests {
         assert!(matches!(judge(&deleting, NAME, Some("m-9"), U1), Judgement::Wait(_)));
         let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
         let on_its_way = list(true, Some("u1"), None, json!([]), creating);
-        assert!(matches!(judge(&on_its_way, NAME, None, U1), Judgement::Wait(_)));
+        assert!(matches!(judge(&on_its_way, NAME, None, U1), Judgement::Creating(_)));
     }
 
     #[test]

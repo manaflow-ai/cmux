@@ -14,7 +14,8 @@
 //! never replayed: the daemon keeps no ledger of Cloud calls, and a call that must not run twice
 //! carries its own idempotency key in `args`, as `cloud.runs.create` does). `cloud.runs.*` are the
 //! daemon's own sandboxed Runs (`cloud_runs.rs`): a Cloud chat on a machine made for the task, no
-//! classic call. A refusal
+//! classic call, but for an incognito send's, which classic Cloud runs with no chat in the app
+//! (`cmux_cloud_api::classic_runs`). A refusal
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
 //! credential is ever in it. Each call runs on a worker thread (32 at most).
@@ -232,20 +233,25 @@ mod calls {
         request: &Request,
         key: Zeroizing<Vec<u8>>,
     ) -> Result<Value, ResourceError> {
-        let result = if request.call.starts_with("runs.") {
-            // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
-            // signed-in account, never from this call; its credential is not used.
-            match super::super::cloud_runs::engine(mux).perform(&request.call, &request.args) {
-                // A wait or cancel of a Run the daemon never made: one the app followed from before
-                // the upgrade, which classic Cloud drains to its end (never a record dropped as gone).
-                Err(failure) if never_made(&request.call, &failure) => {
-                    block_on(cmux_cloud_api::classic_runs::drain(request))
+        let result =
+            if cmux_cloud_api::classic_runs::is_incognito_create(&request.call, &request.args) {
+                // An incognito send's Run: classic Cloud runs it with no chat in the app, so its prompt
+                // and reply never show outside the incognito window (classic_runs.rs). Never the daemon's.
+                block_on(cmux_cloud_api::classic_runs::drain(request))
+            } else if request.call.starts_with("runs.") {
+                // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
+                // signed-in account, never from this call; its credential is not used.
+                match super::super::cloud_runs::engine(mux).perform(&request.call, &request.args) {
+                    // A wait or cancel of a Run the daemon never made: one the app followed from before
+                    // the upgrade, which classic Cloud drains to its end (never a record dropped as gone).
+                    Err(failure) if never_made(&request.call, &failure) => {
+                        block_on(cmux_cloud_api::classic_runs::drain(request))
+                    }
+                    own => own,
                 }
-                own => own,
-            }
-        } else {
-            block_on(cmux_cloud_api::perform(request, key))
-        };
+            } else {
+                block_on(cmux_cloud_api::perform(request, key))
+            };
         let result = result.and_then(|body| {
             let size = serde_json::to_vec(&body).map_or(usize::MAX, |bytes| bytes.len());
             if size <= MAX_REPLY_BYTES {

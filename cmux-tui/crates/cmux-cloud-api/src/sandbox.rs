@@ -18,8 +18,10 @@
 //! Persistence: the Runs live in one JSON file (0600) in the daemon's state directory, written on
 //! every change. A daemon that starts again reads it: a Run that was still going ends `failed`
 //! ("the cmux daemon restarted during the Run") and its cleanup goes on. The task text is never
-//! written there. A Run's reply and error are (a wait after a restart still answers them), except
-//! an incognito send's (`incognito`), which stay in memory only and leave no file behind.
+//! written there. A Run's reply and error are (a wait after a restart still answers them). An
+//! incognito send never starts a Run here: a Run is an ordinary Cloud chat in the app, so classic
+//! Cloud runs it with no chat ([`crate::classic_runs`]), and an incognito create is refused. A
+//! store from a build that took them keeps leaving their reply and error out (`incognito`).
 //!
 //! Stop conditions: a Run's thread ends when its cleanup is done or given up; a wait ends at its
 //! own bound (10 s at most); ended Runs are dropped [`Timing::keep_ended`] after they ended.
@@ -112,6 +114,12 @@ pub enum Removal {
     /// off by an organization). Read again later; this time never counts toward giving up, so a
     /// Mac that was closed or a policy that was on never strands the machine with no delete tried.
     Unheard(String),
+    /// The Run's own account's list shows a create of its name on its way: the app may still make
+    /// the machine (a start that waits on the person's Start can make it days later). Read again
+    /// later; this time never counts toward giving up either, so the cleanup is never done while
+    /// that create can still make a machine (#39022 review at 946e940e, F2). A create the app
+    /// drops (a sign-out, a quit) leaves the list, and the machine is gone or listed then.
+    Creating(String),
     /// A list of this other account, one the app was on during the Run's start
     /// ([`Steps::elsewhere`]), shows no machine and no create of the Run's name: the start made
     /// none there (or its delete is done).
@@ -147,7 +155,8 @@ pub struct Timing {
     pub retry_first: Duration,
     pub retry_max: Duration,
     /// How long a Run's cleanup keeps being tried while the app answers (time it could not be
-    /// asked, [`Removal::Unheard`], does not count).
+    /// asked, [`Removal::Unheard`], or a create of the machine was on its way,
+    /// [`Removal::Creating`], does not count).
     pub give_up: Duration,
     /// How long an ended Run is kept for a wait: past the app's follower's week, so a wait it
     /// sends for one of the daemon's Runs never finds it gone (nor sends it to classic Cloud).
@@ -441,6 +450,16 @@ impl Engine {
     }
 
     fn create(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
+        // A Run here is an ordinary Cloud chat the app opens and keeps: an incognito send's prompt
+        // and reply would show outside its window. Classic Cloud runs those with no chat
+        // ([`crate::classic_runs`]); one that reaches the engine is refused, never started.
+        if args.get("incognito").and_then(Value::as_bool) == Some(true) {
+            return Err(refused(
+                409,
+                "run_incognito_unavailable",
+                "an incognito Run never starts as a Cloud chat",
+            ));
+        }
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
         if task.is_empty() || task.chars().count() > TASK_MAX_CHARS {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
@@ -712,8 +731,8 @@ impl Engine {
             }
             let now = now_ms();
             // The time since the last pass counts toward giving up only when the app answered.
-            let heard =
-                if matches!(removal, Removal::Unheard(_)) { 0 } else { (now - since).max(0) };
+            let counts = !matches!(removal, Removal::Unheard(_) | Removal::Creating(_));
+            let heard = if counts { (now - since).max(0) } else { 0 };
             since = now;
             let heard_ms = {
                 let mut state = self.lock();
@@ -748,7 +767,7 @@ impl Engine {
                 }
                 // Another account's list is still to say: read again soon.
                 Removal::Cleared(_) => self.timing.retry_first,
-                Removal::Gone | Removal::Later(_) | Removal::Unheard(_) => {
+                Removal::Gone | Removal::Later(_) | Removal::Unheard(_) | Removal::Creating(_) => {
                     let wait = pause;
                     pause = (pause * 2).min(self.timing.retry_max);
                     wait

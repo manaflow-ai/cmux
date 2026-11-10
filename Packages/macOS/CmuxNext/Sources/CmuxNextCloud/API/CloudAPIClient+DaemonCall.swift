@@ -2,7 +2,7 @@ import Foundation
 
 /// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`), sent through the bundled cmux's `cmux cloud api`
 /// (cmux-tui `cli/cloud_api.rs`): the sandboxed Runs (`runs.create`, `runs.wait`, `runs.cancel`) live in the
-/// daemon, never in classic Cloud's Run API. This only forwards: one JSON request on the child's stdin (the
+/// daemon, never in classic Cloud's Run API, but for an incognito send's, which the daemon sends there. This only forwards: one JSON request on the child's stdin (the
 /// credential never goes in argv), one answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`,
 /// where `E.kind` names a ``CloudAPIError`` case one for one.
 extension CloudAPIClient {
@@ -22,9 +22,11 @@ extension CloudAPIClient {
         do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
         var request: [String: any Sendable] = ["call": call, "api": baseURL.absoluteString, "auth": "owner", "credential": access,
                                                "app_version": appVersion, "args": args]
-        // A wait or cancel of a Run the daemon never made (one followed from before it ran Runs) drains on classic Cloud with
-        // the Stack session whole (cmux-cloud-api `classic_runs`); no other call carries the refresh token or the classic API.
-        if call == "runs.wait" || call == "runs.cancel", let classicRuns, let classic = try? await classicRuns(), !classic.refresh.isEmpty {
+        // An incognito send's create runs on classic Cloud, with no chat in the app, and a wait or cancel of a Run the daemon never
+        // made (an incognito one, or one followed from before it ran Runs) drains there, with the Stack session whole (cmux-cloud-api
+        // `classic_runs`); no other call carries the refresh token or the classic API. Without it the daemon refuses an incognito create.
+        let classicCall = call == "runs.wait" || call == "runs.cancel" || call == "runs.create" && args["incognito"] as? Bool == true
+        if classicCall, let classicRuns, let classic = try? await classicRuns(), !classic.refresh.isEmpty {
             request["credential"] = classic.access
             request["refresh"] = classic.refresh
             request["args"] = args.merging(["classicApi": classic.api.absoluteString, "classicTeam": classic.team ?? ""]) { $1 }
