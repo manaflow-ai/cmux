@@ -54,7 +54,8 @@ jobs:
 
   native:
     name: chief thread structure (native transcript)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # GitHub-hosted: the Blacksmith macOS pool queued it for minutes behind the nightly's jobs.
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
