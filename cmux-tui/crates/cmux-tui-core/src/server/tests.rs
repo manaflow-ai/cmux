@@ -543,6 +543,7 @@ mod agent_reply_append;
 mod detach_and_browser;
 mod divider_menu;
 mod event_shape_tests;
+mod hook_connection_lane;
 mod host_size_policy;
 mod identify_and_protocol;
 mod identify_before_queue;
