@@ -75,7 +75,8 @@ fn usage(message: &str) -> i32 {
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
-    let (verb, rest) = args.split_first().ok_or("name a verb: list, read, send, approve, decline")?;
+    let (verb, rest) =
+        args.split_first().ok_or("name a verb: list, read, send, approve, decline")?;
     let mut values: Vec<(String, String)> = Vec::new();
     let mut steer = false;
     let mut index = 0;
@@ -84,8 +85,8 @@ fn parse(args: &[String]) -> Result<Args, String> {
         match flag {
             "--steer" => steer = true,
             "--json" => {}
-            "--host" | "--socket" | "--name" | "--surface" | "--after-seq" | "--limit" | "--text"
-            | "--prompt-id" | "--turn-id" | "--revision" => {
+            "--host" | "--socket" | "--name" | "--surface" | "--after-seq" | "--limit"
+            | "--text" | "--prompt-id" | "--turn-id" | "--revision" => {
                 let value = rest.get(index + 1).ok_or_else(|| format!("{flag} needs a value"))?;
                 if values.iter().any(|(key, _)| key == flag) {
                     return Err(format!("{flag} given twice"));
@@ -102,7 +103,8 @@ fn parse(args: &[String]) -> Result<Args, String> {
         get(key).map(|v| v.parse::<u64>().map_err(|_| format!("{key} takes a number"))).transpose()
     };
     let required = |key: &str| get(key).ok_or_else(|| format!("{key} is required"));
-    let surface = || -> Result<u64, String> { number("--surface")?.ok_or("--surface is required".into()) };
+    let surface =
+        || -> Result<u64, String> { number("--surface")?.ok_or("--surface is required".into()) };
     let host = required("--host")?;
     if !cmux_link::stamp::valid_id(&host) {
         return Err("--host takes a host id".into());
@@ -113,13 +115,18 @@ fn parse(args: &[String]) -> Result<Args, String> {
     }
     let verb = match verb.as_str() {
         "list" => Verb::List,
-        "read" => Verb::Read { surface: surface()?, after_seq: number("--after-seq")?, limit: number("--limit")? },
+        "read" => Verb::Read {
+            surface: surface()?,
+            after_seq: number("--after-seq")?,
+            limit: number("--limit")?,
+        },
         "send" => {
             let text = required("--text")?;
             if text.trim().is_empty() {
                 return Err("--text is empty".into());
             }
-            let prompt_id = get("--prompt-id").unwrap_or_else(|| format!("cli-{}", uuid::Uuid::new_v4().simple()));
+            let prompt_id = get("--prompt-id")
+                .unwrap_or_else(|| format!("cli-{}", uuid::Uuid::new_v4().simple()));
             Verb::Send { surface: surface()?, text, steer, prompt_id }
         }
         "approve" => Verb::Approve {
@@ -178,8 +185,8 @@ fn asks_for_help(args: &[String]) -> bool {
     while let Some(word) = words.next() {
         match word.as_str() {
             "-h" | "--help" => return true,
-            "--host" | "--socket" | "--name" | "--surface" | "--after-seq" | "--limit" | "--text"
-            | "--prompt-id" | "--turn-id" | "--revision" => {
+            "--host" | "--socket" | "--name" | "--surface" | "--after-seq" | "--limit"
+            | "--text" | "--prompt-id" | "--turn-id" | "--revision" => {
                 words.next();
             }
             _ => {}
@@ -202,7 +209,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         Ok(socket) => socket,
         Err(failure) => return dial_failed(failure, None),
     };
-    let Ok(runtime) = super::tokio_runtime() else { return dial_failed(Failure::LinkUnavailable, None) };
+    let Ok(runtime) = super::tokio_runtime() else {
+        return dial_failed(Failure::LinkUnavailable, None);
+    };
     runtime.block_on(async {
         let stream = match connect_because(&socket, &args.host, Service::Daemon).await {
             Ok(stream) => stream,
@@ -243,12 +252,16 @@ async fn converse(stream: tokio::net::UnixStream, args: &Args) -> Result<Value, 
         frame["id"] = json!(id);
         let line = format!("{frame}\n");
         if writer.write_all(line.as_bytes()).await.is_err() {
-            return Err(json!({"ok": false, "error_code": "chat.closed", "error": "the machine closed the connection"}));
+            return Err(
+                json!({"ok": false, "error_code": "chat.closed", "error": "the machine closed the connection"}),
+            );
         }
         let reply = loop {
             let next = tokio::time::timeout(REPLY_TIMEOUT, lines.next_line()).await;
             let Ok(Ok(Some(line))) = next else {
-                return Err(json!({"ok": false, "error_code": "chat.closed", "error": "the machine did not answer"}));
+                return Err(
+                    json!({"ok": false, "error_code": "chat.closed", "error": "the machine did not answer"}),
+                );
             };
             // Attach streams records before and after replies: only this frame's reply counts.
             let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
@@ -259,7 +272,9 @@ async fn converse(stream: tokio::net::UnixStream, args: &Args) -> Result<Value, 
         if reply["ok"] != json!(true) {
             let code = reply.get("error_code").cloned().unwrap_or(json!("chat.refused"));
             let message = reply.get("error").cloned().unwrap_or(code.clone());
-            return Err(json!({"ok": false, "error_code": code, "error": message, "step": frame["cmd"]}));
+            return Err(
+                json!({"ok": false, "error_code": code, "error": message, "step": frame["cmd"]}),
+            );
         }
         last = reply.get("data").cloned().unwrap_or(Value::Null);
     }
@@ -277,7 +292,10 @@ mod tests {
 
     #[test]
     fn each_verb_parses_to_its_frames() {
-        let send = parse(&words("send --host host_ab12 --surface 3 --text hello --steer --prompt-id p1 --json")).unwrap();
+        let send = parse(&words(
+            "send --host host_ab12 --surface 3 --text hello --steer --prompt-id p1 --json",
+        ))
+        .unwrap();
         assert_eq!(
             frames(&send.verb)[1],
             json!({"cmd":"agent-session-prompt","surface":3,"prompt_id":"p1","text":"hello","steer":true})
@@ -285,7 +303,10 @@ mod tests {
         let list = parse(&words("list --host host_ab12 --name Ana")).unwrap();
         assert_eq!(list.name.as_deref(), Some("Ana"));
         assert_eq!(frames(&list.verb), vec![json!({"cmd":"agent-session-team-list"})]);
-        let approve = parse(&words("approve --host host_ab12 --surface 3 --prompt-id g1 --turn-id t1 --revision 0")).unwrap();
+        let approve = parse(&words(
+            "approve --host host_ab12 --surface 3 --prompt-id g1 --turn-id t1 --revision 0",
+        ))
+        .unwrap();
         assert_eq!(
             frames(&approve.verb)[1],
             json!({"cmd":"agent-session-queue-approve","surface":3,"prompt_id":"g1","turn_id":"t1","revision":0})

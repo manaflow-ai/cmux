@@ -35,8 +35,8 @@
 //! `fetch.too_broad` (no repository, and the chat's folder is `/`, a top
 //! folder or a home folder: it would bring the machine's sign-ins along).
 
-use std::path::Path;
 use cmux_process::Command;
+use std::path::Path;
 
 use serde_json::{Value, json};
 
@@ -45,12 +45,21 @@ use super::super::sync_cli::{self, Back, SeedBase, SeedPulled, fetch::Shape};
 use super::pull::keep;
 
 /// The CLI's fetch (module docs): its line and exit code.
-pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool, find_root: bool) -> (Value, i32) {
+pub(super) fn run(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    adopt: bool,
+    find_root: bool,
+) -> (Value, i32) {
     let keep_new = |relative: &str| !access_cli::is_secret(relative);
-    let found = if find_root { sync_cli::fetch::repo_root(socket, remote).ok().flatten() } else { None };
+    let found =
+        if find_root { sync_cli::fetch::repo_root(socket, remote).ok().flatten() } else { None };
     let remote = found.as_deref().unwrap_or(remote);
     if find_root && sync_cli::fetch::too_broad(remote) {
-        let error = format!("{remote} is a home or top folder on the machine; open the chat in a project folder to transfer it");
+        let error = format!(
+            "{remote} is a home or top folder on the machine; open the chat in a project folder to transfer it"
+        );
         return (json!({ "ok": false, "error": error, "error_code": "fetch.too_broad" }), 1);
     }
     let back = match sync_cli::fetch::shape(socket, remote) {
@@ -65,21 +74,38 @@ pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool, find_r
             (summary, 0)
         }
         Back::Conflict(conflicts, reasons) => {
-            let error = format!("{} changed while the folder came over ({})", conflicts.join(", "), reasons.join("; "));
-            (json!({ "ok": false, "error": error, "error_code": "sync_conflict", "conflicts": conflicts }), 1)
+            let error = format!(
+                "{} changed while the folder came over ({})",
+                conflicts.join(", "),
+                reasons.join("; ")
+            );
+            (
+                json!({ "ok": false, "error": error, "error_code": "sync_conflict", "conflicts": conflicts }),
+                1,
+            )
         }
-        Back::Failed { code, error } => (json!({ "ok": false, "error": error, "error_code": code }), 1),
+        Back::Failed { code, error } => {
+            (json!({ "ok": false, "error": error, "error_code": code }), 1)
+        }
     }
 }
 
 fn partial(socket: &Path, local: &Path, remote: &str, url: Option<String>, adopt: bool) -> Back {
     let failed = |code: &str, error: String| Back::Failed { code: code.into(), error };
     let Some(url) = url else {
-        return failed("fetch.no_remote", "the machine's folder is a partial clone with no https origin to fetch it from".into());
+        return failed(
+            "fetch.no_remote",
+            "the machine's folder is a partial clone with no https origin to fetch it from".into(),
+        );
     };
     let (head, branch) = match sync_cli::fetch::seed_head(socket, remote) {
         Ok(Some(found)) => found,
-        Ok(None) => return failed("fetch.not_a_seed", "the machine's partial clone has no seed record to start from".into()),
+        Ok(None) => {
+            return failed(
+                "fetch.not_a_seed",
+                "the machine's partial clone has no seed record to start from".into(),
+            );
+        }
         Err(error) => return failed("sync_failed", format!("{error:#}")),
     };
     let made = match sync_cli::fetch::claim(local) {
@@ -94,22 +120,33 @@ fn partial(socket: &Path, local: &Path, remote: &str, url: Option<String>, adopt
                 .args(args)
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .output()
-                .map(|out| (out.status.success(), String::from_utf8_lossy(&out.stderr).trim().to_owned()))
+                .map(|out| {
+                    (out.status.success(), String::from_utf8_lossy(&out.stderr).trim().to_owned())
+                })
                 .unwrap_or_else(|error| (false, error.to_string()))
         };
-        let (ok, why) = git(&["clone", "-q", "--filter=blob:none", "--no-checkout", "--", &url, "."]);
+        let (ok, why) =
+            git(&["clone", "-q", "--filter=blob:none", "--no-checkout", "--", &url, "."]);
         if !ok {
             return failed("fetch.clone_failed", format!("cannot clone {url}: {why}"));
         }
-        if !git(&["cat-file", "-e", &format!("{head}^{{commit}}")]).0 && !git(&["fetch", "-q", "origin", &head]).0 {
-            return failed("fetch.base_unreachable", format!("{head} is not on {url}; push the machine's branch, then transfer again"));
+        if !git(&["cat-file", "-e", &format!("{head}^{{commit}}")]).0
+            && !git(&["fetch", "-q", "origin", &head]).0
+        {
+            return failed(
+                "fetch.base_unreachable",
+                format!("{head} is not on {url}; push the machine's branch, then transfer again"),
+            );
         }
         let checkout = match branch.as_deref().and_then(|name| name.strip_prefix("refs/heads/")) {
             Some(name) => git(&["checkout", "-q", "-B", name, &head]),
             None => git(&["checkout", "-q", "--detach", &head]),
         };
         if !checkout.0 {
-            return failed("fetch.clone_failed", format!("cannot check out {head}: {}", checkout.1));
+            return failed(
+                "fetch.clone_failed",
+                format!("cannot check out {head}: {}", checkout.1),
+            );
         }
         // A fresh clone: no stash ref before the pull, and that is known.
         let base = SeedBase {

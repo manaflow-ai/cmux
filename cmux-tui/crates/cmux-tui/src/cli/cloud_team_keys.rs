@@ -94,8 +94,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     let usage = || UsageError::new(USAGE);
-    let mut command =
-        Command { verb: Verb::Help, team: None, api: None, credential_file: None, idempotency_key: None };
+    let mut command = Command {
+        verb: Verb::Help,
+        team: None,
+        api: None,
+        credential_file: None,
+        idempotency_key: None,
+    };
     let Some((verb, rest)) = args.split_first() else { return Ok(command) };
     if matches!(verb.as_str(), "--help" | "-h" | "help") {
         return if rest.is_empty() { Ok(command) } else { Err(usage()) };
@@ -110,7 +115,9 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         "set" | "remove" | "rm" => {
             let (agent, options) = rest.split_first().ok_or_else(usage)?;
             if !matches!(agent.as_str(), "claude" | "codex") {
-                return Err(UsageError::new(format!("the agent is claude or codex, not {agent}\n{USAGE}")));
+                return Err(UsageError::new(format!(
+                    "the agent is claude or codex, not {agent}\n{USAGE}"
+                )));
             }
             (Some(agent.clone()), options)
         }
@@ -129,9 +136,13 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             "--cloud-token-file" => command.credential_file = Some(value.into()),
             "--idempotency-key" if verb != "status" => {
                 let plain = (8..=128).contains(&value.len())
-                    && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'));
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'));
                 if !plain {
-                    return Err(UsageError::new("--idempotency-key is 8 to 128 letters, digits and _-.:"));
+                    return Err(UsageError::new(
+                        "--idempotency-key is 8 to 128 letters, digits and _-.:",
+                    ));
                 }
                 command.idempotency_key = Some(value);
             }
@@ -147,7 +158,9 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     }
     command.verb = match (verb.as_str(), agent) {
         ("status", _) => Verb::Status,
-        ("set", Some(agent)) => Verb::Set { agent, kind: kind.unwrap_or_else(|| "api_key".to_owned()), secret_file },
+        ("set", Some(agent)) => {
+            Verb::Set { agent, kind: kind.unwrap_or_else(|| "api_key".to_owned()), secret_file }
+        }
         (_, Some(agent)) => Verb::Remove { agent },
         _ => return Err(usage()),
     };
@@ -162,7 +175,10 @@ pub(super) struct Target {
     pub team: String,
 }
 
-pub(super) fn resolve(command: &Command, env: impl Fn(&str) -> Option<String>) -> Result<Target, String> {
+pub(super) fn resolve(
+    command: &Command,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<Target, String> {
     let resolved = super::cloud_client_session::resolve(
         &super::cloud_client_session::Command {
             verb: super::cloud_client_session::Verb::Create { token_file: None },
@@ -181,7 +197,9 @@ pub(super) fn resolve(command: &Command, env: impl Fn(&str) -> Option<String>) -
         .map(|t| t.trim().to_owned())
         .filter(|t| !t.is_empty())
         .ok_or_else(|| format!("name the team with --team TEAM_ID or {TEAM_ENV}"))?;
-    if team.len() > 128 || !team.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')) {
+    if team.len() > 128
+        || !team.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    {
         return Err("--team takes a team id (team_…)".into());
     }
     Ok(Target { api: resolved.0, credential: resolved.1, team })
@@ -201,8 +219,11 @@ fn read_key(agent: &str, file: Option<&PathBuf>) -> Result<Zeroizing<String>, Ap
         Some(path) => {
             let mut file = std::fs::File::open(path)
                 // Neither the path nor the contents go into the error (a pasted key could be in either).
-                .map_err(|e| local(format!("the --secret-file could not be read ({:?})", e.kind())))?;
-            acpmux::cli::harness_secret::read_secret_from(&mut file).map_err(|e| local(e.to_string()))?
+                .map_err(|e| {
+                    local(format!("the --secret-file could not be read ({:?})", e.kind()))
+                })?;
+            acpmux::cli::harness_secret::read_secret_from(&mut file)
+                .map_err(|e| local(e.to_string()))?
         }
         None => acpmux::cli::harness_secret::read_value(&format!("the team's {agent} key"))
             .map_err(|e| local(e.to_string()))?,
@@ -219,18 +240,35 @@ fn read_key(agent: &str, file: Option<&PathBuf>) -> Result<Zeroizing<String>, Ap
 pub(super) fn run(command: &Command, target: &Target) -> Result<Value, ApiError> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let user_agent = concat!("cmux/", env!("CARGO_PKG_VERSION"));
-    let (base, http) =
-        cmux_cloud_client::http(&target.api, Some(&target.credential), Some(&target.team), user_agent, TIMEOUT)
-            .map_err(|e| ApiError { status: None, tag: None, code: Some("usage.invalid".into()), message: e.to_string(), retryable: false })?;
+    let (base, http) = cmux_cloud_client::http(
+        &target.api,
+        Some(&target.credential),
+        Some(&target.team),
+        user_agent,
+        TIMEOUT,
+    )
+    .map_err(|e| ApiError {
+        status: None,
+        tag: None,
+        code: Some("usage.invalid".into()),
+        message: e.to_string(),
+        retryable: false,
+    })?;
     // The key is read before anything is sent, so a prompt never waits on a connection.
     let secret = match &command.verb {
         Verb::Set { agent, secret_file, .. } => Some(read_key(agent, secret_file.as_ref())?),
         _ => None,
     };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| ApiError { status: None, tag: None, code: Some("cloud.unreachable".into()), message: e.to_string(), retryable: true })?;
+    let runtime =
+        tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| {
+            ApiError {
+                status: None,
+                tag: None,
+                code: Some("cloud.unreachable".into()),
+                message: e.to_string(),
+                retryable: true,
+            }
+        })?;
     let key = command.idempotency_key.clone().unwrap_or_else(cmux_cloud_client::client_key);
     runtime.block_on(async {
         match &command.verb {
@@ -241,7 +279,9 @@ pub(super) fn run(command: &Command, target: &Target) -> Result<Value, ApiError>
             }
             Verb::Set { agent, kind, .. } => {
                 let secret = secret.as_ref().map(|s| s.as_str()).unwrap_or_default();
-                let params = params::<TeamAgentKeySetOp>(json!({ "agent": agent, "kind": kind, "secret": secret }))?;
+                let params = params::<TeamAgentKeySetOp>(
+                    json!({ "agent": agent, "kind": kind, "secret": secret }),
+                )?;
                 answer(call::<TeamAgentKeySetOp>(&http, &base, params, Some(&key), None).await?)
             }
             Verb::Remove { agent } => {
@@ -258,13 +298,19 @@ fn params<O: Op>(value: Value) -> Result<O::Params, ApiError> {
         tag: None,
         code: Some("usage.invalid".into()),
         // The error names the field, never a value (the set's params hold the key).
-        message: format!("{}: {}", O::NAME, e.to_string().split(" at line").next().unwrap_or("invalid")),
+        message: format!(
+            "{}: {}",
+            O::NAME,
+            e.to_string().split(" at line").next().unwrap_or("invalid")
+        ),
         retryable: false,
     })
 }
 
 /// The value as JSON, with `replayed` for a mutation answered from its first try.
-fn answer<T: serde::Serialize, E: cmux_cloud_wire::WireError>(answer: Answer<T, E>) -> Result<Value, ApiError> {
+fn answer<T: serde::Serialize, E: cmux_cloud_wire::WireError>(
+    answer: Answer<T, E>,
+) -> Result<Value, ApiError> {
     let replayed = matches!(answer, Answer::Value { replayed: true, .. });
     let mut value = serde_json::to_value(answer.into_result()?).map_err(ApiError::unreadable)?;
     if replayed && let Some(object) = value.as_object_mut() {
@@ -284,11 +330,27 @@ mod tests {
     #[test]
     fn parses_status_set_and_remove_and_keeps_the_key_off_argv() {
         assert_eq!(parse(&words("status --team team_a")).unwrap().verb, Verb::Status);
-        let set = parse(&words("set codex --kind oauth --secret-file /tmp/auth.json --idempotency-key ck_12345678")).unwrap();
-        assert_eq!(set.verb, Verb::Set { agent: "codex".into(), kind: "oauth".into(), secret_file: Some("/tmp/auth.json".into()) });
+        let set = parse(&words(
+            "set codex --kind oauth --secret-file /tmp/auth.json --idempotency-key ck_12345678",
+        ))
+        .unwrap();
+        assert_eq!(
+            set.verb,
+            Verb::Set {
+                agent: "codex".into(),
+                kind: "oauth".into(),
+                secret_file: Some("/tmp/auth.json".into())
+            }
+        );
         assert_eq!(set.idempotency_key.as_deref(), Some("ck_12345678"));
-        assert_eq!(parse(&words("set claude")).unwrap().verb, Verb::Set { agent: "claude".into(), kind: "api_key".into(), secret_file: None });
-        assert_eq!(parse(&words("rm claude")).unwrap().verb, Verb::Remove { agent: "claude".into() });
+        assert_eq!(
+            parse(&words("set claude")).unwrap().verb,
+            Verb::Set { agent: "claude".into(), kind: "api_key".into(), secret_file: None }
+        );
+        assert_eq!(
+            parse(&words("rm claude")).unwrap().verb,
+            Verb::Remove { agent: "claude".into() }
+        );
         assert_eq!(parse(&[]).unwrap().verb, Verb::Help);
         assert_eq!(parse(&words("status --help")).unwrap().verb, Verb::Help);
         assert_eq!(parse(&words("set claude --help")).unwrap().verb, Verb::Help);
@@ -326,7 +388,10 @@ mod tests {
         assert_eq!(answer(read).unwrap()["replayed"], json!(true));
         let refused = br#"{"ok":false,"op":"team.agent_key.set","error":{"code":"team_agent_key.not_configured","message":"no sealing key","retryable":false},"transaction":"t","idempotency_key":"ck_1","replayed":false,"stream":"s","sequence":3}"#;
         let read = cmux_cloud_client::ops::read_answer::<TeamAgentKeySetOp>(200, refused).unwrap();
-        assert_eq!(answer(read).unwrap_err().code.as_deref(), Some("team_agent_key.not_configured"));
+        assert_eq!(
+            answer(read).unwrap_err().code.as_deref(),
+            Some("team_agent_key.not_configured")
+        );
     }
 
     #[test]
@@ -336,7 +401,10 @@ mod tests {
         std::fs::write(&path, "sk-team-0123456789\n").unwrap();
         assert_eq!(read_key("claude", Some(&path)).unwrap().as_str(), "sk-team-0123456789");
         std::fs::write(&path, "").unwrap();
-        assert_eq!(read_key("claude", Some(&path)).unwrap_err().code.as_deref(), Some("usage.invalid"));
+        assert_eq!(
+            read_key("claude", Some(&path)).unwrap_err().code.as_deref(),
+            Some("usage.invalid")
+        );
         let missing = dir.path().join("missing");
         let error = read_key("claude", Some(&missing)).unwrap_err();
         assert!(!error.message.contains("missing"), "the path stays out of the error");

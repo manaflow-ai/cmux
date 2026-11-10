@@ -748,7 +748,10 @@ async fn a_team_members_steer_goes_in_and_a_guests_waits_for_the_owner() {
     .await;
     assert_eq!(held["params"]["awaitingOwner"], true, "{held}");
     assert!(session.queue().iter().any(|q| q.prompt_id == "g-1" && q.awaiting_owner));
-    assert!(user_messages(&hub, &session.id, "g-1").is_empty(), "a guest's steer reached the agent");
+    assert!(
+        user_messages(&hub, &session.id, "g-1").is_empty(),
+        "a guest's steer reached the agent"
+    );
 
     // The member's words reached the agent with the member as their author.
     let steered = user_messages(&hub, &session.id, "m-1");

@@ -242,11 +242,33 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 enum Command {
-    Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
-    Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool, seed_only: bool },
-    Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
+    Pull {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        base: pull::Base,
+    },
+    Push {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        since_last: bool,
+        seed_only: bool,
+    },
+    Clone {
+        socket: PathBuf,
+        repo: String,
+        git_ref: Option<String>,
+        remote: String,
+    },
     /// Transfer to This Mac of a folder this Mac never had (`fetch.rs`).
-    Fetch { socket: PathBuf, local: PathBuf, remote: String, adopt: bool, find_root: bool },
+    Fetch {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        adopt: bool,
+        find_root: bool,
+    },
 }
 
 fn parse(args: &[String]) -> Option<Command> {
@@ -289,17 +311,19 @@ fn parse(args: &[String]) -> Option<Command> {
     };
     let plain = repo.is_none() && git_ref.is_none();
     match (action.as_str(), positional.as_slice()) {
-        ("pull", [local, remote]) if plain && !since_last && !adopt && !find_root => Some(Command::Pull {
-            socket: socket?,
-            local: PathBuf::from(local),
-            remote: absolute(remote)?,
-            base: match (base, or_copy) {
-                (Some(_), true) => return None,
-                (Some(base), false) => pull::Base::Given(base),
-                (None, true) => pull::Base::RecordOrCopy,
-                (None, false) => pull::Base::Record,
-            },
-        }),
+        ("pull", [local, remote]) if plain && !since_last && !adopt && !find_root => {
+            Some(Command::Pull {
+                socket: socket?,
+                local: PathBuf::from(local),
+                remote: absolute(remote)?,
+                base: match (base, or_copy) {
+                    (Some(_), true) => return None,
+                    (Some(base), false) => pull::Base::Given(base),
+                    (None, true) => pull::Base::RecordOrCopy,
+                    (None, false) => pull::Base::Record,
+                },
+            })
+        }
         _ if base.is_some() || or_copy => None,
         ("fetch", [local, remote]) if plain && !since_last && !seed_only => Some(Command::Fetch {
             socket: socket?,
@@ -792,7 +816,10 @@ mod tests {
             panic!("fetch");
         };
         assert_eq!((local.to_str(), remote.as_str(), adopt), (Some("/new"), "/home/w/a", true));
-        assert!(matches!(parse(&args(&["fetch", "--socket", "/s", "/n", "/r"])), Some(Command::Fetch { adopt: false, .. })));
+        assert!(matches!(
+            parse(&args(&["fetch", "--socket", "/s", "/n", "/r"])),
+            Some(Command::Fetch { adopt: false, .. })
+        ));
         assert!(parse(&args(&["fetch", "--socket", "/s", "/n", "relative"])).is_none());
         assert!(parse(&args(&["fetch", "/n", "/r"])).is_none(), "no socket");
         assert!(parse(&args(&["pull", "--socket", "/s", "/a", "/b", "--adopt"])).is_none());

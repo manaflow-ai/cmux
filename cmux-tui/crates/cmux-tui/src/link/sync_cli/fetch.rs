@@ -20,9 +20,9 @@
 //! objects and is refused here as `fetch.partial_clone`: `cmux link seed
 //! fetch` takes it from its remote instead ([`super::super::seed_cli`]).
 
+use cmux_process::Command;
 use std::collections::BTreeMap;
 use std::path::Path;
-use cmux_process::Command;
 
 use anyhow::{Context as _, bail};
 
@@ -56,13 +56,19 @@ pub(in crate::link) fn shape(socket: &Path, remote_root: &str) -> anyhow::Result
     }
     let config = remote.read(&format!("{remote_root}/.git/config"))?.unwrap_or_default();
     let config = String::from_utf8_lossy(&config);
-    Ok(if is_partial(&config) { Shape::Partial { remote_url: origin_url(&config) } } else { Shape::Git })
+    Ok(if is_partial(&config) {
+        Shape::Partial { remote_url: origin_url(&config) }
+    } else {
+        Shape::Git
+    })
 }
 
 /// Whether a git config makes the repository a partial clone.
 pub(in crate::link) fn is_partial(config: &str) -> bool {
     config.lines().map(|line| line.trim().to_ascii_lowercase().replace(' ', "")).any(|line| {
-        line == "promisor=true" || line.starts_with("partialclonefilter=") || line.starts_with("partialclone=")
+        line == "promisor=true"
+            || line.starts_with("partialclonefilter=")
+            || line.starts_with("partialclone=")
     })
 }
 
@@ -114,8 +120,11 @@ pub(in crate::link) fn repo_root(socket: &Path, path: &str) -> anyhow::Result<Op
 /// `/Users/NAME`, `/root`): a folder too broad to copy to another Mac, since it holds the machine's
 /// own sign-ins and keys (dotfiles no secret list fully names).
 pub(in crate::link) fn too_broad(path: &str) -> bool {
-    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
-    parts.len() <= 1 || (parts.len() == 2 && matches!(parts[0], "home" | "Users")) || parts.contains(&"..")
+    let parts: Vec<&str> =
+        path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
+    parts.len() <= 1
+        || (parts.len() == 2 && matches!(parts[0], "home" | "Users"))
+        || parts.contains(&"..")
 }
 
 /// Whether `path` is below a home folder (`/home/NAME/x`, `/root/x`, `/Users/NAME/x`) or three
@@ -132,11 +141,16 @@ fn deep_enough(path: &str) -> bool {
 /// The machine's seed record HEAD (`refs/cmux-seed/head`, loose or packed)
 /// and its branch: what a partial clone's fetch starts from. None when the
 /// folder is not a seed's.
-pub(in crate::link) fn seed_head(socket: &Path, remote_root: &str) -> anyhow::Result<Option<(String, Option<String>)>> {
+pub(in crate::link) fn seed_head(
+    socket: &Path,
+    remote_root: &str,
+) -> anyhow::Result<Option<(String, Option<String>)>> {
     let mut remote = Remote::connect(socket)?;
     let git = format!("{remote_root}/.git");
     let (head_ref, _) = git_back::machine_head(&mut remote, &git)?;
-    let loose = remote.read(&format!("{git}/refs/cmux-seed/head"))?.map(|raw| String::from_utf8_lossy(&raw).trim().to_owned());
+    let loose = remote
+        .read(&format!("{git}/refs/cmux-seed/head"))?
+        .map(|raw| String::from_utf8_lossy(&raw).trim().to_owned());
     let found = match loose {
         Some(id) => Some(id),
         None => {
@@ -162,7 +176,8 @@ pub(in crate::link) fn claim(local: &Path) -> anyhow::Result<bool> {
         }
         Ok(_) => bail!("{} is not a folder", local.display()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(local).with_context(|| format!("cannot make {}", local.display()))?;
+            std::fs::create_dir_all(local)
+                .with_context(|| format!("cannot make {}", local.display()))?;
             Ok(true)
         }
         Err(error) => Err(error).with_context(|| format!("cannot open {}", local.display())),
@@ -199,25 +214,45 @@ pub(in crate::link) fn fetch(
     answer
 }
 
-fn fill(socket: &Path, local: &Path, remote_root: &str, git: bool, adopt: bool, keep_new: &dyn Fn(&str) -> bool) -> Back {
+fn fill(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    git: bool,
+    adopt: bool,
+    keep_new: &dyn Fn(&str) -> bool,
+) -> Back {
     let base = match prepare(socket, local, remote_root, git) {
         Ok(base) => base,
-        Err(error) => return Back::Failed { code: "sync_failed".into(), error: format!("{error:#}") },
+        Err(error) => {
+            return Back::Failed { code: "sync_failed".into(), error: format!("{error:#}") };
+        }
     };
     let fresh = Manifest { version: 1, files: BTreeMap::new(), git: base, links: BTreeMap::new() };
     match pull::pull_fresh(socket, local, remote_root, keep_new, fresh, adopt) {
         Ok(Pulled::Done(mut summary)) => {
-            cmux_json::JsonSet::set(&mut summary, "mode", serde_json::json!(if git { "git" } else { "copy" }));
+            cmux_json::JsonSet::set(
+                &mut summary,
+                "mode",
+                serde_json::json!(if git { "git" } else { "copy" }),
+            );
             Back::Done(summary)
         }
         Ok(Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
-        Err(error) => Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") },
+        Err(error) => {
+            Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
+        }
     }
 }
 
 /// In git: an empty repository here on the machine's branch, with the
 /// machine's top `.gitignore`, and the base that says it has nothing yet.
-fn prepare(socket: &Path, local: &Path, remote_root: &str, git: bool) -> anyhow::Result<Option<GitBase>> {
+fn prepare(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    git: bool,
+) -> anyhow::Result<Option<GitBase>> {
     if !git {
         if super::in_git(local) {
             bail!("{} is inside a git working copy; pick a folder outside it", local.display());
@@ -251,13 +286,36 @@ mod tests {
 
     #[test]
     fn a_repository_root_is_never_a_home_or_top_folder() {
-        for (path, ok) in [("/", false), ("/home", false), ("/home/cmux", false), ("/home/cmux/app", true), ("/root", false),
-            ("/root/app", true), ("/Users/me", false), ("/Users/me/app", true), ("/work/a", false), ("/work/a/b", true)] {
+        for (path, ok) in [
+            ("/", false),
+            ("/home", false),
+            ("/home/cmux", false),
+            ("/home/cmux/app", true),
+            ("/root", false),
+            ("/root/app", true),
+            ("/Users/me", false),
+            ("/Users/me/app", true),
+            ("/work/a", false),
+            ("/work/a/b", true),
+        ] {
             assert_eq!(deep_enough(path), ok, "{path}");
         }
-        for (path, broad) in [("/", true), ("", true), ("/home", true), ("/tmp", true), ("/root", true), ("/root/", true),
-            ("/home/cmux", true), ("/home/cmux/", true), ("/Users/me", true), ("/home/cmux/../..", true),
-            ("/home/cmux/app", false), ("/root/app", false), ("/workspace/app", false), ("/tmp/x", false)] {
+        for (path, broad) in [
+            ("/", true),
+            ("", true),
+            ("/home", true),
+            ("/tmp", true),
+            ("/root", true),
+            ("/root/", true),
+            ("/home/cmux", true),
+            ("/home/cmux/", true),
+            ("/Users/me", true),
+            ("/home/cmux/../..", true),
+            ("/home/cmux/app", false),
+            ("/root/app", false),
+            ("/workspace/app", false),
+            ("/tmp/x", false),
+        ] {
             assert_eq!(too_broad(path), broad, "{path}");
         }
     }
@@ -265,10 +323,21 @@ mod tests {
     #[test]
     fn agent_and_tool_sign_ins_never_come_over_but_project_settings_do() {
         use crate::link::access_cli::is_secret;
-        for path in [".codex/auth.json", "x/.claude/.credentials.json", ".claude.json", ".config/gh/hosts.yml", ".Docker/Config.json"] {
+        for path in [
+            ".codex/auth.json",
+            "x/.claude/.credentials.json",
+            ".claude.json",
+            ".config/gh/hosts.yml",
+            ".Docker/Config.json",
+        ] {
             assert!(is_secret(path), "{path}");
         }
-        for path in [".claude/settings.json", ".claude/commands/review.md", ".config/app.toml", "src/auth.json"] {
+        for path in [
+            ".claude/settings.json",
+            ".claude/commands/review.md",
+            ".config/app.toml",
+            "src/auth.json",
+        ] {
             assert!(!is_secret(path), "{path}");
         }
     }
@@ -277,13 +346,22 @@ mod tests {
     fn a_seed_clone_is_partial_and_a_copy_is_not() {
         let seed = "[core]\n\trepositoryformatversion = 1\n[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n\tpromisor = true\n\tpartialclonefilter = blob:none\n";
         assert!(is_partial(seed));
-        assert!(!is_partial("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n"));
+        assert!(!is_partial(
+            "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n"
+        ));
     }
 
     #[test]
     fn only_a_plain_https_origin_is_taken_from_the_machine() {
-        let config = |url: &str| format!("[remote \"upstream\"]\n\turl = https://evil.test/x\n[remote \"origin\"]\n\turl = {url}\n");
-        assert_eq!(origin_url(&config("https://github.com/acme/app.git")).as_deref(), Some("https://github.com/acme/app.git"));
+        let config = |url: &str| {
+            format!(
+                "[remote \"upstream\"]\n\turl = https://evil.test/x\n[remote \"origin\"]\n\turl = {url}\n"
+            )
+        };
+        assert_eq!(
+            origin_url(&config("https://github.com/acme/app.git")).as_deref(),
+            Some("https://github.com/acme/app.git")
+        );
         assert_eq!(origin_url(&config("https://token@github.com/acme/app.git")), None);
         assert_eq!(origin_url(&config("file:///Users/me/secret")), None);
         assert_eq!(origin_url(&config("/Users/me/repo")), None);

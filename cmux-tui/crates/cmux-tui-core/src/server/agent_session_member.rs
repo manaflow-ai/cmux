@@ -181,9 +181,10 @@ pub(in crate::server) fn try_handle(
             }
             object.insert("_host_author".into(), author);
             let frame = Value::Object(object).to_string();
-            Some(super::try_handle(mux, client, &frame, writer).unwrap_or_else(|| {
-                refuse(writer, None, Refusal::NotTrusted)
-            }))
+            Some(
+                super::try_handle(mux, client, &frame, writer)
+                    .unwrap_or_else(|| refuse(writer, None, Refusal::NotTrusted)),
+            )
         }
         _ => None,
     }
@@ -244,7 +245,9 @@ pub(in crate::server) fn team_list(mux: &Mux, client: u64) -> Value {
         .filter_map(|(surface, runtime)| match mux.conversation_tab_of(&runtime)? {
             ConversationTabRecord::AgentSession { session: Some(session), harness, .. } => {
                 let cloud_id = match (&team, &machine) {
-                    (Some(team), Some(machine)) => json!(format!("cloud:{team}/{machine}/{session}")),
+                    (Some(team), Some(machine)) => {
+                        json!(format!("cloud:{team}/{machine}/{session}"))
+                    }
                     _ => Value::Null,
                 };
                 Some(json!({"surface": surface, "session": session, "harness": harness,

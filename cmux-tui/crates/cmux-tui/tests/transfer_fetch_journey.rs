@@ -28,8 +28,10 @@ struct World {
 
 impl World {
     fn new(label: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-        let root = PathBuf::from("/tmp").join(format!("ctf-{label}-{}-{stamp}", std::process::id()));
+        let stamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+        let root =
+            PathBuf::from("/tmp").join(format!("ctf-{label}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(root.join("remotes/o")).unwrap();
         let root = fs::canonicalize(&root).unwrap();
         let cleanup = Cleanup(root.clone());
@@ -46,7 +48,10 @@ impl World {
         );
         // This Mac's own git reaches "GitHub" (the bare repositories) the way its credentials would.
         fs::create_dir_all(mac.home()).unwrap();
-        let rewrite = format!("[url \"file://{}/\"]\n\tinsteadOf = https://github.com/\n[protocol \"file\"]\n\tallow = always\n", root.join("remotes").display());
+        let rewrite = format!(
+            "[url \"file://{}/\"]\n\tinsteadOf = https://github.com/\n[protocol \"file\"]\n\tallow = always\n",
+            root.join("remotes").display()
+        );
         fs::write(mac.home().join(".gitconfig"), rewrite).unwrap();
         Self { root, mac, vm, _cleanup: cleanup }
     }
@@ -56,7 +61,9 @@ impl World {
         let repo = self.root.join("owner").join(name);
         fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "-q", "-b", "main"]);
-        for (path, text) in [("a", "a\n"), ("b", "b\n"), ("d/c", "c\n"), (".gitignore", "node_modules/\n")] {
+        for (path, text) in
+            [("a", "a\n"), ("b", "b\n"), ("d/c", "c\n"), (".gitignore", "node_modules/\n")]
+        {
             write(&repo.join(path), text);
         }
         git(&repo, &["add", "-A"]);
@@ -71,7 +78,10 @@ impl World {
         git(&repo, &["config", &rewrite, "https://github.com/"]);
         git(&repo, &["fetch", "-q", "origin"]);
         let mut push = self.mac.command();
-        push.args(["link", "seed", "push", "--socket"]).arg(&self.vm.socket).arg(&repo).arg(self.folder(name));
+        push.args(["link", "seed", "push", "--socket"])
+            .arg(&self.vm.socket)
+            .arg(&repo)
+            .arg(self.folder(name));
         let (ok, pushed) = run_json(&mut push);
         assert!(ok && pushed["mode"] == "seed", "{pushed}");
         self.folder(name)
@@ -87,7 +97,12 @@ impl World {
 
     fn fetch_with(&self, local: &Path, remote: &Path, flags: &[&str]) -> (bool, Value) {
         let mut command = self.mac.command();
-        command.args(["link", "seed", "fetch", "--socket"]).arg(&self.vm.socket).arg(local).arg(remote).args(flags);
+        command
+            .args(["link", "seed", "fetch", "--socket"])
+            .arg(&self.vm.socket)
+            .arg(local)
+            .arg(remote)
+            .args(flags);
         run_json(&mut command)
     }
 }
@@ -153,7 +168,11 @@ fn a_seeded_folder_comes_over_from_its_remote_with_the_machines_changes() {
     // Adopted: the move's last pull (Bring Back's) builds on it, and finds what changed since.
     write(&vm.join("a"), "a\nedited on the vm\nagain\n");
     let mut back = world.mac.command();
-    back.args(["link", "seed", "pull", "--socket"]).arg(&world.vm.socket).arg(&local).arg(world.folder("app")).arg("--or-copy");
+    back.args(["link", "seed", "pull", "--socket"])
+        .arg(&world.vm.socket)
+        .arg(&local)
+        .arg(world.folder("app"))
+        .arg("--or-copy");
     let (ok, pulled) = run_json(&mut back);
     assert!(ok && pulled["mode"] == "seed", "{pulled}");
     assert_eq!(read(&local.join("a")), "a\nedited on the vm\nagain\n");
@@ -167,7 +186,13 @@ fn a_whole_repository_the_machine_made_comes_over_with_its_history() {
     git(&vm, &["init", "-q", "-b", "main"]);
     git(&vm, &["config", "user.email", "vm@example.com"]);
     git(&vm, &["config", "user.name", "vm"]);
-    for (path, text) in [("a", "a\n"), ("b", "b\n"), ("d/c", "c\n"), ("src/main.rs", "fn main() {}\n"), (".gitignore", "node_modules/\n")] {
+    for (path, text) in [
+        ("a", "a\n"),
+        ("b", "b\n"),
+        ("d/c", "c\n"),
+        ("src/main.rs", "fn main() {}\n"),
+        (".gitignore", "node_modules/\n"),
+    ] {
         write(&vm.join(path), text);
     }
     git(&vm, &["add", "-A"]);

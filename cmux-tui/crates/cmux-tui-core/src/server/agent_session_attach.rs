@@ -1176,10 +1176,10 @@ impl ReaderSlot {
 
 #[path = "agent_session_media.rs"]
 mod media;
-#[path = "agent_session_proxy.rs"]
-mod proxy;
 #[path = "agent_session_member.rs"]
 pub(super) mod member;
+#[path = "agent_session_proxy.rs"]
+mod proxy;
 use media::media;
 pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
@@ -1346,7 +1346,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             prompt(attachment, prompt_id, text, content, steer)
         }
         AgentSessionCommand::QueueApprove(QueueDecisionParams {
-            prompt_id, turn_id, revision, ..
+            prompt_id,
+            turn_id,
+            revision,
+            ..
         }) => {
             let (Some(turn_id), Some(revision)) = (turn_id, revision) else {
                 return Err(Refusal::BadRequest);

@@ -525,7 +525,8 @@ pub fn invocation(call: &Call) -> Invocation {
             plain(words(&["link", "seed", "push", "--socket", socket, local, remote]))
         }
         Call::TransferFetch { socket, local, remote, adopt } => {
-            let mut args = words(&["link", "seed", "fetch", "--socket", socket, local, remote, "--find-root"]);
+            let mut args =
+                words(&["link", "seed", "fetch", "--socket", socket, local, remote, "--find-root"]);
             if *adopt {
                 args.push("--adopt".to_owned());
             }

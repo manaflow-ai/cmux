@@ -65,7 +65,8 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
     assert_eq!(list["data"]["chats"][0]["surface"], json!(surface));
     assert_eq!(list["data"]["chats"][0]["session"], SESSION);
 
-    let attach = call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+    let attach =
+        call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(attach["ok"], true, "{attach}");
     let frame = fake.frame();
     assert_eq!(frame["method"], "_acpmux/attach");
@@ -88,16 +89,16 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
     assert_eq!(prompt["data"]["awaiting_owner"], false);
 
     for (cmd, field) in [("agent-session-typing", "on"), ("agent-session-view", "visible")] {
-        let reply = call(&mut stream, &mut reader, json!({"cmd":cmd, "surface":surface, field:true}));
+        let reply =
+            call(&mut stream, &mut reader, json!({"cmd":cmd, "surface":surface, field:true}));
         assert_eq!(reply["ok"], true, "{cmd}: {reply}");
         assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author, "{cmd}");
     }
 
     // The owner answers asks and decides held prompts.
-    for frame in [
-        json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
-            "option_id":"allow"}),
-    ] {
+    for frame in [json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
+            "option_id":"allow"})]
+    {
         assert_eq!(
             call(&mut stream, &mut reader, frame)["error_code"],
             json!("agent_session.owner_only")
@@ -131,7 +132,8 @@ fn a_team_member_attaches_and_steers_stamped_as_itself() {
     // Removed from the team: the receiver's recheck closes the install's streams; a frame that
     // races it still fails the live-principal check.
     entry.mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_member");
-    let late = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"m3", "text":"x"});
+    let late =
+        json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"m3", "text":"x"});
     assert_eq!(call(&mut stream, &mut reader, late)["ok"], false);
 }
 
@@ -149,10 +151,7 @@ fn a_non_member_dial_reaches_no_chat() {
             json!({"cmd":"agent-session-attach", "surface":surface}),
             json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"x", "text":"x"}),
         ] {
-            assert_eq!(
-                call(&mut stream, &mut reader, frame)["error_code"],
-                json!(REMOTE_DENIED)
-            );
+            assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
         drop(fake);
     }
@@ -189,7 +188,8 @@ fn the_owner_shares_and_decides_on_their_own_cloud_machine() {
     );
     assert_eq!(redeem["ok"], false, "{redeem}");
     // The owner's approval of a guest's held prompt reaches acpmux unstamped (the owner's).
-    let attach = call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+    let attach =
+        call(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(attach["ok"], true, "{attach}");
     assert_eq!(fake.frame()["method"], "_acpmux/attach");
     let _ = call(
@@ -200,7 +200,10 @@ fn the_owner_shares_and_decides_on_their_own_cloud_machine() {
     );
     let sent = fake.frame();
     assert_eq!(sent["method"], "_acpmux/queue_approve");
-    assert_eq!(sent["params"], json!({"sessionId":SESSION, "promptId":"g1", "turnId":"turn_9", "revision":0}));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION, "promptId":"g1", "turnId":"turn_9", "revision":0})
+    );
     // The owner's own steer.
     let _ = call(
         &mut stream,
