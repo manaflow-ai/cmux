@@ -17,6 +17,7 @@ final class TabPreviewSource: TabPreviewProvider {
     }
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+        if let page = pages.existingView(tab.rawValue) { return await pages.pictures.picture(of: page, maxPixelSize: maxPixelSize) }
         return await Self.shown(cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize), key: tab.rawValue, cache: cache)
     }
 
