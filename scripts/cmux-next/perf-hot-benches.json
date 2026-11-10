@@ -138,7 +138,7 @@
     },
     "workspace-list-change": {
       "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
-      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); the list's scroll rule (ListViewportChange, SidebarLayout.viewportPositions): swift test --filter \"SidebarRowChangeScrollTests|SidebarViewportRuleEqualityTests\" (viewport_rows per change at 60 and 826 rows); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
       "owner": "WORKSPACE LIST 800"
     },
     "workspace-placement": {

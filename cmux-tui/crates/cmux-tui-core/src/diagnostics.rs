@@ -895,6 +895,9 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `commands` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<CommandStatsSnapshot>,
+    /// Present only when the request names `journal_followers` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

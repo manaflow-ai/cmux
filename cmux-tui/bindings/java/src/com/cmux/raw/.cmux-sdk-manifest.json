@@ -2192,7 +2192,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4329aee10a6981a259f7a55987d059d48ecce8b91b41193f5e8fd9269c6679bb",
+      "sha256": "6a98f3bf1cd8a57dba436b325728956a8d566b6e201b7df237d20c357087a61a",
       "size": 8000
     },
     {
@@ -2671,6 +2671,16 @@
       "size": 4044
     },
     {
+      "path": "ServerStatsJournalFollower.java",
+      "sha256": "ae5efddb7fcca03e25cc2951ac19286cf685df0e7bbb64e20bb181973ffd974e",
+      "size": 8221
+    },
+    {
+      "path": "ServerStatsJournalFollowers.java",
+      "sha256": "a86a7104ab8e66a58a36ea108dcfaf2d1b32465ff0ca96ca34f6e330a053a5cc",
+      "size": 6399
+    },
+    {
       "path": "ServerStatsJournalWriter.java",
       "sha256": "17740f11ae5bd9576ff75d44bf500442cb1e60e917475b5c334cef947bd8005f",
       "size": 12109
@@ -2722,8 +2732,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "5a0559d8ddb54b19cb087fd98978d98bd079cff9e1aa86a4d3dbfa1989adb684",
-      "size": 9379
+      "sha256": "a776f4771bf9ef87cf24f29db2e2b0373df5dc72cac22cf2e06c9daea48b58ed",
+      "size": 10236
     },
     {
       "path": "ServerStatsWritePath.java",
@@ -3672,7 +3682,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "62e20bc6f0766bbb9f331d36e1f9fd996b4bfb81c30d1c4ee1de7e4ced51dbba",
+  "ir_sha256": "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

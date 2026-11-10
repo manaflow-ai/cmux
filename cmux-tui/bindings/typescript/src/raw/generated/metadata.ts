@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 62e20bc6f0766bbb9f331d36e1f9fd996b4bfb81c30d1c4ee1de7e4ced51dbba. */
+/* cmux-tui mux protocol 12, IR 3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "62e20bc6f0766bbb9f331d36e1f9fd996b4bfb81c30d1c4ee1de7e4ced51dbba" as const;
+export const SDK_IR_SHA256 = "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2786,7 +2786,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -11563,6 +11563,157 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsJournalFollower": {
+    "additional_properties": false,
+    "constraints": [
+      "kinds is the stream's kind filter as sent (a trailing .* is a prefix); empty means every kind.",
+      "max_sensitivity is public, metadata or sensitive; null means no limit. A remote client's limit is metadata.",
+      "left_ms is null while the stream is live; otherwise the stream ended that long ago and still keeps rows until grace_ms is over.",
+      "keeps_hook_rows: the stream is sent agent.state.changed rows at sensitive, so every agent hook report is a journal row.",
+      "keeps_report_rows: the stream is sent agent.report rows at sensitive, so every agent plugin report is a journal row."
+    ],
+    "fields": {
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "connected_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "keeps_hook_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keeps_report_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kinds": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "left_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max_sensitivity": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "remote": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "stream_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsJournalFollowers": {
+    "additional_properties": false,
+    "constraints": [
+      "followers lists the live session.journal.subscribe streams with follow not false, and those that ended less than grace_ms ago.",
+      "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
+      "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
+      "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
+    ],
+    "fields": {
+      "followers": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsJournalFollower"
+          },
+          "kind": "array"
+        }
+      },
+      "grace_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hook_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "journal_hook_keeps_rows": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keep_all_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "report_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -12189,7 +12340,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
       "disk is present only when the request names it in include and the session keeps its registry on disk.",
-      "commands is present only when the request names it in include."
+      "commands is present only when the request names it in include.",
+      "journal_followers is present only when the request names it in include."
     ],
     "fields": {
       "commands": {
@@ -12222,6 +12374,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHookQueue"
+        }
+      },
+      "journal_followers": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsJournalFollowers"
         }
       },
       "journal_writer": {

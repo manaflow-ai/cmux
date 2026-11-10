@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "62e20bc6f0766bbb9f331d36e1f9fd996b4bfb81c30d1c4ee1de7e4ced51dbba";
+pub const ir_sha256 = "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2143,6 +2143,27 @@ pub const ServerStatsHookQueue = struct {
     undeliverable_events: u64,
 };
 
+pub const ServerStatsJournalFollower = struct {
+    client: u64,
+    connected_ms: u64,
+    keeps_hook_rows: bool,
+    keeps_report_rows: bool,
+    kinds: []const []const u8,
+    left_ms: wire.Nullable(u64),
+    max_sensitivity: wire.Nullable([]const u8),
+    remote: bool,
+    stream_id: []const u8,
+};
+
+pub const ServerStatsJournalFollowers = struct {
+    followers: []const ServerStatsJournalFollower,
+    grace_ms: u64,
+    hook_rows_kept: bool,
+    journal_hook_keeps_rows: wire.Nullable(bool),
+    keep_all_ms: u64,
+    report_rows_kept: bool,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -2240,6 +2261,7 @@ pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
+    journal_followers: ?ServerStatsJournalFollowers = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
@@ -2252,6 +2274,7 @@ pub const ServerStatsResult = struct {
         "commands",
         "disk",
         "hook_queue",
+        "journal_followers",
         "locks",
         "resource_projection",
         "write_path",

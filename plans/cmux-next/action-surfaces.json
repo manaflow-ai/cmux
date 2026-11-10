@@ -36394,11 +36394,6 @@
           "kind" : "string",
           "name" : "login",
           "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "model",
-          "required" : false
         }
       ],
       "cli" : "offered",

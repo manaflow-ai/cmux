@@ -428,7 +428,7 @@ extension SidebarListViewComponents {
     }
 
     /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
-    /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
+    /// rows beside each, among the rows of both layouts, changed (as `ListViewportChange.movedByItself`). A row an insert or
     /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
     static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
         guard !keys.isEmpty else { return [] }
@@ -569,7 +569,7 @@ extension SidebarListViewComponents {
         hasViewport = true
         guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
         revealedActive = selectionRevealKey
-        let viewport = displayed.viewport(height: height)
+        let viewport = displayed.viewportFrame(height: height)
         // A row already wholly in view does not move (close-focus.md rule 7, as `revealSelectionNow`).
         guard !viewport.isFullyVisible(extent, at: clip.bounds.minY, padding: 0) else { return }
         let target = viewport.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)

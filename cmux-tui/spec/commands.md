@@ -594,8 +594,8 @@ section is the exception: it reads the registry on its own read-only
 connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk` and
-`commands`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk`,
+`commands` and `journal_followers`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -657,6 +657,14 @@ object{
       kinds:array<object{kind:string,segments:uint64}>
     }|null,
     error:string|null
+  },
+  journal_followers?:object{
+    grace_ms:uint64, keep_all_ms:uint64, journal_hook_keeps_rows:boolean|null,
+    hook_rows_kept:boolean, report_rows_kept:boolean,
+    followers:array<object{
+      client:uint64, stream_id:string, remote:boolean, kinds:array<string>,
+      max_sensitivity:string|null, connected_ms:uint64, left_ms:uint64|null,
+      keeps_hook_rows:boolean, keeps_report_rows:boolean}>
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -794,6 +802,31 @@ have rows of their own (`names` says how many do); the rest count in
 `other`. Cost per request: three clock reads and four atomic adds, no lock,
 no allocation after the first request of a name. Two reads some seconds
 apart give calls per second and time per call for each row.
+
+`journal_followers` lists the clients that follow the journal live
+(`session.journal.subscribe` with `follow` not `false`) and says why a report
+that changes no durable state is still a journal row. An agent hook report
+or a plugin report that repeats what the daemon holds writes no row, but a
+follower reads the journal and nothing else: while one is sent the row (its
+kind filter matches and its `max_sensitivity` is at or above the row's
+`sensitive`), each report is a row. `followers` names each stream: its
+`client`, `stream_id`, `kinds` as sent (empty for every kind),
+`max_sensitivity` (`null` for no limit; the default and a remote client's
+limit are `metadata`), `keeps_hook_rows` (`agent.state.changed`) and
+`keeps_report_rows` (`agent.report`). A stream that ended stays listed with
+`left_ms` until `grace_ms` (120 s) is over, because it can come back with its
+cursor. `keep_all_ms` is what is left of the same time after the daemon
+became ready, in which every report is a row for a follower of the last run.
+`journal_hook_keeps_rows` is true while an enabled journal hook's kind filter
+matches such a row, and `null` until the first report after the daemon
+started or the hooks changed reads them. `hook_rows_kept` and
+`report_rows_kept` give the result. `report_rows_kept` is about the
+`agent.report` row of a plugin report; the plugin's own row is also kept
+while a follower is sent its kind at the report's sensitivity (`public` when
+the report names none). The section reads memory only, never the registry.
+It takes the lock of the cached journal hook answer, so it can wait while a
+journal hook change commits or while the first report after a start reads
+the hooks.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
