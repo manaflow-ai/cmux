@@ -1,4 +1,5 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
+import { PrefixFilter } from "./prefixFlatMap";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
@@ -96,7 +97,9 @@ const phaseOf = (row: AcpmuxRow): DeliveryPhase => {
 let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
-type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
+/// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
+/// projection's only (projectInboxRows reuses it), the flat one has none.
+type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 // Waiting rows already have an outer fold; delivered notices need their own. Search and display
 // may use the same source array, so their flat and folded projections cannot share a cache.
@@ -321,6 +324,13 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const cache = foldNotices ? deliveredInboxCache : inboxFlattenCache;
   const cached = cache.get(rows);
   if (cached) return cached.rows;
+  // A chat with no inbox row and, folded, no two received lines next to each other draws its rows
+  // as they are: found from a pass that reads only the rows a snapshot changed (prefixFlatMap.ts),
+  // not by reading every row of a long chat on each event.
+  if ((foldNotices ? foldedInboxMarks : flatInboxMarks).read(rows).items.length === 0) {
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    return rows;
+  }
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
   let hasInbox = false;
@@ -346,7 +356,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const gathersLines =
     foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
   if (!hasInbox && !gathersLines) {
-    cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
     return rows;
   }
   const seenIds = new Set<string>();
@@ -433,6 +443,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   return result;
 }
 
+/// Whether a row is or holds an inbox notice or delivery (projectAllInboxRows' `collect`).
+function holdsInbox(row: AcpmuxRow): boolean {
+  if (row.laneNoticeBatch) return row.laneNoticeBatch.kind === "inbox" || row.laneNoticeBatch.rows.some(holdsInbox);
+  return noticeOf(row)?.kind === "inbox" || !!row.inboxDelivery;
+}
+/// The rows that keep a projection from being the rows as they are: inbox rows, and folded, a
+/// received line right after another.
+const flatInboxMarks = new PrefixFilter<AcpmuxRow>(holdsInbox);
+const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
+  (row, index, rows) =>
+    holdsInbox(row) ||
+    (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
+);
+const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
+
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
  * no delivery index is rebuilt and historical messages are neither visited nor reparsed. A new,
@@ -463,15 +488,16 @@ export function projectInboxRows(
     if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
-  const projected = held.rows.slice(0, held.offsets[reusedRows]);
-  const offsets = held.offsets.slice(0, reusedRows);
+  const heldOffsets = held.offsets!;
+  const projected = held.rows.slice(0, heldOffsets[reusedRows]);
+  const offsets = heldOffsets.slice(0, reusedRows);
   at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     offsets.push(projected.length);
     const row = rows[i]!;
     if (relevant(row)) {
       const oldIndex = oldMessages[at++]!.index;
-      projected.push(...held.rows.slice(held.offsets[oldIndex], held.offsets[oldIndex + 1]));
+      projected.push(...held.rows.slice(heldOffsets[oldIndex], heldOffsets[oldIndex + 1]));
     } else projected.push(row);
   }
   offsets.push(projected.length);
