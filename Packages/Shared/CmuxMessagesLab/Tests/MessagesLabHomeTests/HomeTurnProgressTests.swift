@@ -25,6 +25,27 @@ import Testing
                                 now: current.since.addingTimeInterval(5), style: style)
     }
 
+    /// The narration names things in words, never by the chat's raw message ids (user 2026-11-09: the line read
+    /// "Sending a message › I'll post it in the thread for 25415 · Telling an agent").
+    @Test(arguments: [
+        ("I'll post it in the thread for 25415", "I'll post it in the thread"),
+        ("Replying to message 25415 now", "Replying now"),
+        ("Checking msg #2541's date first", "Checking date first"),
+        ("Telling a1076 about #25415+3", "Telling a1076"),
+        ("Planning the 2026 release for a1076", "Planning the 2026 release for a1076"),
+    ])
+    func theNarrationNamesNoMessageIDs(thought: String, shown: String) {
+        let progress = Self.progress(["Sending a message", "Telling an agent"], thought: thought)
+        #expect(progress.narration == shown)
+        #expect(!progress.text.contains("25415"))
+    }
+
+    /// A thought that is only an id leaves no narration row.
+    @Test func aThoughtThatIsOnlyAnIDShowsNoNarration() {
+        let progress = Self.progress(["Sending a message", "Telling an agent"], thought: "25415")
+        #expect(progress.narration == nil)
+    }
+
     @Test func theFirstStepReadsAsTheOneLineBefore() {
         let progress = Self.progress(["Telling a31"])
         #expect(progress.rows == ["Telling a31 · 5s"])
