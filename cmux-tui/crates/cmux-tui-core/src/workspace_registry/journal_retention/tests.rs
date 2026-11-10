@@ -164,6 +164,30 @@ fn prune(registry: &mut WorkspaceRegistry) {
     while registry.prune_oldest_journal_segment(floor).unwrap() {}
 }
 
+impl WorkspaceRegistry {
+    /// Test seam: makes every sealed segment older than the age window, as
+    /// if the daemon had sealed it more than an hour ago. A test that seals
+    /// and wants retention to delete in the same run calls it before the
+    /// retention pass (`Mux::run_journal_maintenance_for_test` does).
+    pub(crate) fn age_journal_segments_for_test(&self) {
+        let age_ms = MIN_RETAINED_AGE_MS + 60_000;
+        let young_after = super::unix_epoch_ms().unwrap().saturating_sub(MIN_RETAINED_AGE_MS);
+        self.connection
+            .get()
+            .execute_batch(&format!(
+                "DROP TRIGGER journal_segments_reject_update;
+                 UPDATE journal_segments SET sealed_at_ms = MAX(sealed_at_ms - {age_ms}, 0)
+                 WHERE sealed_at_ms > {young_after};
+                 CREATE TRIGGER journal_segments_reject_update
+                   BEFORE UPDATE ON journal_segments
+                 BEGIN
+                   SELECT RAISE(ABORT, 'journal segments are immutable');
+                 END;"
+            ))
+            .unwrap();
+    }
+}
+
 /// S1, the record window. A client that asks for a checkpoint after each
 /// record has the newest 16 checkpoints on the newest 16 records. The oldest
 /// kept checkpoint is then no bound at all: the floor would be the end of
