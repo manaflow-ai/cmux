@@ -16,6 +16,7 @@ import {
   type RunRowDetails,
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
+  type MoveTarget,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -162,6 +163,8 @@ export function ComposerContext({
   onOffload,
   offloads = NO_OFFLOADS,
   offloadReasons,
+  moveTargets,
+  onMoveTo,
   saved,
   onRefreshMachines: onRefreshPeers,
   folderNote,
@@ -247,6 +250,10 @@ export function ComposerContext({
   /// Why each offered move would refuse now (`pane.tabState` `moveReasons`: a chat with no first message
   /// yet): the picker's row is disabled and says it, never a click that does nothing.
   offloadReasons?: OffloadReasons;
+  /// A started chat's Move to… (EnvironmentPicker `moveTargets`): this Mac and the Cloud machines it
+  /// can go to, `pane.tabState` `moveTargets`; a pick runs `onMoveTo` with the target's id.
+  moveTargets?: readonly MoveTarget[];
+  onMoveTo?(id: string): void;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
   /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
@@ -667,10 +674,13 @@ export function ComposerContext({
     : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  // Its Move to… targets, beside or instead of that one move.
+  const moving = started && environments && onMoveTo && moveTargets && moveTargets.length > 0 ? moveTargets : undefined;
+  const moves = offload !== undefined || moving !== undefined;
   // A first computer is discoverable, including from a started local chat (#27083): with only
   // this Mac listed the picker keeps its connect actions after the chat starts.
   const onboardingConnect = !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
-  const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
+  const computerDisabled = readOnly && !moves && (started || !onConnect) && !onboardingConnect;
   // The computer control is the environment picker where the surface asks for it.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
@@ -763,7 +773,7 @@ export function ComposerContext({
   // The folder control says how many more folders the chat sees: "cmux +2".
   const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
-  const layout: StripLayout = readOnly || offload ? "combined" : stripLayout;
+  const layout: StripLayout = readOnly || moves ? "combined" : stripLayout;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
     ...(unavailableGroup ? { unavailableGroup } : {}),
@@ -1055,9 +1065,10 @@ export function ComposerContext({
                     combinedFace
                   )
                 }
-                environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
+                environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
+                {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
