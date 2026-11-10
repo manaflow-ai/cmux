@@ -1625,6 +1625,14 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
             self.judge_guard()
 
+    def test_guard_status_rule_line_is_never_evidence(self):
+        # Its red line names jobs in words any summary shares (SUMMARY_RED): the route reports, each checked against a
+        # failed child, are the evidence. A line naming another job neither excuses nor refuses by itself.
+        self.guard_from_its_step("failure")
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]summary red: Guard status: workflow-guard-source-lints: failure")
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
     def test_guard_status_other_annotation_is_still_a_routing_error(self):
         self.guard_from_its_step("failure")
         self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
@@ -1716,6 +1724,16 @@ class Excusing(unittest.TestCase):
         self.test_a_guard_status_is_judged_by_its_routed_child()
         self.contract_with(lambda routes: routes.pop("workflow-guard-tests"))
         with self.assertRaisesRegex(excuse.Refused, "unknown routed job workflow-guard-tests"):
+            self.judge_guard()
+
+    def test_an_unconditional_job_reported_with_a_route_is_refused(self):
+        # workflow-guard-submodule-forward-only has no `if:`: its report never names a route.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.jobs[5]["name"] = self.gh.jobs[6]["name"] = "nightly-guards / workflow-guard-submodule-forward-only"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-submodule-forward-only: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
             self.judge_guard()
 
     def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
@@ -2504,6 +2522,19 @@ class WebShardBaseVerdict(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
             excuse.judge(REPO, "main", HEAD, [10], gh)
         self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_a_run_with_no_workflow_path_reads_only_its_own_workflow(self):
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
 
     def test_each_base_caller_runs_the_same_called_job_on_base_pushes(self):
         yaml = excuse.yaml_module()
