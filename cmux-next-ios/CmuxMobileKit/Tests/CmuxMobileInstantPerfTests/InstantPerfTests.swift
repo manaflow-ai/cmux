@@ -61,7 +61,7 @@ struct InstantPerfTests {
         InstantPerfReport.record(
             "home_list_first_screen", target: 16, small: small, god: god,
             knownRed: [.ratio, .godBudget],
-            why: "the first screen waits for every row of the reply to be parsed (a date formatter pair and three Markdown regexes per row)",
+            why: "the first screen waits for every row of the reply to be parsed; reading only the window on screen is slice 2 of the design",
             note: "home-inbox reply \(HomeInboxFixture.wire(.small).count) B (20 rows) vs \(HomeInboxFixture.wire(.god).count) B (5,000 rows)")
     }
 
