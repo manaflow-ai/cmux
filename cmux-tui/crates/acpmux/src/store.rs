@@ -889,6 +889,12 @@ pub trait Store: Send + Sync {
     fn unlisted(&self) -> Vec<String> {
         Vec::new()
     }
+    /// Whether the record of `other`, one the last `list` could not read ([`Store::unlisted`]),
+    /// may name chat `id` as the chat it is a fork of (a fork's `historyFrom` holds that id).
+    /// True when it cannot tell, so a caller that keeps a fork's history refuses as before.
+    fn may_name(&self, _other: &str, _id: &str) -> bool {
+        true
+    }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
     /// return a purged chat's late metadata save for recovery/maintenance callers.
@@ -1510,6 +1516,23 @@ impl Drop for SegmentZero {
     }
 }
 
+/// Whether a chat record's bytes, which do not read as a chat, may name chat `id` as the chat it
+/// is a fork of: they hold the id as text, or read as JSON whose `historyFrom` names it or has no
+/// readable `session`. A record that does neither cannot be a fork of `id`.
+fn record_may_name(bytes: &[u8], id: &str) -> bool {
+    if id.is_empty() || bytes.windows(id.len()).any(|w| w == id.as_bytes()) {
+        return true;
+    }
+    match serde_json::from_slice::<Value>(bytes) {
+        Ok(record) => match record.get("historyFrom") {
+            None | Some(Value::Null) => false,
+            Some(from) => from.get("session").and_then(Value::as_str).is_none_or(|s| s == id),
+        },
+        // Not JSON, and the id is not in its text.
+        Err(_) => false,
+    }
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
@@ -1550,6 +1573,17 @@ impl Store for LocalStore {
     fn unlisted(&self) -> Vec<String> {
         let unlisted = self.unlisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         unlisted.iter().cloned().collect()
+    }
+
+    /// Read as bytes: a record that does not read as a chat may still name one.
+    fn may_name(&self, other: &str, id: &str) -> bool {
+        let path = self.dir(other).join("session.json");
+        let Ok(file) = crate::config::private_state_file(&path) else { return true };
+        let mut bytes = Vec::new();
+        if BufReader::new(file).read_to_end(&mut bytes).is_err() {
+            return true;
+        }
+        record_may_name(&bytes, id)
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {

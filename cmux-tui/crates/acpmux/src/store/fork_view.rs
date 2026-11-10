@@ -258,12 +258,20 @@ impl ForkView {
             self.list()?;
         }
         // A chat the list left out (its meta did not read) may be a fork of this one: read it
-        // again, and refuse while it still does not read (review of #37020: the delete went on
-        // without it, and it lost its history).
+        // again, and refuse while it still does not read and may name this chat (review of
+        // #37020: the delete went on without it, and it lost its history). One that cannot name
+        // it is no fork of it: skipped, and kept as it is (bench round 5, row 11b: one such
+        // record blocked the purge of every chat).
         for other in self.inner.unlisted() {
             match self.inner.load(&other) {
                 Ok(Some(meta)) => self.note(&meta),
                 Ok(None) => {}
+                Err(e) if !self.inner.may_name(&other, id) => {
+                    tracing::warn!(
+                        "chat {other}'s metadata does not read ({e:#}); it names no {id}, so it \
+                         is no fork of it: skipped"
+                    );
+                }
                 Err(e) => {
                     return Err(e.context(format!(
                         "chat {other}'s metadata does not read, and it may be a fork of {id}"
@@ -319,6 +327,9 @@ impl Store for ForkView {
     }
     fn unlisted(&self) -> Vec<String> {
         self.inner.unlisted()
+    }
+    fn may_name(&self, other: &str, id: &str) -> bool {
+        self.inner.may_name(other, id)
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let meta = self.inner.load(id)?;
