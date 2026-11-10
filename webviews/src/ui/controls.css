@@ -75,14 +75,14 @@
 .ui-btn[data-variant="ghost"] {
   background: transparent;
 }
-.ui-btn[data-variant="ghost"]:hover:not([data-disabled]) {
+.ui-btn[data-variant="ghost"]:hover:not([data-disabled], [data-popup-open]) {
   background: var(--ds-color-hover);
 }
 /* subtle (the default): a quiet fill at rest, one step stronger on hover. */
 .ui-btn[data-variant="subtle"] {
   background: var(--ds-color-hover);
 }
-.ui-btn[data-variant="subtle"]:hover:not([data-disabled]) {
+.ui-btn[data-variant="subtle"]:hover:not([data-disabled], [data-popup-open]) {
   background: var(--ds-color-pressed);
 }
 .ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open],
