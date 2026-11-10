@@ -4,6 +4,135 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitMemberSetResult {
+    pub member: UserId,
+    pub limit_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.member.set declares.
+    TeamAiLimitMemberSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the team's default monthly AI spending limit per member (USD per person per UTC month, any amount; 0 = no AI; null = the cmux default of 200). A member's personal limit wins over it. Team admins and billing members, in a person's session. Recorded in the billing audit.
+    TeamAiLimitSetOp {
+        name: "team.ai_limit.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "money",
+        principals: [Session],
+        params: TeamAiLimitSetParams,
+        result: TeamAiLimitSetResult,
+        error: TeamAiLimitSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetParams {
+    pub default_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetResult {
+    pub default_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.set declares.
+    TeamAiLimitSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the team's audit records, newest first (owners and admins: all; billing: billing records only).
+    TeamAuditListOp {
+        name: "team.audit.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session],
+        params: TeamAuditListParams,
+        result: TeamAuditListResult,
+        error: TeamAuditListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditListResult {
+    pub team: TeamId,
+    pub entries: Vec<TeamAuditEntry>,
+    pub next_cursor: Option<i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.audit.list declares.
+    TeamAuditListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived.
+    TeamCloudSessionArchiveOp {
+        name: "team.cloud.session.archive",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamCloudSessionArchiveParams,
+        result: CloudSessionView,
+        error: TeamCloudSessionArchiveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionArchiveParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub archived: bool,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.archive declares.
+    TeamCloudSessionArchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionNotFound = "cloud_session.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Follow (or stop following) a teammate's Cloud workspace or chat: it shows under Following in your sidebar. A session assigned to you cannot be followed.
     TeamCloudSessionFollowOp {
@@ -768,134 +897,4 @@ pub struct TeamMembersRemoveParams {
 pub struct TeamMembersRemoveResult {
     pub user: UserId,
     pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes team.members.remove declares.
-    TeamMembersRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys.
-    TeamPolicyGetOp {
-        name: "team.policy.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamPolicyGetParams,
-        result: TeamPolicyGetResult,
-        error: TeamPolicyGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<i64>,
-}
-
-wire_enum! {
-    TeamPolicyGetResultIntegrationManagedBy {
-        Sso = "sso",
-        Mdm = "mdm",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyGetResult {
-    pub team: TeamId,
-    pub policy: TeamPolicy,
-    pub integration_managed_by: Option<TeamPolicyGetResultIntegrationManagedBy>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.policy.get declares.
-    TeamPolicyGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins).
-    TeamPolicyHistoryOp {
-        name: "team.policy.history",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamPolicyHistoryParams,
-        result: TeamPolicyHistoryResult,
-        error: TeamPolicyHistoryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyHistoryParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyHistoryResult {
-    pub team: TeamId,
-    pub versions: Vec<TeamPolicyVersion>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.policy.history declares.
-    TeamPolicyHistoryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Apply a retained past version's values as a new version (owners and admins).
-    TeamPolicyRollbackOp {
-        name: "team.policy.rollback",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamPolicyRollbackParams,
-        result: TeamPolicy,
-        error: TeamPolicyRollbackError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyRollbackParams {
-    pub version: i64,
-    pub expected_version: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes team.policy.rollback declares.
-    TeamPolicyRollbackError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

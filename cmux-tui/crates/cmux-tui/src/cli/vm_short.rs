@@ -162,7 +162,7 @@ pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
             )),
         };
     };
-    let id = named.strip_prefix("machine:").unwrap_or(named);
+    let id = super::vm_words::bare_id(named);
     if rows.iter().any(|row| text(row, "machine_id").as_deref() == Some(id)) {
         return Resolved::Id(id.to_owned());
     }

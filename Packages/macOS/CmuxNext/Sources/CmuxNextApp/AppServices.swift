@@ -23,7 +23,6 @@ import CmuxNextDaemonService
 import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 public import CmuxNextDictation
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
@@ -124,17 +123,15 @@ final class AppServices {
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture, configuration: environment.cloudConfiguration)  // first read in init (no IUO)
-    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    /// The feed: the daemon's feed client (`feed.*`) and the app's presence, GitHub setting and API calls.
     private(set) lazy var feed: FeedService = FeedService(
-        auth: cloud.auth,
-        showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
+        auth: cloud.auth, local: daemon, approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
     private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
     var showcase = ShowcaseState()
-    /// The wide Inbox page, backed by `feed.model`.
+    /// The wide Inbox page (the Feed page on `#/inbox`).
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
@@ -248,8 +245,6 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
@@ -443,7 +438,7 @@ final class AppServices {
     /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
-                                                      acpmux: feed.acpmuxEnvironment)
+                                                      acpmux: QuitAgents.environment(self))
 
     /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
     /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).

@@ -34,6 +34,16 @@ fn the_start_checks_answer() {
         call(c"cloud_start_refusal", &json!({"cloudDisabled": false, "signedIn": true})).1,
         json!({"refusal": null})
     );
+    // A send that switched team starts only in that team (cmux#39928 F3).
+    let switched = |active: &str| {
+        call(
+            c"cloud_start_refusal",
+            &json!({"cloudDisabled": false, "signedIn": true, "requestedTeam": "team-a", "activeTeam": active}),
+        )
+        .1
+    };
+    assert_eq!(switched("team-b"), json!({"refusal": "cloud_team_switching"}));
+    assert_eq!(switched("team-a"), json!({"refusal": null}));
     assert_eq!(
         call(c"cloud_start_account_text", &json!({"account": ["user-leo", null]})).1,
         json!({"text": "user-leo/"})

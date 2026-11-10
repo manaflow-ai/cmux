@@ -54,6 +54,21 @@ struct PageFactory {
         return page
     }
 
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/inbox?surface=page`,
+    /// `#/list?surface=sidebar`, `#/needs-you`); nil only when the page
+    /// resources are missing. `cmux.feed.` goes to the daemon's feed client through the page relay,
+    /// `cmux.app.` runs the page's actions (open an item, a GitHub action, Settings).
+    func feedWebPage(route: String) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let native = AppPageNativeProvider(services: services, page: .feed)
+        native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
+        let routes = [PageRoute(prefix: "cmux.feed.", provider: relay), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .feed, routes: routes, route: route) else { return nil }
+        native.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
     /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
     /// `#/installed`); nil only when the page resources are missing.
     /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``

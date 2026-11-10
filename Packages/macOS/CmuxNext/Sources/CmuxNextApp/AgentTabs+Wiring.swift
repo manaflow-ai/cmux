@@ -460,6 +460,9 @@ extension AgentTabStore {
             }
         }
         tabs.listTabs = { [weak tabs] in tabs?.listTabsScoped().map { (key: $0.key, record: $0.record) } ?? [] }
+        tabs.tabsNamedScoped = { [weak services] id in
+            services?.machines.daemons.filter { $0.store.tab(id: id).map { $0.id == id && $0.agentSession != nil } == true }.map { AgentTabKey(machine: $0.machineID, key: id) } ?? []
+        }
         tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,

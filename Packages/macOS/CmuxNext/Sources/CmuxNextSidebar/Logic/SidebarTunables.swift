@@ -285,6 +285,8 @@ public nonisolated enum SidebarTunables {
             updateCardAutomaticControl.descriptor,
             updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
+            workspaceHoverCardLeave.descriptor,
+            workspaceHoverCardTitle.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,

@@ -115,6 +115,11 @@ fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
 
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // `link` prints JSON only: a `--json` written before an action (`cmux
+    // --json link status` puts it there) only asks for the error object on
+    // a refusal, and never hides the action from the dispatch below.
+    let json = args.first().is_some_and(|arg| arg == "--json");
+    let args = if json { args.get(1..).unwrap_or_default() } else { args };
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
@@ -159,11 +164,44 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     match run_link(args) {
         Ok(()) => 0,
+        // A word or option `link` does not have: exit 2 with the help to
+        // run, like every scope (docs/cli-conventions.md in cmuxterm-hq).
+        Err(error) if error.is::<LinkUsage>() => {
+            let mut message = error.to_string();
+            if !message.contains("--help") {
+                message.push_str("; run `cmux link --help`");
+            }
+            if json || args.iter().any(|arg| arg == "--json") {
+                eprintln!(
+                    "{}",
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false})
+                );
+            } else {
+                eprintln!("{}: {message}", crate::cli::BIN);
+            }
+            2
+        }
         Err(error) => {
             eprintln!("{error}");
             1
         }
     }
+}
+
+/// A usage error of `cmux link`: an action or option it does not have.
+#[derive(Debug)]
+struct LinkUsage(String);
+
+impl std::fmt::Display for LinkUsage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LinkUsage {}
+
+fn link_usage(message: String) -> anyhow::Error {
+    anyhow::Error::new(LinkUsage(message))
 }
 
 fn help_text() -> String {
@@ -177,6 +215,10 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(help_text());
+    // `link` prints JSON only: `--json` anywhere is a no-op, never an
+    // unknown option.
+    let args: Vec<String> = args.iter().filter(|arg| *arg != "--json").cloned().collect();
+    let args = args.as_slice();
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
@@ -215,7 +257,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "-h" | "--help" | "help" => Err(help()),
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link", other))),
     }
 }
 
@@ -228,13 +270,13 @@ fn flags(args: &[String], allowed: &[&'static str]) -> anyhow::Result<Flags> {
     while index < args.len() {
         let argument = args[index].as_str();
         let Some(name) = allowed.iter().copied().find(|name| *name == argument) else {
-            return Err(anyhow!(catalog().remote_client.unknown_option(argument)));
+            return Err(link_usage(catalog().remote_client.unknown_option(argument)));
         };
         let value = args
             .get(index + 1)
-            .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
+            .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))?;
         if values.insert(name, value.clone()).is_some() {
-            return Err(anyhow!(catalog().remote_client.option_once(name)));
+            return Err(link_usage(catalog().remote_client.option_once(name)));
         }
         index += 2;
     }
@@ -245,7 +287,7 @@ fn required<'a>(flags: &'a Flags, name: &str) -> anyhow::Result<&'a str> {
     flags
         .get(name)
         .map(String::as_str)
-        .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))
+        .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))
 }
 
 fn state(flags: &Flags) -> anyhow::Result<LinkState> {
@@ -258,9 +300,9 @@ fn print_json(value: &serde_json::Value) {
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let port = match flags.get("--port") {
-        Some(port) => port
-            .parse()
-            .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
+        Some(port) => port.parse().map_err(|_| {
+            link_usage(catalog().remote_client.invalid_option_value("--port", "PORT"))
+        })?,
         None => state::DEFAULT_PORT,
     };
     // Resolve an enrollment before opening (and creating) link state. It never
@@ -334,7 +376,9 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             )?;
             let endpoint = match flags.get("--endpoint") {
                 Some(text) => Some(text.parse::<SocketAddr>().map_err(|_| {
-                    anyhow!(catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"))
+                    link_usage(
+                        catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"),
+                    )
                 })?),
                 None => None,
             };
@@ -358,7 +402,7 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             print_json(&serde_json::to_value(Pairings::load(&state.peers_path())?)?);
             Ok(())
         }
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link peer", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link peer", other))),
     }
 }
 

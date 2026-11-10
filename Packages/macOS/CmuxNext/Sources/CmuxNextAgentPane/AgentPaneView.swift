@@ -360,6 +360,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
+        model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
         installHostGlass()

@@ -1182,6 +1182,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },

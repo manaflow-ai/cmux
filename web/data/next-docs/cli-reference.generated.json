@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 859,
-    "mcp": 773
+    "verbs": 860,
+    "mcp": 774
   },
   "nouns": [
     {
@@ -407,7 +407,7 @@
         },
         {
           "command": "cmux agent toggle-ui-pointer",
-          "title": "Inspect UI Element",
+          "title": "Point at Element",
           "id": "agentPane.togglePointerInspector",
           "mcp": true,
           "mcpTool": "app_agent_toggle_ui_pointer"
@@ -1420,6 +1420,13 @@
           "id": "cloudMove",
           "mcp": true,
           "mcpTool": "app_cloud_move"
+        },
+        {
+          "command": "cmux cloud move-to-machine",
+          "title": "Move to Another Machine",
+          "id": "cloudMoveToMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_move_to_machine"
         },
         {
           "command": "cmux cloud network-list",

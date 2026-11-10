@@ -112,6 +112,8 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     var listTabsScoped: @MainActor () -> [(key: String, record: AgentSessionRef, machine: String)] = { [] }
+    /// The agent tab with id `id` on each machine whose tree lists one, from each store's tab index (``tabKey(_:machine:)``).
+    var tabsNamedScoped: @MainActor (_ id: String) -> [AgentTabKey] = { _ in [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
     /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
@@ -424,13 +426,8 @@ final class AgentTabStore {
     /// when the state has one unambiguous owner; callers with a pane should always pass its daemon.
     func tabKey(_ key: String, machine: String? = nil) -> AgentTabKey {
         if let machine { return AgentTabKey(machine: machine, key: resolve(key, machine: machine)) }
-        var candidates = Set(views.entries.map { $0.key } + sessions.entries.map { $0.key } + tabStores.entries.map { $0.key })
-            .filter { $0.key == key || $0.key == aliases[AgentTabKey(machine: $0.machine, key: key)] }; if candidates.count == 1, let only = candidates.first { return only }; guard candidates.isEmpty else { return AgentTabKey(machine: "", key: resolve(key)) }
-        candidates.formUnion(listTabsScoped().filter { tab in
-            tab.key == key || resolve(tab.key, machine: tab.machine) == key
-        }.map { AgentTabKey(machine: $0.machine, key: $0.key) })
-        if candidates.count == 1, let only = candidates.first { return only }
-        return AgentTabKey(machine: "", key: resolve(key))
+        return AgentTabIDResolver(aliases: aliases).key(of: key, held: views.keys(ofTab: key) + sessions.keys(ofTab: key) + tabStores.keys(ofTab: key),
+                                                        holds: { views[$0] != nil || sessions[$0] != nil || tabStores[$0] != nil }, listed: { tabsNamedScoped($0) })
     }
 
     func resolvedKey(_ key: AgentTabKey) -> AgentTabKey {

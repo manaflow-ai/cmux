@@ -2106,6 +2106,12 @@ jobs:
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
 
+      - name: Validate no short fixed gates on Cloud and daemon slow paths
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-short-gates.py --self-test
+          python3 scripts/lint-short-gates.py
+
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |

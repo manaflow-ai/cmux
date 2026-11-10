@@ -1,5 +1,7 @@
 import CmuxHomeCore
+@testable import CmuxNextApp
 import CmuxNextHome
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -25,5 +27,11 @@ struct HomeMessagesR11Tests {
         _ = try await kept.call("composing", ["conversation": .string(id.rawValue), "typing": .bool(false)])
         await HomeMessagesR6NewMessageTests.until { store.typing[id]?.contains(me) != true }
         #expect(store.typing[id]?.contains(me) != true, "and stop")
+    }
+
+    /// The page's `cmux.home.messages.composing` reaches the app's host (it was routed to the page's
+    /// own route, which knows no such op, so my typing never left the page).
+    @Test func thePagesComposingIsRoutedToTheHost() {
+        #expect(HomeMessagesHostProvider.prefixes.contains(HomeMessagesPageRoute.prefix + "composing"))
     }
 }

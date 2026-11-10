@@ -202,7 +202,12 @@ would do it, spring curves", "proper physics". Design:
    hoverCards, home, cursor, indicators, feedback, web). Every animation asks its
    category's gate (`Motion.sidebar`, `Motion.tabs`, ...), and a switch that is
    off acts as "off" for its area ([motion-DESIGN.md](motion-DESIGN.md)).
-9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
+9. Stale since 2026-10-16: `ui.paneAnimations` is ON by default now
+   (`schemas/settings/source/appearance.json`, `PaneAnimationsSetting`), and
+   the pane motion contract is in
+   [motion-first-principles-DESIGN.md](motion-first-principles-DESIGN.md).
+   The text below is the 2026-10-14 rule, kept for its reasons.
+   Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
    big animations by default for the panes"). `ui.paneAnimations` (toggle
    "Animate Panes", default false) gates every pane layout spring:
    split grow-in, close and move-away, swap, zoom and unzoom

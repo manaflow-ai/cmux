@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d";
+inline constexpr std::string_view kProtocolIrSha256 = "1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -642,6 +642,8 @@ struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
+struct FeedReportsChangedEvent;
+struct FeedViewChangedEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
@@ -2945,6 +2947,17 @@ struct FeedLocalListRequest {
 struct FeedLocalReadRequest {
     std::vector<std::string> items{};
     friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
+};
+
+struct FeedReportsChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const FeedReportsChangedEvent&, const FeedReportsChangedEvent&) = default;
+};
+
+struct FeedViewChangedEvent {
+    std::vector<std::string> changed{};
+    std::uint64_t revision{};
+    friend bool operator==(const FeedViewChangedEvent&, const FeedViewChangedEvent&) = default;
 };
 
 enum class PaneDirection {
@@ -10175,6 +10188,18 @@ template <>
 struct Codec<EmptyEvent> {
     static Result<Json> encode(const EmptyEvent& value);
     static Result<EmptyEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedReportsChangedEvent> {
+    static Result<Json> encode(const FeedReportsChangedEvent& value);
+    static Result<FeedReportsChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedViewChangedEvent> {
+    static Result<Json> encode(const FeedViewChangedEvent& value);
+    static Result<FeedViewChangedEvent> decode(const Json& value);
 };
 
 template <>

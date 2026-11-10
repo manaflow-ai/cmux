@@ -9,7 +9,8 @@ public struct ProcessResult: Sendable {
     public var stderr: Data
 }
 
-/// Runs a child process off the main actor with a deadline on an injected
+/// Runs a child process off the main actor (`@concurrent`: a main-actor caller's
+/// launch, stdin and waits never run on the main thread) with a deadline on an injected
 /// clock. Output goes to unlinked temp files rather than pipes: a chatty
 /// child cannot fill a pipe and deadlock, and a grandchild that keeps the
 /// descriptor (an agent started from a shell rc file) cannot hold an EOF wait
@@ -23,7 +24,7 @@ public struct ProcessResult: Sendable {
 /// caller cancellation, including while a live child is starved of CPU.
 public struct ProcessRunner {
     public init() {}
-    public static func run(
+    @concurrent public static func run(
         executable: URL,
         arguments: [String],
         environment: [String: String]?,
@@ -51,22 +52,24 @@ public struct ProcessRunner {
         process.executableURL = executable
         process.arguments = arguments
         if let environment { process.environment = environment }
-        // `stdin` (the install key) goes through a pipe, never argv or env.
-        // It is far below the pipe buffer, so it is written before launch
-        // and the write end closes: the child reads it to end of file.
+        // `stdin` (the install key) goes through a pipe, never argv or env. It is
+        // fed after launch on the feed's own queue (``PipeFeed``), never written here:
+        // even a few bytes can wait in `write` (the kernel's pipe memory used up), and
+        // this ran on the main thread for 391 s (NIGHTLY, 2026-11-09).
         let input = stdin.map { _ in Pipe() }
-        if let input, let stdin {
+        if let input {
             // Close-on-exec on both ends: no other child this app starts
             // inherits a readable copy (Process dup2s the read end into the
             // child's stdin, which clears the flag there only).
             _ = fcntl(input.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
             _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
-            try input.fileHandleForWriting.write(contentsOf: stdin)
-            try input.fileHandleForWriting.close()
             process.standardInput = input
         } else {
             process.standardInput = FileHandle.nullDevice
         }
+        let feed = input.map { PipeFeed($0.fileHandleForWriting) }
+        // No child (a cancel first, a failed launch): the queued close still ends the write end.
+        defer { feed?.close() }
         defer { try? input?.fileHandleForReading.close() }
         process.standardOutput = stdoutFile.handle
         process.standardError = stderrFile.handle
@@ -96,6 +99,14 @@ public struct ProcessRunner {
                                 box.process.terminationHandler = nil
                                 continuation.resume(returning: nil)
                                 return
+                            }
+                            if let feed, let stdin {
+                                // The child holds its own read end now: drop ours, so a child that
+                                // ends without reading fails the feed's write (EPIPE) instead of
+                                // leaving it waiting. Then the bytes, then end of file.
+                                try? input?.fileHandleForReading.close()
+                                feed.write(stdin)
+                                feed.close()
                             }
                             if Task.isCancelled { box.kill() }
                         } catch {

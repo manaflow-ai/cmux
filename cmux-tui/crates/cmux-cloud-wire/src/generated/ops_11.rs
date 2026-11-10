@@ -4,6 +4,136 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team.members.remove declares.
+    TeamMembersRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys.
+    TeamPolicyGetOp {
+        name: "team.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamPolicyGetParams,
+        result: TeamPolicyGetResult,
+        error: TeamPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyGetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
+}
+
+wire_enum! {
+    TeamPolicyGetResultIntegrationManagedBy {
+        Sso = "sso",
+        Mdm = "mdm",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyGetResult {
+    pub team: TeamId,
+    pub policy: TeamPolicy,
+    pub integration_managed_by: Option<TeamPolicyGetResultIntegrationManagedBy>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.policy.get declares.
+    TeamPolicyGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins).
+    TeamPolicyHistoryOp {
+        name: "team.policy.history",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamPolicyHistoryParams,
+        result: TeamPolicyHistoryResult,
+        error: TeamPolicyHistoryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyHistoryParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyHistoryResult {
+    pub team: TeamId,
+    pub versions: Vec<TeamPolicyVersion>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.policy.history declares.
+    TeamPolicyHistoryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Apply a retained past version's values as a new version (owners and admins).
+    TeamPolicyRollbackOp {
+        name: "team.policy.rollback",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyRollbackParams,
+        result: TeamPolicy,
+        error: TeamPolicyRollbackError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyRollbackParams {
+    pub version: i64,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.policy.rollback declares.
+    TeamPolicyRollbackError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
     TeamPolicyUpdateOp {
@@ -766,141 +896,4 @@ wire_op! {
         result: HomeConversationCommit,
         error: ThreadUpdateError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ThreadUpdateParams {
-    pub conversation: ConversationId,
-    pub root: MessageId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<HomeThreadStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes thread.update declares.
-    ThreadUpdateError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidThreadOwner = "invalid_thread_owner",
-        InvalidThreadRoot = "invalid_thread_root",
-        InvalidThreadUpdate = "invalid_thread_update",
-        InvalidTitle = "invalid_title",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Rename a group conversation (not a dm or chief thread).
-    TitleSetOp {
-        name: "title.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TitleSetParams,
-        result: HomeConversationCommit,
-        error: TitleSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TitleSetParams {
-    pub conversation: ConversationId,
-    pub title: String,
-}
-
-wire_errors! {
-    /// The error codes title.set declares.
-    TitleSetError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidTitle = "invalid_title",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Attach an owned WireGuard tunnel to an owned private network.
-    TunnelAttachOp {
-        name: "tunnel.attach",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelAttachParams,
-        result: TunnelAttachResult,
-        error: TunnelAttachError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelAttachParams {
-    pub device_fingerprint: String,
-    pub network_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelAttachResult {
-    pub tunnel_id: String,
-    pub network_id: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.attach declares.
-    TunnelAttachError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Detach an owned WireGuard tunnel from an owned private network.
-    TunnelDetachOp {
-        name: "tunnel.detach",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelDetachParams,
-        result: TunnelDetachResult,
-        error: TunnelDetachError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachParams {
-    pub device_fingerprint: String,
-    pub network_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachResult {
-    pub tunnel_id: String,
-    pub network_id: String,
 }

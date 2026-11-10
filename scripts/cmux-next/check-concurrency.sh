@@ -8,7 +8,9 @@
 #
 # Rule sets:
 #   everywhere: waits, sleeps, sync hops to main, raw locks, nested run-loop
-#               spinning, synchronous XPC, blocking FileHandle reads, dlopen
+#               spinning, synchronous XPC, blocking FileHandle reads, pipe writes
+#               on the caller's thread (PipeFeed; a write end under another name
+#               in the same file too), dlopen
 #               (dyld's loader lock), whole-file code signature validation,
 #               unbounded AsyncStream buffers, and deadlines raced inside a
 #               task group (the group waits for a loser that ignores
@@ -127,6 +129,11 @@ EVERYWHERE = [
     ("nested run loop", r"\bCFRunLoopRunInMode\(|\bRunLoop\.(current|main)\.run\(|\.run\(mode:[^)]*before:"),
     ("synchronous XPC", r"synchronousRemoteObjectProxy"),
     ("blocking FileHandle read", r"readDataToEndOfFile\(|readData\(ofLength:|\.availableData\b|\breadToEnd\(\)"),
+    # A pipe write can wait however few the bytes: a child that never reads, or a fresh pipe when
+    # the kernel's pipe memory is used up. ProcessRunner wrote two tokens to a child's stdin on the
+    # main actor and the NIGHTLY main thread waited in write(2) for 391 s (2026-11-09). Feed stdin
+    # with CmuxNextCompat's PipeFeed (its own queue; writes and close in order).
+    ("pipe write on the caller's thread (use PipeFeed)", r"\bfileHandleForWriting\.write\("),
     ("infinite poll", r"\bpoll\([^)]*,\s*-1\s*\)"),
     # Both resolve every local name through DNS/mDNS and have blocked the
     # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
@@ -224,6 +231,52 @@ TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
 WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
+# The pipe-write rule above, through another name: a write end bound to a name in the same file
+# (`let writer = pipe.fileHandleForWriting`, `$0.input = input.fileHandleForWriting`, then
+# `self.input = writer`) and written there (`writer.write(contentsOf:)`, `Darwin.write(writer.fileDescriptor, ...)`,
+# or a descriptor bound from it: `let fd = stdin.fileHandleForWriting.fileDescriptor; write(fd, ...)`).
+# PhoneProcess, ChildProcess and MobileHostProcess wrote stdin this way on the main actor after #39998
+# caught only the direct spelling (cmuxterm-hq#8608).
+PIPE_WRITE_RULE = "pipe write on the caller's thread (use PipeFeed)"
+PIPE_WRITE_HANDLE = re.compile(r"(?:\$0\.|\b)(\w+)\s*(?::\s*FileHandle\??\s*)?=\s*[\w.$\[\]?]*\bfileHandleForWriting\b(\.fileDescriptor\b)?(?!\s*\.(?!fileDescriptor\b))")
+PIPE_WRITE_REBIND = re.compile(r"(?:\$0\.|\b)(\w+)\s*=\s*(?:self\.|state\.|\$0\.)?(\w+)\s*(?:$|[,;)}])")
+
+
+def pipe_write_names(lines):
+    """The names a file binds to a pipe's write end, and to that end's descriptor, followed through plain rebinds."""
+    handles, descriptors = set(), set()
+    for line in lines:
+        if COMMENT_ONLY.match(line):
+            continue
+        for match in PIPE_WRITE_HANDLE.finditer(line):
+            (descriptors if match.group(2) else handles).add(match.group(1))
+    changed = True
+    while changed:
+        changed = False
+        for line in lines:
+            if COMMENT_ONLY.match(line):
+                continue
+            for match in PIPE_WRITE_REBIND.finditer(line):
+                name, source = match.group(1), match.group(2)
+                for names in (handles, descriptors):
+                    if source in names and name not in names and name != source:
+                        names.add(name)
+                        changed = True
+    handles.discard("fileHandleForWriting")
+    return handles, descriptors
+
+
+def pipe_write_alias_rule(lines):
+    handles, descriptors = pipe_write_names(lines)
+    patterns = []
+    if handles:
+        names = "|".join(sorted(map(re.escape, handles)))
+        patterns.append(rf"(?<![.\w])(?:self\.|state\.|\$0\.)?(?:{names})\??\.write\(")
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\??\.fileDescriptor\b")
+    if descriptors:
+        names = "|".join(sorted(map(re.escape, descriptors)))
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\s*,")
+    return re.compile("|".join(patterns)) if patterns else None
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 # A readability handler's closure literal, and `availableData` read inside one (cmuxterm-hq#4753).
 READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
@@ -429,6 +482,7 @@ for dirpath, _, files in os.walk(sources):
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
         handler_code = readability_handler_code(lines)
+        pipe_alias = pipe_write_alias_rule(lines)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -452,6 +506,9 @@ for dirpath, _, files in os.walk(sources):
             hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
                      and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")
                      and not (name == SIGNATURE_RULE and relative.replace(os.sep, "/") in SIGNATURE_PENDING_FILES)]
+            if (pipe_alias is not None and PIPE_WRITE_RULE not in hits and pipe_alias.search(code)
+                    and not allowed(lines, index)):
+                hits.append(PIPE_WRITE_RULE)
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):

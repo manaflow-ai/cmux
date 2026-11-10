@@ -61324,6 +61324,186 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-open-item",
+      "computed" : {
+        "canonical_action_id" : "feed.openItem",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.openItem",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "open",
+        "item"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.forward.square",
+      "targets" : [
+
+      ],
+      "title" : "Open Feed Item",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "GitHub Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "comment",
+          "suggestions" : null,
+          "title" : "Comment"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-github-action",
+      "computed" : {
+        "canonical_action_id" : "feed.githubAction",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.githubAction",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "github",
+        "pull request",
+        "review",
+        "approve",
+        "comment",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.triangle.pull",
+      "targets" : [
+
+      ],
+      "title" : "Run a Feed Item's GitHub Action",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "notifications",
@@ -65328,8 +65508,11 @@
         "agent",
         "ui",
         "pointer",
+        "point",
+        "point at element",
         "inspect",
         "inspect element",
+        "inspect ui element",
         "pick",
         "element",
         "debug"
@@ -65350,7 +65533,7 @@
             "context" : "agentChat",
             "folder" : "tools",
             "group" : "inspect",
-            "label" : "Inspect Element",
+            "label" : "Point at Element…",
             "parent" : null,
             "rank" : 1,
             "style" : "item"
@@ -65368,7 +65551,7 @@
       "targets" : [
 
       ],
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -74567,6 +74750,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74595,6 +74779,7 @@
       "description" : "Transfers a chat on a Cloud machine that no move from this Mac put there to this Mac: copies its folder (the branch, commits, staged and working changes; never secrets or ignored files) into a new folder (--path, else ~/Cloud Transfers/<folder>). On your own machine the chat then moves here as Bring Back Local moves it; on a teammate's, you get your own copy of the folder and the chat stays with its owner. Only a person runs it: an agent's run is refused.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
+      "hint" : null,
       "id" : "cloudTransferLocal",
       "isDebugOnly" : false,
       "isDestructive" : false,
@@ -74645,6 +74830,96 @@
         "tab"
       ],
       "title" : "Transfer to This Mac",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud move-to-machine",
+      "computed" : {
+        "canonical_action_id" : "cloudMoveToMachine",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloudMoveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "move",
+        "machine",
+        "other",
+        "another",
+        "remote",
+        "chat",
+        "agent",
+        "sync"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : "move",
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 3,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move to Another Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -82580,6 +82855,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -82650,6 +82926,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",

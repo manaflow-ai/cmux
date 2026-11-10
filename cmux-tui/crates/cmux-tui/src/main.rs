@@ -1913,6 +1913,7 @@ fn run_main() {
         client_log::exit(code);
     }
     cli::rewrite_help_word(&mut raw_args);
+    cli::hoist_leading_json(&mut raw_args);
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -2008,8 +2009,8 @@ fn run_main() {
         client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
-        crate::client_log::stderr_log!("startup", "{BIN}: {error}");
-        client_log::exit(1);
+        // Its one refusal is a word `remote` does not have: a usage error.
+        client_log::exit(cli::early_usage_error(&raw_args, &error));
     }
     // `cmux rd serve|connect`: Mac Screen sessions on the cmux.rd/1 engine, which the app
     // starts from its bundled bin/cmux (plans/cmux-next/remote-desktop-mac-host.md).

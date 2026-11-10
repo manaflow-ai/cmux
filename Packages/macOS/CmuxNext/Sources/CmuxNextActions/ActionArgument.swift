@@ -5,10 +5,16 @@ public nonisolated struct ActionEnumCase: Sendable, Hashable {
     /// Stable value used by the CLI and handlers (`--arg color=sage`).
     public let value: String
     public let title: String
+    /// A second line a list shows under the title (a team's kind and plan); nil for none.
+    public let subtitle: String?
+    /// The SF Symbol a list draws for this value; nil keeps the action's own.
+    public let symbol: String?
 
-    public init(value: String, title: String) {
+    public init(value: String, title: String, subtitle: String? = nil, symbol: String? = nil) {
         self.value = value
         self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
     }
 }
 

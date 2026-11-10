@@ -4,6 +4,86 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// base64url(SHA-256(token)) without padding.
+pub type EnrollmentTokenHash = String;
+
+pub type EnrollmentTokenId = String;
+
+/// A Cloud environment.
+pub type EnvironmentId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAction {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<FeedActionStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub answer: Option<Value>,
+}
+
+wire_enum! {
+    FeedActionStyle {
+        Default = "default",
+        Primary = "primary",
+        Destructive = "destructive",
+    }
+}
+
+/// A file attached to a feed item or an answer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAttachment {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    pub sha256: String,
+    pub r#ref: String,
+}
+
+wire_enum! {
+    FeedCancelReason {
+        Poster = "poster",
+        Declined = "declined",
+        AnsweredElsewhere = "answered_elsewhere",
+        Superseded = "superseded",
+        PosterGone = "poster_gone",
+    }
+}
+
+/// What the item is about; clients open it and use it for the visibility rule.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poster_kind: Option<FeedPosterKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<FeedKind>,
+}
+
 /// One notice or request in a user's feed.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedItem {
@@ -821,74 +901,4 @@ wire_enum! {
         Any = "any",
         Icmp = "icmp",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerInboundItemVariant2 {
-    pub protocol: HostNetworkPeerInboundItemVariant2Protocol,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum HostNetworkPeerInboundItem {
-    Variant1(HostNetworkPeerInboundItemVariant1),
-    Variant2(HostNetworkPeerInboundItemVariant2),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-wire_enum! {
-    HostNetworkPeerOutboundItemVariant1Protocol {
-        Tcp = "tcp",
-        Udp = "udp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerOutboundItemVariant1 {
-    pub protocol: HostNetworkPeerOutboundItemVariant1Protocol,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-}
-
-wire_enum! {
-    HostNetworkPeerOutboundItemVariant2Protocol {
-        Any = "any",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerOutboundItemVariant2 {
-    pub protocol: HostNetworkPeerOutboundItemVariant2Protocol,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum HostNetworkPeerOutboundItem {
-    Variant1(HostNetworkPeerOutboundItemVariant1),
-    Variant2(HostNetworkPeerOutboundItemVariant2),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPolicyView {
-    pub schema_version: IntLit<1>,
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub team: TeamId,
-    pub origin: String,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub checked_at: i64,
-    pub expires_at: i64,
-    pub acl_version: i64,
-    pub policy_digest: String,
-    pub peers: Vec<HostNetworkPeer>,
 }

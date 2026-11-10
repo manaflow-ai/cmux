@@ -159,6 +159,62 @@ jobs:
           echo "asset_sha256=$sha" >> "$GITHUB_OUTPUT"
           echo "Pinned cmux-NEXT-DEV.zip asset $id sha256:$sha" >> "$GITHUB_STEP_SUMMARY"
 
+  # Places both proof jobs on the ephemeral Blacksmith macOS 26 label whose queue moves. Run 42759281426
+  # sat queued over an hour on blacksmith-6vcpu-macos-26, the one label the jobs named. This runs
+  # e2e_runner_pool.py, test-e2e.yml's picker, with owned pools off (--owned 0): it reads the queue
+  # janitor's pool snapshot and takes blacksmith-12vcpu-macos-26 or blacksmith-6vcpu-macos-26 by its own
+  # fixed order and per-label capacity, skipping a stalled label (--order and --max-queued are the
+  # shared call's; the auto path does not read them). Owned Macs stay out: the proof jobs hold a Stack account pair
+  # (.github/runners.json cloud-chat-proof.yml#proof), and an owned route needs the per-job exclusive
+  # claim the signing jobs get from glaeda. No secret is read here; a failed pick leaves the proof
+  # on the declared macos_26 pool.
+  pick-proof-runner:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == ''
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+    outputs:
+      # A Blacksmith macOS 26 label, or empty.
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      - name: Checkout pool helper
+        if: github.run_attempt == 1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the Blacksmith macOS 26 pool
+        id: pool
+        if: github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned 0)" || label=""
+          case "$label" in
+            blacksmith-*-macos-26) ;;
+            *) echo "The picker said '${label:-nothing}'; the declared macos_26 pool takes the proof."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Runner: ${label:-the declared macos_26 pool} (a re-run takes the declared macos_26 pool)" | tee -a "$GITHUB_STEP_SUMMARY"
+
   proof-staging:
     if: ${{ !cancelled() && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
     # Staging half. cmux-next-vm-image-dev is limited to feat-cmux-next by GitHub's branch policy and holds the
@@ -166,8 +222,10 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    needs: [resolve]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    needs: [resolve, pick-proof-runner]
+    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
+    # pick, takes the declared macos_26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -454,8 +512,10 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    needs: [resolve, proof-staging]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    needs: [resolve, pick-proof-runner, proof-staging]
+    # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
+    # pick, takes the declared macos_26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}

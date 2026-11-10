@@ -5,6 +5,75 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRepoAllowList {
+    pub value: TeamPolicyValuesGithubRepoAllowListValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubAllowWorkflows {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
+    All(LitAll),
+    List(Vec<IntegrationProvider>),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesIntegrationsAllowedProviders {
+    pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesMcpServerValue {
+        UserChoice = "user_choice",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesMcpServer {
+    pub value: TeamPolicyValuesMcpServerValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesMcpRemoteTransport {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesAppsInstallValue {
+        Any = "any",
+        AllowList = "allow_list",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAppsInstall {
+    pub value: TeamPolicyValuesAppsInstallValue,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesAppsAllowedTiersValueItem {
+        FirstParty = "first-party",
+        Verified = "verified",
+        Community = "community",
+        Unverified = "unverified",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesAppsAllowedTiers {
     pub value: Vec<TeamPolicyValuesAppsAllowedTiersValueItem>,
     pub mode: PolicyMode,

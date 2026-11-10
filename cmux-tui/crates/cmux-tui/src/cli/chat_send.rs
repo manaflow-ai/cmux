@@ -352,13 +352,13 @@ where
                     json!({"on": on}),
                 ));
             };
-            let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+            let vm = super::vm_words::bare_id(vm);
             return match chat_start::existing_vm(vm, Some(vm), &listed()?) {
                 Ok(Machine::Target(id)) => Ok(Place::Vm(id)),
                 Ok(_) | Err(_) => Err(refusal(
                     "chat_target.unknown_vm",
                     format!("no one VM of yours has the id or name {vm}"),
-                    "run `cmux vm list-machines` for your VMs",
+                    "run `cmux vm ls` for your VMs",
                     json!({"vm": vm}),
                 )),
             };

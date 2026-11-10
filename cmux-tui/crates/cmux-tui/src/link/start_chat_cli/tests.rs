@@ -1661,6 +1661,17 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
 }
 
+/// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has
+/// no Cloud plan"), not a generic `refused`.
+#[test]
+fn a_reservation_plan_refusal_keeps_its_code() {
+    use crate::cli::PlatformCallError as E;
+    let answer =
+        super::reservations::answer(Err(E::Status { status: 403, code: "cloud.plan.required" }));
+    assert_eq!(answer["error_code"], json!("cloud.plan.required"));
+    assert_eq!(answer["ok"], json!(false));
+}
+
 #[test]
 fn setup_state_distinguishes_ran_cached_running_failed_and_no_script() {
     let ran = setup_state(

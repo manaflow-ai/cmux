@@ -4,6 +4,144 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token).
+    PushTargetRegisterOp {
+        name: "push.target.register",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: PushTargetRegisterParams,
+        result: PushTarget,
+        error: PushTargetRegisterError,
+    }
+}
+
+wire_enum! {
+    PushTargetRegisterParamsEnvironment {
+        Development = "development",
+        Production = "production",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRegisterParams {
+    pub token: PushToken,
+    pub topic: String,
+    pub environment: PushTargetRegisterParamsEnvironment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes push.target.register declares.
+    PushTargetRegisterError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Remove an APNs token (sign-out on the device, or the user removes a device).
+    PushTargetRemoveOp {
+        name: "push.target.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: PushTargetRemoveParams,
+        result: PushTargetRemoveResult,
+        error: PushTargetRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRemoveParams {
+    pub token: PushToken,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRemoveResult {
+    pub token: PushToken,
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes push.target.remove declares.
+    PushTargetRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
+    ReactionAddOp {
+        name: "reaction.add",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ReactionAddParams,
+        result: HomeConversationCommit,
+        error: ReactionAddError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReactionAddParams {
+    pub conversation: ConversationId,
+    pub message_id: MessageId,
+    pub part_index: i64,
+    pub reaction: HomeReactionKind,
+}
+
+wire_errors! {
+    /// The error codes reaction.add declares.
+    ReactionAddError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        DuplicateReaction = "duplicate_reaction",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidPartIndex = "invalid_part_index",
+        InvalidReaction = "invalid_reaction",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        Retracted = "retracted",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Remove one of your reactions.
+    ReactionRemoveOp {
+        name: "reaction.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ReactionRemoveParams,
+        result: HomeConversationCommit,
+        error: ReactionRemoveError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ReactionRemoveParams {
     pub conversation: ConversationId,
@@ -764,133 +902,4 @@ wire_op! {
 pub struct TeamAiLimitMemberSetParams {
     pub member: UserId,
     pub limit_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMemberSetResult {
-    pub member: UserId,
-    pub limit_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.member.set declares.
-    TeamAiLimitMemberSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set the team's default monthly AI spending limit per member (USD per person per UTC month, any amount; 0 = no AI; null = the cmux default of 200). A member's personal limit wins over it. Team admins and billing members, in a person's session. Recorded in the billing audit.
-    TeamAiLimitSetOp {
-        name: "team.ai_limit.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "money",
-        principals: [Session],
-        params: TeamAiLimitSetParams,
-        result: TeamAiLimitSetResult,
-        error: TeamAiLimitSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitSetParams {
-    pub default_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitSetResult {
-    pub default_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.set declares.
-    TeamAiLimitSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read the team's audit records, newest first (owners and admins: all; billing: billing records only).
-    TeamAuditListOp {
-        name: "team.audit.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamAuditListParams,
-        result: TeamAuditListResult,
-        error: TeamAuditListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditListResult {
-    pub team: TeamId,
-    pub entries: Vec<TeamAuditEntry>,
-    pub next_cursor: Option<i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.audit.list declares.
-    TeamAuditListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived.
-    TeamCloudSessionArchiveOp {
-        name: "team.cloud.session.archive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamCloudSessionArchiveParams,
-        result: CloudSessionView,
-        error: TeamCloudSessionArchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionArchiveParams {
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub archived: bool,
-}
-
-wire_errors! {
-    /// The error codes team.cloud.session.archive declares.
-    TeamCloudSessionArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudSessionNotFound = "cloud_session.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

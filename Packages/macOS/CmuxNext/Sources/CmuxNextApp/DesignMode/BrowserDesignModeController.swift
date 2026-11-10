@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 
 /// Design mode in browser panes (plans/cmux-next/design-mode-DESIGN.md): turns it on and off for a
 /// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-D and the CLI all
-/// run this one path), and sends each new highlight as a card to the Chief's Home composer shown in
+/// run this one path), and sends each new highlight as a card to the Home Messages composer shown in
 /// the browser's window, else to the agent chat of the browser's workspace whose pane was focused last.
 @MainActor
 final class BrowserDesignModeController {
@@ -50,10 +50,10 @@ final class BrowserDesignModeController {
         let change = tracker.change(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !change.cards.isEmpty || !change.removed.isEmpty else { return }
-        // The Chief's Home chat in the browser's window first (Home on the left, the page on the
+        // The Home Messages page in the browser's window first (Home on the left, the page on the
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
-        let home = HomeComposerIntake(window: page.contentView.window)
+        let home = HomeComposerHandoff.shown(in: page.contentView.window)
         let chat = home == nil ? chatView(near: key) : nil
         // A highlight removed on the page takes its card out of whichever composer holds it.
         for id in change.removed { takeOut(id, home: home, chat: chat) }
@@ -84,37 +84,30 @@ final class BrowserDesignModeController {
         }
     }
 
-    /// The Home composer's files each card added (``HomeComposerIntake/Attached/ids``), by card id,
-    /// so an edit or a removal takes them back.
-    private var homeAttachments: [String: [String]] = [:]
-
-    /// Takes card `id` out of the Home composer (its attachments) or the agent chat composer (its chips).
-    private func takeOut(_ id: String, home: HomeComposerIntake?, chat: AgentPaneView?) {
-        if let ids = homeAttachments.removeValue(forKey: id) {
-            // task-owner: one intake call; ends with the composer's answer (bounded by HomeComposerIntake.deadline)
-            if let home { Task { await home.remove(ids) } }
+    /// Takes card `id` out of the Home composer (its files, by the card's group) or the agent chat
+    /// composer (its chips).
+    private func takeOut(_ id: String, home: HomeComposerHandoff?, chat: AgentPaneView?) {
+        if let home {
+            // task-owner: one page call; ends with its answer (bounded by HomeComposerHandoff.answerDeadline)
+            Task { await home.remove(group: id) }
         } else if let chat {
             AgentPaneDesignSelection.remove(id, from: chat)
         }
     }
 
-    /// Where cards become files for the Home composer; each card's folder goes once Home has its
-    /// copy (``HomeComposerIntake/attach(paths:via:track:)`` answered), the rest at quit.
+    /// Where cards become files for the Home composer; each card's folder goes once the page has
+    /// read them (``HomeComposerHandoff/attach(_:group:)`` answers), the rest at quit.
     nonisolated static let tempFiles = BrowserDesignModeTempFiles(
         root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
 
-    /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
-    /// earlier version of the card added, then removes the files once the draft holds Home's copies.
-    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeComposerIntake) async {
-        if let old = homeAttachments.removeValue(forKey: card.id) { await home.remove(old) }
+    /// Gives the Home composer `card` as files (as a drop), in the card's group, replacing what an
+    /// earlier version of the card added, then removes the files once the page holds them.
+    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeComposerHandoff) async {
+        await home.remove(group: card.id)
         let temp = Self.tempFiles, folder = temp.newFolder()
-        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else {
-            temp.remove(folder)
-            return
-        }
-        let attached = await home.attach(paths: files.map(\.path), via: .drop, track: true)
-        temp.remove(folder)
-        if attached.result == .accepted { homeAttachments[card.id] = attached.ids }
+        defer { temp.remove(folder) }
+        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else { return }
+        _ = await home.attach(files, group: card.id)
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.

@@ -114,7 +114,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft", "palette.forkAgentConversationNewRow",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
-        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudTransferLocal", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
+        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudTransferLocal", "cloudMoveToMachine", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",

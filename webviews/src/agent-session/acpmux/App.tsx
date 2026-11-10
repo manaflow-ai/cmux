@@ -503,6 +503,7 @@ import {
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartSaid,
+  cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
   newTabProjectPick,
@@ -511,12 +512,15 @@ import {
   type CloudStartAnswer,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
+import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
   cloudStartPushed,
+  cloudStartStalled,
+  watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
 } from "./cloudStartProgress";
@@ -655,7 +659,13 @@ import {
   type CmuxCommandResult,
   PLACED_ACTIONS,
 } from "./cmuxCommands";
-import { commandPlace } from "./commandPlace";
+import {
+  commandPlace,
+  dropHandedCloudStart,
+  handCloudStart,
+  handoffStore,
+  receiveHandedCloudStart,
+} from "./commandPlace";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -4495,13 +4505,66 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The last accepted first send, retained so choosing This Mac after a refusal can
   /// explicitly finish its Cloud key just as the native cap-card answer does.
   const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
-  /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
-  /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
-  /// on failure the prompt is still in the composer to edit and send again.
+  /// A Cloud start is out. The composer stays open (Leo, 2026-11-09: "I can't click into the
+  /// composer at all to, like potentially type other stuff while it's doing that initial load
+  /// situation"), but sends nothing until the start ends. On success the host closes this tab and
+  /// opens the chat with the sent prompt (#28686); the composer holds only what was typed after the
+  /// Send (`cloudStartHeld` took the prompt out), which goes to the host at once as the tab's unsent
+  /// text (Composer `onUnsentDraft`), and the host seeds the started chat's composer with it as a
+  /// draft (CloudStartChat `openUploaded`). On failure the prompt comes back in front of it. A start
+  /// the host has said nothing about for minutes (cloudStartProgress.ts `CLOUD_START_STALL_MS`)
+  /// stalled: the card says so, and the start is still out.
   const cloudStarting = cloudStart?.state === "starting";
-  /// The same, for dictation's field getter (below), which is made once.
+  /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
+  /// still opens its chat, the host closes this tab, with a chat started here in it.
+  const cloudSendHeld = cloudStarting;
+  useEffect(
+    () => watchCloudStartStall(cloudStart, (key) => setCloudStart((current) => cloudStartStalled(current, key))),
+    [cloudStart],
+  );
+  /// The same, for dictation's recording (below), whose callbacks are made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
+  /// The prompt a Cloud start took out of the composer (it shows as the message, with the start under
+  /// it, as a local send's does), by its start's key: a failed start puts it back. Set only where the
+  /// prompt was taken out (the composer's Send, a sign-in's resend), so nothing reads the prompt off
+  /// the composer's text.
+  const cloudStartHeld = useRef<{ key: string; prompt: CloudStartDraft } | undefined>(undefined);
+  /// What was typed during a start that failed, now after its prompt in the composer: Retry and Run
+  /// on This Mac send the prompt alone and leave this in the composer (`sendStartPrompt`).
+  const cloudTypedDuringStart = useRef<CloudStartDraft | undefined>(undefined);
+  /// Sends the failed start's prompt (Retry, Run on This Mac) as Return would. What was typed during
+  /// the start stays in the composer after it and never goes with it, while the composer still holds
+  /// that prompt and that text (`promptBeforeTyped`); once the person changed it, what shows goes.
+  const sendStartPrompt = () => {
+    const handle = composerHandle.current;
+    const typed = cloudTypedDuringStart.current;
+    cloudTypedDuringStart.current = undefined;
+    const split = handle && typed ? promptBeforeTyped(handle.draft(), typed) : undefined;
+    if (!handle || !split) return void handle?.send();
+    handle.take();
+    handle.restore(split.prompt.text, split.prompt.attachments);
+    // The composer sends what it rendered: send once the prompt alone has (the effect below).
+    startPromptSend.current = { typed: split.typed, sent: false };
+    setStartPromptSends((count) => count + 1);
+  };
+  /// `sendStartPrompt`'s two steps, each after the composer rendered the last: the prompt alone goes,
+  /// then the typed text comes back after whatever the send left.
+  const startPromptSend = useRef<{ typed: CloudStartDraft; sent: boolean } | undefined>(undefined);
+  const [startPromptSends, setStartPromptSends] = useState(0);
+  useEffect(() => {
+    const step = startPromptSend.current;
+    const handle = composerHandle.current;
+    if (!step || !handle) return;
+    if (!step.sent) {
+      step.sent = true;
+      handle.send();
+      setStartPromptSends((count) => count + 1);
+      return;
+    }
+    startPromptSend.current = undefined;
+    handle.restore(step.typed.text, step.typed.attachments, true);
+  }, [startPromptSends]);
   /// A Cloud send from the New Tab page opens the chat at once, as a local send does (Leo, 2026-11-04:
   /// "i should never be seeing this it should just insta send me to a new chat just like local"): the
   /// page goes for this visit (its generation), and the chat view shows the sent message with the
@@ -4527,12 +4590,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox.setMode("persistent");
   };
   const dismissCloudFailure = () => setCloudStart(undefined);
+  /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
+  /// (the team picker's switch) before it starts, under the same click.
+  const [cloudSwitchTeam] = useState(() => cloudStartTeam());
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
     start: Omit<CloudStart, "task" | "attachments">,
     fromPage = false,
-  ): string | false => {
+  ): string | boolean => {
     const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
@@ -4540,22 +4606,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
+    const team = cloudSwitchTeam.forSend();
     const request: CloudStart = {
       task: text,
       attachments,
       ...start,
       ...(environment ? { environment } : {}),
       ...(reservationKey ? { reservationKey } : {}),
+      ...(team ? { team } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
-    void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
-    return false;
+    const started = beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
+    // A composer's send leaves the composer open and empty, as a local send does: the prompt shows
+    // as the message (CloudStartView) and comes back if the start fails (`cloudStartHeld`).
+    return Boolean(started) && !fromPage;
   };
   const beginCloudSend = (
     request: CloudStart,
     signingIn = false,
     preservedDraft?: { text: string; attachments: ComposerAttachment[] },
     fromPage = false,
+    /// A sign-in's resend took the prompt out of the composer (`cloudSignInSend`).
+    promptTaken = false,
   ): Promise<CloudStartAnswer> | undefined => {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
@@ -4584,7 +4656,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSignInSend.current = () => {
       // The browser may stay open for minutes. If the person edits this prompt meanwhile,
       // leave the edited draft in place rather than starting Cloud with the stale request.
-      const draft = composerHandle.current?.draft();
+      const shown = composerHandle.current?.draft();
+      // What was typed during the failed start, after the prompt, is not an edit of the prompt.
+      const typed = cloudTypedDuringStart.current;
+      const draft = shown && typed ? (promptBeforeTyped(shown, typed)?.prompt ?? shown) : shown;
       const expected = expectedDraft ?? { text, attachments: request.attachments ?? [] };
       const sameAttachments =
         draft === undefined ||
@@ -4601,10 +4676,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       // The first send's compose reservation was handed off with it; the resumed send asks for none.
       const { reservationKey: _spentReservation, ...resumed } = request;
-      return beginCloudSend(resumed, true, expected);
+      // The prompt is the start's message again, as on the first Send: it leaves the composer, and
+      // what was typed after it (a failed start's) stays, so the composer holds only new text while
+      // the start runs. A failed or cancelled start puts the prompt back in front of it.
+      const handle = composerHandle.current;
+      const taken = handle !== undefined && handle !== null && draft !== undefined;
+      if (taken) {
+        handle.take();
+        if (typed && shown && promptBeforeTyped(shown, typed)) handle.restore(typed.text, typed.attachments);
+      }
+      cloudTypedDuringStart.current = undefined;
+      return beginCloudSend(resumed, true, expected, false, taken);
     };
     lastCloudAttempt.current = { key, request };
     cloudStartPending.current = true;
+    cloudTypedDuringStart.current = undefined;
+    // The composer's own Send empties the composer, and a sign-in's resend takes the prompt out
+    // (`promptTaken`); a page's send leaves the page, whose draft comes back as `cloudPageDraft`.
+    cloudStartHeld.current =
+      !fromPage && preservedDraft && (!signingIn || promptTaken) ? { key, prompt: preservedDraft } : undefined;
     if (fromPage) {
       newTabCloudSent.current = true;
       // The prompt as sent, for a page that leaves no draft of its own (a prefilled location it
@@ -4625,6 +4715,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
+      cloudSwitchTeam.ended(answer);
       cloudStartPending.current = false;
       if (wait && cloudSignInWait.current === wait) cloudSignInWait.current = undefined;
       setCloudStartsEnded((count) => count + 1);
@@ -4632,9 +4723,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const pageDraft = cloudPageDraft.current;
       cloudPageDraft.current = undefined;
       newTabCloudSent.current = false;
-      if (pageDraft && (!answer.ok || cloudRunsHere(answer))) {
-        restoreComposerDraft(composerHandle, heldBack, pageDraft.text, pageDraft.attachments);
-        expectedDraft = pageDraft;
+      // The prompt the composer's Send took out (`cloudStartHeld`), for a start that ended here.
+      const held = cloudStartHeld.current?.key === key ? cloudStartHeld.current.prompt : undefined;
+      if (held) cloudStartHeld.current = undefined;
+      if (!answer.ok || cloudRunsHere(answer)) {
+        // Not opened on its machine: what was typed meanwhile is still in this composer, after the
+        // prompt that comes back in front of it.
+        const back = pageDraft ?? held;
+        if (back) {
+          const typed = composerHandle.current?.draft();
+          restoreComposerDraft(composerHandle, heldBack, back.text, back.attachments);
+          if (holdsDraft(typed)) cloudTypedDuringStart.current = typed;
+        }
+        if (pageDraft) expectedDraft = pageDraft;
       }
       if (!answer.ok && answer.code === "cloud_sign_in_cancelled") {
         // The person left Cloud while signing in: the prompt stays in the composer for their new pick.
@@ -4672,12 +4773,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandboxWake.current = undefined;
     runModePicked.current = false;
     cloudReservation.reset();
+    cloudSwitchTeam.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     cancelCloudSignIn();
     cloudSignInRetry.reset();
     setCloudStart(undefined);
     cloudSignInSend.current = () => undefined;
     cloudPageDraft.current = undefined;
+    cloudStartHeld.current = undefined;
+    cloudTypedDuringStart.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
@@ -4690,6 +4794,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
       cloudReservation.abandon();
+      cloudSwitchTeam.reset();
       cancelCloudSignIn();
       cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
@@ -4701,7 +4806,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
     runHereSend.current = false;
-    composerHandle.current?.send();
+    sendStartPrompt();
   }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
@@ -5804,7 +5909,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : Promise.resolve(false);
   /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
   /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
-  const retryCloudStart = () => composerHandle.current?.send();
+  const retryCloudStart = () => sendStartPrompt();
+  /// "This team has no Cloud plan": switch to the person's own team and send the same prompt again.
+  const switchTeamAndRetry = (team: { id: string }) => {
+    // The next Cloud send takes it (a send the composer holds for its files goes a moment later);
+    // leaving Cloud or this chat drops it.
+    cloudSwitchTeam.pick(team.id);
+    retryCloudStart();
+  };
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -6140,8 +6252,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
     get current() {
-      // A Cloud start is out: dictation writes nowhere, as typing doesn't (`cloudStarting`).
-      if (cloudStartingNow.current) return null;
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
@@ -6151,6 +6261,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
+      // A Cloud start is out: the words still land as text, which the started chat gets; the
+      // recording, a chip the host would not carry, is left out.
+      if (cloudStartingNow.current) return;
       const name = translate("dictation.recording");
       const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
@@ -6760,6 +6873,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [folderContinuation, requestFolder],
   );
+  /// The folder another chat's `/cd --on cloud` handed this New Cloud Chat (commandPlace.ts): once
+  /// the page is ready, it opens in it as a folder pick does, which checks and grants the folder.
+  const [handedFolder, setHandedFolder] = useState<string>();
+  useEffect(() => {
+    if (!handedFolder || !handshaken) return;
+    setHandedFolder(undefined);
+    let refused = false;
+    void chooseProject(handedFolder, undefined, () => {
+      refused = true;
+    }).then(() => {
+      if (refused) notices.transient(translate("composer.cmuxCdNotFolder", { folder: handedFolder }));
+    });
+  }, [handedFolder, handshaken, chooseProject, notices]);
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
 
   const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
@@ -7182,7 +7308,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
         setRestartUnavailable(false);
-        const host = await callNative<{
+        const answered = await callNative<{
           protocolVersion: number;
           transport?: string;
           /// Only the browser dev slot (devHost.ts) sends these; the app never does.
@@ -7220,6 +7346,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           harnesses?: unknown;
           /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
           pickCloud?: unknown;
+          /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
+          cloudStartHandoff?: unknown;
           model?: unknown;
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -7228,6 +7356,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // The host cleared its toast box for this handshake: it hears the mounted composer's again.
           .finally(resendToastAvoidance);
         if (cancelled) return;
+        // What another chat handed this new Cloud chat, by its token, read once (commandPlace.ts).
+        const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
+        const host = received.host;
+        if (received.folder) setHandedFolder(received.folder);
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
         acpmuxPerf.markAgent("handshakeReady");
@@ -8890,7 +9022,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cwd: snapshot.summary?.cwd,
     newTab: fresh,
     inCloud: snapshot.summary?.hostKind === "cloud",
+    cloudStart: !quick,
   });
+  /// A started chat's `/side --on cloud` and `/cd --on cloud`: New Cloud Chat, on the person's
+  /// gesture, with `start` handed to the tab it opens under a one-time token (commandPlace.ts). That
+  /// tab's first Send is its own Cloud start. A tab that did not open drops the hand-off.
+  const openCloudChatWith = (start: { prompt?: string; cwd?: string }): Promise<unknown> => {
+    const store = handoffStore();
+    const handoff = handCloudStart(store, start, Date.now());
+    return callNative("action.run", { id: "palette.newCloudChat", ...(handoff ? { handoff } : {}) }).catch(
+      (error: unknown) => {
+        dropHandedCloudStart(store, handoff);
+        throw error;
+      },
+    );
+  };
   /// A harness's local command typed alone (localCommands.ts): its GUI answer, now, mid-turn too.
   /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
   const handleLocalCommand = (command: LocalCommand): boolean => {
@@ -8922,7 +9068,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // (cloud.startChat, the Environment chip's pick, Auto by default). Never by default.
     const placed = commandPlace(typedArgs);
     const args = PLACED_ACTIONS.has(command.action) && "rest" in placed ? placed.rest : typedArgs;
-    const inCloudHere = command.action === "cd" && "place" in placed && placed.place === "cloud" && !state.inCloud;
+    const toCloud = "place" in placed && placed.place === "cloud" && !state.inCloud;
+    const inCloudHere = command.action === "cd" && toCloud;
+    if (toCloud && command.action === "side") {
+      const prompt = args?.trim();
+      return openCloudChatWith(prompt ? { prompt } : {});
+    }
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -8957,16 +9108,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
     // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
     if (command.action === "cd") {
-      // `--on cloud` (a chat with no turn yet, cmuxCommandRefusal): the folder, then Cloud.
+      // `--on cloud`: a chat with no turn yet takes the folder, then picks Cloud; a started one
+      // opens New Cloud Chat there, which checks the folder as it opens in it.
+      const startedInCloud = inCloudHere && Boolean(snapshot.sessionId);
       const thenCloud = () => {
         if (inCloudHere) composerModePick.current("cloud");
       };
       if (!argument)
         return callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd) return chooseProject(result.cwd).then(thenCloud);
+          if (!result?.cwd) return;
+          if (startedInCloud) return openCloudChatWith({ cwd: result.cwd });
+          return chooseProject(result.cwd).then(thenCloud);
         });
-      const folder = cdFolder(argument, snapshot.summary?.cwd);
+      const folder = cdFolder(argument, snapshot.summary?.cwd, state.inCloud);
       if (!folder) return t("composer.cmuxCdPath");
+      if (startedInCloud) return openCloudChatWith({ cwd: folder });
       const summary = snapshot.summary;
       const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
       let refused = false;
@@ -11158,7 +11314,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
-            locked={cloudStarting}
+            cloudStarting={cloudStarting}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
@@ -11215,7 +11371,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
-                const refused = sendToCloud(
+                const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
@@ -11223,8 +11379,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     ...heldPick(composerSnapshot),
                   },
                 );
-                if (refused) directClient.current?.notice(refused);
-                return false;
+                if (typeof started === "string") {
+                  directClient.current?.notice(started);
+                  return false;
+                }
+                return started;
               }
               if (sandboxPickedNotOffered) {
                 sandbox.refuse(text, sandboxNotNow);
@@ -11656,7 +11815,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
-            blockSend={blockSend}
+            blockSend={blockSend || cloudSendHeld}
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
@@ -12061,11 +12220,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onUpgrade={access.addCredits}
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
+                                  onSwitchTeam={switchTeamAndRetry}
                                 />
                               ),
                             }
                           : {}),
-                        cloudStarting,
+                        // The page stays locked through a stall: its send would start a chat in this tab.
+                        cloudStarting: cloudSendHeld,
                         onCloud: (
                           harness: string,
                           text: string,
@@ -12593,6 +12754,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onUpgrade={access.addCredits}
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
+                    onSwitchTeam={switchTeamAndRetry}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView

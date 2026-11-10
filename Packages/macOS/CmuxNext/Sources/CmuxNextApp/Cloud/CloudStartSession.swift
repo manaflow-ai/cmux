@@ -214,13 +214,14 @@ struct CloudStartSession {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
+        steps.done("machine")
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
         // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
-        let steps = CloudStartSteps(logger: services.cloud.logger)
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect")
         try still(name)
@@ -286,6 +287,8 @@ struct CloudStartSession {
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
             "workspace_id": .string(anchor.id), "surface_id": .string(String(started.surface)), "tab_id": .string(tabKey),
+            // Where the start's time went (cmuxterm-hq#8658): `cmux cloud start-chat` lists it under its step.
+            "stages_ms": .array(steps.recorded.map { .object(["step": .string($0.step), "ms": .int(Int($0.ms))]) }),
         ]
     }
 
@@ -340,18 +343,11 @@ struct CloudStartSession {
             case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home":
                 return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
             default:
-                return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(refusal.userMessage))
+                return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
             }
         }
         let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
-        return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(reason))
-    }
-
-    /// A refusal sentence inside the run's parentheses: no closing period.
-    static func reason(_ text: String) -> String {
-        var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        while text.hasSuffix(".") { text.removeLast() }
-        return text
+        return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(reason))
     }
 
     /// How recent the machine list must be before `--name` takes or creates a machine.
@@ -392,7 +388,7 @@ struct CloudStartSession {
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
-                            CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
+                            CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: CloudStartCore.reason(detail)))
         }
     }
 

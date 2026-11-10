@@ -495,7 +495,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
-    private var zoomState = WindowZoom()
+    private let zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }

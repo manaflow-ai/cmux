@@ -41,7 +41,6 @@
       "backend/packages/protocol/src/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
       "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/",
-      "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/",
       "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/"
     ],
     "include_named": {
@@ -111,7 +110,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineSecrets.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/ChildProcess.swift": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Clipboard/TerminalClipboardBroker.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedPromptMore.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridPasteboard.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {"count": 2, "reason": "safe: the custom pet-avatar image budget, not a chat message or attachment"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalClipboardRequests.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

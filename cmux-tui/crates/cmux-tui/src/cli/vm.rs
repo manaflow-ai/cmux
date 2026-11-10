@@ -127,15 +127,12 @@ pub(super) fn vm_help_note(japanese: bool) -> &'static str {
         "cmux アプリがあれば、`cmux vm ls|status|pause|resume|rm|resize|fork|rename` は VM の名前か ID\n\
          （1 台なら省略可）であなたの Cloud VM を操作します。アプリがなければ cmux VM API の動詞として動きます。\n\
          `cmux vm shutdown` は `pause` と同じです（削除は `rm`）。\n\
-         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
-         `cmux cloud` と `cmux machine new|show|pause|…` は `cmux vm` の旧名で、どちらも使えます。"
+         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。"
     } else {
         "With the cmux app, `cmux vm ls|status|pause|resume|rm|resize|fork|rename` act on your\n\
          Cloud VMs by name or id (or the only one); without it they are the cmux VM API's verbs.\n\
          `cmux vm shutdown` is `pause` (`rm` deletes the VM).\n\
-         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
-         `cmux cloud` and `cmux machine new|show|pause|...` are old names of `cmux vm`;\n\
-         both work."
+         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`."
     }
 }
 
@@ -438,11 +435,11 @@ pub(super) fn machine_note(verb: Option<&str>, terminal: bool, japanese: bool) -
     }
     let verb = verb.filter(|verb| !verb.starts_with('-')).unwrap_or("VERB");
     Some(if japanese {
-        format!(
-            "cmux: VM は `cmux vm` で扱います（`cmux vm {verb}`）。`cmux machine {verb}` も使えます。"
-        )
+        format!("cmux: VM は `cmux vm` で扱います（`cmux vm {verb}`）。")
     } else {
-        format!("cmux: `cmux machine {verb}` is now `cmux vm {verb}`; both work.")
+        // The new spelling only (Leo, 2026-11-10: "i thought we rewrote the cli commands to not
+        // use machine?"); the old one keeps running.
+        format!("cmux: VMs are `cmux vm` now: `cmux vm {verb}`.")
     })
 }
 
@@ -463,12 +460,8 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
             .take_while(|word| *word != "--")
             .any(|word| word == "--target" || word.starts_with("--target="))
     };
-    let machine_owned = MACHINE_VERBS.contains(&verb)
-        || OTHER_MACHINE_VERBS.contains(&verb)
-        || VM_OWN_WORDS.contains(&verb)
-        || verb.starts_with('-');
     let cloud_form = matches!(verb, "exec" | "client-session") && targeted();
-    if machine_owned && !cloud_form {
+    if vm_owns_verb(verb) && !cloud_form {
         return None;
     }
     let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
@@ -476,6 +469,21 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
     rewritten.push("cloud".to_owned());
     rewritten.extend(after.iter().cloned());
     Some(rewritten)
+}
+
+/// Whether `vm VERB` is this module's (or another `machine` module's) verb, not Cloud's.
+fn vm_owns_verb(verb: &str) -> bool {
+    MACHINE_VERBS.contains(&verb)
+        || OTHER_MACHINE_VERBS.contains(&verb)
+        || VM_OWN_WORDS.contains(&verb)
+        || verb.starts_with('-')
+}
+
+/// Whether a printed `cmux cloud VERB …` hint runs the same as `cmux vm VERB …`
+/// (vm_words.rs): every Cloud verb `vm` does not own, `exec` and `client-session` (printed with
+/// their `--target`), and `ls`/`list` (the short list, the same rows).
+pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
+    !vm_owns_verb(verb) || matches!(verb, "exec" | "client-session" | "ls" | "list")
 }
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
@@ -497,6 +505,11 @@ pub(super) fn cloud_rename_note(args: &[String]) {
 
 /// The note [`cloud_rename_note`] prints for `cmux cloud VERB`.
 pub(super) fn rename_note(verb: Option<&str>, japanese: bool) -> String {
+    // `cmux cloud list-machines` is `cmux vm ls` (vm_words.rs).
+    super::vm_words::respell(&cloud_rename_text(verb, japanese))
+}
+
+fn cloud_rename_text(verb: Option<&str>, japanese: bool) -> String {
     match (verb, japanese) {
         (Some("start-chat"), false) => {
             "cmux: `cmux cloud start-chat` is now `cmux chat --on vm:ID|NAME|new`; both work.".into()
@@ -660,8 +673,6 @@ Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
 --public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
-
-`cmux machine new` and `cmux cloud new-machine` are old names; both still work.
 ";
 
 /// What a person reads after `cmux vm new` (the app's `cloud new-machine`)
@@ -686,20 +697,20 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     let cmux = cmux_with_route(global);
     if result.get("pending").and_then(Value::as_bool) == Some(true) {
         return Some(format!(
-            "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
-             `{cmux} vm list-machines` when it is ready.\n"
+            "Creating a Cloud VM; it is still starting. It shows in the sidebar and in \
+             `{cmux} vm ls` when it is ready.\n"
         ));
     }
     let id = result.get("machine_id")?.as_str()?;
     let target = result
         .get("target")
         .and_then(Value::as_str)
-        .map_or_else(|| format!("machine:{id}"), str::to_owned);
+        .map_or_else(|| format!("vm:{id}"), super::vm_words::respell);
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
     Some(format!(
-        "Created Cloud machine {name}: {status}.\n\n\
+        "Created Cloud VM {name}: {status}.\n\n\
          Next:\n  \
          open a terminal:  {cmux} vm ssh --target {target}\n  \
          start an agent:   {cmux} vm start-session --target {target} --agent claude\n  \

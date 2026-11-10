@@ -100,6 +100,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.optionalPathString], targets: [.tab],
                 cliName: "cloud transfer-local"
             ),
+            // Move to Another Machine: a chat a move from this Mac put on a Cloud machine goes on to another one.
+            ActionDescriptor(
+                id: "cloudMoveToMachine",
+                title: String(localized: "action.cloudMoveToMachine", defaultValue: "Move to Another Machine", bundle: .module),
+                keywords: ["vm", "cloud", "move", "machine", "other", "another", "remote", "chat", "agent", "sync"], category: .cloud,
+                symbol: "arrow.left.arrow.right", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalMachine], targets: [.tab], cliName: "cloud move-to-machine"
+            ),
             ActionDescriptor(
                 id: "cloudSSH",
                 title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),

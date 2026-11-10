@@ -126,9 +126,9 @@ pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// An app that says the run never started (`busy`, an early `timeout`, a
-/// reconnecting daemon) is asked again this many times, after the delay it
-/// names (`retry_after_ms`, else this default, doubled each time).
-const BUSY_RETRIES: u32 = 5;
+/// reconnecting daemon) is asked again after the delay it names
+/// (`retry_after_ms`, else this default, doubled each time), until the
+/// request's deadline (`run::not_run_deadline`), never a fixed count of tries.
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -672,8 +672,9 @@ pub(super) fn run_action(
         };
         index += 1;
         match name.as_str() {
+            // `--target vm:ID` is the app's `machine:ID` (vm_words.rs).
             "target" => {
-                params.insert("target".into(), value);
+                params.insert("target".into(), super::vm_words::app_target(value));
             }
             "arg" => {
                 let text = value.as_str().unwrap_or_default();
@@ -700,6 +701,12 @@ pub(super) fn run_action(
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }
+            // `--yes` is the CLI's one word for "I confirm" (`device remove
+            // --yes`); an action whose argument is `confirm` (`settings set`,
+            // `cloud kill-machine`) takes it as `--confirm`.
+            "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
+                arguments.insert("confirm".into(), value);
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
@@ -709,6 +716,8 @@ pub(super) fn run_action(
                     "path" | "out" | "bootstrapScript" | "machineConfig" | "fromFolder"
                 ) || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
+                let value =
+                    if key == "machine" { super::vm_words::app_target(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -1446,26 +1455,47 @@ fn read_reply(
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
     let started = Instant::now();
+    // Socket reads one at a time, not `read_until`: that keeps reading while bytes trickle in,
+    // each read with a fresh window, so a reply sent in chunks could run past the deadline.
     loop {
-        // Each read waits one window, or less when the deadline is nearer.
-        let window = match (timeout, deadline) {
-            (_, Some(deadline)) => {
-                let left = deadline.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    return Ok(Err(deadline_passed(method)));
-                }
-                Some(timeout.map_or(left, |window| window.min(left)))
-            }
-            (timeout, None) => timeout,
+        // Each socket read waits one window, or less when the deadline is nearer.
+        let Some(window) = window_before(timeout, deadline) else {
+            return Ok(Err(deadline_passed(method)));
         };
         stream.set_read_timeout(window).map_err(|error| error.to_string())?;
-        match reader.read_until(b'\n', &mut response) {
-            Ok(_) => break,
+        let read = match reader.fill_buf() {
+            Ok(available) => {
+                let newline = available.iter().position(|byte| *byte == b'\n');
+                let taken = newline.map_or(available.len(), |at| at.saturating_add(1));
+                response.extend(available.iter().take(taken));
+                Ok((taken, newline.is_some() || available.is_empty()))
+            }
+            Err(error) => Err(error),
+        };
+        match read {
+            Ok((taken, done)) => {
+                reader.consume(taken);
+                if done {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) if is_read_timeout(&error) && passed(deadline) => {
                 return Ok(Err(deadline_passed(method)));
             }
             Err(error) => match timeout {
-                Some(window) if is_read_timeout(&error) && alive(stream, window) => {
+                Some(window) if is_read_timeout(&error) => {
+                    // The ping is held to the same deadline as the request.
+                    let Some(probe) = window_before(Some(window), deadline).flatten() else {
+                        return Ok(Err(deadline_passed(method)));
+                    };
+                    let answers = alive(stream, probe);
+                    if passed(deadline) {
+                        return Ok(Err(deadline_passed(method)));
+                    }
+                    if !answers {
+                        return Err(read_error(&error, timeout));
+                    }
                     note_busy(method, started.elapsed());
                 }
                 _ => return Err(read_error(&error, timeout)),
@@ -1473,6 +1503,17 @@ fn read_reply(
         }
     }
     parse_response(&String::from_utf8_lossy(&response))
+}
+
+/// How long the next wait may take: `timeout`, cut to what is left before `deadline`. `None` once
+/// the deadline has passed; `Some(None)` waits without a limit.
+fn window_before(timeout: Option<Duration>, deadline: Option<Instant>) -> Option<Option<Duration>> {
+    let Some(deadline) = deadline else { return Some(timeout) };
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return None;
+    }
+    Some(Some(timeout.map_or(left, |window| window.min(left))))
 }
 
 fn is_read_timeout(error: &std::io::Error) -> bool {

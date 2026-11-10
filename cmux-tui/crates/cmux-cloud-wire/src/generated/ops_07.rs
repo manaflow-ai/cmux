@@ -4,6 +4,129 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Archive or unarchive a conversation; a new message unarchives it.
+    InboxArchiveOp {
+        name: "inbox.archive",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: InboxArchiveParams,
+        result: HomeInboxEntry,
+        error: InboxArchiveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxArchiveParams {
+    pub conversation: ConversationId,
+    pub archived: bool,
+}
+
+wire_errors! {
+    /// The error codes inbox.archive declares.
+    InboxArchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Your existing one-to-one conversation with a peer, if any (dm.open checks it before deriving a new id).
+    InboxDmPeerOp {
+        name: "inbox.dm_peer",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: InboxDmPeerParams,
+        result: InboxDmPeerResult,
+        error: InboxDmPeerError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxDmPeerParams {
+    pub peer: ParticipantId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxDmPeerResult {
+    pub conversation: Option<ConversationId>,
+}
+
+wire_errors! {
+    /// The error codes inbox.dm_peer declares.
+    InboxDmPeerError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// List your Home conversations: pinned first by position, then newest activity first.
+    InboxListOp {
+        name: "inbox.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: InboxListParams,
+        result: InboxListResult,
+        error: InboxListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxListResult {
+    pub entries: Vec<HomeInboxEntry>,
+    pub next_cursor: Option<String>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes inbox.list declares.
+    InboxListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Flag a conversation unread (the read cursor stays).
+    InboxMarkUnreadOp {
+        name: "inbox.mark_unread",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: InboxMarkUnreadParams,
+        result: HomeInboxEntry,
+        error: InboxMarkUnreadError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InboxMarkUnreadParams {
     pub conversation: ConversationId,
@@ -767,138 +890,4 @@ wire_op! {
 pub struct InviteRevokeParams {
     pub conversation: ConversationId,
     pub invite_id: InviteId,
-}
-
-wire_errors! {
-    /// The error codes invite.revoke declares.
-    InviteRevokeError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InviteNotPending = "invite_not_pending",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a Linear issue in a Linear team as the cmux app.
-    LinearIssueCreateOp {
-        name: "linear.issue.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: LinearIssueCreateParams,
-        result: Value,
-        error: LinearIssueCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearIssueCreateParams {
-    pub connection: ConnectionId,
-    pub team_id: String,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes linear.issue.create declares.
-    LinearIssueCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the Linear teams this connection can reach (ids for linear.issue.create).
-    LinearTeamsListOp {
-        name: "linear.teams.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: LinearTeamsListParams,
-        result: LinearTeamsListResult,
-        error: LinearTeamsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListParams {
-    pub connection: ConnectionId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListResultTeamsItem {
-    pub id: String,
-    pub key: String,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListResult {
-    pub teams: Vec<LinearTeamsListResultTeamsItem>,
-}
-
-wire_errors! {
-    /// The error codes linear.teams.list declares.
-    LinearTeamsListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
-    MailGetOp {
-        name: "mail.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailGetParams,
-        result: Value,
-        error: MailGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailGetParams {
-    pub connection: ConnectionId,
-    pub message_id: String,
-}
-
-wire_errors! {
-    /// The error codes mail.get declares.
-    MailGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
 }

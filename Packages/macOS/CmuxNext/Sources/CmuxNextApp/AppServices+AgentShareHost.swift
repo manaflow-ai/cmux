@@ -4,8 +4,8 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextFeed
 import CmuxNextWakeups
+import CmuxNextFeedClient
 
 // Share with Guest (design chat-multiplayer.md 6): one-line forwards to the App's owners.
 extension AppServices: AgentShareHost {
@@ -71,8 +71,7 @@ enum AgentShareConsentSheet {
                 let deadline = ContinuousClock.now + limit
                 guard let item = await request.open(feedRequest(ask), key: "share-consent:\(UUID().uuidString)",
                                                     expiresInMs: Int(limit.components.seconds) * 1000) else { return }
-                await feed.waitClosed(item, until: deadline)
-                switch feed.model.item(item).flatMap(FeedPendingConfirm.confirmed) {
+                switch await feed.waitClosed(item, until: deadline).flatMap(FeedPendingConfirm.confirmed) {
                 case false?: center.dismiss(id)
                 case true?: NSApp.activate()
                 case nil: break

@@ -608,6 +608,8 @@ MODEL_BY_PATH = {
     'events/daemon-shutdown/payload': models.DaemonShutdownEvent,
     'events/detached/payload': models.DetachedEvent,
     'events/empty/payload': models.EmptyEvent,
+    'events/feed-reports-changed/payload': models.FeedReportsChangedEvent,
+    'events/feed-view-changed/payload': models.FeedViewChangedEvent,
     'events/frame/payload': models.FrameEvent,
     'events/frontend-projection-changed/payload': models.FrontendProjectionChangedEvent,
     'events/graphics-status/payload': models.GraphicsStatusEvent,

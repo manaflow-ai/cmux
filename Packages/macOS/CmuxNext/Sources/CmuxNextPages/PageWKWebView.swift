@@ -129,7 +129,13 @@ final class PageWKWebView: WKWebView {
     /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
     var onBecameFirstResponder: (() -> Void)?
 
+    /// A page in a strip of chrome that never takes the keys (the bookmarks bar): a click acts in
+    /// the page while the browser page or the omnibar keeps the focus, as a native button's would.
+    var refusesKeyFocus = false
+
     override func becomeFirstResponder() -> Bool {
+        // AppKit asks before a click moves the focus here; a refusal keeps the focus where it was.
+        if refusesKeyFocus { return false }
         let became = super.becomeFirstResponder()
         if became { onBecameFirstResponder?() }
         return became
@@ -141,6 +147,10 @@ final class PageWKWebView: WKWebView {
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
+    /// A middle click is the person's too (the bookmarks bar opens a link in a background tab on it).
+    override func otherMouseDown(with event: NSEvent) { noteUserEvent(event); super.otherMouseDown(with: event) }
+    /// The bar opens on the release: a press held past the gesture window still opens.
+    override func otherMouseUp(with event: NSEvent) { noteUserEvent(event); super.otherMouseUp(with: event) }
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
@@ -255,6 +265,10 @@ final class PageWKWebView: WKWebView {
     var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        // A drop is the person's own act (page script cannot make an `NSDraggingInfo`), and the drag
+        // that led to it ran in AppKit's loop, past the page's mouse events: it backs the page call it
+        // causes (a link dropped on the bookmarks bar, a row dragged longer than the gesture window).
+        noteUserActivation(at: ProcessInfo.processInfo.systemUptime)
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {

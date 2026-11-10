@@ -173,13 +173,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.togglePointerInspector",
-                title: "Inspect UI Element",
-                keywords: ["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+                title: "Point at Element",
+                keywords: ["agent", "ui", "pointer", "point", "point at element", "inspect", "inspect element", "inspect ui element", "pick", "element", "debug"],
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     // Web content only (the agent chat's HTML/React page): native menus never offer it.
-                    ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
+                    ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Point at Element…"),
                 ])
             ),
             ActionDescriptor(

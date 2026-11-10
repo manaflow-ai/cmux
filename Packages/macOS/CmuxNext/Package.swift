@@ -108,8 +108,6 @@ import PackageDescription
 //   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
 //     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
 //   CmuxNextChecklist (no deps): the workspace checklist's strings (the Todo page and its refusals)
-//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
-//     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
 //     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
@@ -310,7 +308,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDiff",
                 "CmuxNextErrorJournal",
                 "CmuxNextFavicons",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextFloating",
@@ -401,7 +399,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
-                "CmuxNextFeed",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
             ],
@@ -484,12 +481,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The daemon feed client's native side (`feed-client-v1`, plans/cmux-next/feed-page.md): the
+        // `feed.*` ops and change events for the app's glue, the item JSON it reads, the update
+        // cards it posts and the pinned Needs you section's frame. The Feed page draws the feed.
+        .target(
+            name: "CmuxNextFeedClient",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextWakeups",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Stash (a native OneTab, cx-rws36): Save and Close, and the Stashed Tabs page's restore and delete, on this Mac's daemon.
         // The App only answers `StashHost`.
         // The daemon history module's client (`history-v1`): visits, entries, clearing.
         .target(
             name: "CmuxNextHistoryDaemon",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextBrowserCore",
                 "CmuxNextDaemon",
                 "CmuxNextHistory",
                 "CmuxNextWakeups",
@@ -881,6 +894,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDictation",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
@@ -1559,22 +1573,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
             name: "CmuxNextChecklist",
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
-        // Feed panel (plans/cmux-next/feed.md section 12): list, inbox and
-        // menu bar prototypes over a confirmed mirror + intent log of the
-        // feed owner; the App supplies the source.
-        .target(
-            name: "CmuxNextFeed",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextCompat",
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-                "CmuxNextWakeups",
-            ],
             resources: [
                 .process("Resources"),
             ],
@@ -2511,7 +2509,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",

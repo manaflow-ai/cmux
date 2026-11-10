@@ -148,18 +148,18 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
     }
 
-    /// The band's full width: the toggle, a group gap (`space3`, as after
-    /// the traffic lights), then Back and Forward `space1` apart.
-    static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space3 + Metrics.space1 }
+    /// The band's full width: the toggle, a group gap, then Back and Forward
+    /// touching, each the +'s size (`TopRowSpacing`, one rhythm at every density).
+    static var width: CGFloat { TopRowSpacing.bandWidth }
 
     /// Each item is `presence` of its width, and the gaps close with it, so
     /// the band reaches 0 width with no jump.
     override func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
+        let side = TopRowSpacing.buttonSide
         let width = side * presence
         var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, Metrics.space3), (backButton, Metrics.space1), (forwardButton, 0)] {
+        for (button, gap) in [(sidebarToggle, TopRowSpacing.groupGap), (backButton, 0), (forwardButton, 0)] {
             button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
             x += (side + gap) * presence
         }

@@ -575,19 +575,17 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
         "machine_id": "vm-abc", "title": "api-dev", "status": "running", "target": "machine:vm-abc",
     }});
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.starts_with("Created Cloud machine api-dev (vm-abc): running."), "{text}");
+    assert!(text.starts_with("Created Cloud VM api-dev (vm-abc): running."), "{text}");
     for next in [
-        "cmux vm ssh --target machine:vm-abc",
-        "cmux vm start-session --target machine:vm-abc",
-        "cmux vm exec --target machine:vm-abc",
+        "cmux vm ssh --target vm:vm-abc",
+        "cmux vm start-session --target vm:vm-abc",
+        "cmux vm exec --target vm:vm-abc",
     ] {
         assert!(text.contains(next), "{next} missing: {text}");
     }
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     assert!(
-        created_line(&params, &pending, &GlobalArgs::default())
-            .unwrap()
-            .contains("cmux vm list-machines")
+        created_line(&params, &pending, &GlobalArgs::default()).unwrap().contains("cmux vm ls")
     );
     assert!(
         created_line(&json!({ "action": "share chat" }), &created, &GlobalArgs::default())
@@ -633,13 +631,13 @@ fn the_next_steps_keep_the_socket_the_create_used() {
     let text = created_line(&params, &created, &global).unwrap();
     let cmux = "cmux --socket=/tmp/d.sock '--app-socket=/tmp/my app.sock'";
     for verb in ["vm ssh", "vm start-session", "vm exec"] {
-        assert!(text.contains(&format!("{cmux} {verb} --target machine:vm-abc")), "{verb}: {text}");
+        assert!(text.contains(&format!("{cmux} {verb} --target vm:vm-abc")), "{verb}: {text}");
     }
     let text = created_line(&params, &created, &GlobalArgs::default()).unwrap();
-    assert!(text.contains("  cmux vm ssh --target machine:vm-abc"), "{text}");
+    assert!(text.contains("  cmux vm ssh --target vm:vm-abc"), "{text}");
     let pending = json!({ "result": { "pending": true, "status": "creating" } });
     let text = created_line(&params, &pending, &global).unwrap();
-    assert!(text.contains(&format!("`{cmux} vm list-machines`")), "{text}");
+    assert!(text.contains(&format!("`{cmux} vm ls`")), "{text}");
 }
 
 /// #32227 (3): `--help` with other options prints help, never asks the app.
@@ -728,7 +726,7 @@ fn vm_has_no_chat_verb() {
 
 #[test]
 fn cloud_names_its_new_spelling() {
-    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm list-machines`"));
+    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm ls`"));
     assert!(rename_note(Some("start-chat"), false).contains("cmux chat --on vm:"));
     assert!(rename_note(None, false).contains("`cmux vm`"));
     assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
@@ -830,7 +828,7 @@ fn machine_vm_verbs_still_run_and_name_vm_only_at_a_terminal() {
     assert_eq!(route(&["machine", "new"], true), NewRoute::App);
     assert_eq!(
         machine_note(Some("new"), true, false).as_deref(),
-        Some("cmux: `cmux machine new` is now `cmux vm new`; both work.")
+        Some("cmux: VMs are `cmux vm` now: `cmux vm new`.")
     );
     assert!(machine_note(Some("pause"), true, true).unwrap().contains("`cmux vm pause`"));
     assert_eq!(machine_note(Some("new"), false, false), None, "a script reads nothing new");

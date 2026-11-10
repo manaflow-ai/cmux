@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d'
+IR_SHA256 = '1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e'
 
 
 @dataclass(frozen=True)
@@ -4076,6 +4076,8 @@ EVENTS = {
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
+    'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
+    'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),

@@ -369,11 +369,14 @@
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
         "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
       "dispatch-published-in": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Record the published build": {"nightly_only": "records a publication's job outputs (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"},
         "Ask for this build's post-publication run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish naming this run (tests/test_nightly_next_tail_off_push_group.py)"}},
       "dispatch-nightly-next-sign": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},
       "retry-nightly-next": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "published-build": {
         "Name the run that published": {"nightly_only": "reads the post-publication dispatch input (tests/test_nightly_next_tail_off_push_group.py)"},

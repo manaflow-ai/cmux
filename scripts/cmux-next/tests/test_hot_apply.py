@@ -484,3 +484,104 @@ class FindSocket(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunningAcpmux(unittest.TestCase):
+    """--restart-acpmux: the acpmux daemons running from the app's bin folder are found and restarted, each
+    with its own launch environment, and never one whose chats a restart would lose."""
+
+    CHIEF = "/u/.cmux/chief/default/acpmux"
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hot_apply_acpmux_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_acpmux_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.app = Path("/Apps/cmux NIGHTLY.app")
+        self.real_run = self.hot.subprocess.run
+        self.calls = []
+        prefix = str(self.app / self.hot.BIN)
+        # A team Mac, 2026-11-10: the NIGHTLY's bin ran a Chief daemon, an agent host and session tails.
+        self.procs = {"52164": (f"{prefix}/acpmux", "daemon run", f"{self.CHIEF}/acpmux.sock"),
+                      "14106": (f"{prefix}/acpmux", "__agent-host", "/u/host.sock"),
+                      "14567": (f"{prefix}/acpmux", "--json session tail x -f", f"{self.CHIEF}/acpmux.sock"),
+                      "14315": (f"{prefix}/cmux", "mcp serve", "/u/mcp.sock"),
+                      "23925": ("/Other.app/Contents/Resources/bin/acpmux", "daemon run", "/u/.acpmux/acpmux.sock")}
+        self.status = {self.CHIEF: {"pid": 52164, "home": self.CHIEF, "build": "c230bb58a 2026-10-29",
+                                    "agentHosts": True, "store": {"mode": "local"}}}
+        self.envs = {52164: {"ACPMUX_CHIEF_MUX_HOME": "/u/.cmux/chief/default", "ACPMUX_SOCKET": "/u/own.sock",
+                             "CMUX_NEXT_CUA_SOCKET": "/u/cua.sock"}}
+        self.hot.process_env = lambda pid: dict(self.envs[pid]) if pid in self.envs else None
+
+        def run(argv, **kwargs):
+            env = kwargs.get("env") or {}
+            self.calls.append((list(argv), dict(env)))
+            if argv[0] == "ps" and "-p" in argv:
+                exe, args, _ = self.procs[argv[-1]]
+                return subprocess.CompletedProcess(argv, 0, f"{exe} {args}\n", "")
+            if argv[0] == "ps":
+                full = argv[-1] == "pid=,command="
+                return subprocess.CompletedProcess(argv, 0, "".join(
+                    f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in self.procs.items()), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{self.procs[pid][2]}\n", "")
+            if argv[1:] == ["--json", "daemon", "status"]:
+                home = env.get("ACPMUX_HOME") or str(Path(env["ACPMUX_SOCKET"]).parent)
+                if home not in self.status:
+                    return subprocess.CompletedProcess(argv, 1, "", "no daemon")
+                return subprocess.CompletedProcess(argv, 0, json.dumps(self.status[home]), "")
+            if argv[1:] == ["daemon", "restart"]:
+                old = self.status[env["ACPMUX_HOME"]]["pid"]
+                self.status[env["ACPMUX_HOME"]]["pid"] = old + 1  # the new daemon, with the env it was given
+                self.envs[old + 1] = {k: v for k, v in env.items() if k != "ACPMUX_HOME"}
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            raise AssertionError(argv)
+        self.hot.subprocess.run = run
+
+    def tearDown(self):
+        self.hot.subprocess.run = self.real_run
+
+    def test_only_the_apps_daemons_are_found_with_their_homes(self):
+        found = self.hot.running_acpmux(self.app)
+        self.assertEqual(found, [{"pid": 52164, "home": self.CHIEF, "build": "c230bb58a 2026-10-29",
+                                  "keeps_chats": True, "env_readable": True}])
+
+    def test_the_multicall_daemon_is_found_too(self):
+        prefix = str(self.app / self.hot.BIN)
+        self.procs["52164"] = (f"{prefix}/cmux", "acp daemon run", f"{self.CHIEF}/acpmux.sock")
+        self.assertEqual([d["pid"] for d in self.hot.running_acpmux(self.app)], [52164])
+
+    def test_the_restart_runs_with_the_daemons_own_environment(self):
+        done = self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+        self.assertEqual((done[0]["old_pid"], done[0]["new_pid"], done[0]["own_environment"]), (52164, 52165, True))
+        env = next(env for argv, env in self.calls if argv[1:] == ["daemon", "restart"])
+        # Its Chief home and Computer Use socket kept; by home, never a socket (its own or an inherited one).
+        self.assertEqual(env, {"ACPMUX_CHIEF_MUX_HOME": "/u/.cmux/chief/default", "CMUX_NEXT_CUA_SOCKET": "/u/cua.sock",
+                               "ACPMUX_HOME": self.CHIEF})
+
+    def test_an_unreadable_environment_is_not_restarted(self):
+        self.envs.pop(52164)
+        with self.assertRaises(RuntimeError):
+            self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+        self.assertFalse([argv for argv, _ in self.calls if argv[1:] == ["daemon", "restart"]])
+        self.assertFalse(self.hot.running_acpmux(self.app)[0]["env_readable"])
+
+    def test_a_memory_store_without_agent_hosts_is_not_one_that_keeps_its_chats(self):
+        self.assertTrue(self.hot.keeps_its_chats({"agentHosts": True, "store": {"mode": "memory"}}))
+        self.assertTrue(self.hot.keeps_its_chats({"agentHosts": False, "store": {"mode": "local"}}))
+        self.assertFalse(self.hot.keeps_its_chats({"agentHosts": False, "store": {"mode": "memory"}}))
+        self.status[self.CHIEF].update(agentHosts=False, store={"mode": "memory"})
+        self.assertFalse(self.hot.running_acpmux(self.app)[0]["keeps_chats"])
+
+    def test_a_daemon_still_on_its_old_pid_fails_the_step(self):
+        real = self.hot.subprocess.run
+
+        def no_new_daemon(argv, **kwargs):
+            if argv[1:] == ["daemon", "restart"]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return real(argv, **kwargs)
+        self.hot.subprocess.run = no_new_daemon
+        with self.assertRaises(RuntimeError):
+            self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})

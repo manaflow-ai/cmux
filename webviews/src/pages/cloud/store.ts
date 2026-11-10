@@ -9,6 +9,7 @@ import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
 import { TransferWatch, type FileTransfer } from "./transfers";
+import { archives, capOffer, noticeKey, readDismissed, writeDismissed, type CapOffer } from "./retention";
 import {
   applyEvent,
   defaultMemory,
@@ -42,6 +43,7 @@ import {
   type MachineResult,
   type MigrationStatus,
   type PlanRefusal,
+  type RetentionOverrides,
   type SnapshotListResult,
 } from "./ops";
 
@@ -76,6 +78,21 @@ export interface CreateDraft {
   blocked?: "no_snapshot_configured";
   /** Opened from a storefront tier: the new machine opens in a workspace once it runs. */
   openWhenRunning?: boolean;
+  /**
+   * The create was refused at a machines cap: the machine the sheet offers to free first ("Delete
+   * NAME and create", or "Archive and delete NAME, then create").
+   */
+  offer?: CapOffer;
+  /** The offered machine is being archived: the create runs once the mirror shows it gone. */
+  waitingFor?: string;
+}
+
+/** Cloud settings' cleanup row: a save in flight, or why the last one was refused. */
+export interface RetentionEdit {
+  saving: boolean;
+  /** The team's numbers are a team admin's (`auth.forbidden`). */
+  forbidden?: boolean;
+  error?: string;
 }
 
 export interface CloudState {
@@ -113,6 +130,12 @@ export interface CloudState {
   unavailable: string[];
   /** This session's file transfers, running and ended (`cloud.file.transfer.changed`). */
   transfers: FileTransfer[];
+  /** The team's archive snapshots (`archive_of`), newest first: restorable machines the platform deleted. */
+  archives: CloudSnapshot[];
+  /** Retention notices dismissed in this browser (`machine:notice.at`); each shows once. */
+  dismissed: ReadonlySet<string>;
+  /** The cleanup settings' last save. */
+  retention?: RetentionEdit;
 }
 
 /** `machines` lists the team's machines; `get` is the storefront. */
@@ -178,6 +201,8 @@ export class CloudStore {
       view: options.view ?? "machines",
       unavailable: [],
       transfers: [],
+      archives: [],
+      dismissed: readDismissed(),
     };
     const host = {
       get: () => this.state.detail,
@@ -429,7 +454,9 @@ export class CloudStore {
   updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
     const draft = this.state.create;
     if (draft && !draft.submitting)
-      this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined } });
+      this.set({
+        create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined, offer: undefined },
+      });
   }
 
   /**
@@ -439,7 +466,16 @@ export class CloudStore {
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
     if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
-    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined, blocked: undefined } });
+    this.set({
+      create: {
+        ...draft,
+        submitting: true,
+        error: undefined,
+        refusal: undefined,
+        blocked: undefined,
+        offer: undefined,
+      },
+    });
     const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
     const name = draft.name.trim() || (snapshot?.name ?? "");
     this.pushIntent({ key: draft.key, kind: "create", name });
@@ -482,13 +518,150 @@ export class CloudStore {
       this.dropIntent(draft.key);
       const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
       const blocked = noImage(error);
+      const offer = capOffer(error, this.state.machines);
       const outcome = refusal
         ? { refusal }
         : blocked
           ? { blocked: "no_snapshot_configured" as const }
           : { error: message(error), errorCode: codeOf(error) };
-      if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false, ...outcome } });
-      if (session === this.session && !refusal && !blocked) this.set(failure(error, false));
+      if (this.state.create?.key === draft.key)
+        this.set({
+          // A refusal is the key's answer: the server replays it for the same key, so the create
+          // after making room needs a new one.
+          create: {
+            ...draft,
+            submitting: false,
+            waitingFor: undefined,
+            ...outcome,
+            ...(offer ? { offer, key: this.key() } : {}),
+          },
+        });
+      if (session === this.session && !refusal && !blocked && !offer) this.set(failure(error, false));
+    }
+  }
+
+  /**
+   * The sheet's cap offer: free the offered machine, then create. A delete (a disposable or already
+   * archived machine) creates as soon as the host answers it. An archive and delete keeps the
+   * machine until its archive is ready, so the create waits for the machine's `removed` event on
+   * the watch stream (no timer); the sheet says so meanwhile.
+   */
+  async makeRoom(): Promise<void> {
+    const draft = this.state.create;
+    const offer = draft?.offer;
+    if (!draft || !offer || draft.submitting || draft.waitingFor || !this.canChange()) return;
+    const action = offer.kind === "delete" ? CloudOps.machineDelete : CloudOps.machineArchiveDelete;
+    const key = this.key();
+    this.pushIntent({ key, kind: offer.kind === "delete" ? "delete" : "archive", machine: offer.machine });
+    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined } });
+    const back = (patch: Partial<CreateDraft>) => {
+      const now = this.state.create;
+      if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
+    };
+    try {
+      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
+        action,
+        args: { machine: offer.machine, idempotency_key: key },
+      });
+      if (result?.confirmed === false) {
+        this.dropIntent(key);
+        return back({});
+      }
+      this.replied(key, result);
+    } catch (error) {
+      this.dropIntent(key);
+      if (!isGone(error)) {
+        this.fail(action, error);
+        return back({ offer: undefined });
+      }
+    }
+    if (offer.kind === "archive" && this.state.machines.some((machine) => machine.id === offer.machine)) {
+      // Cancel stays open while the archive runs: closing the sheet drops the waiting create, and
+      // the archive and delete goes on by itself.
+      back({ offer: undefined, waitingFor: offer.machine });
+      return;
+    }
+    back({ offer: undefined });
+    await this.submitCreate();
+  }
+
+  /** The machine a waiting create freed is gone from the mirror: the create runs now. */
+  private createIfRoom(): void {
+    const draft = this.state.create;
+    if (!draft?.waitingFor || this.state.machines.some((machine) => machine.id === draft.waitingFor)) return;
+    this.set({ create: { ...draft, waitingFor: undefined, submitting: false } });
+    void this.submitCreate();
+  }
+
+  // Automatic cleanup (retention.ts).
+
+  /** Keep pins a machine so nothing deletes it automatically; `false` lets its plan's cleanup apply. */
+  async keep(machine: string, keep: boolean): Promise<void> {
+    await this.machineIntent("keep", machine, CloudOps.machineKeep, { keep }, { keep });
+  }
+
+  /**
+   * Archive and delete (a destructive native action): the platform archives the paused machine's disk
+   * as a restorable snapshot, then deletes the machine. The archive list reads again once it is gone.
+   */
+  async archiveDelete(machine: string): Promise<void> {
+    await this.machineIntent("archive", machine, CloudOps.machineArchiveDelete, {}, {}, true);
+  }
+
+  /** Hides a machine's notice for good in this browser (a new notice for it shows again). */
+  dismissNotice(machine: string, at: number): void {
+    const dismissed = new Set(this.state.dismissed);
+    dismissed.add(noticeKey(machine, at));
+    writeDismissed(dismissed);
+    this.set({ dismissed });
+  }
+
+  /** Restores an archive as a new machine, named as the machine it was (a money op, native). */
+  restoreArchive(snapshot: CloudSnapshot): Promise<void> {
+    return this.restoreSnapshot(snapshot, snapshot.archive_of?.name ?? undefined);
+  }
+
+  /** The caller's own email heads-up before one of their machines is deleted. */
+  setEmailHeadsUp(on: boolean): Promise<void> {
+    return this.setRetention({ email_heads_up: on });
+  }
+
+  /** The team's cleanup numbers (a team admin); `null` goes back to the plan's. */
+  setTeamRetention(settings: RetentionOverrides | null): Promise<void> {
+    return this.setRetention({ settings });
+  }
+
+  private async setRetention(params: {
+    email_heads_up?: boolean;
+    settings?: RetentionOverrides | null;
+  }): Promise<void> {
+    if (!this.canChange() || this.state.retention?.saving) return;
+    const session = this.session;
+    this.set({ retention: { saving: true } });
+    try {
+      await this.client!.call(CloudOps.retentionSet, { ...params, idempotency_key: this.key() });
+      if (session !== this.session) return;
+      this.set({ retention: undefined });
+      await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      if (isUnsupported(error)) {
+        this.set({ retention: undefined });
+        return this.markUnavailable(CloudOps.retentionSet);
+      }
+      const forbidden = isPageError(error) && error.code === "cmux.cloud.forbidden";
+      this.set({ retention: { saving: false, ...(forbidden ? { forbidden } : { error: message(error) }) } });
+    }
+  }
+
+  /** `cloud.snapshot.list {}`: the team's archives. A failure or an older owner shows none. */
+  private async readArchives(session: number): Promise<void> {
+    if (!this.client) return;
+    try {
+      const { snapshots } = await this.client.call<SnapshotListResult>(CloudOps.snapshotList, {});
+      if (session === this.session) this.set({ archives: archives(snapshots) });
+    } catch {
+      // The list shows no archives until the next read (page open, a delete).
     }
   }
 
@@ -537,16 +710,16 @@ export class CloudStore {
   }
 
   /** A new machine from a snapshot (`snapshot.restore`, a money op); a pending create until its echo. */
-  async restoreSnapshot(snapshot: CloudSnapshot): Promise<void> {
+  async restoreSnapshot(snapshot: CloudSnapshot, as?: string): Promise<void> {
     if (!this.canChange()) return;
     const key = this.key();
-    const name = snapshot.name ?? "";
+    const name = as ?? snapshot.name ?? "";
     this.pushIntent({ key, kind: "create", name });
     const session = this.session;
     try {
       const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
         action: CloudOps.snapshotRestore,
-        args: { snapshot: snapshot.id, idempotency_key: key },
+        args: { snapshot: snapshot.id, ...(as ? { name: as } : {}), idempotency_key: key },
       });
       if (result?.confirmed === false) return this.dropIntent(key);
       // Recorded even after a session restart, so the pending create row cannot stay.
@@ -700,6 +873,7 @@ export class CloudStore {
       }
       buffer = null;
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
+      void this.readArchives(session);
     } catch (error) {
       buffer = null;
       if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
@@ -724,7 +898,32 @@ export class CloudStore {
       (intent) => !(intent.replied && intent.revision === undefined && intent.machine === target),
     );
     if (pending.length !== this.state.pending.length) this.state = { ...this.state, pending };
+    // A machine that went with an archive (automatic cleanup, or archive and delete): its archive lists now.
+    const archived =
+      event.type === "removed" &&
+      this.state.machines.some((machine) => machine.id === event.id && !!machine.delete_reason);
+    // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
+    // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
+    const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+    if (archived) void this.readArchives(this.session);
+    if (capChanged) void this.readPlanForCap();
+  }
+
+  /** One plan read at a time for the cap's marks: a pause marks every running machine at once (N events). */
+  private capPlanRead: Promise<void> | undefined;
+  private capPlanDirty = false;
+  private async readPlanForCap(): Promise<void> {
+    if (this.capPlanRead) {
+      this.capPlanDirty = true;
+      return;
+    }
+    do {
+      this.capPlanDirty = false;
+      this.capPlanRead = this.account.readPlan(this.session);
+      await this.capPlanRead;
+      this.capPlanRead = undefined;
+    } while (this.capPlanDirty);
   }
 
   /**
@@ -752,6 +951,7 @@ export class CloudStore {
       ...patch,
     });
     this.openIfRunning();
+    this.createIfRoom();
   }
 
   /**
@@ -888,6 +1088,8 @@ function signedOutState(): Partial<CloudState> {
     planFailed: undefined,
     error: undefined,
     loading: false,
+    archives: [],
+    retention: undefined,
   };
 }
 
@@ -919,4 +1121,13 @@ export function failure(error: unknown, withMessage = true): Partial<CloudState>
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
+}
+
+/** Whether `next` carries other spending cap marks (`spend_cap_pause_at`, `paused_by`) than the mirror's copy. */
+function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine): boolean {
+  const before = machines.find((machine) => machine.id === next.id);
+  return (
+    (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
+    (before?.paused_by ?? null) !== (next.paused_by ?? null)
+  );
 }

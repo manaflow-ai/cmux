@@ -30,6 +30,8 @@ final class CloudService {
     }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    /// The chat tabs a Bring Back Local or Move to Another Machine runs on now (``CloudBringBack``).
+    @ObservationIgnored var movingBack: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored let work: BackgroundWork
     /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.

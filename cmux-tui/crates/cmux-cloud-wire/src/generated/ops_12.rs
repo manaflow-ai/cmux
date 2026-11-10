@@ -4,6 +4,143 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThreadUpdateParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HomeThreadStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes thread.update declares.
+    ThreadUpdateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidThreadOwner = "invalid_thread_owner",
+        InvalidThreadRoot = "invalid_thread_root",
+        InvalidThreadUpdate = "invalid_thread_update",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rename a group conversation (not a dm or chief thread).
+    TitleSetOp {
+        name: "title.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TitleSetParams,
+        result: HomeConversationCommit,
+        error: TitleSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TitleSetParams {
+    pub conversation: ConversationId,
+    pub title: String,
+}
+
+wire_errors! {
+    /// The error codes title.set declares.
+    TitleSetError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Attach an owned WireGuard tunnel to an owned private network.
+    TunnelAttachOp {
+        name: "tunnel.attach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelAttachParams,
+        result: TunnelAttachResult,
+        error: TunnelAttachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.attach declares.
+    TunnelAttachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Detach an owned WireGuard tunnel from an owned private network.
+    TunnelDetachOp {
+        name: "tunnel.detach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelDetachParams,
+        result: TunnelDetachResult,
+        error: TunnelDetachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
 wire_errors! {
     /// The error codes tunnel.detach declares.
     TunnelDetachError {

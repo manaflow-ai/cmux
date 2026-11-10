@@ -121,15 +121,18 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at `from` to the machine daemon at `to`,
     /// in `cwd`; a running turn stops for the move and goes on where the chat lands. `sync` copies the folder's last
-    /// changes once the chat is frozen; `askFirst` narrows it to an asking policy first; `vmKind` is the Cloud API's
-    /// answer for this app on the link in use.
-    public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
-                          vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+    /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
+    /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
+    /// Cloud API's answer for this app on the link in use.
+    public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
-            var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPid: Int32?
+            var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
+            var toPid: Int32?
         }
-        return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, askFirst: askFirst, vmKind: vmKind, toPid: toPID)).answer
+        return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
+                                  vmKind: vmKind, toPid: toPID)).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
@@ -163,8 +166,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
         }
     }
 
-    /// How the App's login copy of a warm ended: done (or given up for good), or abandoned to an account or team switch.
-    public enum SpareWarmEnd: Sendable, Equatable { case finished(String), abandoned(String) }
+    /// How the App's login copy of a warm ended: installed (Rust keeps it as the start's login receipt), done otherwise
+    /// (or given up for good), or abandoned to an account or team switch.
+    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), finished(String), abandoned(String) }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
     /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
@@ -189,6 +193,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?) -> [String: Any] {
         var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
+        case .installed(let machine): request["installed"] = machine
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
         case nil: request["claimed"] = claimed
@@ -216,6 +221,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
         guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
         _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
+    }
+
+    /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
+    /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
+    public func startChatLoginReceipt(machine: String, account: String, provider: String) async -> Bool {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
+        return reply["installed"] as? Bool == true
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.

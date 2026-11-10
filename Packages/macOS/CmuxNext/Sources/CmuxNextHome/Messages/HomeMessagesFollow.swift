@@ -8,7 +8,8 @@ public import CmuxNextSettings
 /// `read()` answering nil means what it follows is gone (a conversation left or deleted): the page
 /// hears ``gone`` once and the stream ends (the sheet closes, as the native one did).
 @MainActor
-public enum HomeMessagesFollow {
+public struct HomeMessagesFollow {
+    public init() {}
     /// The last event of a stream whose subject is gone.
     public static let gone: JSONValue = .object(["gone": .bool(true)])
 
