@@ -38,6 +38,12 @@ public final class MainThreadWatchdog: Sendable {
         /// (default 10 s; nil in release builds), if the main thread used
         /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
         public var hangAssertThreshold: Duration?
+        /// How often a watchdog timer checks the host load; while it is above the core count, each
+        /// check sends the main queue one block and times its answer, so an idle main thread the
+        /// Mac starves of CPU (which the heartbeat reads as asleep) still gets a `starved` record
+        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:host:)``). Nil (the
+        /// default): no probe. The app sets 5 s; an unloaded Mac never wakes the main thread for it.
+        public var starvationProbeInterval: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
         /// diagnostic launch (for example 8 to sample one-frame stalls);
@@ -64,7 +70,8 @@ public final class MainThreadWatchdog: Sendable {
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
                     hangReportInterval: Duration = .zero,
-                    hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
+                    hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold,
+                    starvationProbeInterval: Duration? = nil) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks
@@ -72,6 +79,7 @@ public final class MainThreadWatchdog: Sendable {
             self.hangThreshold = hangThreshold
             self.hangReportInterval = hangReportInterval
             self.hangAssertThreshold = hangAssertThreshold
+            self.starvationProbeInterval = starvationProbeInterval
         }
     }
 
@@ -193,6 +201,14 @@ public final class MainThreadWatchdog: Sendable {
     let watchdogWakes = Atomic<UInt64>(0)
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
+    /// `uptime()` when a hang (a stall past `hangThreshold`, or a parked nested run) was last
+    /// reported: a starvation probe that overlaps one adds no second record (+Starvation).
+    let lastHangUptime = Atomic<UInt64>(0)
+    /// The starvation probe's timer (+Starvation), and whether its block is still on the main queue.
+    let probeTimer = Mutex<ProbeTimer?>(nil)
+    let probeOutstanding = Atomic<Bool>(false)
+    /// Starvation records so far: their hang files' keys (+Starvation).
+    let probeSequence = Atomic<UInt64>(0)
 
     public convenience init(configuration: Configuration = Configuration()) {
         self.init(configuration: configuration, uptime: { MainThreadWatchdog.now() })
@@ -269,6 +285,7 @@ public final class MainThreadWatchdog: Sendable {
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
+        startStarvationProbe()
         // Without its kqueue the thread could not wait: stalls are still measured on the main thread.
         guard alarm.isAvailable else {
             logger.error("main-thread watchdog: no kqueue; stalls are measured, not sampled")
@@ -292,6 +309,7 @@ public final class MainThreadWatchdog: Sendable {
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
             for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
+        stopStarvationProbe()
         alarm.wake()
     }
 
@@ -348,13 +366,25 @@ public final class MainThreadWatchdog: Sendable {
                 details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
             }
         }
+        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the host load.
+        let host = HostLoad.current()
+        let verdict = StallVerdict.classify(wall: .nanoseconds(Int64(clamping: nanos)), mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)),
+                                            host: host)
+        details["verdict"] = .string(verdict.rawValue)
+        if let host {
+            details["host_load_1m"] = .number(host.one)
+            details["host_cores"] = .number(Double(host.cores))
+        }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
                                 cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
-            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
+            logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms, \(verdict.rawValue, privacy: .public): main thread cpu \(record.cpu.fractionalMilliseconds, format: .fixed(precision: 1)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
-        if nanos >= hangNanos { hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } } }
+        if nanos >= hangNanos {
+            lastHangUptime.store(start &+ nanos, ordering: .releasing)
+            hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
+        }
         stallSink.load()?(record)
     }
 
@@ -474,7 +504,7 @@ public final class MainThreadWatchdog: Sendable {
         return now > start ? now - start : 0
     }
 
-    private static func nanos(_ duration: Duration) -> UInt64 {
+    static func nanos(_ duration: Duration) -> UInt64 {
         UInt64(clamping: max(duration.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
     }
 

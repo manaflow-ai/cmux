@@ -21,7 +21,7 @@ import CmuxNextWakeups
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    let watchdog = MainThreadWatchdog()
+    let watchdog = MainThreadWatchdog(configuration: .init(starvationProbeInterval: .seconds(5)))
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
