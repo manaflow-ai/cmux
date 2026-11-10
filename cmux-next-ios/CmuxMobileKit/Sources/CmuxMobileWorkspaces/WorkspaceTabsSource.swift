@@ -1011,9 +1011,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// catch up once the grid shows or stops.
     @ObservationIgnored private var cardFeeds: [String: AgentCardFeed] = [:]
     @ObservationIgnored let rasterizer = AgentCardRasterizer()
-    /// A grid card's width over the page's (TabsKit's column card, or a lone
-    /// tab's larger card): the resolution an agent card's picture is drawn at.
-    var cardScale: CGFloat { TabsKitGrid(pageWidth: pageWidth).cardScale(lone: isSingleTab) }
+    /// A grid card's width over the page's (TabsKit's two-column card, or a
+    /// lone tab's larger card): the resolution an agent card's picture is drawn at.
+    var cardScale: CGFloat {
+        let w = max(1, pageWidth)
+        return isSingleTab ? (w * 2 / 3).rounded() / w : ((w - 48) / 2).rounded(.down) / w
+    }
     /// One tab listed (TabsKit draws its card larger).
     private(set) var isSingleTab = false
     @ObservationIgnored private var gridShown = false

@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
-/// iPhone 17 Pro Max; a wider screen, as an unfolded foldable's, adds columns): two columns with 16 pt insets and gutter, card
+/// iPhone 17 Pro Max): two columns with 16 pt insets and gutter, card
 /// aspect 1.408, 23 pt title row, 16 pt between rows, first row 60 pt below
 /// the safe area, 48 pt bottom bar 38 pt above the screen bottom.
 ///
@@ -33,30 +33,11 @@ struct OverviewLayout: Equatable, Sendable {
     /// insets and title row, and "1 Tab" in the bar.
     var isLone: Bool { count - pinned == 1 }
 
-    /// The widest a column card grows before the grid adds a column: every
-    /// iPhone screen keeps Safari's two columns, an unfolded foldable's wide
-    /// screen gets three or four instead of two huge cards.
-    static let maxColumnCard: CGFloat = 240
-    /// The widest a lone tab's card grows (two thirds of a 440 pt screen is 293).
-    static let maxLoneCard: CGFloat = 300
-
-    /// Columns at `width`: two, or more where two would be wider than ``maxColumnCard``.
-    static func columns(width: CGFloat) -> Int {
-        max(2, Int(((width - gridInset) / (maxColumnCard + gridInset)).rounded(.up)))
-    }
-    var columns: Int { Self.columns(width: size.width) }
-    /// Column card width: 177 pt on a 402 pt screen, 196 pt on 440.
-    var columnWidth: CGFloat { Self.columnWidth(width: size.width) }
-    static func columnWidth(width: CGFloat) -> CGFloat {
-        let n = CGFloat(columns(width: width))
-        return ((width - (n + 1) * gridInset) / n).rounded(.down)
-    }
-    /// A card's width at page `width`: two thirds of the screen for a lone
-    /// tab (at most ``maxLoneCard``), else the column width.
-    static func cardWidth(width: CGFloat, lone: Bool) -> CGFloat {
-        lone ? min((width * 2 / 3).rounded(), maxLoneCard) : columnWidth(width: width)
-    }
-    var cardWidth: CGFloat { Self.cardWidth(width: size.width, lone: isLone) }
+    /// Two-column card width: 177 pt on a 402 pt screen, 196 pt on 440.
+    var columnWidth: CGFloat { ((size.width - 3 * Self.gridInset) / 2).rounded(.down) }
+    /// The card width: two thirds of the screen for a lone tab, else the
+    /// column width.
+    var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
     /// Page points (from the page's top) a card shows.
     var cardPageHeight: CGFloat { size.width * Self.cardAspect }
@@ -74,31 +55,29 @@ struct OverviewLayout: Equatable, Sendable {
     var top: CGFloat { pinnedTop + CGFloat(pinnedRows) * (Self.pinnedHeight + Self.rowGap) }
     /// The pinned area's first row (where the grid starts without pins).
     var pinnedTop: CGFloat { safeTop + 60 }
-    var pinnedRows: Int { (pinned + columns - 1) / columns }
+    var pinnedRows: Int { (pinned + 1) / 2 }
     var barRect: CGRect {
         let bottom = size.height - max(safeBottom, 20) - 4
         return CGRect(x: 0, y: bottom - Self.control, width: size.width, height: Self.control)
     }
     var bottomPadding: CGFloat { size.height - barRect.minY + 12 }
-    var rows: Int { (count - pinned + columns - 1) / columns }
+    var rows: Int { (count - pinned + 1) / 2 }
     var contentHeight: CGFloat { top + CGFloat(rows) * pitch - Self.rowGap + bottomPadding }
     var maxOffset: CGFloat { max(0, contentHeight - size.height) }
 
     /// Card frame in content coordinates.
     func card(_ index: Int) -> CGRect {
         if index < pinned {
-            let col = index % columns, row = index / columns
-            let x = Self.gridInset + CGFloat(col) * (columnWidth + Self.gridInset)
+            let col = index % 2, row = index / 2
+            let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - columnWidth
             return CGRect(x: x, y: pinnedTop + CGFloat(row) * (Self.pinnedHeight + Self.rowGap), width: columnWidth, height: Self.pinnedHeight)
         }
         let index = index - pinned
         if isLone, index == 0 {
             return CGRect(x: (size.width - cardWidth) / 2, y: top, width: cardWidth, height: cardHeight)
         }
-        let col = index % columns, row = index / columns
-        // The columns centre in the screen (the rounded-down width leaves under a point per column).
-        let used = CGFloat(columns) * cardWidth + CGFloat(columns - 1) * Self.gridInset
-        let x = ((size.width - used) / 2).rounded(.down) + CGFloat(col) * (cardWidth + Self.gridInset)
+        let col = index % 2, row = index / 2
+        let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - cardWidth
         return CGRect(x: x, y: top + CGFloat(row) * pitch, width: cardWidth, height: cardHeight)
     }
 
@@ -143,19 +122,6 @@ struct OverviewLayout: Equatable, Sendable {
     }
 }
 
-
-/// The grid's card size at a page width, for a host drawing a card's picture ahead of the grid.
-public struct TabsKitGrid: Sendable {
-    public var pageWidth: CGFloat
-
-    public init(pageWidth: CGFloat) { self.pageWidth = pageWidth }
-
-    /// A grid card's width over the page's (one larger card for a lone tab).
-    public func cardScale(lone: Bool) -> CGFloat {
-        let w = max(1, pageWidth)
-        return OverviewLayout.cardWidth(width: w, lone: lone) / w
-    }
-}
 
 /// Which grid cards are built (in the view tree), as a collection view keeps
 /// only the cells near the screen: a card costs a full page of content laid
