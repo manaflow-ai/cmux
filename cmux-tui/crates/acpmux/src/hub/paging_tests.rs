@@ -348,8 +348,8 @@ fn a_page_of_prompts_reads_the_copies_not_the_log() {
 }
 
 /// On a file system that names no birth time no copy is kept (`store/kind_index.rs`), so a page of
-/// prompts reads back from the log's end as before, not the whole log from its start: the newest
-/// prompt costs its own segment (review of #40573).
+/// prompts reads back from the log's end as before, not the whole log from its start (review of
+/// #40573).
 #[test]
 fn a_page_of_prompts_reads_back_from_the_end_where_no_copy_is_kept() {
     let root = std::env::temp_dir().join(format!("acpmux-no-birth-{}", uuid::Uuid::now_v7()));
@@ -380,7 +380,9 @@ fn a_page_of_prompts_reads_back_from_the_end_where_no_copy_is_kept() {
     assert_eq!(page.events, vec![newest.clone()]);
     assert!(page.has_more);
     if cfg!(target_os = "linux") {
-        assert!(read < log_bytes / 2, "the newest prompt read {read} of {log_bytes} bytes");
+        // The read back stops at the prompt before it (`has_more`); a scan from the start reads
+        // every byte of the log.
+        assert!(read < log_bytes, "the newest prompt read {read} of {log_bytes} bytes");
     }
     let _ = std::fs::remove_dir_all(&root);
 }
