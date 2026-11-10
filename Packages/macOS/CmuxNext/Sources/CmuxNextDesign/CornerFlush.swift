@@ -50,16 +50,19 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
         return defaultFits ? tunable.defaultValue : .off
     }
 
-    /// The default draws only over the stock chrome: the default chrome style, tabs on top, no
-    /// vertical tabs, and no `layout.*` pane padding, corner or border the user set. Any of those
-    /// keeps its own look (floating and blocks panes keep their cards, a set padding or radius
-    /// still applies, bottom and vertical tabs have no top strip to run into the card).
+    /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
+    /// `appearance.chromeStyle` fallback, or `default`), tabs on top, no vertical tabs, no
+    /// `layout.*` pane padding, corner or border the user set, and no Debug Settings main pane
+    /// override. Any of those keeps its own look (floating and blocks panes keep their cards, a set
+    /// padding or radius still applies, bottom and vertical tabs have no top strip to run into the card).
     @MainActor static var defaultFits: Bool {
         let design = DesignSettings.shared
         let chrome = design.paneChrome
-        return design.chromeStyle == .default && design.tabBarPosition == .top && !design.verticalTabs
-            && chrome.padding == nil && chrome.cornerRadius == nil && chrome.cornerPadding == nil
-            && chrome.border == nil && chrome.separation == nil
+        guard [.flat, .default].contains(design.chromeStyle), design.tabBarPosition == .top, !design.verticalTabs else { return false }
+        guard chrome.padding == nil, chrome.cornerRadius == nil, chrome.cornerPadding == nil, chrome.border == nil,
+              chrome.borderColor == nil, chrome.borderWidth == nil, chrome.separation == nil else { return false }
+        return ChromeTunables.mainPaneCurved.override == nil && ChromeTunables.mainPaneGutter.override == nil
+            && ChromeTunables.mainPaneCornerRadius.override == nil
     }
 
     /// The flush corner was picked in Debug Settings, not taken by default: only then does it
