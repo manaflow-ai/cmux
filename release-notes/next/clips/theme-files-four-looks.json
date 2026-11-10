@@ -1,0 +1,29 @@
+{
+  "caption": "Move over each look in the palette's Theme File row to preview it on the whole app.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Open the Theme File row",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "Theme File"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ]
+}
