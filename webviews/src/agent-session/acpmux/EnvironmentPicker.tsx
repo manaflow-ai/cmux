@@ -485,14 +485,14 @@ export function EnvironmentPicker({
     list === "moves"
       ? moveRows
       : listRows === "machines" && list === "main"
-      ? machineChoices
-      : machineList
-        ? machines
-        : listRows === "where" || listRows === "run"
-          ? listRows === "run"
-            ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
-            : where
-          : main;
+        ? machineChoices
+        : machineList
+          ? machines
+          : listRows === "where" || listRows === "run"
+            ? listRows === "run"
+              ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+              : where
+            : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
   // and a row the data adds or drops while it stays open grows or shrinks in place. Another list
   // (Machines…) or a search replaces the rows at once.

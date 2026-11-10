@@ -29,13 +29,20 @@ export function moveMachineRow(
         label: target.kind === "local" ? t("composer.thisMac") : target.label,
         onSelect: () => run.moveTo(target.id),
       })),
-    ...(bringBack && !local ? [{ key: "bringBack", label: t("composer.bringBackLocal"), onSelect: run.bringBack }] : []),
+    ...(bringBack && !local
+      ? [{ key: "bringBack", label: t("composer.bringBackLocal"), onSelect: run.bringBack }]
+      : []),
   ];
   // Nowhere to move: no row, rather than a disabled one in a long menu.
   if (children.length === 0) return undefined;
   return {
     key: "moveMachine",
-    label: move || targets.length > 0 ? t("composer.moveToMenu") : children.length === 1 ? children[0]!.label : t("composer.environment"),
+    label:
+      move || targets.length > 0
+        ? t("composer.moveToMenu")
+        : children.length === 1
+          ? children[0]!.label
+          : t("composer.environment"),
     icon: "machine.remote",
     children,
   };
