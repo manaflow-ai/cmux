@@ -48,26 +48,30 @@ pub(super) enum Ready {
 /// `url` cloned into `dir` (an empty or missing folder) at `reference` when given; or the clone
 /// already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
 ///
-/// A branch or tag is checked out by `git clone --branch` itself. A commit ([`is_commit`]) is
-/// cloned with `--no-checkout` and then checked out: until that checkout makes the index, the
-/// clone is never reused ([`reuse`]), so no chat works in it, and a failed checkout removes only
-/// the clone's own `.git` (and the folder, when this start made it and it is empty). git refuses a
-/// folder that is not empty and on a failed clone removes only what it made, so a folder that was
-/// there stays, with its permissions.
+/// The clone is made and checked out in a staging folder beside `dir` that only this start
+/// names, then put in place by one `rename`, which takes a missing or empty `dir` and refuses one
+/// that is not empty. No other start ever sees a clone before its checkout is done, and a failure
+/// at any step removes only the staging folder. A `dir` that was there keeps its permissions.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     if is_nonempty(dir) {
         return reuse(url, dir);
     }
-    if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            error(
-                "repo.clone_failed",
-                format!("could not make {}: {err}", parent.display()),
-                json!({"dir": dir}),
-            )
-        })?;
-    }
-    let existed = dir.exists();
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(failed(dir, format!("{} has no parent folder", dir.display())));
+    };
+    std::fs::create_dir_all(parent)
+        .map_err(|err| failed(dir, format!("could not make {}: {err}", parent.display())))?;
+    let mut staging_name = std::ffi::OsString::from(".");
+    staging_name.push(name);
+    staging_name.push(format!(".cmux-clone-{}-{}", std::process::id(), unique()));
+    let staging = parent.join(staging_name);
+    let result = clone_at(url, reference, &staging).and_then(|()| publish(url, &staging, dir));
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+/// `url` cloned into `staging` (which does not exist) and checked out at `reference`.
+fn clone_at(url: &str, reference: Option<&str>, staging: &Path) -> Result<(), Value> {
     let commit = reference.filter(|reference| is_commit(reference));
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
@@ -77,7 +81,7 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         (Some(reference), None) => args.extend([OsStr::new("--branch"), reference.as_ref()]),
         (None, None) => {}
     }
-    args.extend([OsStr::new("--"), url.as_ref(), dir.as_os_str()]);
+    args.extend([OsStr::new("--"), url.as_ref(), staging.as_os_str()]);
     git(None, args).map_err(|said| {
         let at = reference.map(|reference| format!(" at {reference}")).unwrap_or_default();
         error(
@@ -87,21 +91,43 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         )
     })?;
     if let Some(commit) = commit {
-        git(Some(dir), ["-c", "advice.detachedHead=false", "checkout", "--quiet", commit])
+        git(Some(staging), ["-c", "advice.detachedHead=false", "checkout", "--quiet", commit])
             .map_err(|said| {
-                // Never reused (no index yet), so this clone is this start's alone.
-                let _ = std::fs::remove_dir_all(dir.join(".git"));
-                if !existed {
-                    let _ = std::fs::remove_dir(dir);
-                }
                 error(
                     "repo.checkout_failed",
                     format!("cloned {url}, but git checkout {commit} failed: {said}"),
-                    json!({"url": url, "ref": commit, "dir": dir}),
+                    json!({"url": url, "ref": commit}),
                 )
             })?;
     }
-    Ok(Ready::Cloned)
+    Ok(())
+}
+
+/// The finished clone in `staging` put at `dir` in one `rename`. A `dir` that is there (empty, or
+/// [`ensure`] would not have cloned) lends the clone its permissions first. When another start
+/// put its clone there meanwhile, the rename is refused and that clone is reused.
+fn publish(url: &str, staging: &Path, dir: &Path) -> Result<Ready, Value> {
+    if let Ok(meta) = std::fs::metadata(dir) {
+        let _ = std::fs::set_permissions(staging, meta.permissions());
+    }
+    match std::fs::rename(staging, dir) {
+        Ok(()) => Ok(Ready::Cloned),
+        Err(_) if is_nonempty(dir) => reuse(url, dir),
+        Err(err) => {
+            Err(failed(dir, format!("could not put the clone at {}: {err}", dir.display())))
+        }
+    }
+}
+
+/// A number no other start picks at the same moment, with the process id beside it.
+fn unique() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos())
+}
+
+fn failed(dir: &Path, message: String) -> Value {
+    error("repo.clone_failed", message, json!({"dir": dir}))
 }
 
 /// Whether `reference` reads as a commit id (7 to 40 hex digits) rather than a branch or tag,
@@ -120,16 +146,6 @@ fn reuse(url: &str, dir: &Path) -> Result<Ready, Value> {
         .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
         .flatten();
     if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
-        // A clone with no index has had no checkout yet: another start is still making it.
-        if !dir.join(".git").join("index").exists() {
-            let mut error = error(
-                "repo.cloning",
-                format!("{} is still being cloned; run this again in a moment", dir.display()),
-                json!({"dir": dir}),
-            );
-            error["retryable"] = json!(true);
-            return Err(error);
-        }
         return Ok(Ready::Reused);
     }
     Err(error(

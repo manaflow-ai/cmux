@@ -129,7 +129,7 @@ fn a_folder_inside_another_repository_is_not_read_as_its_clone() {
 }
 
 #[test]
-fn a_commit_is_checked_out_and_a_clone_mid_checkout_is_never_reused() {
+fn a_commit_is_checked_out_and_a_failed_one_leaves_nothing() {
     let root = tempfile::tempdir().unwrap();
     let url = origin(root.path());
     let source = root.path().join("source");
@@ -147,12 +147,44 @@ fn a_commit_is_checked_out_and_a_clone_mid_checkout_is_never_reused() {
     let error = ensure(&url, Some("0123456789abcdef"), &missing).unwrap_err();
     assert_eq!(error["code"], "repo.checkout_failed");
     assert!(!missing.exists());
-    // A clone with no checkout yet (another start mid-way) is refused, never reused.
-    let partial = root.path().join("partial");
-    git(root.path(), &["clone", "-q", "--no-checkout", &url, partial.to_str().unwrap()]);
-    let error = ensure(&url, None, &partial).unwrap_err();
-    assert_eq!(
-        (error["code"].as_str(), error["retryable"].as_bool()),
-        (Some("repo.cloning"), Some(true))
-    );
+    // Nothing of a failed start is left beside the folder either.
+    let beside: Vec<_> = std::fs::read_dir(root.path())
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().contains(".cmux-clone-"))
+        .collect();
+    assert!(beside.is_empty());
+}
+
+#[test]
+fn a_linked_worktree_and_an_empty_repository_are_reused() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    // A linked worktree: `.git` is a file and the index lives elsewhere.
+    let tree = root.path().join("tree");
+    git(&dir, &["worktree", "add", "-q", tree.to_str().unwrap(), "topic"]);
+    assert_eq!(ensure(&url, None, &tree), Ok(Ready::Reused));
+    // A clone of a repository with no commits has no index.
+    let bare = root.path().join("empty.git");
+    git(root.path(), &["init", "-q", "--bare", bare.to_str().unwrap()]);
+    let empty_url = format!("file://{}", bare.display());
+    let empty = root.path().join("empty");
+    assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Cloned));
+    assert_eq!(ensure(&empty_url, None, &empty), Ok(Ready::Reused));
+}
+
+#[test]
+fn another_starts_clone_put_in_place_first_is_reused() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    std::fs::write(dir.join("work.txt"), "theirs").unwrap();
+    // This start's staged clone arrives second: the rename is refused and theirs is reused.
+    let staging = root.path().join(".dir.cmux-clone-test");
+    super::clone_at(&url, None, &staging).unwrap();
+    assert_eq!(super::publish(&url, &staging, &dir), Ok(Ready::Reused));
+    assert_eq!(std::fs::read_to_string(dir.join("work.txt")).unwrap(), "theirs");
 }
