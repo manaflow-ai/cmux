@@ -38,7 +38,7 @@ impl PresentationSnapshot {
     /// its status glyphs, a page's as is. A remote-terminal tab is a terminal,
     /// though its placeholder surface is a browser. The one rule for a tree
     /// built from the daemon's state; `list-workspaces` applies the same rule
-    /// by the tab's kind ([`crate::TabTitle::of_tree_tab`]).
+    /// by the tab's kind (`TabTitle::of_kind` in `server/tree_json.rs`).
     pub fn shown_title(&self, surface: &Surface) -> crate::TabTitle {
         let raw = surface.title();
         if matches!(surface, Surface::Pty(_)) || self.remote_terminal_id(surface).is_some() {
