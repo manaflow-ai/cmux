@@ -120,41 +120,68 @@ impl HistoryHost {
     /// after the saved cursor, so the fold goes on from that cursor with no
     /// hole. The loaded fold is saved again at this build's version by the
     /// next save.
-    pub(super) fn restore(&self, mux: &Mux) {
+    ///
+    /// A saved fold that is there and does not load (its value is not JSON,
+    /// its snapshot does not parse, its cursor is past the head) is not
+    /// loaded: the fold starts at the first retained record. When retention
+    /// has deleted records, the next save would then write a smaller fold
+    /// over the only copy of the sessions below the floor. So the raw saved
+    /// value is first kept under a second `meta` key
+    /// (`WorkspaceRegistry::keep_unloaded_reducer_state`) and a diagnostic
+    /// is sent. An error (the head, the floor or the copy cannot be read or
+    /// written) leaves the fold not restored: nothing is folded and nothing
+    /// is saved, and the next turn tries again.
+    pub(super) fn restore(&self, mux: &Mux) -> anyhow::Result<()> {
         if self.lock().restored {
-            return;
+            return Ok(());
         }
-        let saved = {
-            let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            registry.journal_reducer_state(AGENT_FOLD_STATE_ID).and_then(|state| {
-                Ok((state, registry.session_journal_head()?, registry.journal_pruned_through()?))
-            })
-        };
         let mut another_version = false;
-        let restored = match saved {
-            Ok((Some((version, cursor, snapshot)), head, pruned_through))
-                if cursor <= head
-                    && (version == AGENT_FOLD_STATE_VERSION || pruned_through > 0) =>
-            {
-                another_version = version != AGENT_FOLD_STATE_VERSION;
-                let fold = serde_json::from_str::<AgentSessionFold>(&snapshot)
-                    .ok()
-                    .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor);
-                if fold.is_none() && another_version {
-                    eprintln!(
-                        "cmux-tui: the saved agent history of version {version} does not load, \
-                         and journal retention deleted the records through {pruned_through}: \
-                         the agent sessions with no later record are gone"
-                    );
+        // The floor, when a saved fold that does not load was kept.
+        let mut kept_at = None;
+        let restored = {
+            let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let saved = registry.journal_reducer_state(AGENT_FOLD_STATE_ID);
+            let head = registry.session_journal_head()?;
+            let pruned_through = registry.journal_pruned_through()?;
+            let restored = match &saved {
+                Ok(Some((version, cursor, snapshot)))
+                    if *cursor <= head
+                        && (*version == AGENT_FOLD_STATE_VERSION || pruned_through > 0) =>
+                {
+                    another_version = *version != AGENT_FOLD_STATE_VERSION;
+                    serde_json::from_str::<AgentSessionFold>(snapshot)
+                        .ok()
+                        .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= *cursor)
+                        .map(|fold| (fold, *cursor))
                 }
-                fold.map(|fold| (fold, cursor))
+                Ok(_) => None,
+                Err(error) => {
+                    eprintln!("cmux-tui: reading the saved agent history failed: {error:#}");
+                    None
+                }
+            };
+            let unloaded = restored.is_none() && !matches!(saved, Ok(None));
+            if unloaded && pruned_through > 0 {
+                let kept =
+                    registry.keep_unloaded_reducer_state(AGENT_FOLD_STATE_ID).map_err(|error| {
+                        error.context(
+                            "the saved agent history does not load and its raw value was not kept",
+                        )
+                    })?;
+                kept_at = kept.then_some(pruned_through);
             }
-            Ok(_) => None,
-            Err(error) => {
-                eprintln!("cmux-tui: reading the saved agent history failed: {error:#}");
-                None
-            }
+            restored
         };
+        if let Some(pruned_through) = kept_at {
+            let message = format!(
+                "the saved agent history does not load, and journal retention deleted the \
+                 records through {pruned_through}: the agent sessions with no later record are \
+                 not listed. The raw saved value is kept in meta \
+                 journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+            );
+            eprintln!("cmux-tui: {message}");
+            mux.report_internal_diagnostic(message);
+        }
         let mut state = self.lock();
         state.restored = true;
         if let Some((agents, cursor)) = restored
@@ -166,6 +193,7 @@ impl HistoryHost {
             state.saved_cursor = if another_version { 0 } else { cursor };
             state.unsaved_agents |= another_version;
         }
+        Ok(())
     }
 
     /// Saves the agent fold and its cursor when agent records were folded

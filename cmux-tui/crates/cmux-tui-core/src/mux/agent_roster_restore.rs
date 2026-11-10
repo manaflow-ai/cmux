@@ -242,6 +242,50 @@ pub(super) fn restore_agent_roster_with(
     restore_agent_roster_within(registry, limits, None)
 }
 
+/// A saved roster that does not load, on a registry where journal retention
+/// deleted records. That saved roster is the only copy of each agent whose
+/// records are all below the floor: the fold that replaces it starts at the
+/// first RETAINED record, and its saves write a smaller roster over it. So
+/// the raw value is first kept under a second `meta` key
+/// (`WorkspaceRegistry::keep_unloaded_reducer_state`), and the start says so
+/// in its diagnostic. The start itself goes on: it serves what the retained
+/// journal gives.
+fn keep_unloaded_roster(registry: &WorkspaceRegistry, problems: &mut Vec<String>) {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
+    // A floor that cannot be read is taken as "records are deleted".
+    let pruned_through = registry.journal_pruned_through().unwrap_or(u64::MAX);
+    if pruned_through == 0 {
+        return;
+    }
+    match registry.keep_unloaded_reducer_state(AGENT_ROSTER_REDUCER_ID) {
+        Ok(true) => {
+            eprintln!(
+                "cmux-tui: the saved agent roster does not load and journal retention deleted \
+                 records: its raw value is kept in meta \
+                 journal_reducer_kept.{AGENT_ROSTER_REDUCER_ID}"
+            );
+            problems.push(format!(
+                "its saved state did not load after journal retention deleted records: the \
+                 agents with no later record are not served, and the raw saved value is kept \
+                 in meta journal_reducer_kept.{AGENT_ROSTER_REDUCER_ID}"
+            ));
+        }
+        // No saved value is there: nothing is written over.
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: the saved agent roster does not load and its raw value was not \
+                 kept: {error:#}"
+            );
+            problems.push(
+                "its saved state did not load after journal retention deleted records, and \
+                 the raw saved value could not be kept"
+                    .to_owned(),
+            );
+        }
+    }
+}
+
 pub(super) fn restore_agent_roster_within(
     registry: &WorkspaceRegistry,
     limits: RosterFoldLimits,
@@ -249,9 +293,12 @@ pub(super) fn restore_agent_roster_within(
 ) -> anyhow::Result<RestoredAgentRoster> {
     use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
     let mut problems = Vec::new();
+    // The saved state is there and does not load: see `keep_unloaded_roster`.
+    let mut unloaded = false;
     let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|_| {
         eprintln!("cmux-tui: agent roster snapshot is unreadable; rebuilding it from the journal");
         problems.push("its snapshot was unreadable".to_owned());
+        unloaded = true;
         Some((0, 0, String::new()))
     });
     let head = registry.session_journal_head()?;
@@ -265,7 +312,10 @@ pub(super) fn restore_agent_roster_within(
                 // The cursor is meaningful only with the snapshot that was
                 // captured at the same fold boundary. Replaying from zero
                 // is the safe recovery path for malformed persisted state.
-                None => (AgentRosterHost::default(), true),
+                None => {
+                    unloaded = true;
+                    (AgentRosterHost::default(), true)
+                }
             }
         }
         Some((version, cursor, snapshot)) => {
@@ -285,6 +335,7 @@ pub(super) fn restore_agent_roster_within(
                          {AGENT_ROSTER_REDUCER_VERSION}: the old snapshot does not restore; \
                          serving live events while it rebuilds in the background"
                     );
+                    unloaded = true;
                     (AgentRosterHost { roster: AgentRoster::default(), cursor: head }, true)
                 }
             }
@@ -297,6 +348,11 @@ pub(super) fn restore_agent_roster_within(
     if host.cursor > head {
         host = AgentRosterHost::default();
         needs_repair = true;
+        unloaded = true;
+    }
+    // Before any save below: each of them writes over the saved state.
+    if unloaded {
+        keep_unloaded_roster(registry, &mut problems);
     }
     // A fold from the first record is itself the rebuild.
     if host.cursor == 0 {

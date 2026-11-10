@@ -413,3 +413,190 @@ fn a_history_fold_version_bump_after_retention_keeps_a_session_whose_records_are
         "an agent history fold version bump after retention loses a session: {problems:#?}"
     );
 }
+
+/// What a start finds in place of a saved reducer state.
+#[derive(Clone, Copy)]
+enum Damage {
+    /// The `meta` value is not JSON: the read of the state fails.
+    NotRead,
+    /// The snapshot is cut in the middle: it does not parse.
+    SnapshotCut,
+    /// The cursor is above the journal head.
+    CursorAboveHead,
+}
+
+/// The `meta` value of `key` in a stopped store.
+fn stopped_meta(session: &str, root: &Path, key: &str) -> Option<String> {
+    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    registry
+        .connection
+        .get()
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get::<_, String>(0))
+        .ok()
+}
+
+/// Writes a saved state of `reducer` that does not load into a stopped
+/// store, and returns the raw `meta` value it wrote. `mark` makes the value
+/// of one call different from the value of another call.
+fn damage_saved_state(
+    session: &str,
+    root: &Path,
+    reducer: &str,
+    damage: Damage,
+    mark: &str,
+) -> String {
+    let key = format!("journal_reducer.{reducer}");
+    let raw = stopped_meta(session, root, &key).expect("the setup: a saved state");
+    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    let mut value = serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({}));
+    value["damage"] = json!(mark);
+    let damaged = match damage {
+        Damage::NotRead => format!("{mark}: not JSON: {raw}"),
+        Damage::SnapshotCut => {
+            let snapshot = value["snapshot"].as_str().unwrap_or_default();
+            let cut = snapshot.chars().take(snapshot.chars().count() / 2).collect::<String>();
+            value["snapshot"] = json!(cut);
+            value.to_string()
+        }
+        Damage::CursorAboveHead => {
+            value["cursor"] = json!((head + 1_000_000).to_string());
+            value.to_string()
+        }
+    };
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key.as_str(), damaged.as_str()],
+        )
+        .unwrap();
+    damaged
+}
+
+/// One start of the daemon on the store, to the point where `reducer` has
+/// read its saved state and saved again, then a stop.
+fn start_and_stop(session: &str, root: &Path, reducer: &str) {
+    let mux = open_persistent_test_mux(session, root);
+    mux.stop_journal_maintenance();
+    if reducer == AGENT_ROSTER_REDUCER_ID {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while mux.agent_roster_rebuilding() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        mux.settle_agent_roster_for_test();
+    } else if let Err(error) =
+        crate::history_ops::fold_for_retention(&mux, Duration::from_secs(30), 1)
+    {
+        // A fold that refuses to start from a smaller state is a correct
+        // answer too: the subject is the saved copy, below.
+        println!("journal_retention_readers: the agent history fold failed: {error:#}");
+    }
+    mux.shutdown();
+    drop(mux);
+}
+
+/// After retention deleted records, the saved state of `reducer` is the
+/// only copy of each agent and session below the floor. A start that finds
+/// a state that does not load folds from the first RETAINED record, and its
+/// next save is smaller. So that start must first keep the raw value under
+/// `journal_reducer_kept.<reducer>`, and a later failure must not write
+/// over the copy the first one kept.
+fn a_state_that_does_not_load_is_kept(session: &str, reducer: &str, damage: Damage) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-{session}-{}", crate::workspace_registry::new_uuid_v4()));
+    let rested = stopped_store_after_a_prune(session, &root);
+    let saved = stopped_meta(session, &root, &format!("journal_reducer.{reducer}"))
+        .expect("the setup: a saved state");
+    let needle = if reducer == AGENT_ROSTER_REDUCER_ID { rested.as_str() } else { RESTED_SESSION };
+    assert!(saved.contains(needle), "the setup: the saved {reducer} holds {needle}");
+    let kept_key = format!("journal_reducer_kept.{reducer}");
+    assert_eq!(stopped_meta(session, &root, &kept_key), None, "the setup: no kept copy yet");
+
+    let first = damage_saved_state(session, &root, reducer, damage, "first");
+    start_and_stop(session, &root, reducer);
+    let kept_after_first = stopped_meta(session, &root, &kept_key);
+
+    let second = damage_saved_state(session, &root, reducer, damage, "second");
+    assert_ne!(first, second, "the setup: the second state is another value");
+    start_and_stop(session, &root, reducer);
+    let kept_after_second = stopped_meta(session, &root, &kept_key);
+
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(
+        kept_after_first.as_deref(),
+        Some(first.as_str()),
+        "the start did not keep the saved {reducer} that does not load, and retention deleted \
+         the records it was folded from"
+    );
+    assert_eq!(
+        kept_after_second.as_deref(),
+        Some(first.as_str()),
+        "a later failure wrote over the copy of {reducer} that the first failure kept"
+    );
+}
+
+/// The History start path, a read error (merged.rs `HistoryHost::restore`).
+#[test]
+fn a_history_fold_that_does_not_read_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-history-not-read",
+        AGENT_FOLD_STATE_ID,
+        Damage::NotRead,
+    );
+}
+
+/// The History start path, a snapshot that does not parse at the same
+/// version.
+#[test]
+fn a_history_fold_that_does_not_parse_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-history-not-parsed",
+        AGENT_FOLD_STATE_ID,
+        Damage::SnapshotCut,
+    );
+}
+
+/// The History start path, a cursor above the journal head.
+#[test]
+fn a_history_fold_with_a_cursor_above_the_head_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-history-cursor",
+        AGENT_FOLD_STATE_ID,
+        Damage::CursorAboveHead,
+    );
+}
+
+/// The roster start path, a read error: it became version 0, which does not
+/// migrate, and an empty roster was rebuilt from the retained journal.
+#[test]
+fn a_roster_state_that_does_not_read_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-roster-not-read",
+        AGENT_ROSTER_REDUCER_ID,
+        Damage::NotRead,
+    );
+}
+
+/// The roster start path, a snapshot of the same version that the strict
+/// restore refuses.
+#[test]
+fn a_roster_snapshot_that_does_not_restore_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-roster-not-restored",
+        AGENT_ROSTER_REDUCER_ID,
+        Damage::SnapshotCut,
+    );
+}
+
+/// The roster start path, a cursor above the journal head.
+#[test]
+fn a_roster_state_with_a_cursor_above_the_head_survives_retention() {
+    a_state_that_does_not_load_is_kept(
+        "retention-roster-cursor",
+        AGENT_ROSTER_REDUCER_ID,
+        Damage::CursorAboveHead,
+    );
+}

@@ -139,7 +139,9 @@ pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<C
             break false;
         }
         let turn = mux.history.turn();
-        mux.history.restore(mux);
+        // A saved fold that cannot be read or kept: nothing is folded and
+        // nothing is saved in this turn; the next one tries again.
+        mux.history.restore(mux)?;
         let cursor = mux.history.cursor();
         let (records, scanned) = match page(mux, cursor) {
             Ok(page) => page,
