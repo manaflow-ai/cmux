@@ -10,13 +10,28 @@ extension Motion {
     /// A full screen enter or exit of `window` counts too (fullscreen-lag; `NSView.inLiveResize`
     /// misses it): AppKit sets the final size at once and animates a snapshot to it, so content
     /// that springs toward a size only shows its in-between frames late.
+    ///
+    /// A child window is in its parent's resize: AppKit sets `inLiveResize` and posts the
+    /// notifications for the dragged window only, and the overlay panel (`WindowOverlayHost`) and
+    /// a Chromium page's window are children of it. So the read follows `window.parent`.
     public static func isLiveResizing(_ window: NSWindow?) -> Bool {
-        // Read before the window: the tracker observes from the first motion decision, long
-        // before a person can drag an edge.
         let windows = LiveResizeWindows.shared
-        guard let window else { return false }
-        return window.inLiveResize || windows.isResizing(window) || windows.isTransitioning(window)
+        // AppKit windows have a short, finite child-parent chain; the bound is the one of
+        // `Motion.canAnimate(in:)`, so a malformed chain cannot make this hot-path read unbounded.
+        var current = window
+        for _ in 0..<8 {
+            guard let window = current else { return false }
+            if window.inLiveResize || windows.isResizing(window) || windows.isTransitioning(window) { return true }
+            current = window.parent
+        }
+        return false
     }
+
+    /// Starts the app's live-resize tracker: from now on it sees every window's live resize and
+    /// full screen transition. The app calls this once at launch, before it makes a window
+    /// (`AppDelegate`), so a transition that starts before the first motion decision of a window
+    /// is not missed for its whole length. A second call does nothing.
+    public static func startLiveResizeTracking() { _ = LiveResizeWindows.shared }
 
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
     /// (or the exit pair): terminals hold their grid for the daemon until it
@@ -40,8 +55,8 @@ extension Motion {
 /// windows in a full screen transition (`willEnterFullScreen` to
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
-/// Observes every window from the first motion decision (``Motion/isLiveResizing(_:)``), long
-/// before a person can drag an edge.
+/// Observes every window from the app's launch (``Motion/startLiveResizeTracking()``), before
+/// any window exists.
 final class LiveResizeWindows {
     /// The app's tracker. Tests put one on a private center here, instead of posting AppKit's
     /// notifications to the process-wide center (check-test-notification-centers.sh), and put the app's back.
