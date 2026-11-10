@@ -83,10 +83,16 @@ const send = async (ctx: PlayContext) => {
   await ctx.waitFor(sent, { capMs: 10_000 });
   const thread = ctx.document.querySelector<HTMLElement>(".acpmux-thread");
   await ctx.waitFor(() => !thread?.style.translate, { capMs: 2_000 });
+  // The turn the send started runs on: its Thinking line's shimmer and the stop button's spinner
+  // loop for as long as it does, so only the motions that end count.
   await ctx.waitFor(
     () =>
       !ctx.document.querySelector("[data-send-morph-layer] [data-send-morph-ghost]") &&
-      ctx.document.getAnimations().every((animation) => animation.playState !== "running"),
+      ctx.document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
     { capMs: 2_000 },
   );
 };

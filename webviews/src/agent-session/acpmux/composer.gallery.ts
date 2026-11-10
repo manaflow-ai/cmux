@@ -1401,7 +1401,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers only its ×. The composer refused it, so a retry would fail the same way and none shows (Leo, 2026-11-07: \"idk why we even show the retry symbol then\").",
+      note: 'A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers only its ×. The composer refused it, so a retry would fail the same way and none shows (Leo, 2026-11-07: "idk why we even show the retry symbol then").',
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
