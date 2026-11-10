@@ -42,12 +42,15 @@ Nothing in this document was measured for it. No build or test can run where it 
 
 - Each window has one `CADisplayLink` (`S/CmuxNextWakeups/FrameScheduler.swift:298-318`, range 80 to 120 Hz,
   120 preferred). `MotionClock` (`S/CmuxNextDesign/Motion/MotionClock.swift`) is one client of it; pane springs, the
-  sidebar's width slide, the sidebar card slot and the tab drag ghost step on it, on the main thread.
+  sidebar's width slide and the sidebar card slot step on it, on the main thread. The tab drag ghost has its own
+  frame client on the ghost panel's scheduler (`S/CmuxNextApp/Drag/TabDragSession.swift:109`), also on main.
 - The render server runs the tab strip's moves (additive `CABasicAnimation`, `S/CmuxNextTabs/TabMotion.swift`), the
   sidebar's row moves (additive `CASpringAnimation`, `S/CmuxNextSidebar/Views/SidebarDragSpring.swift`), the space
   page slide, and the fades of rings, dims, flashes, hover and overlays. No main-thread work per frame.
-- AppKit's own timing runs a window live resize and the full screen transition. Windows open with
-  `animationBehavior = .none` (18 sites).
+- AppKit's own timing runs a window live resize, the full screen transition and a window's open motion. A main
+  window that a person opens uses AppKit's document-window zoom when movement animates; a restored one shows in
+  place (`S/CmuxNextDesign/Motion/MotionGate+WindowOpen.swift`, `S/CmuxNextApp/Windows/WindowManager.swift:400`).
+  Eight other windows and panels set their behaviour through the gate [read, 2nd]; 18 panels set `.none`.
 
 ### 1.2 Pane motion [read]
 
@@ -60,7 +63,8 @@ Nothing in this document was measured for it. No build or test can run where it 
   selection 0.15 / 0.9, panel 0.165 / 0.85, popover 0.24 / 0.86, pinDrag 0.215 / 0.8385, fallback 0.2 / 0.9.
   `MotionPolicy.spring` lifts only the structural tokens (move, appear, disappear, tabOpen) to damping 1 or more;
   `ui.animations.bounce` = `subtle` gives them a bounce of 0.15.
-- A split or close of a terminal reports the final grid in the key's turn and holds the surface at its final size,
+- A split, close or equalize of a terminal reports the final grid at the spring's start, which is the key's turn
+  (a zoom's spring starts later, see below), and holds the surface at its final size,
   anchored top or bottom (`S/CmuxNextTerminal/TerminalSurfaceView+PaneMotion.swift`, `restAt`, `reportFinalGrid`,
   `holdSurface(size:anchor:)`).
 - A zoom changes nothing in the key's turn: the handler only sends `zoom-pane`
@@ -79,8 +83,9 @@ Nothing in this document was measured for it. No build or test can run where it 
 
 | Motion | Terminal grid goes to the PTY | Terminal surface size | Chromium (CEF) page | WebKit page |
 | --- | --- | --- | --- | --- |
-| Split, close, zoom | once, in the key's turn [read] | final size at the start, held [read] | every frame; a page that holds the keys: once at its rest size [read] | every frame [read] |
-| Key resize, equalize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] |
+| Split, close, equalize | once, at the spring's start, in the key's turn [read] | final size at the start, held [read] | laid out every frame; a page that holds the keys: once at its rest size [read] | every frame [read] |
+| Zoom, unzoom | once, at the spring's start, which is after the daemon's answer [read] | final size at the spring's start, held [read] | as a split [read] | every frame [read] |
+| Key resize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] |
 | Divider drag | one per refresh at most; the newest at the release [read] | every frame [read] | page window detached unless it holds focus, attached again at the landing [read, 2nd] | every frame [read] |
 | Sidebar show or hide | once, at the END of the slide [read] | every frame [read] | every frame [read] | every frame [read] |
 | Window live resize | after each committed size [inferred by the helper, not confirmed] | every size AppKit gives | page window detached unless it holds focus [read, 2nd]; the commit waits `liveResizeDeadlineMs` for the page, default 0 [read] | every size |
@@ -90,7 +95,8 @@ Nothing in this document was measured for it. No build or test can run where it 
 What shows between the old and the new picture today:
 
 - Terminal: the old bounds and frame stay until a frame at the new size is ready; the host paints the terminal's
-  background in a gap; three views clip (`masksToBounds`). No stretch was found. [read, 2nd]
+  background in a gap; the terminal host, the pane's content area and the pane host clip (`masksToBounds`). No
+  stretch was found. [read, 2nd]
 - CEF page: its last frame, unscaled, inside its pane; the gap shows the page's own background, else the pane fill
   (`S/CmuxNextBrowser/CEF/CEFHostView.swift:111-127`). The main thread never waits for a page (deadlines default
   to 0). [read]
@@ -331,7 +337,7 @@ For every class K motion the same content rule holds, so the table does not repe
 | Pane close | K | render server | survivors get their final grid once (already so); the closing pane shows its ground or fades | key cycle over budget; under the close motion hold |
 | Zoom, unzoom | K | render server | the model changes in the key's turn; unzoom is the exact inverse | waits for the daemon (50 to 60 ms); text wraps again at rest |
 | Move, swap | K | render server | the model changes in the key's turn; panes move as whole pictures at their final sizes | waits for the daemon; no motion |
-| Equalize | K | render server | none | size per frame |
+| Equalize | K | render server | none | pages get a size per frame (terminals already get one grid) |
 | Key resize | K | render server, or one frame per press | each press is one intent: one grid per press | size and grid per frame of the spring (see section 8) |
 | Sidebar show or hide | K | render server | every pane of the screen takes its final size at the start; the sidebar and the content area move as layers | grid at the END; window layout per frame |
 | Full screen | K | AppKit's transition | final size at the start for surfaces AND grids | grids wait for the end |
@@ -400,7 +406,7 @@ that still covers the content's time, and films decide.
 | Pane close | V1 one frame; V0 slide (today); V3 slide out; V6 fade and grow, each on K2 or K3 | V6 on K2: a survivor grows, so its final picture is only uncovered (no strip); the fade hides the closing pane's bare ground |
 | Zoom, unzoom | one frame; Z0 cover (today); Z4 grow and fade, on K2 or K3 | Z4 on K3 (Lawrence's stated target); the travel is the longest of the pane motions |
 | Move, swap | one frame (today); whole panes translate on K2; cross-fade 100 ms | translate on K2: it shows which pane went where; one frame when a script did it |
-| Equalize | one frame; K2; K6 (today) | K2, as split: the same kind of change |
+| Equalize | one frame; K2; K6 (today's `move`) | K2, as split: the same kind of change |
 | Key resize | one frame per press; K2 with the final grid at the start; today (follow every frame, K6) | one frame per press: a held key repeats, and the repeats are the motion; Ghostty and tmux do this |
 | Column reveal | one frame; K2; K3; K11 | K3: a translation only, and the travel can be a whole column |
 | Sidebar show or hide | one frame; K2; K3; today (ease-out on the `appear` and `disappear` lengths) | K3, sidebar and content as layers; one frame if films show the strip too wide |
@@ -436,7 +442,8 @@ Found by the inventory. None needs a curve pick unless it says so:
    velocity, the swipe release on `settle`.
 7. The sidebar slide's "grid at the landing" hold (`WindowRootView+ContentAreaMotion.swift`) and its window layout
    per frame.
-8. A page size per frame in a class K motion (CEF `beginPageSync(.paneSpring)` per frame, the WebKit container's
+8. A page size per frame in a class K motion (the CEF page's layout in each frame after `beginPageSync(.paneSpring)`,
+   which is called once per spring start; the WebKit container's
    autoresizing per frame). The rule a focused CEF page already has (`holdPageAtRest`) becomes the only rule.
 9. The daemon round trip before a zoom or a swap shows.
 10. The app-wide live resize snap; it becomes per window.
@@ -448,7 +455,8 @@ Found by the inventory. None needs a curve pick unless it says so:
     comments that say pane animation is off by default (`Motion.swift:102-105`; rule 9 of
     [motion.md](motion.md)), that every pane's terminal is laid out live per frame (`SplitMotion.swift`), and the
     ones the helper found stale (`RestingPlacement.swift:64-76`, `CEFHostView.swift:545-551`) or the author did
-    (`TerminalSurfaceView+FrameOwner.swift:116-124`: "a split's, close's or zoom's grid goes at its landing").
+    (`TerminalSurfaceView+FrameOwner.swift:116-124`: "a split's, close's or zoom's grid goes at its landing";
+    `TerminalSurfaceView.swift:523-535` says the same, as the reviewer found).
 
 ## 7. Work plan: one owner per motion
 
