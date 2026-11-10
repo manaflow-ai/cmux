@@ -77,10 +77,31 @@ export type Step = {
   concurrent?: boolean;
 };
 
-export type ActorSpec = { name: string; team_role?: "owner" | "admin" | "member" | "billing" | "guest" | null };
+/**
+ * `fixture` (default): a signed-in account the fixtures make, with its own HOME. `anon`: no account and no token (usage
+ * errors). `app`: the person signed in to the tagged app (CMUX_TAG); its verbs go to that app's socket or this
+ * computer's link, as that person (one per run, never a fixture).
+ */
+export type ActorKind = "fixture" | "anon" | "app";
+export type ActorSpec = { name: string; team_role?: "owner" | "admin" | "member" | "billing" | "guest" | null; kind?: ActorKind };
 
 /** What a scenario needs from the run; a missing need skips the scenario with the reason. */
-export type Need = "fixtures.mutate" | "machine" | "gateway" | "stub" | "cmux";
+export type Need =
+  | "fixtures.mutate"
+  | "machine"
+  | "gateway"
+  | "stub"
+  | "cmux"
+  /** A tagged app answers on its socket (CMUX_TAG or --app-socket), and --cmux is a CLI that has the app's verbs. */
+  | "app"
+  /** --app-session KEY: a team Cloud session of the app's team this run may follow, archive and reassign (back). */
+  | "app.session"
+  /** --app-tab TAB: a Cloud chat tab in the tagged app to transfer to this Mac. */
+  | "app.tab"
+  /** --link-host ID: a Cloud machine this computer's link reaches (`cmux link chat`), as the app's person. */
+  | "link"
+  /** Each actor its own signed-in cmux link (a member steering, a guest held): this runner makes none. */
+  | "link.actors";
 
 export type Scenario = {
   name: string;

@@ -11,10 +11,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Every actor name means one role in the whole catalogue (the run provisions it once). */
 export function actorRoles(scenarios: Scenario[]): Map<string, ActorSpec["team_role"]> {
   const roles = new Map<string, ActorSpec["team_role"]>();
+  const kinds = new Map<string, string>();
   for (const s of scenarios) {
     for (const a of s.actors) {
       const had = roles.get(a.name);
       if (roles.has(a.name) && had !== (a.team_role ?? null)) throw new Error(`actor ${a.name} is ${had ?? "no member"} in one scenario and ${a.team_role ?? "no member"} in ${s.name}`);
+      const kind = a.kind ?? "fixture";
+      if (kinds.has(a.name) && kinds.get(a.name) !== kind) throw new Error(`actor ${a.name} is a ${kinds.get(a.name)} actor in one scenario and a ${kind} actor in ${s.name}`);
+      kinds.set(a.name, kind);
       roles.set(a.name, a.team_role ?? null);
     }
   }
@@ -29,10 +33,16 @@ export function lintScenarios(scenarios: Scenario[], actions: Record<string, Act
     if (names.has(s.name)) out.push(`${s.name}: named twice`);
     names.add(s.name);
     const actors = new Set(s.actors.map((a) => a.name));
+    const kindOf = new Map(s.actors.map((a) => [a.name, a.kind ?? "fixture"]));
     for (const [i, st] of [...s.steps, ...(s.finally ?? [])].entries()) {
-      if (!actions[st.action]) out.push(`${s.name} step ${i}: no action ${st.action}`);
+      const def = actions[st.action];
+      if (!def) out.push(`${s.name} step ${i}: no action ${st.action}`);
       if (st.actor !== "harness" && !actors.has(st.actor)) out.push(`${s.name} step ${i}: actor ${st.actor} is not declared`);
+      // An app verb answers as the app's signed-in person: no other actor can run it.
+      if (def?.on === "app" && kindOf.get(st.actor) !== "app") out.push(`${s.name} step ${i}: ${st.action} needs the app actor (it runs in the tagged app)`);
+      if (def?.on === "app" && !(s.needs ?? []).includes("app")) out.push(`${s.name}: runs ${st.action} but does not need app`);
     }
+    for (const a of s.actors) if ((a.kind ?? "fixture") !== "fixture" && a.team_role) out.push(`${s.name}: ${a.kind} actor ${a.name} has no team role`);
     if (!s.covers.length) out.push(`${s.name}: covers nothing`);
     if (s.actors.some((a) => a.team_role && a.team_role !== "owner") && !s.actors.some((a) => a.team_role === "owner")) out.push(`${s.name}: has team members but no owner`);
   }
@@ -60,6 +70,17 @@ export type Abilities = { [K in Need]: boolean | string };
 export async function provision(ctx: RunCtx, spec: ActorSpec): Promise<Actor> {
   const existing = ctx.actors.get(spec.name);
   if (existing) return existing;
+  const kind = spec.kind ?? "fixture";
+  if (kind !== "fixture") {
+    const actor = new Actor(spec, ctx.dir, ctx.api);
+    if (kind === "app") {
+      if (!ctx.app) throw new Error("app.unavailable: no tagged app for the app actor");
+      actor.app = ctx.app;
+    }
+    ctx.actors.set(spec.name, actor);
+    ctx.vars[spec.name] = {};
+    return actor;
+  }
   if (!ctx.fixtures) throw new Error("no fixtures provider");
   const actor = new Actor(spec, ctx.dir, ctx.api);
   const u = await ctx.fixtures.user(spec.name);

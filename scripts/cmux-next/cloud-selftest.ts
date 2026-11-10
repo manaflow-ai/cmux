@@ -6,6 +6,8 @@
  *   bun scripts/cmux-next/cloud-selftest.ts list [--json]
  *   bun scripts/cmux-next/cloud-selftest.ts run --backend dev --fixtures stack --credentials ~/.secrets/cmuxterm-dev.env \
  *       --cmux "$(command -v cmux)" [--scenario team.list,team.role_matrix | --tag fast | all] [--out DIR] [--json]
+ *   CMUX_TAG=<tag> bun scripts/cmux-next/cloud-selftest.ts run --cmux <tag's bin/cmux> --tag app [--app-session KEY]
+ *       [--app-tab TAB] [--link-host ID] ...
  *   bun scripts/cmux-next/cloud-selftest.ts run --backend preview-36050 --fixtures worker   # DEV_FIXTURES_TOKEN
  *   bun scripts/cmux-next/cloud-selftest.ts run --backend local --fixtures worker           # wrangler dev, ENVIRONMENT=local
  *
@@ -21,6 +23,12 @@
  * (CMUX_SELFTEST_ACCOUNTS: a JSON file {actor: {email, password}}, read-only). Secrets come from the environment or a
  * KEY=value --credentials file and are never printed.
  *
+ * App verbs (team sessions, follow, reassign, copy link, groups, transfer to this Mac) answer through a tagged app's
+ * socket as the person signed in to it: CMUX_TAG=<tag> (or --app-socket PATH) with --cmux that app's bin/cmux. Their
+ * scenarios SKIP with the reason when no app answers `cmux app ping`. --app-session KEY names a team session the run may
+ * follow, archive and reassign (each change undone); --app-tab TAB a Cloud chat tab to transfer to this Mac;
+ * --link-host ID a Cloud machine this computer's link reaches (`cmux link chat`, as the app's person).
+ *
  * --no-machines skips every scenario that makes a Cloud machine. --driver cli|api forces one transport (auto: the CLI
  * verb when present). --out DIR writes journey.json (every step, its transport, code and latency) and summary.md.
  * Exit 0 when no scenario failed (PENDING and SKIP do not fail; --fail-on-pending makes PENDING fail).
@@ -31,9 +39,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { readEnvFile, resolveBackend, scrub } from "./cloud-journey";
 import { ACTIONS, type Driver, type RunCtx } from "./cloud-selftest/actions";
-import { verbExists } from "./cloud-selftest/actors";
+import { findApp, verbExists } from "./cloud-selftest/actors";
 import { writeReport, type Report, type Scenario } from "./cloud-selftest/engine";
 import { startLocalStub } from "./cloud-selftest/faults";
 import { accountFixtures, stackFixtures, workerFixtures, type Fixtures } from "./cloud-selftest/fixtures";
@@ -107,7 +116,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const cmux = arg(argv, "--cmux") ?? null;
   const driver = (arg(argv, "--driver") ?? "auto") as Driver;
-  const ctx: RunCtx = { cmux, driver, api: backend.api, run, dir, actors: new Map(), vars: { run }, fixtures, users: new Map(), team: null, stub: null, gateways: new Map(), secrets, machines: new Set() };
+  // The tagged app: its socket answers `cmux app ping` (the CLI's own route to the app), else the reason.
+  const app = !cmux
+    ? "no --cmux (a tagged app's bin/cmux)"
+    : findApp(arg(argv, "--app-tag") ?? process.env.CMUX_TAG, arg(argv, "--app-socket"), process.env.HOME ?? homedir(), (t) =>
+        spawnSync(cmux, ["--json", "app", "ping"], { env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? homedir(), ...t.env }, encoding: "utf8", timeout: 15_000 }).status === 0,
+      );
+  const ctx: RunCtx = { cmux, driver, api: backend.api, run, dir, actors: new Map(), vars: { run }, fixtures, users: new Map(), team: null, stub: null, gateways: new Map(), secrets, machines: new Set(), app: typeof app === "string" ? null : app };
+  const given = (flag: string, name: string) => {
+    const v = arg(argv, flag);
+    if (v) ctx.vars[name] = v;
+    return v;
+  };
+  const appSession = given("--app-session", "app_session");
+  const appTab = given("--app-tab", "app_tab");
+  const linkHost = given("--link-host", "link_host");
+  ctx.vars.transfer_dir = path.join(dir, `transfer-${run}`);
   const keyfile = path.join(dir, "team-key");
   writeFileSync(keyfile, `sk-ant-api03-selftest-${randomBytes(12).toString("hex")}`, { mode: 0o600 });
   secrets.push(readFileSync(keyfile, "utf8"));
@@ -119,6 +143,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     gateway: !cmux ? "no --cmux" : verbExists(cmux, ["inference", "gateway"]) || "this cmux has no `inference gateway`",
     stub: python || "no python3 for the model stub",
     cmux: !!cmux || "no --cmux",
+    app: typeof app === "string" ? app : true,
+    "app.session": !!appSession || "no --app-session KEY (a team session this run may follow, archive and reassign back)",
+    "app.tab": !!appTab || "no --app-tab TAB (a Cloud chat tab in the tagged app to transfer to this Mac)",
+    link: !linkHost ? "no --link-host ID (a Cloud machine this computer's link reaches)" : typeof app === "string" ? `the link is the app's person's: ${app}` : true,
+    "link.actors": "each actor needs its own signed-in cmux link (a member's or guest's Mac); this runner provisions headless accounts only",
   };
   let chosen: Scenario[];
   try {
@@ -127,7 +156,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(String((e as Error).message));
     return 2;
   }
-  const report: Report = { backend: { name: backend.name, api: backend.api }, started_at: new Date().toISOString(), meta: { run, fixtures: fixtures.kind, driver, cmux: cmux ?? "(none)" }, scenarios: [] };
+  const report: Report = { backend: { name: backend.name, api: backend.api }, started_at: new Date().toISOString(), meta: { run, fixtures: fixtures.kind, driver, cmux: cmux ?? "(none)", app: ctx.app ? ctx.app.tag : String(app) }, scenarios: [] };
   const cleanup = async () => {
     for (const g of ctx.gateways.values()) await g.stop().catch(() => undefined);
     ctx.gateways.clear();

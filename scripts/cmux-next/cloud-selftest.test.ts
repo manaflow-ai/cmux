@@ -1,15 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { select, main } from "./cloud-selftest";
 import { ACTIONS, resolve, turnErrorCode, type ActionDef, type RunCtx } from "./cloud-selftest/actions";
-import { Actor, apiResult, cliErrorCode, cliJson, helpNamesVerb } from "./cloud-selftest/actors";
+import { Actor, apiResult, cliErrorCode, cliJson, findApp, helpNamesVerb, tagSlug } from "./cloud-selftest/actors";
 import { interpolate, judge, mismatch, scenarioOutcome, writeReport, type Scenario } from "./cloud-selftest/engine";
 import { startLocalStub } from "./cloud-selftest/faults";
 import { cmuxTeamId, cmuxUserId, selftestEmail, stackFixtures, workerFixtures, type Fixtures, type FixtureTeam, type FixtureUser } from "./cloud-selftest/fixtures";
 import { actorRoles, lintScenarios, pendingLanes, runScenario, type Abilities } from "./cloud-selftest/runner";
 import { SCENARIOS } from "./cloud-selftest/scenarios";
+import { argvRuns, isOffered, linkChatVerbs, offeredVerbs, usageCommands } from "./cloud-selftest/verbs";
 import { STACK } from "./cloud-journey";
 
 const tmp = mkdtempSync(path.join(tmpdir(), "selftest-test-"));
@@ -41,19 +42,31 @@ describe("catalogue", () => {
       "owner offline / Mac asleep", "VM asleep or waking", "VM restarted mid-turn", "two people prompting at once",
       "member removed mid-session (access revoked live)", "guest vs member vs admin vs non-member", "expired/revoked tokens",
       "gateway offline", "gateway reconnecting", "two gateways for one owner", "provider rate-limit and auth errors surfaced with clear copy",
-      "reassigning while a turn runs", "following then losing access", "transfer while a turn is running", "large transcripts",
+      "reassign", "follow / unfollow", "transfer to this Mac", "archive", "large transcripts",
       "network drop and resume without losing or duplicating messages", "idempotent retries", "login-free VM (no credential files on the VM)",
-      "Cloud chat share", "teammate attach + steer", "team list", "links", "team shared key path",
+      "Cloud chat share", "teammate attach + steer", "team list", "links", "team shared key path", "gateway mode (team and personal)", "stable error codes",
     ]) expect(covered.has(want)).toBe(true);
   });
 
-  test("lanes: shared chats wait on C, follow and reassign on D, team keys on E; the team list runs today on its route", () => {
+  test("lanes: link chats are C's verbs, team sessions D's (the app's), team keys E's, machine auth A's; the team list is a route", () => {
     const lanes = (n: string) => pendingLanes(SCENARIOS.find((s) => s.name === n)!);
-    expect(lanes("share.cloud_chat_guest")).toEqual(["C"]);
-    expect(lanes("chat.reassign_transfer_mid_turn")).toEqual(["C", "D"]);
+    expect(lanes("share.guest_held")).toEqual(["C"]);
+    expect(lanes("link.chat_owner")).toEqual(["C"]);
+    expect(lanes("app.team_read")).toEqual(["D"]);
+    expect(lanes("app.transfer_local")).toEqual(["D"]);
     expect(lanes("team_keys.shared_path")).toEqual(["E"]);
     expect(lanes("team.list")).toEqual([]);
     expect(lanes("vm.login_free")).toEqual(["A"]);
+  });
+
+  test("an app verb runs only as the app actor, in a scenario that needs the app", () => {
+    const bad: Scenario[] = [
+      { name: "c", summary: "", covers: ["x"], tags: [], actors: [{ name: "owner", team_role: "owner" }], needs: ["app"], steps: [{ actor: "owner", action: "app.follow" }] },
+      { name: "d", summary: "", covers: ["x"], tags: [], actors: [{ name: "app", team_role: null, kind: "app" }], steps: [{ actor: "app", action: "app.team_members" }] },
+    ];
+    const problems = lintScenarios(bad);
+    expect(problems).toContain("c step 0: app.follow needs the app actor (it runs in the tagged app)");
+    expect(problems).toContain("d: runs app.team_members but does not need app");
   });
 
   test("select by names or tag; an unknown name is refused", () => {
@@ -108,6 +121,10 @@ describe("matching", () => {
     expect(cliErrorCode({ error: { code: "share.revoked" } }, "", 1)).toBe("share.revoked");
     expect(cliErrorCode(null, "error: cloud.app_not_running: start cmux", 1)).toBe("cloud.app_not_running");
     expect(cliErrorCode(null, "no", 3)).toBe("cli.exit_3");
+    // `cmux link chat`'s refusal, and a local --json refusal on stderr (team-keys, machine-auth: app::failure).
+    expect(cliErrorCode({ ok: false, error_code: "agent_session.owner_only", error: "only the owner" }, "", 1)).toBe("agent_session.owner_only");
+    expect(cliErrorCode(null, '{"code":"usage.invalid","message":"cmux: the agent is claude or codex, not gemini"}\n', 2)).toBe("usage.invalid");
+    expect(cliErrorCode(null, '{"code":"team.not_member","details":{},"message":"cmux: auth.forbidden? no","retryable":false}', 1)).toBe("team.not_member");
     expect(turnErrorCode('{"kind":"turn_error","error":"inference.gateway_offline: Your model gateway is offline"}')).toBe("inference.gateway_offline");
     expect(turnErrorCode("API Error: 429 rate_limit_error")).toBe("provider.rate_limited");
     expect(turnErrorCode("401 authentication_error")).toBe("provider.auth");
@@ -193,7 +210,10 @@ function fakeApi() {
 const ctxFor = (api: string, fixtures: Fixtures, cmux: string | null = null, driver: RunCtx["driver"] = "auto"): RunCtx => ({
   cmux, driver, api, run: "t1", dir: mkdtempSync(path.join(tmp, "run-")), actors: new Map(), vars: { run: "t1" }, fixtures, users: new Map(), team: null, stub: null, gateways: new Map(), secrets: [], machines: new Set(),
 });
-const ALL: Abilities = { "fixtures.mutate": true, machine: "--no-machines", gateway: "no", stub: "no", cmux: true };
+const ALL: Abilities = {
+  "fixtures.mutate": true, machine: "--no-machines", gateway: "no", stub: "no", cmux: true,
+  app: "no tagged app: set CMUX_TAG=<tag>", "app.session": "no --app-session", "app.tab": "no --app-tab", link: "no --link-host", "link.actors": "no links",
+};
 
 describe("runner against a fake API", () => {
   let api: ReturnType<typeof fakeApi>;
@@ -226,8 +246,8 @@ describe("runner against a fake API", () => {
     for (const name of ["team.list", "team.role_matrix", "team.member_removed_live", "identity.isolated"]) {
       const rec = await runScenario(SCENARIOS.find((s) => s.name === name)!, ctx, ALL);
       expect({ name, outcome: rec.outcome, reason: rec.reason }).toEqual({ name, outcome: "pass", reason: "" });
-      // The team routes run today, and the record says the CLI verb is still to come.
-      if (name === "team.list") expect(rec.steps[0]!.detail).toContain("PENDING-D");
+      // The team list is the route itself (no CLI verb lists a headless account's teams): no PENDING note.
+      if (name === "team.list") expect({ transport: rec.steps[0]!.transport, detail: rec.steps[0]!.detail }).toEqual({ transport: "api", detail: "ok" });
     }
     const homes = new Set([...ctx.actors.values()].map((a) => a.home));
     expect(homes.size).toBe(ctx.actors.size);
@@ -242,7 +262,8 @@ describe("runner against a fake API", () => {
     expect({ outcome: keys.outcome, reason: keys.reason }).toMatchObject({ outcome: "pending" });
     expect(keys.pending_lanes).toEqual(["E"]);
     expect(keys.steps[0]!.detail).toMatch(/^PENDING-E/);
-    expect(keys.steps.slice(1).every((s) => s.outcome === "skip")).toBe(true);
+    const main = SCENARIOS.find((s) => s.name === "team_keys.shared_path")!.steps.length;
+    expect(keys.steps.slice(1, main).every((s) => s.outcome === "skip")).toBe(true);
   });
 
   test("a failing expectation fails the scenario and stops it; a within_ms wait converges", async () => {
@@ -272,9 +293,10 @@ describe("runner against a fake API", () => {
     const bin = path.join(tmp, "fake-cmux");
     writeFileSync(bin, `#!/bin/sh
 case "$*" in
-  "cloud team list --help") echo "usage: cmux cloud team list [--json]"; exit 0 ;;
+  "cloud team-keys status --help") echo "usage: cmux cloud team-keys status [--json]"; exit 0 ;;
   *--help) echo "unknown command" >&2; exit 2 ;;
-  "--json cloud team list") printf '{"teams":[{"id":"%s","role":"via-cli"}],"actor":"%s","home":"%s","surface":"%s","token":"%s"}\\n' "$CMUX_CLOUD_TEAM" "$CMUX_SELFTEST_ACTOR" "$HOME" "\${CMUX_SURFACE_ID:-}" "$CMUX_CLOUD_ACCESS_TOKEN" ;;
+  "--json cloud team-keys status") printf '{"team":"%s","can_manage":false,"agents":[],"actor":"%s","home":"%s","surface":"%s","token":"%s"}\\n' "$CMUX_CLOUD_TEAM" "$CMUX_SELFTEST_ACTOR" "$HOME" "\${CMUX_SURFACE_ID:-}" "$CMUX_CLOUD_ACCESS_TOKEN" ;;
+  "--json cloud team-keys status --team team_other") echo '{"code":"team.not_member","message":"cmux: not a member"}' >&2; exit 1 ;;
   *) echo '{"ok":false,"error":{"code":"fake.unknown"}}'; exit 1 ;;
 esac
 `);
@@ -284,14 +306,18 @@ esac
       const ctx = ctxFor(api.url, api.fixtures, bin);
       const s: Scenario = {
         name: "t.cli", summary: "", covers: ["x"], tags: [], actors: [{ name: "owner", team_role: "owner" }, { name: "member", team_role: "member" }],
-        steps: [{ actor: "member", action: "team.list", expect: { json: { teams: [{ id: "team_fake", role: "via-cli" }], actor: "member", surface: "" } } }],
+        steps: [
+          { actor: "member", action: "team_keys.status", expect: { json: { team: "team_fake", can_manage: false, actor: "member", surface: "" } } },
+          // A refusal printed as JSON on stderr keeps its code.
+          { actor: "member", action: "team_keys.status", args: { team: "team_other" }, expect: { error: "team.not_member" } },
+        ],
       };
       const rec = await runScenario(s, ctx, ALL);
-      expect(rec.outcome).toBe("pass");
+      expect({ outcome: rec.outcome, reason: rec.reason }).toEqual({ outcome: "pass", reason: "" });
       expect(rec.steps[0]!.transport).toBe("cli");
-      // --driver api forces the route even where the verb exists.
-      const forced = await runScenario({ ...s, steps: [{ actor: "member", action: "team.list", expect: { json: { teams: { $contains: { role: "member" } } } } }] }, ctxFor(api.url, api.fixtures, bin, "api"), ALL);
-      expect(forced.steps.at(-1)!.transport).toBe("api");
+      // --driver api has no route for a CLI-only verb: PENDING, never a pass.
+      const forced = await runScenario({ ...s, steps: [{ actor: "member", action: "team_keys.status" }] }, ctxFor(api.url, api.fixtures, bin, "api"), ALL);
+      expect(forced.outcome).toBe("pending");
     } finally {
       delete process.env.CMUX_SURFACE_ID;
     }
@@ -305,7 +331,7 @@ esac
     expect(resolve(both, {}, ctx, actor, () => false).kind).toBe("api");
     expect(resolve({ ...both, api: undefined }, {}, ctx, actor, () => false)).toMatchObject({ kind: "pending", lane: "D" });
     expect(resolve({ ...both, lane: "base", api: undefined }, {}, { ...ctx, cmux: null }, actor, () => false).kind).toBe("skip");
-    expect(resolve(ACTIONS["share.create"]!, {}, ctx, actor, () => false)).toMatchObject({ kind: "pending", lane: "C" });
+    expect(resolve(ACTIONS["link.chat_send"]!, {}, ctx, actor, () => false)).toMatchObject({ kind: "pending", lane: "C" });
   });
 });
 
@@ -431,6 +457,85 @@ describe("entry", () => {
     }
     const out = JSON.parse(lines.join("\n"));
     expect(out.scenarios.length).toBe(SCENARIOS.length);
-    expect(out.actions["team.list"]).toMatchObject({ lane: "D", verb: "cmux cloud team list", route_today: true });
+    expect(out.actions["team.list"]).toMatchObject({ lane: "base", verb: null, route_today: true });
+    expect(out.actions["team_keys.status"]).toMatchObject({ lane: "E", verb: "cmux cloud team-keys status", route_today: false });
+    expect(out.actions["app.team_sessions"]).toMatchObject({ verb: "cmux cloud team-sessions" });
+  });
+});
+
+describe("drift guard: every verb a scenario drives is one cmux-tui offers", () => {
+  const offered = offeredVerbs();
+
+  test("the offered list is read from the Rust sources (not empty, and it has the multiplayer verbs)", () => {
+    for (const v of ["cloud team-sessions", "cloud team-session", "cloud team-members", "cloud group-members", "cloud group-member-set", "cloud group-member-remove",
+      "cloud follow", "cloud unfollow", "cloud reassign", "cloud copy-session-link", "cloud archive-session", "cloud transfer-local",
+      "cloud team-keys status", "cloud machine-auth", "inference gateway status", "inference gateway mode", "inference route",
+      "link chat list", "link chat read", "link chat send", "link chat approve", "link chat decline", "machine access exec", "app ping"]) {
+      expect({ v, offered: isOffered(v.split(" "), offered) }).toEqual({ v, offered: true });
+    }
+  });
+
+  test("every action's verb and every raw command line in a scenario is offered", () => {
+    const missing: string[] = [];
+    for (const [name, def] of Object.entries(ACTIONS)) if (def.verb && !isOffered(def.verb, offered)) missing.push(`${name}: cmux ${def.verb.join(" ")}`);
+    for (const s of SCENARIOS)
+      for (const st of [...s.steps, ...(s.finally ?? [])])
+        if (st.action === "cli.raw") {
+          const verb = String(st.args!.verb ?? "");
+          if (!verb || !argvRuns(st.args!.argv as string[], verb)) missing.push(`${s.name}: a raw line names no verb it runs`);
+          else if (!isOffered(verb.split(" "), offered)) missing.push(`${s.name}: cmux ${verb}`);
+        }
+    expect(missing).toEqual([]);
+  });
+
+  test("it bites: the verbs the runner drove before the lanes landed are not offered", () => {
+    for (const v of ["cloud team sessions", "cloud team members", "cloud team list", "cloud share chat", "cloud share approve", "cloud share join", "cloud share list",
+      "cloud share revoke", "cloud team-keys clear", "cloud presence", "cloud events", "cloud attach", "cloud send", "cloud link"]) {
+      expect({ v, offered: isOffered(v.split(" "), offered) }).toEqual({ v, offered: false });
+    }
+  });
+
+  test("the readers: usage lines stop at a flag or placeholder; link chat verbs are its parse arms", () => {
+    expect(usageCommands("usage: cmux cloud team-keys set claude|codex [--kind api_key|oauth]\n  cmux inference route --machine vm_...")).toEqual(["cloud team-keys set claude", "inference route"]);
+    expect(linkChatVerbs('    let verb = match verb.as_str() {\n        "list" => Verb::List,\n        "send" => {\n        "--steer" => steer = true,\n        other => x,')).toEqual(["link chat list", "link chat send"]);
+    expect(argvRuns(["--json", "cloud", "team-keys", "set", "gemini"], "cloud team-keys set")).toBe(true);
+    expect(argvRuns(["--json", "cloud", "team-keys"], "cloud team-keys set")).toBe(false);
+    expect(isOffered(["cloud", "team-keys", "set"], new Set(["cloud team-keys set claude"]))).toBe(true);
+    expect(isOffered(["cloud", "team"], new Set(["cloud team-keys status"]))).toBe(false);
+  });
+});
+
+describe("the app actor", () => {
+  test("no tag is a reason; a tag with no socket is a reason; a live socket that answers ping is the target", async () => {
+    const home = mkdtempSync(path.join(tmp, "home-"));
+    expect(findApp(undefined, undefined, home, () => true)).toContain("no tagged app");
+    expect(findApp("selftest-none-x", undefined, home, () => true)).toContain("no app socket for tag selftest-none-x");
+    const dir = path.join(home, ".local/state/cmux");
+    mkdirSync(dir, { recursive: true });
+    const sock = path.join(dir, `cmux-debug-${tagSlug("My_Tag")}.sock`);
+    const server = Bun.listen({ unix: sock, socket: { data() {} } });
+    try {
+      expect(findApp("My_Tag", undefined, home, () => false)).toContain("does not answer");
+      const app = findApp("My_Tag", undefined, home, () => true);
+      expect(app).toMatchObject({ tag: "my-tag", socket: sock, env: { CMUX_SOCKET_PATH: sock, CMUX_TAG: "my-tag", CMUX_BUNDLE_ID: "com.cmuxterm.app.debug.my.tag" } });
+      // Its CLI calls get the app's socket and the caller's HOME (the link lives there), never a token.
+      const actor = new Actor({ name: "app", kind: "app" }, tmp, "https://api.example");
+      actor.app = app as any;
+      const env = actor.env({ PATH: "/bin", HOME: "/Users/me", CMUX_SURFACE_ID: "s", CMUX_CLOUD_ACCESS_TOKEN: "leak" } as any);
+      expect(env).toMatchObject({ HOME: "/Users/me", CMUX_SOCKET_PATH: sock });
+      expect(env.CMUX_CLOUD_ACCESS_TOKEN).toBeUndefined();
+      expect(env.CMUX_SURFACE_ID).toBeUndefined();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("with no app every app and link scenario is SKIP with its reason, never a pass", async () => {
+    const ctx = ctxFor("http://127.0.0.1:9", null as any, "/nonexistent/cmux");
+    for (const s of SCENARIOS.filter((x) => (x.needs ?? []).some((n) => n.startsWith("app") || n.startsWith("link")))) {
+      const rec = await runScenario(s, ctx, ALL);
+      expect({ name: s.name, outcome: rec.outcome }).toEqual({ name: s.name, outcome: "skip" });
+      expect(rec.reason).toMatch(/app: no tagged app|link\.actors: no links|link: no --link-host/);
+    }
   });
 });

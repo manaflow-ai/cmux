@@ -1,16 +1,18 @@
 /**
- * The action catalogue: every user action and observable state of Cloud multiplayer, each mapped to the `cmux` verb
- * that does it (with --json) and, while that verb does not exist yet, to the backend route the verb calls. A step's
- * action runs through the first of: the CLI verb (if this cmux has it), the route (transport api, the verb recorded as
- * still to come), or nothing (PENDING on the lane that adds it). Harness actions (fixtures, the stub, local gateways)
- * are this runner's own.
+ * The action catalogue: every user action and observable state of Cloud multiplayer, each mapped to the shipped `cmux`
+ * verb that does it (with --json) or, where no verb exists for it, the backend route a client calls. A step's action
+ * runs through the first of: the CLI verb (if this cmux has it), the route (transport api), or nothing (PENDING: this
+ * cmux lacks the verb). Harness actions (fixtures, the stub, local gateways) are this runner's own.
  *
- * Verb names for lanes A-E follow CONTEXT.md UPDATE 4 and are matched to the lane branches as they land; a renamed
- * verb is a one-line change here, never in a scenario.
+ * Verbs are the ones cmux-tui offers (cli/cloud_help.rs, cli/cloud_team_keys.rs, cli/cloud_machine_auth.rs,
+ * cli/inference_gateway_admin.rs, link/chat_cli.rs, cli/cloud_client_session.rs); cloud-selftest.test.ts fails when one
+ * here is not among them. `on: "app"` verbs are app actions (the action catalog's `cliName`): they answer through the
+ * tagged app's socket as its signed-in person, so only the `app` actor runs them. `cmux link chat` dials through this
+ * computer's link, as the person its registration names.
  */
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { Actor } from "./actors";
+import type { Actor, AppTarget } from "./actors";
 import { runCli, verbExists } from "./actors";
 import type { ActionResult, Lane } from "./engine";
 import { refreshSession, type FixtureTeam, type FixtureUser, type Fixtures, type Role } from "./fixtures";
@@ -35,6 +37,8 @@ export type RunCtx = {
   secrets: string[];
   /** Machines this run made, deleted at the end by their exact ids. */
   machines: Set<string>;
+  /** The tagged app the `app` actor drives, when one answers. */
+  app?: AppTarget | null;
 };
 
 type Args = Record<string, any>;
@@ -44,6 +48,8 @@ export type ActionDef = {
   summary: string;
   /** The verb's words, for `cmux WORDS --help` (does this cmux have it?). */
   verb?: string[];
+  /** `app`: an app action (the app's socket, as its person); only the `app` actor runs it. */
+  on?: "app";
   cli?: (a: Args, ctx: RunCtx, actor: Actor) => string[];
   /** The route the verb calls, used while the verb is missing (transport api). */
   api?: (a: Args, ctx: RunCtx, actor: Actor) => Promise<ActionResult>;
@@ -200,7 +206,7 @@ print("@@json " + json.dumps({"ok": True, "files": files, "real_env": real, "aut
 PY`;
 
 export const ACTIONS: Record<string, ActionDef> = {
-  // ---- identity and team (base routes; CLI verbs from lane D) ----
+  // ---- identity and team: the routes a client calls (no CLI verb lists teams for a headless account) ----
   "account.ensure": {
     lane: "base",
     summary: "create or read the actor's cmux account (user.ensure)",
@@ -211,24 +217,14 @@ export const ACTIONS: Record<string, ActionDef> = {
     },
   },
   "team.list": {
-    lane: "D",
+    lane: "base",
     summary: "the teams this actor may act in, with its role (user.teams.list)",
-    verb: ["cloud", "team", "list"],
-    cli: () => ["--json", "cloud", "team", "list"],
     api: (_a, _ctx, actor) => actor.read("user.teams.list", {}, { team: null }),
   },
   "team.members": {
-    lane: "D",
-    summary: "the members of the actor's team (team.members.list)",
-    verb: ["cloud", "team", "members"],
-    cli: (a) => ["--json", "cloud", "team", "members", ...(a.team ? ["--team", a.team] : [])],
+    lane: "base",
+    summary: "the members of the actor's team (team.members.list; `cmux cloud team-members` is the app's, see app.team_members)",
     api: (a, _ctx, actor) => actor.read("team.members.list", { limit: 100 }, { team: a.team ?? actor.team }),
-  },
-  "team.sessions": {
-    lane: "D",
-    summary: "the team's Cloud chats a member may open (owner, machine, session, live state)",
-    verb: ["cloud", "team", "sessions"],
-    cli: (a) => ["--json", "cloud", "team", "sessions", ...(a.team ? ["--team", a.team] : [])],
   },
   "auth.probe": {
     lane: "base",
@@ -404,46 +400,95 @@ export const ACTIONS: Record<string, ActionDef> = {
     },
   },
 
-  // ---- shared Cloud chats (lane C) ----
-  "share.create": {
+  // ---- shared Cloud chats over the link (lane C): `cmux link chat`, one JSON object per verb ----
+  "link.chat_list": {
     lane: "C",
-    summary: "share a Cloud chat (cloud:<team>/<vm>/<session>): a guest link or a member invite",
-    verb: ["cloud", "share", "chat"],
-    cli: (a) => ["--json", "cloud", "share", "chat", "--session", a.session, ...(a.role ? ["--role", a.role] : [])],
+    summary: "the machine's chats this person's role reaches: {team, machine, chats: [{surface, session, harness, cloud_id}]}",
+    verb: ["link", "chat", "list"],
+    cli: (a) => ["link", "chat", "list", "--host", String(a.host), "--json", ...(a.name ? ["--name", String(a.name)] : [])],
   },
-  "share.list": { lane: "C", summary: "the chat's links and who joined", verb: ["cloud", "share", "list"], cli: (a) => ["--json", "cloud", "share", "list", "--session", a.session] },
-  "share.revoke": { lane: "C", summary: "revoke a link (joined guests are dropped)", verb: ["cloud", "share", "revoke"], cli: (a) => ["--json", "cloud", "share", "revoke", a.share_id] },
-  "share.join": { lane: "C", summary: "open a share link as this actor (guest)", verb: ["cloud", "share", "join"], cli: (a) => ["--json", "cloud", "share", "join", a.link] },
-  "chat.attach": {
+  "link.chat_read": {
     lane: "C",
-    summary: "attach to a shared Cloud chat (member or owner) and read its live state: presence, typing, queue",
-    verb: ["cloud", "attach"],
-    cli: (a) => ["--json", "cloud", "attach", "--session", a.session, ...(a.since ? ["--since", String(a.since)] : []), "--once"],
+    summary: "a chat's attach page: {session, events, hasMore, lastSeq, presence?} (the transcript only for a member)",
+    verb: ["link", "chat", "read"],
+    cli: (a) => ["link", "chat", "read", "--host", String(a.host), "--surface", String(a.surface), ...(a.after_seq != null ? ["--after-seq", String(a.after_seq)] : []), ...(a.limit != null ? ["--limit", String(a.limit)] : [])],
   },
-  "chat.steer": {
+  "link.chat_send": {
     lane: "C",
-    summary: "a prompt into the shared chat as this actor: members steer the running turn, guests are held",
-    verb: ["cloud", "send"],
-    cli: (a) => ["--json", "cloud", "send", "--session", a.session, "--text", a.text, ...(a.idempotency_key ? ["--idempotency-key", a.idempotency_key] : [])],
+    summary: "a prompt as this person: {prompt_id, turn_id, queued, state: steered|queued|started, awaiting_owner} (a guest's waits for the owner)",
+    verb: ["link", "chat", "send"],
+    cli: (a) => ["link", "chat", "send", "--host", String(a.host), "--surface", String(a.surface), "--text", String(a.text), ...(a.steer ? ["--steer"] : []), ...(a.prompt_id ? ["--prompt-id", String(a.prompt_id)] : [])],
   },
-  "chat.approve": { lane: "C", summary: "the owner lets a held guest prompt in", verb: ["cloud", "share", "approve"], cli: (a) => ["--json", "cloud", "share", "approve", "--session", a.session, "--prompt", a.prompt_id] },
-  "chat.presence": { lane: "C", summary: "who is in the chat now (presence, typing)", verb: ["cloud", "presence"], cli: (a) => ["--json", "cloud", "presence", "--session", a.session] },
-  "chat.remote_events": {
+  "link.chat_approve": {
     lane: "C",
-    summary: "the shared chat's events from a cursor, as an attached member sees them (no loss, no duplicate)",
-    verb: ["cloud", "events"],
-    cli: (a) => ["--json", "cloud", "events", "--session", a.session, ...(a.since ? ["--since", String(a.since)] : [])],
+    summary: "the owner lets a held prompt in (agent_session.owner_only for anyone else)",
+    verb: ["link", "chat", "approve"],
+    cli: (a) => ["link", "chat", "approve", "--host", String(a.host), "--surface", String(a.surface), "--prompt-id", String(a.prompt_id), "--turn-id", String(a.turn_id), "--revision", String(a.revision ?? 0)],
+  },
+  "link.chat_decline": {
+    lane: "C",
+    summary: "the owner drops a held prompt",
+    verb: ["link", "chat", "decline"],
+    cli: (a) => ["link", "chat", "decline", "--host", String(a.host), "--surface", String(a.surface), "--prompt-id", String(a.prompt_id)],
   },
 
-  // ---- team chats: follow, reassign, transfer, links (lane D) ----
-  "chat.follow": { lane: "D", summary: "follow a teammate's Cloud chat", verb: ["cloud", "follow"], cli: (a) => ["--json", "cloud", "follow", "--session", a.session, "--once"] },
-  "chat.reassign": { lane: "D", summary: "reassign a Cloud chat to another member", verb: ["cloud", "reassign"], cli: (a) => ["--json", "cloud", "reassign", "--session", a.session, "--to", a.to] },
-  "chat.transfer_local": { lane: "D", summary: "bring a Cloud chat back to this Mac", verb: ["cloud", "transfer-local"], cli: (a) => ["--json", "cloud", "transfer-local", "--session", a.session] },
-  "link.session": {
+  // ---- team Cloud sessions (lane D): app actions, as the tagged app's signed-in person ----
+  "app.ping": { lane: "base", on: "app", summary: "the tagged app answers on its socket", verb: ["app", "ping"], cli: () => ["--json", "app", "ping"] },
+  "app.team_sessions": {
     lane: "D",
-    summary: "the cmux://cloud/session/<team>/<vm>/<session> link of a chat, and what it opens",
-    verb: ["cloud", "link"],
-    cli: (a) => ["--json", "cloud", "link", ...(a.url ? ["--parse", a.url] : ["--session", a.session])],
+    on: "app",
+    summary: "the team's Cloud workspaces and chats: {team, sessions: [{key, team, vm, session, kind, owner, assignee, ...}], next_cursor}",
+    verb: ["cloud", "team-sessions"],
+    cli: (a) => ["--json", "cloud", "team-sessions", ...(a.scope ? ["--scope", String(a.scope)] : []), ...(a.by ? ["--by", String(a.by)] : []), ...(a.archived ? ["--archived", "true"] : []), ...(a.limit ? ["--limit", String(a.limit)] : []), ...(a.cursor ? ["--cursor", String(a.cursor)] : [])],
+  },
+  "app.team_session": { lane: "D", on: "app", summary: "one team Cloud session: {session}", verb: ["cloud", "team-session"], cli: (a) => ["--json", "cloud", "team-session", "--session", String(a.session)] },
+  "app.copy_link": {
+    lane: "D",
+    on: "app",
+    summary: "a session's cmux://cloud/session/<team>/<vm>/<session> link: {link, key, kind, copied} (a script's run copies nothing)",
+    verb: ["cloud", "copy-session-link"],
+    cli: (a) => ["--json", "cloud", "copy-session-link", "--session", String(a.session)],
+  },
+  "app.follow": { lane: "D", on: "app", summary: "follow a teammate's Cloud session: {session}", verb: ["cloud", "follow"], cli: (a) => ["--json", "cloud", "follow", "--session", String(a.session)] },
+  "app.unfollow": { lane: "D", on: "app", summary: "stop following it: {session}", verb: ["cloud", "unfollow"], cli: (a) => ["--json", "cloud", "unfollow", "--session", String(a.session)] },
+  "app.reassign": { lane: "D", on: "app", summary: "assign it to a member: {session}", verb: ["cloud", "reassign"], cli: (a) => ["--json", "cloud", "reassign", "--session", String(a.session), "--to", String(a.to)] },
+  "app.archive": {
+    lane: "D",
+    on: "app",
+    summary: "archive it for the team, or bring it back: {session}",
+    verb: ["cloud", "archive-session"],
+    cli: (a) => ["--json", "cloud", "archive-session", "--session", String(a.session), "--archived", String(a.archived ?? true)],
+  },
+  "app.show_team_section": { lane: "D", on: "app", summary: "the sidebar shows the Team section", verb: ["cloud", "show-team-section"], cli: () => ["--json", "cloud", "show-team-section"] },
+  "app.team_members": {
+    lane: "D",
+    on: "app",
+    summary: "the members one may reassign to: {members: [{user, name, role, you}]}",
+    verb: ["cloud", "team-members"],
+    cli: () => ["--json", "cloud", "team-members"],
+  },
+  "app.group_members": { lane: "D", on: "app", summary: "a Cloud group's members (group.members.list)", verb: ["cloud", "group-members"], cli: (a) => ["--json", "cloud", "group-members", "--group", String(a.group)] },
+  "app.group_member_set": {
+    lane: "D",
+    on: "app",
+    summary: "add a member to a Cloud group or change their role (group.members.set)",
+    verb: ["cloud", "group-member-set"],
+    cli: (a) => ["--json", "cloud", "group-member-set", "--group", String(a.group), "--user", String(a.user), "--role", String(a.role)],
+  },
+  "app.group_member_remove": {
+    lane: "D",
+    on: "app",
+    summary: "remove a member from a Cloud group (group.members.remove)",
+    verb: ["cloud", "group-member-remove"],
+    cli: (a) => ["--json", "cloud", "group-member-remove", "--group", String(a.group), "--user", String(a.user)],
+  },
+  "app.transfer_local": {
+    lane: "D",
+    on: "app",
+    summary: "Transfer to This Mac: a Cloud chat tab's folder into a new folder here (a teammate's: a copy)",
+    verb: ["cloud", "transfer-local"],
+    timeoutMs: 600_000,
+    cli: (a) => ["--json", "cloud", "transfer-local", "--target", `tab:${a.tab}`, ...(a.path ? ["--path", String(a.path)] : [])],
   },
 
   // ---- gateway (lane B) ----
@@ -451,7 +496,8 @@ export const ACTIONS: Record<string, ActionDef> = {
     lane: "B",
     summary: "the team's (or owner's) gateway mode and whether one is online",
     verb: ["inference", "gateway", "status"],
-    cli: (a) => ["--json", "inference", "gateway", "status", ...(a.personal ? ["--personal"] : [])],
+    // The verb reads no CMUX_CLOUD_TEAM: the actor's team goes in --team (else the token's own team answers).
+    cli: (a, _ctx, actor) => ["--json", "inference", "gateway", "status", ...(a.personal ? ["--personal"] : []), ...teamFlag(actor)],
     // Both answer {ok, [scope,] gateway: {mode, machine, online, kind, connected_at}}; steps match the gateway itself.
     api: (a, _ctx, actor) => actor.request("GET", gatewayRoute(a)),
     answer: (j) => j?.gateway ?? j,
@@ -460,7 +506,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     lane: "B",
     summary: "set the team's (or with personal, the owner's own) gateway mode (gateway | off)",
     verb: ["inference", "gateway", "mode"],
-    cli: (a) => ["--json", "inference", "gateway", "mode", String(a.mode), ...(a.personal ? ["--personal"] : []), ...(a.machine ? ["--gateway-machine", String(a.machine)] : [])],
+    cli: (a, _ctx, actor) => ["--json", "inference", "gateway", "mode", String(a.mode), ...(a.personal ? ["--personal"] : []), ...(a.machine ? ["--gateway-machine", String(a.machine)] : []), ...teamFlag(actor)],
     api: (a, _ctx, actor) => actor.request("PUT", gatewayRoute(a), { mode: a.mode, machine: a.machine ?? null }),
     answer: (j) => j?.gateway ?? j,
   },
@@ -468,7 +514,7 @@ export const ACTIONS: Record<string, ActionDef> = {
     lane: "B",
     summary: "which route a machine's next model call takes (team_key | owner_key | owner_gateway | team_gateway), asked from the machine",
     verb: ["inference", "route"],
-    cli: (a) => ["--json", "inference", "route", "--machine", String(a.machine), "--agent", String(a.agent ?? "claude")],
+    cli: (a, _ctx, actor) => ["--json", "inference", "route", "--machine", String(a.machine), "--agent", String(a.agent ?? "claude"), ...teamFlag(actor)],
   },
   "gateway.start": {
     lane: "base",
@@ -508,24 +554,48 @@ export const ACTIONS: Record<string, ActionDef> = {
     },
   },
 
-  // ---- team shared keys (lane E) ----
-  "team_keys.status": { lane: "E", summary: "which agents have a team shared key (never the secret)", verb: ["cloud", "team-keys", "status"], cli: () => ["--json", "cloud", "team-keys", "status"] },
+  // ---- team shared keys (lane E): `cmux cloud team-keys`, headless (CMUX_CLOUD_TEAM, CMUX_CLOUD_ACCESS_TOKEN) ----
+  "team_keys.status": {
+    lane: "E",
+    summary: "whether the team has a shared key per agent (never the secret): {team, can_manage, agents: [{agent, set, kind, generation, updated_by, hint}]}",
+    verb: ["cloud", "team-keys", "status"],
+    cli: (a) => ["--json", "cloud", "team-keys", "status", ...(a.team ? ["--team", String(a.team)] : [])],
+  },
   "team_keys.set": {
     lane: "E",
-    summary: "an admin sets the team's shared key for an agent",
+    summary: "an owner or admin sets the team's shared key for an agent (from a file, never argv): the agent's state",
     verb: ["cloud", "team-keys", "set"],
-    cli: (a) => ["--json", "cloud", "team-keys", "set", "--agent", a.agent, "--kind", a.kind ?? "api_key", "--secret-file", a.secret_file],
+    cli: (a) => ["--json", "cloud", "team-keys", "set", String(a.agent), "--kind", String(a.kind ?? "api_key"), "--secret-file", String(a.secret_file), ...(a.idempotency_key ? ["--idempotency-key", String(a.idempotency_key)] : [])],
   },
-  "team_keys.clear": { lane: "E", summary: "an admin clears it", verb: ["cloud", "team-keys", "clear"], cli: (a) => ["--json", "cloud", "team-keys", "clear", "--agent", a.agent] },
+  "team_keys.remove": {
+    lane: "E",
+    summary: "an owner or admin removes it: {agent, removed}",
+    verb: ["cloud", "team-keys", "remove"],
+    cli: (a) => ["--json", "cloud", "team-keys", "remove", String(a.agent)],
+  },
 
   // ---- VM auth (lane A) ----
   "vm.auth_status": {
     lane: "A",
-    summary: "how the machine's agents reach models (edge, placeholder keys) as the app shows it",
+    summary: "how the machine's agents reach models and whether it holds a provider login (names only): {machine_id, ok, agents, holds_credential, ...}",
     verb: ["cloud", "machine-auth"],
-    cli: (a) => ["--json", "cloud", "machine-auth", "--target", `machine:${a.machine}`],
+    timeoutMs: 120_000,
+    cli: (a) => ["--json", "cloud", "machine-auth", "--machine", String(a.machine)],
+  },
+
+  // ---- any verb with arguments as given (usage errors, no account needed) ----
+  "cli.raw": {
+    lane: "base",
+    summary: "one cmux command line as given (`verb`: the offered verb it runs, for the drift guard): a usage error answers its stable code",
+    harness: async (a, ctx, actor) => {
+      if (!ctx.cmux) return fail("cli.missing", "no cmux binary (--cmux PATH)");
+      return runCli(ctx.cmux, actor, (a.argv as unknown[]).map(String), 60_000);
+    },
   },
 };
+
+/** `--team TEAM` for a verb that reads no CMUX_CLOUD_TEAM (the inference gateway's). */
+const teamFlag = (actor: Actor) => (actor.team ? ["--team", actor.team] : []);
 
 /** A Stack-shaped JWT that expired in 2020 (unsigned garbage signature): the API must answer auth.unauthenticated. */
 export const EXPIRED_JWT = `${Buffer.from(JSON.stringify({ alg: "ES256", kid: "selftest", typ: "JWT" })).toString("base64url")}.${Buffer.from(JSON.stringify({ sub: "selftest", exp: 1577836800, iat: 1577833200, iss: "https://api.stack-auth.com/api/v1/projects/454ecd03-1db2-4050-845e-4ce5b0cd9895" })).toString("base64url")}.c2VsZnRlc3Q`;

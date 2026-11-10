@@ -3,9 +3,13 @@
  * control-socket path, so no two actors share a login, a cache or the person's running cmux. Every `cmux` call an
  * actor makes gets only this actor's environment (CMUX_CLOUD_API_URL, CMUX_CLOUD_ACCESS_TOKEN, CMUX_CLOUD_TEAM) on a
  * clean base: no CMUX_* variable of the caller (its socket, workspace or surface) leaks in.
+ *
+ * Two other kinds: `anon` (no account, no token: usage errors) and `app`, the person signed in to a tagged cmux app
+ * (CMUX_TAG): its verbs go to that app's socket (team sessions, follow, reassign, copy link, transfer to this Mac) or
+ * through this computer's link (`cmux link chat`), as that person, with the caller's HOME and nothing else of it.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync } from "node:fs";
 import path from "node:path";
 import type { ActionResult, ActorSpec } from "./engine";
 
@@ -21,11 +25,40 @@ export type Identity = {
 /** The variables a clean child gets from the caller; everything else (CMUX_*, tokens, HOME) is the actor's own. */
 const PASS_ENV = ["PATH", "LANG", "LC_ALL", "TMPDIR", "TERM", "USER", "LOGNAME", "SHELL", "TZ"];
 
+/** A tagged cmux app this run may drive (the `app` actor): its control socket and the variables its CLI reads. */
+export type AppTarget = { tag: string; socket: string; env: Record<string, string> };
+
+/** The tag's slug, as scripts/cmux-debug-cli.sh makes it. */
+export const tagSlug = (tag: string) => tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
+
+/**
+ * The tagged app's socket (scripts/cmux-debug-cli.sh: the state folder first, then the old /tmp name), or why none is
+ * reachable. `ping` answers whether the app answers there (`cmux app ping`).
+ */
+export function findApp(tag: string | undefined, explicitSocket: string | undefined, home: string, ping: (t: AppTarget) => boolean): AppTarget | string {
+  if (!tag && !explicitSocket) return "no tagged app: set CMUX_TAG=<tag> (and --cmux <that app's bin/cmux>) or --app-socket PATH";
+  const slug = tagSlug(tag ?? "selftest");
+  const candidates = explicitSocket ? [explicitSocket] : [path.join(home, ".local/state/cmux", `cmux-debug-${slug}.sock`), `/tmp/cmux-debug-${slug}.sock`];
+  const socket = candidates.find((c) => {
+    try {
+      return statSync(c).isSocket();
+    } catch {
+      return false;
+    }
+  });
+  if (!socket) return `no app socket for tag ${tag ?? "(none)"} at ${candidates.join(" or ")}: launch the tagged app`;
+  const bundle = slug.replace(/-/g, ".");
+  const target: AppTarget = { tag: slug, socket, env: { CMUX_SOCKET_PATH: socket, ...(tag ? { CMUX_TAG: slug, CMUX_BUNDLE_ID: `com.cmuxterm.app.debug.${bundle}` } : {}) } };
+  return ping(target) ? target : `the app at ${socket} does not answer \`cmux app ping\``;
+}
+
 export class Actor {
   readonly home: string;
   identity: Identity | null = null;
   /** The shared team this actor acts in (x-cmux-team / CMUX_CLOUD_TEAM); null for its personal team. */
   team: string | null = null;
+  /** For the `app` actor: the tagged app it drives (its own HOME is then the caller's, where the app's link lives). */
+  app: AppTarget | null = null;
   constructor(readonly spec: ActorSpec, root: string, readonly api: string) {
     mkdirSync(root, { recursive: true });
     this.home = mkdtempSync(path.join(root, `${spec.name}-`));
@@ -41,6 +74,11 @@ export class Actor {
   env(base: NodeJS.ProcessEnv = process.env, extra: Record<string, string> = {}): Record<string, string> {
     const out: Record<string, string> = {};
     for (const k of PASS_ENV) if (base[k]) out[k] = base[k]!;
+    if (this.app) {
+      // The person's app and link: the caller's HOME (the link's registration lives there), the tag's socket; no token.
+      for (const k of ["HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"]) if (base[k]) out[k] = base[k]!;
+      return { ...out, ...this.app.env, CMUX_SELFTEST_ACTOR: this.name, ...extra };
+    }
     Object.assign(out, {
       HOME: this.home,
       XDG_CONFIG_HOME: path.join(this.home, ".config"),
@@ -129,6 +167,11 @@ export function cliErrorCode(json: any, stderr: string, exit: number): string {
   const e = json?.error ?? json?.result?.error;
   if (typeof e?.code === "string") return e.code;
   if (typeof json?.code === "string" && json?.ok === false) return json.code;
+  // `cmux link chat` and `cmux link dial`: {"ok":false,"error_code":CODE,"error":MESSAGE}.
+  if (typeof json?.error_code === "string") return json.error_code;
+  // A local refusal with --json: one JSON object on stderr ({code, message} or {error: {code}}).
+  const err = cliJson(stderr);
+  for (const c of [err?.code, err?.error?.code, err?.error_code]) if (typeof c === "string" && c) return c;
   const m = /\b([a-z][a-z0-9_]*\.[a-z0-9_.]+)\b/.exec(stderr);
   if (m) return m[1]!;
   return `cli.exit_${exit}`;
@@ -153,7 +196,10 @@ export function runCli(cmux: string, actor: Actor, argv: string[], timeoutMs = 1
       if (json && typeof json === "object" && "result" in json && json.ok !== false) json = json.result ?? json;
       const failed = exit !== 0 || json?.ok === false || (json?.error && typeof json.error === "object");
       if (signal) return resolve({ ok: false, code: "cli.timeout", message: `killed after ${timeoutMs} ms`, json, transport: "cli", argv });
-      if (failed) return resolve({ ok: false, code: cliErrorCode(json, stderr, exit ?? 1), message: (json?.error?.message ?? stderr.trim().split("\n").pop() ?? "").slice(0, 400), json, transport: "cli", argv });
+      if (failed) {
+        const message = typeof json?.error === "string" ? json.error : (json?.error?.message ?? cliJson(stderr)?.message ?? stderr.trim().split("\n").pop() ?? "");
+        return resolve({ ok: false, code: cliErrorCode(json, stderr, exit ?? 1), message: String(message).slice(0, 400), json, transport: "cli", argv });
+      }
       resolve({ ok: true, json: json ?? { stdout: stdout.slice(-2000) }, transport: "cli", argv });
     });
   });
