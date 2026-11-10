@@ -13,6 +13,7 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { CLOUD_BOARD_ROUTE } from "../board/cloudClient";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -116,9 +117,19 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           <section className="cloud-machines" aria-label={t(L.machines)}>
             <div className="cloud-section-header">
               <h2 className="cloud-section-title">{t(L.machines)}</h2>
-              <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
-                {t(L.create)}
-              </button>
+              <span className="cloud-section-actions">
+                {/* The team board (`#/board`): every machine and agent of the team, with Stop and Open. */}
+                <button
+                  type="button"
+                  className="cloud-link-button cloud-board-button"
+                  onClick={() => (location.hash = CLOUD_BOARD_ROUTE)}
+                >
+                  {t(L.teamBoard)}
+                </button>
+                <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
+                  {t(L.create)}
+                </button>
+              </span>
             </div>
             <MachineList
               rows={snap.rows}

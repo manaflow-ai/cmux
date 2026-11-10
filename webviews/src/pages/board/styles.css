@@ -24,6 +24,24 @@ html[data-cmux-page="board"] body {
   border-bottom: 1px solid var(--page-separator);
 }
 
+/* Inside the Cloud page (`cmux-page://cmux.cloud/#/board`), which loads no pageBase.css: the same
+   theme inks, scoped to the board. */
+.board-in-cloud {
+  --page-text: var(--cmux-text, CanvasText);
+  --page-text-2: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 70%, transparent));
+  --page-text-3: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  --page-text-disabled: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  --page-separator: var(--cmux-separator, color-mix(in srgb, CanvasText 8%, transparent));
+  --page-hover: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
+  --page-selection: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+}
+
+/* Back to Cloud, above the title, aligned with its text. */
+.board-back {
+  align-self: flex-start;
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+
 .board-title {
   margin: 0;
   font-size: var(--text-heading);

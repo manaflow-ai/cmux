@@ -23,9 +23,20 @@ type Props = {
   /** No host serves the board. */
   unavailable?: boolean;
   ratePerSecond?: number;
+  /** Shown inside the Cloud page (`#/board`), with Back to Cloud. */
+  inCloud?: boolean;
 };
 
-function BoardGallery({ machines = 100, snapshot, filter, query, stop, unavailable, ratePerSecond = 0 }: Props) {
+function BoardGallery({
+  machines = 100,
+  snapshot,
+  filter,
+  query,
+  stop,
+  unavailable,
+  ratePerSecond = 0,
+  inCloud,
+}: Props) {
   const [provider] = useState(() => new MockBoardProvider({ machines, snapshot, ratePerSecond }));
   const [store] = useState(() => new BoardStore(unavailable ? null : provider));
   const [strings] = useState(() => createStrings(table));
@@ -42,7 +53,12 @@ function BoardGallery({ machines = 100, snapshot, filter, query, stop, unavailab
     });
     return () => store.stop();
   }, [store, provider, filter, query, stop]);
-  return <BoardPage store={store} strings={strings} />;
+  if (!inCloud) return <BoardPage store={store} strings={strings} />;
+  return (
+    <div className="board-in-cloud">
+      <BoardPage store={store} strings={strings} onBack={() => {}} />
+    </div>
+  );
 }
 
 export default componentEntry<Props>({
@@ -101,6 +117,18 @@ export default componentEntry<Props>({
     unavailable: {
       note: "A build whose host does not serve the board yet.",
       props: { unavailable: true },
+    },
+    "in-cloud": {
+      note: "Inside the Cloud page (Machines › Team Board): Back to Cloud above the title, 100 machines.",
+      props: { machines: 100, inCloud: true },
+    },
+    "in-cloud-3-machines": {
+      note: "Inside the Cloud page with three machines.",
+      props: { machines: 3, inCloud: true },
+    },
+    "in-cloud-stop-refused": {
+      note: "Inside the Cloud page: the Cloud server refused Stop and the row says why.",
+      props: { machines: 20, stop: "refuse", inCloud: true },
     },
   },
 });

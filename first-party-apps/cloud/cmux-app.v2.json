@@ -61,6 +61,7 @@
       "cloud.environment.list",
       "cloud.environment.set",
       "cloud.machine.archive_delete",
+      "cloud.machine.board",
       "cloud.machine.connect_info",
       "cloud.machine.create",
       "cloud.machine.delete",

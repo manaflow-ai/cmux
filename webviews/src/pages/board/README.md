@@ -20,8 +20,15 @@ joins the answers itself (model.ts) and trusts no number: a cost that is missing
 non-finite or a string shows a dash and counts under "Cost unknown", never in the totals. A creator
 the member list does not hold shows as not on the team and counts under "No owner".
 
-Host gap: no host serves `cmux.board.*` yet; the page says "not available in this build" until one
-does. The dev loop and the gallery use the mock host (mockProvider.ts).
+Host: in the app the board runs inside the Cloud page, at `cmux-page://cmux.cloud/#/board` (the
+Machines header's Team Board button, or `palette.openCloudPane` with route `/board`), over the Cloud
+page's own bridge (`cloudClient.ts`), so it needs no host code: the snapshot is `cmux.cloud.machine.board`
+(the Cloud app server relays the platform read), Stop is `cmux.cloud.machine.pause` and answers the
+machine's board record from a read after it, Open is the Cloud page's confirmed connect (the native
+sheet), and each Cloud machine change (`cmux.cloud.machine.watch`) re-reads the board, one read at a time
+with at most one queued. A build whose Cloud server lacks the read says "not available in this build".
+The standalone page (`cmux-page://cmux.board/`), the dev loop and the gallery use the mock host
+(mockProvider.ts).
 
 ## Files
 
@@ -30,6 +37,7 @@ does. The dev loop and the gallery use the mock host (mockProvider.ts).
 | `types.ts`        | Op names and the wire shapes of the three answers.                                    |
 | `model.ts`        | Pure join, owners, sane costs, totals (added and taken away per row), order, filter.  |
 | `store.ts`        | Keyed rows (`subscribeRow`), one published flush per frame, Stop and Open.            |
+| `cloudClient.ts`  | The board's ops on the Cloud page's bridge, for the board inside the Cloud page.      |
 | `BoardPage.tsx`   | Header, totals, filters, search, and the windowed list.                               |
 | `fixtures.ts`     | Seeded generated boards with the degenerate cases, and a stream of generated changes. |
 | `mockProvider.ts` | In-memory host for the dev loop, the gallery, the tests and the perf harness.         |

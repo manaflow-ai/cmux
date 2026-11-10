@@ -40,19 +40,28 @@ export function BoardPage({
   store,
   strings,
   windowed = true,
+  onBack,
 }: {
   store: BoardStore;
   strings: Strings;
+  /** Inside the Cloud page (`#/board`): a Back to Cloud button before the title. */
+  onBack?: () => void;
   /** False puts every row in the DOM: the perf harness's "before" (bench/board/run.ts), never shipped. */
   windowed?: boolean;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t, format } = strings;
   const money = useMoney(strings.language);
+  const back = onBack && (
+    <button type="button" className="board-button board-back" onClick={onBack}>
+      {t("board.back")}
+    </button>
+  );
 
   if (state.unavailable)
     return (
       <div className="board-page">
+        {back}
         <p className="board-message">{t("board.unavailable")}</p>
       </div>
     );
@@ -60,6 +69,7 @@ export function BoardPage({
   return (
     <div className="board-page" aria-busy={state.loading || undefined}>
       <header className="board-header">
+        {back}
         <h1 className="board-title">{t("board.title")}</h1>
         <Totals totals={state.totals} strings={strings} money={money} />
         <div className="board-controls">
