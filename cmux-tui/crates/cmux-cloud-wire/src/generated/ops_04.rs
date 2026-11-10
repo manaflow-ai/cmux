@@ -5,6 +5,16 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParams {
+    pub machine: MachineId,
+    pub state: CloudVmStatusReportParamsState,
+    pub daemon: CloudVmStatusReportParamsDaemon,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<CloudVmStatusReportParamsHealth>,
+    pub activity: CloudVmStatusReportParamsActivity,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmStatusReportResult {
     pub applied: bool,
 }
@@ -887,20 +897,3 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedCountsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsResult {
-    pub open_requests: i64,
-    pub unread: i64,
-    pub by_priority: BTreeMap<String, i64>,
-    pub by_poster_kind: BTreeMap<String, i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes feed.counts declares.
-    FeedCountsError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}

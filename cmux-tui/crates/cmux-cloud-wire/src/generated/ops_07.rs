@@ -4,6 +4,12 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxMarkUnreadParams {
+    pub conversation: ConversationId,
+    pub unread: bool,
+}
+
 wire_errors! {
     /// The error codes inbox.mark_unread declares.
     InboxMarkUnreadError {

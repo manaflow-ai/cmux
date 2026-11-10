@@ -898,13 +898,3 @@ pub struct CloudVmStatusReportParamsActivity {
     pub last_agent_action_at: Option<i64>,
     pub active_sessions: i64,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParams {
-    pub machine: MachineId,
-    pub state: CloudVmStatusReportParamsState,
-    pub daemon: CloudVmStatusReportParamsDaemon,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub health: Option<CloudVmStatusReportParamsHealth>,
-    pub activity: CloudVmStatusReportParamsActivity,
-}

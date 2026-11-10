@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedCountsResult {
+    pub open_requests: i64,
+    pub unread: i64,
+    pub by_priority: BTreeMap<String, i64>,
+    pub by_poster_kind: BTreeMap<String, i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes feed.counts declares.
+    FeedCountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Read one feed item (its answer once it is answered). An agent reads only the items it posted.
     FeedGetOp {
@@ -883,12 +900,4 @@ pub struct FirewallListResultRulesItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FirewallListResult {
     pub rules: Vec<FirewallListResultRulesItem>,
-}
-
-wire_errors! {
-    /// The error codes firewall.list declares.
-    FirewallListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
 }

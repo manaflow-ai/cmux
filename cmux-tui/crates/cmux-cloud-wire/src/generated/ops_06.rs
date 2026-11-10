@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes firewall.list declares.
+    FirewallListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Comment on a GitHub issue or pull request as the cmux GitHub App installation.
     GithubIssueCommentOp {
@@ -892,10 +900,4 @@ wire_op! {
         result: HomeInboxEntry,
         error: InboxMarkUnreadError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMarkUnreadParams {
-    pub conversation: ConversationId,
-    pub unread: bool,
 }
