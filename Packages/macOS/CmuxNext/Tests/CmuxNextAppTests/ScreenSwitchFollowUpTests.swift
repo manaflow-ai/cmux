@@ -487,7 +487,8 @@ struct ScreenSwitchFollowUpTests {
         try #require(shown.hasMotion, "the split on the shown screen did not spring")
 
         layout.root.showScreen(nil)
-        #expect(layout.root.screenViews.values.allSatisfy(\.isHidden), "a screen stays shown with no active screen")
+        let allHidden = layout.root.screenViews.values.allSatisfy { $0.isHidden }
+        #expect(allHidden, "a screen stays shown with no active screen")
         #expect(!shown.hasMotion, "a screen that hid mid-spring stays frozen mid-motion")
 
         let asked = layout.root.driver.startRequests
