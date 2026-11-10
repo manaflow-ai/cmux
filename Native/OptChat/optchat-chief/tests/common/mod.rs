@@ -1310,6 +1310,13 @@ impl Harness {
         }
     }
 
+    /// The brain reads its settle bound's time from `clock`
+    /// (`Brain::with_turn_clock`), so a test moves that time itself.
+    pub fn with_turn_clock(mut self, clock: Arc<dyn optchat_chief::brain::TurnClock>) -> Harness {
+        self.brain = self.brain.with_turn_clock(clock);
+        self
+    }
+
     /// Both owners connected.
     pub fn connect(&mut self) {
         self.brain.step(Input::from(AgentEvent::Up(Vec::new())));

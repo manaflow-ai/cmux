@@ -133,22 +133,24 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
             .expect("a1's session");
         format!("s{}", k + 1)
     };
-    // spawn answers before the brain has stepped a1's session input; a stop
-    // before that takes the no-session path (no cancel). Wait for its task.
-    let until = std::time::Instant::now() + Duration::from_secs(5);
-    while !h
-        .agents
-        .inner
-        .lock()
-        .unwrap()
-        .prompt_sessions
-        .contains(&session)
-        && std::time::Instant::now() < until
-    {
-        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
-            h.brain.step(input);
-        }
+    // spawn can answer before the brain has stepped a1's session input
+    // (SubagentStarted): the loop above stops stepping once the worker ends.
+    // A stop before that input takes the no-session path (no cancel). Every
+    // input spawn sent is in the channel once its worker joined, so step them
+    // all, then the brain knows a1's session.
+    while let Ok(input) = h.rx.try_recv() {
+        h.brain.step(input);
     }
+    let known = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, r)| r.session_id.clone());
+    assert_eq!(
+        known.as_deref(),
+        Some(session.as_str()),
+        "the brain knows a1's session"
+    );
     let (reply, answer) = channel();
     h.brain.step(Input::StopSubagent {
         name: "a1".into(),

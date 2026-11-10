@@ -13,9 +13,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
+
+#[path = "support/test_dir.rs"]
+mod test_dir;
 
 struct Fixture {
     dir: PathBuf,
@@ -25,9 +28,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-ct-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = test_dir::new_test_dir("cmux-ct");
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         Self { socket: dir.join("mux.sock"), session: "ensure-chief-tools".into(), dir }
     }

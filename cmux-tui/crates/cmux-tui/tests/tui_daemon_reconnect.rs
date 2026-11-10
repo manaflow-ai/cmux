@@ -17,9 +17,12 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+#[path = "support/test_dir.rs"]
+mod test_dir;
 
 const DEADLINE: Duration = Duration::from_secs(45);
 /// The last input mode the client enables before it reads input.
@@ -33,8 +36,7 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-dr-{}-{stamp}", std::process::id()));
+        let dir = test_dir::new_test_dir("cmux-dr");
         fs::create_dir_all(dir.join("home")).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::write(dir.join("config.json"), "{}").unwrap();

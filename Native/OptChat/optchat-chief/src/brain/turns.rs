@@ -8,8 +8,8 @@ use std::sync::mpsc::channel;
 use optchat_core::Kind;
 
 use super::{
-    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, answer_entry,
-    reply_key_at,
+    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, TurnClock,
+    answer_entry, reply_key_at,
 };
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -100,9 +100,8 @@ impl Brain {
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
-        let waiting_since = *self
-            .settle_clock
-            .get_or_insert_with(std::time::Instant::now);
+        let bound_clock = self.bound_clock.clone();
+        let waiting_since = *self.settle_clock.get_or_insert_with(|| bound_clock.now());
         self.interrupt = Arc::new(Interrupt::new());
         let trace = self.trace.clone();
         let settle_status = self.settle_status.clone();
@@ -136,7 +135,10 @@ impl Brain {
                 // shows nothing.
                 let mut deferred = false;
                 let settled = loop {
-                    let left = SETTLE_BOUND.saturating_sub(waiting_since.elapsed());
+                    let waited = |clock: &dyn TurnClock| {
+                        clock.now().saturating_duration_since(waiting_since)
+                    };
+                    let left = SETTLE_BOUND.saturating_sub(waited(bound_clock.as_ref()));
                     if chat.settle(None, Some(left.min(PROGRESS_TICK))) {
                         break true;
                     }
@@ -144,7 +146,7 @@ impl Brain {
                     if status.closed || status.fatal.is_some() {
                         break false;
                     }
-                    if waiting_since.elapsed() >= SETTLE_BOUND {
+                    if waited(bound_clock.as_ref()) >= SETTLE_BOUND {
                         let failing: Vec<String> = status
                             .failures
                             .iter()
@@ -1028,10 +1030,12 @@ impl Brain {
         }
         turn_view.push_str("</chat>");
         self.turn_view = Some(turn_view);
-        let settle_ms = self
-            .settle_clock
-            .take()
-            .map(|t| t.elapsed().as_millis() as u64);
+        let settle_ms = self.settle_clock.take().map(|t| {
+            self.bound_clock
+                .now()
+                .saturating_duration_since(t)
+                .as_millis() as u64
+        });
         if !self.trace.is_on() {
             return;
         }

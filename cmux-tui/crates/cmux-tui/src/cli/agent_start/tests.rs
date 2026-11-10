@@ -374,15 +374,20 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
 
 /// An agent that quit (its hooks reported the session's end) has no agent
 /// record left; resume reads the session id the daemon kept on the terminal.
+/// That id came from Claude's hooks, so the resume is ready on the resumed
+/// agent's own SessionStart hook (W5-R, #39027), as the agent sends it.
 #[test]
 fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended() {
     let mut snapshot = snapshot();
     if let Some(old) = snapshot.pointer_mut("/terminals/1") {
         old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
     }
-    let daemon = Fake::new(|operation, _params, _count| match operation {
+    let daemon = Fake::new(|operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
-        "agent.list" => json!([]),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([]),
+        "agent.list" => json!([
+            {"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "1500"},
+        ]),
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
         "pane.run" => created(
             "pane_22222222222222222222222222222222",

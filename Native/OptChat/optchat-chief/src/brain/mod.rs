@@ -57,6 +57,8 @@ mod spawns;
 mod steer;
 mod transcript;
 mod turn_actions;
+mod turn_clock;
+pub use turn_clock::{SystemTurnClock, TurnClock};
 mod turns;
 mod wakes;
 mod watches;
@@ -959,6 +961,8 @@ pub struct Brain {
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
+    /// Where the settle bound reads the time (`with_turn_clock`).
+    bound_clock: Arc<dyn TurnClock>,
     /// Where a turn waiting for the compactor says how far it is.
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
     /// A Chief that is not the default: a compactor fault is also its message.
@@ -1200,6 +1204,7 @@ impl Brain {
             )),
             prev_view: None,
             settle_clock: None,
+            bound_clock: Arc::new(SystemTurnClock),
             settle_status: None,
             compactor_messages: false,
             stuck_fault: false,
@@ -1288,6 +1293,12 @@ impl Brain {
     /// `with_memory_editor` on a built brain.
     pub fn set_memory_editor(&mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) {
         self.memory_editor = editor;
+    }
+
+    /// Reads the settle bound's time from `clock` instead of real time.
+    pub fn with_turn_clock(mut self, clock: Arc<dyn TurnClock>) -> Brain {
+        self.bound_clock = clock;
+        self
     }
 
     /// Writes the monitoring trace (`trace.rs`).

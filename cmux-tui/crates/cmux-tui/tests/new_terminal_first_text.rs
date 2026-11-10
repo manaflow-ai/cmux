@@ -17,19 +17,16 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "support/test_dir.rs"]
+mod test_dir;
+
 /// The extra time of each durable commit.
 const SLOW_COMMIT_MS: u64 = 400;
-
-fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    PathBuf::from("/tmp").join(format!("cmux-first-text-{}-{stamp}", std::process::id()))
-}
 
 fn mark(trace: &Value, name: &str) -> Option<u64> {
     trace["marks"].as_array()?.iter().find(|mark| mark[0] == name).and_then(|mark| mark[1].as_u64())
@@ -62,8 +59,7 @@ impl Client {
 /// request's arrival to its first text, and the ms the client waited for the
 /// reply.
 fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64) {
-    let dir = temp_dir();
-    fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir::new_test_dir("cmux-first-text");
     let socket = dir.join("mux.sock");
     let spans = dir.join("spans.jsonl");
     // The default shell prints nothing, so no other terminal's output
@@ -221,4 +217,21 @@ fn a_holder_terminals_first_text_is_timed() {
     let (first_text_ms, _) =
         new_tab_first_text(&[("CMUX_TUI_TERMINAL_HOST_MODEL", "holder".to_string())]);
     assert!(first_text_ms < 30_000, "the first text came {first_text_ms} ms after the request");
+}
+
+/// Two tests that ask for their folders at one instant get two folders, and
+/// a folder that exists is never taken again. Run 42648495910: two tests of
+/// this file got one folder (the pid and the clock alone named it), so they
+/// shared one daemon, and the first to end shut it down under the other
+/// (`daemon_shutdown_pending`).
+#[test]
+fn two_test_folders_asked_for_at_one_instant_differ_and_an_existing_one_is_refused() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let first = test_dir::test_dir_at("cmux-first-text-name", stamp);
+    let second = test_dir::test_dir_at("cmux-first-text-name", stamp);
+    assert_ne!(first, second, "one instant gave one folder");
+    test_dir::create_new_dir(&first).unwrap();
+    let again = test_dir::create_new_dir(&first);
+    let _ = fs::remove_dir(&first);
+    assert!(again.is_err(), "{} was made a second time", first.display());
 }
