@@ -36,6 +36,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
+            make_room: false,
         }
     );
     let parsed = request(&[
@@ -472,7 +473,13 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 #[test]
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
-        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out(
+                "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
+            ),
+        ]);
         let mut words = vec!["--login", "machine"];
         if wait {
             words.push("--wait");
@@ -481,8 +488,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
             panic!("{:?}", fake.ran)
         };
         assert_eq!(
-            fake.ran,
-            vec![
+            fake.ran[..2],
+            [
                 strings(&["cloud", "list-machines", "--json"]),
                 strings(&[
                     "cloud",
@@ -497,6 +504,15 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 ]),
             ]
         );
+        // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
+        // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
+        assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+        assert!(
+            fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd")
+        );
+        assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
+        assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+        assert_eq!(answer["folder"], "fresh");
         for (key, value) in [
             ("machine_id", "vm-1"),
             ("machine_name", "chat-fresh"),
@@ -549,8 +565,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
-    // No prompt: new-machine and start-session only.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    // No prompt: new-machine and start-session, then the read of where the chat runs.
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
     else {
         panic!("{:?}", fake.ran)
@@ -558,7 +574,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(answer["sent"], false);
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
-    assert_eq!(fake.ran.len(), 3);
+    assert_eq!(fake.ran.len(), 4);
+    assert!(answer.get("cwd").is_none(), "an unread folder is left out: {answer}");
     // --wait with a prompt: the chat on the machine made in the environment, its turn waited on, and no
     // second machine.
     let mut fake = Fake::new(vec![
@@ -579,7 +596,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
     assert_eq!(fake.ran.len(), 5);
     // --name of no machine yet: that name, in the environment.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let asked = request(&["--name", "py-1", "--environment", "env_1"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));
@@ -951,7 +968,11 @@ fn unanswered_reads_are_asked_again_until_the_deadline() {
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
     // Far more than three reads, and the failure comes only once the deadline has passed.
     assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
-    assert!(fake.clock.duration_since(began) >= Duration::from_secs(120), "{:?}", fake.clock.duration_since(began));
+    assert!(
+        fake.clock.duration_since(began) >= Duration::from_secs(120),
+        "{:?}",
+        fake.clock.duration_since(began)
+    );
 }
 
 /// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
@@ -1925,6 +1946,148 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     );
 }
 
+/// The held cap's refusal, with the machine the platform offers to free (`details.free_up`).
+fn held_refusal(free_up: Value) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "cmux.cloud.quota_exceeded",
+                       "message": "VM API: this team has its limit of 3 machines (paused ones count)",
+                       "details": {"resource": "machines", "free_up": free_up}})
+        .to_string(),
+        ..Ran::default()
+    }
+}
+
+fn three_machines() -> Ran {
+    listed_machines(json!([
+        {"machine_id": "vm-a", "title": "api", "status": "running"},
+        {"machine_id": "vm-b", "title": "web", "status": "paused", "last_active_at": 20},
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "last_active_at": 10},
+    ]))
+}
+
+/// The Cloud app's own records (`cloud.machine.list`): keep and last use on each; the kept one is
+/// used longest ago and is never the pick.
+fn records() -> Ran {
+    ok(json!({"machines": [
+        {"id": "vm-a", "name": "api", "status": "running", "keep": false, "last_active_at": 30},
+        {"id": "vm-b", "name": "web", "status": "paused", "keep": false, "last_active_at": 20},
+        {"id": "vm-c", "name": "old", "status": "paused", "keep": false, "last_active_at": 10},
+        {"id": "vm-k", "name": "pinned", "status": "paused", "keep": true, "last_active_at": 1},
+    ]}))
+}
+
+#[test]
+fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "never_used"});
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(free)]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains(
+            "Make room: `cmux cloud start-chat --prompt TEXT --json --make-room` deletes web first"
+        ),
+        "{message}"
+    );
+    assert_eq!(error["details"]["make_room"]["how"], "delete");
+    assert_eq!(
+        error["details"]["make_room"]["command"],
+        "cmux cloud kill-machine --target machine:vm-b --confirm"
+    );
+    // Nothing was deleted without --make-room.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_the_offered_machine_and_starts_again_once() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "failed_create"});
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        ok(json!({"deleted": true})),
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(
+        fake.ran[2],
+        strings(&["cloud", "kill-machine", "--target", "machine:vm-b", "--confirm", "--json"])
+    );
+}
+
+#[test]
+fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(Value::Null),
+        records(),
+        ok(json!({"machine": {}})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_archiving");
+    assert_eq!(fake.ran[2][..4], strings(&["apps", "run", "cmux/cloud", "cloud.machine.list"]));
+    assert_eq!(
+        fake.ran[3],
+        strings(&["cloud", "archive-machine", "--target", "machine:vm-c", "--confirm", "--json"])
+    );
+    assert!(error["message"].as_str().unwrap().starts_with("archiving old:"), "{error}");
+}
+
+#[test]
+fn make_room_that_is_refused_says_so_and_starts_nothing() {
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "cloud.gesture_required", "message": "archive and delete needs a person"})
+            .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), records(), refused]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_failed");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_only_a_machine_the_platform_names_by_id() {
+    use super::cap::{Cap, room, used_ms};
+    let listed = json!({"machines": [
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "created_at": "2026-01-02T00:00:00Z"},
+        {"machine_id": "vm-s", "title": "scratch", "status": "running"},
+    ]});
+    // The running cap: only a named free_up.
+    assert_eq!(room(Cap::Running, &json!({}), &listed), None);
+    let named = room(Cap::Running, &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
+    assert_eq!(
+        named.map(|room| (room.machine, room.name, room.archive)),
+        Some(("vm-c".into(), "old".into(), false))
+    );
+    // Never a delete from the refusal's words: with no id, only an archive is offered, and its
+    // machine is picked from the full records when it runs.
+    let offered = room(Cap::Held, &json!({}), &listed).unwrap();
+    assert!(offered.archive && offered.machine.is_empty(), "{offered:?}");
+    // A kept machine is never archived.
+    let kept = json!({"machines": [{"machine_id": "vm-c", "status": "paused", "keep": true}]});
+    assert_eq!(room(Cap::Held, &json!({}), &kept), None);
+    assert_eq!(used_ms(&json!({"created_at": "1970-01-01T00:00:01Z"})), Some(1000));
+    assert_eq!(used_ms(&json!({"last_active_at": 5, "created_at": 9})), Some(5));
+}
+
 #[test]
 fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fresh_name() {
     let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
@@ -2020,6 +2183,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
+        make_room: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2054,6 +2218,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
+        make_room: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -2181,4 +2346,57 @@ fn an_unreachable_read_of_the_turn_is_asked_again() {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(answer["unanswered_reads"], 1);
+}
+
+/// Leo (2026-11-09): "this no folder selected should be, like, good as well". A start with no
+/// `--cwd` and no `--from-folder` is a first-class one: the answer says the chat runs in a fresh
+/// folder of its own (`folder: fresh`), names that folder as the machine reports it (`cwd`, read in
+/// the send's own exec, so no extra round trip), and gives the way to a repository later
+/// (`follow_up.cd`). Nothing waits on a folder: the same steps as any start.
+#[test]
+fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(
+            "@@cwd\n{\"sessions\":[{\"sessionId\":\"other\",\"cwd\":\"/home/cmux/work/api\"},\
+             {\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n\
+             @@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd sess-1 DIR|--repo OWNER/NAME");
+    // start-session gets no folder, and the send reads where the chat runs in the same exec.
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "chat-fresh", "--agent", "claude", "--json"])
+    );
+    assert_eq!(fake.ran.len(), 3, "no step waits on a folder: {:?}", fake.ran);
+    assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+}
+
+#[test]
+fn the_folder_kind_and_the_session_folder_read() {
+    assert_eq!(folder_kind(None, None), "fresh");
+    assert_eq!(folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
+    assert_eq!(session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(session_cwd(None, "s-2"), None);
+    // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let given = request(&["--prompt", "hi", "--cwd", "/home/cmux/work/api"]);
+    let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["folder"], "given");
+    assert_eq!(answer["cwd"], "/home/cmux/work/api");
 }

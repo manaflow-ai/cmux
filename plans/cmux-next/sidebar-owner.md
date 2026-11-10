@@ -1,5 +1,23 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
+  their min width ... the show and hide details, um, that can probably also be a little bit more ... animated ... I
+  don't want it to disappear as quickly as other ones would ... if the inner tab is the exact same name as the
+  workspace, I feel like there's something that is kind of sort of redundant there". The narrowest card's text column
+  is 10 titles (was 14); Show and Hide details refit on the panel's morph (`HoverCardCoordinator.refit(_:animated:)`);
+  the card lingers for the leave grace (`sidebar.hoverCards.workspaceLeave`, takes back Lawrence 2026-10-19's hide at
+  once, kept as a choice); the name row hides when the one tab repeats it (`sidebar.hoverCards.workspaceTitle`:
+  unless repeated, always, only with details). Regression: `WorkspaceHoverCardFitTests`.
+- 2026-11-10 (lane/ux-restore-monotonic-host, ask-20143293a7, for a590): a restored section keeps its saved rows
+  until its machine's first tree comes. Leo, verbatim: "It shows me a glimpse of the past thing, and then it
+  regresses into the skeletons and placeholders, and then it gets back to the true thing." `SidebarSeed` spent the
+  saved rows when a Cloud machine's header turned connected, or when the launch ended (at once when the daemon's
+  startup says unavailable, as while it restores after Restart to Update), both possibly before the first tree: the
+  section drew empty between the saved rows and the live ones. A machine with `DaemonStore.isLoaded` false (never
+  goes back) now keeps them, past the launch too; a failed machine does not. Look change: no empty stage between the
+  saved (stale) rows and the live ones. Regression: `SidebarSeedTests.savedRowsStayUntilTheMachinesRowsAreLoaded`,
+  `localSavedRowsStayPastTheLaunchUntilTheDaemonAnswers`.
+
 - 2026-11-09: the Updated card draws whole, its title from its first frame. Leo, verbatim: "This thing, when it loads
   in for the first time, it should have the updated to Nightly already loaded in, instead of just having a blank class
   bit." (a blank glass card). `SidebarUpdatedCardHost` drew its glass at the remembered room as soon as the card showed,

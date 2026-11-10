@@ -5,6 +5,7 @@ import { useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
+import { ArchiveList } from "./ArchiveList";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
@@ -119,6 +120,15 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
               onOpen={(id) => void store.connect(id)}
               onPause={(id) => void store.pause(id)}
               onResume={(id) => void store.resume(id)}
+              dismissed={snap.dismissed}
+              onKeep={(id, keep) => void store.keep(id, keep)}
+              onDismissNotice={(id, at) => store.dismissNotice(id, at)}
+            />
+            <ArchiveList
+              archives={snap.archives}
+              strings={strings}
+              disabled={!signedIn}
+              onRestore={(snapshot) => void store.restoreArchive(snapshot)}
             />
           </section>
           {selected?.machine && snap.detail?.machine === selected.id ? (
