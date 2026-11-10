@@ -317,6 +317,46 @@ fn load_subtrees(
     Ok(())
 }
 
+/// Revision, active workspace and every live workspace's active screen.
+pub(crate) fn load_topology_frame(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let revision = current_resource_revision(connection)?;
+    let active_workspace =
+        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
+    let active_screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, active_screen_id
+             FROM resource_workspaces
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .map(|row| {
+                let (workspace, screen) = row?;
+                Ok((
+                    WorkspacePublicId::parse(workspace)?,
+                    screen.map(ScreenPublicId::parse).transpose()?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    Ok(ResourceTopologySnapshot {
+        session_id,
+        generation,
+        revision,
+        active_workspace,
+        active_screens,
+        screens: Vec::new(),
+        panes: Vec::new(),
+        tabs: Vec::new(),
+        browsers: Vec::new(),
+    })
+}
+
 /// Add each of `screens`, its panes and their tabs to `topology`: what the
 /// public value of a screen and of its panes is built from. A screen that
 /// `topology` holds already is not read again.
@@ -378,46 +418,6 @@ fn load_scope_frame(
         }
     }
     drop(statement);
-    Ok(ResourceTopologySnapshot {
-        session_id,
-        generation,
-        revision,
-        active_workspace,
-        active_screens,
-        screens: Vec::new(),
-        panes: Vec::new(),
-        tabs: Vec::new(),
-        browsers: Vec::new(),
-    })
-}
-
-/// Revision, active workspace and every live workspace's active screen.
-pub(crate) fn load_topology_frame(
-    connection: &Connection,
-    session_id: SessionPublicId,
-    generation: String,
-) -> anyhow::Result<ResourceTopologySnapshot> {
-    let revision = current_resource_revision(connection)?;
-    let active_workspace =
-        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
-    let active_screens = {
-        let mut statement = connection.prepare(
-            "SELECT public_id, active_screen_id
-             FROM resource_workspaces
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
-            .map(|row| {
-                let (workspace, screen) = row?;
-                Ok((
-                    WorkspacePublicId::parse(workspace)?,
-                    screen.map(ScreenPublicId::parse).transpose()?,
-                ))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
-    };
     Ok(ResourceTopologySnapshot {
         session_id,
         generation,
