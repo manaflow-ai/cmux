@@ -271,7 +271,8 @@ def check(areas: list[Area], records: list[Record], labels: list[str], events: l
     paths = {r.path for r in records}
     if expected_files is not None and len(records) < expected_files and not approved:
         return 1, [f"::error::The changed-file listing has {len(records)} files but the pull request changes "
-                   f"{expected_files}; a boundary change may be past its end. Split the pull request."]
+                   f"{expected_files}; a boundary change may be past its end.",
+                   "next: split the pull request"]
     found = violations(areas, records)
     if not found:
         return 0, [f"::notice::Every area keeps its language ({len(paths)} changed files, "
@@ -285,6 +286,8 @@ def check(areas: list[Area], records: list[Record], labels: list[str], events: l
         "acpmux/cmux-tui lives in rust, cmux cloud core should be rust (together with cmux-tui/acpmux) and should "
         "have very minimal in swift.\" Keep each area in its language (.github/language-boundaries.toml). Only Leo "
         f"lets a port through: the `{LABEL}` label plus his `{LABEL}:` comment. Not approved: {why}.")
+    out.append("next: restore the deleted or moved files and drop the foreign-language ones; if the port is wanted, "
+               f"ask Leo for `{LABEL}`")
     return 1, out
 
 
@@ -302,7 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         areas = load(args.manifest)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"::error::Could not read the language-boundaries manifest: {exc}")
-        return 1
+        print("next: fix .github/language-boundaries.toml on the base branch (its header is the schema)")
+        return 3
     try:
         records = parse_records(args.files.read_text())
         labels = [str(name) for name in json.loads(args.labels_json or "[]")]
@@ -310,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
         notes = read_jsonl(args.notes)
     except (OSError, ValueError, TypeError) as exc:
         print(f"::error::Could not read the pull request's files, labels or history: {exc}")
-        return 1
+        print("next: re-run this check; nothing was decided")
+        return 3
     code, lines = check(areas, records, labels, events, notes, args.expected_files)
     for line in lines:
         print(line)

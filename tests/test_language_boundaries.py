@@ -91,14 +91,15 @@ class PR37777Tests(unittest.TestCase):
         self.assertIn("imessage-home: loses", text)
         self.assertIn("chief-transcript-panel-and-conversation-tabs: loses", text)
         self.assertIn("HomeHostView.swift", text)
-        self.assertIn("leo-approved-port", lines[-1])
+        self.assertIn("leo-approved-port", lines[-2])
+        self.assertTrue(lines[-1].startswith("next: "))
 
     def test_37777_fails_with_the_label_from_an_agent_footer_comment(self) -> None:
         agent = {"user": "teamleaderleo", "app": None, "body": "leo-approved-port: ported\n\n"
                  "Agent session: [agent session](https://cmux.com/deeplink/agent?id=aid-1)"}
         code, lines = run(FIXTURE.read_text(), ["leo-approved-port"], [LABEL_EVENT], [agent])
         self.assertEqual(code, 1)
-        self.assertIn("no comment or review", lines[-1])
+        self.assertIn("no comment or review", lines[-2])
 
     def test_37777_passes_with_leos_approval(self) -> None:
         code, lines = run(FIXTURE.read_text(), ["leo-approved-port"], [LABEL_EVENT], [LEO_NOTE])
@@ -198,7 +199,7 @@ class ApprovalTests(unittest.TestCase):
         other = dict(LABEL_EVENT, actor="lawrencecchen")
         code, lines = run(self.BAD, ["leo-approved-port"], [other], [LEO_NOTE])
         self.assertEqual(code, 1)
-        self.assertIn("'lawrencecchen'", lines[-1])
+        self.assertIn("'lawrencecchen'", lines[-2])
 
     def test_label_added_through_an_app_fails(self) -> None:
         code, _ = run(self.BAD, ["leo-approved-port"], [dict(LABEL_EVENT, app="cmux-bot")], [LEO_NOTE])
@@ -241,11 +242,11 @@ class CliAndWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             files = Path(tmp) / "f.tsv"
             files.write_text("X\tsomething\n")
-            self.assertEqual(cli(["--files", str(files), "--manifest", str(MANIFEST)]), 1)
+            self.assertEqual(cli(["--files", str(files), "--manifest", str(MANIFEST)]), 3)
             files.write_text(f"M\t{HOME}/A.swift\n")
             broken = Path(tmp) / "m.toml"
             broken.write_text("[[area]]\nname = 1\n")
-            self.assertEqual(cli(["--files", str(files), "--manifest", str(broken)]), 1)
+            self.assertEqual(cli(["--files", str(files), "--manifest", str(broken)]), 3)
 
     def test_workflow_runs_the_base_copy_with_a_stable_check_name(self) -> None:
         text = WORKFLOW.read_text()
