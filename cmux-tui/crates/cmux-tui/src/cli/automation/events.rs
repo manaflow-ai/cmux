@@ -80,6 +80,13 @@ fn list(out: &Out) -> Outcome {
     Ok(0)
 }
 
+/// `value`'s string field `key`, when it is one: event lines come from other
+/// programs, so a field may be missing or of another type, and reading one
+/// never indexes.
+fn field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
 /// One event line on stdout, flushed so the runner sees it at once. Answers
 /// whether stdout is still open.
 fn emit(line: &Value) -> bool {
@@ -90,12 +97,12 @@ fn emit(line: &Value) -> bool {
 fn follow(kind: &EventKind, global: &super::super::GlobalArgs) -> Outcome {
     let result = match kind.name {
         "agent-idle" => agent_events(kind, global, "agent", &|e| {
-            matches!(e["state"].as_str(), Some("idle" | "done"))
+            matches!(field(e, "state"), Some("idle" | "done"))
         }),
         "agent-needs-input" => {
-            agent_events(kind, global, "agent,dialog", &|e| match e["kind"].as_str() {
-                Some("dialog") => e["change"] == "opened",
-                Some("agent") => matches!(e["state"].as_str(), Some("blocked" | "input")),
+            agent_events(kind, global, "agent,dialog", &|e| match field(e, "kind") {
+                Some("dialog") => field(e, "change") == Some("opened"),
+                Some("agent") => matches!(field(e, "state"), Some("blocked" | "input")),
                 _ => false,
             })
         }
@@ -167,12 +174,12 @@ impl OwnSessions {
         if SESSION_NAME_FIELDS
             .iter()
             .chain(&SESSION_ID_FIELDS)
-            .filter_map(|f| event[*f].as_str())
+            .filter_map(|f| field(event, f))
             .any(own_name)
         {
             return true;
         }
-        SESSION_ID_FIELDS.iter().filter_map(|f| event[*f].as_str()).any(|id| {
+        SESSION_ID_FIELDS.iter().filter_map(|f| field(event, f)).any(|id| {
             if let Some(own) = self.known.get(id) {
                 return *own;
             }
@@ -196,7 +203,7 @@ fn acpmux_session_name(id: &str) -> Option<String> {
         return None;
     }
     let info: Value = serde_json::from_slice(&output.stdout).ok()?;
-    info["name"].as_str().map(str::to_owned)
+    field(&info, "name").map(str::to_owned)
 }
 
 /// `event` with `"event": NAME`, so a condition script can tell sources apart.
@@ -246,13 +253,13 @@ fn read_pull_requests(since: &str) -> Result<Vec<Value>, Value> {
 pub(super) fn pull_request_line(pr: &Value) -> Value {
     json!({
         "event": "pr-opened",
-        "url": pr["url"],
+        "url": pr.get("url"),
         "repo": pr.pointer("/repository/nameWithOwner"),
-        "number": pr["number"],
-        "title": pr["title"],
-        "draft": pr["isDraft"],
-        "state": pr["state"].as_str().map(str::to_lowercase),
-        "created_at": pr["createdAt"],
+        "number": pr.get("number"),
+        "title": pr.get("title"),
+        "draft": pr.get("isDraft"),
+        "state": field(pr, "state").map(str::to_lowercase),
+        "created_at": pr.get("createdAt"),
     })
 }
 
@@ -277,17 +284,17 @@ impl PullRequestCursor {
             .iter()
             .filter(|pr| {
                 // RFC 3339 times in UTC (`gh` writes `...Z`) order as text.
-                let created = pr["createdAt"].as_str().unwrap_or("");
-                let url = pr["url"].as_str().unwrap_or("");
+                let created = field(pr, "createdAt").unwrap_or("");
+                let url = field(pr, "url").unwrap_or("");
                 created >= self.since.as_str()
                     && !url.is_empty()
                     && !(created == self.since && self.at_since.contains(url))
             })
             .collect();
-        fresh.sort_by(|a, b| a["createdAt"].as_str().cmp(&b["createdAt"].as_str()));
+        fresh.sort_by(|a, b| field(a, "createdAt").cmp(&field(b, "createdAt")));
         for pr in &fresh {
             let (created, url) =
-                (pr["createdAt"].as_str().unwrap_or(""), pr["url"].as_str().unwrap_or(""));
+                (field(pr, "createdAt").unwrap_or(""), field(pr, "url").unwrap_or(""));
             if created > self.since.as_str() {
                 self.since = created.to_string();
                 self.at_since.clear();
