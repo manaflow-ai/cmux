@@ -241,6 +241,10 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
   pages, so the row sends Ctrl-Shift-Tab and Ctrl-Tab in turn: each of the 20 switches is page to page between the 2
   colour pages, as `Target.activateTarget` in the Chrome arm. Ctrl-Tab alone went round 3 or 4 tabs and mixed 3 switch
   classes in one row (page to page, page to terminal, terminal to page).
+- Key, text field: the cmux arm first calls CuaDriver `bring_to_front` for the bench app one time. A bench app started
+  from ssh gives no key to a Chromium page with no such call (0 of 40 keys typed; 40 of 40 after it). The call runs
+  with the account's home, not the bench's. A host with no CuaDriver, or a call that fails, gives `not run` for this
+  row. The run's `front_step` field says that the step ran. The bench shell gets no right of its own.
 - The report labels each run: method, display (id, size, rate), the refresh interval measured in that run, screen
   locked or not, load. A run on a locked screen, on a sleeping display or with a measured refresh that is not the
   `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
