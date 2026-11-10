@@ -208,7 +208,7 @@ jobs:
         timeout-minutes: 2
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          PR_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
         run: python3 "$RUNNER_TEMP/placement/scripts/ci/cmux_next_media_runner.py" --same-repo true --idle-now --gui-only
 
