@@ -21,6 +21,8 @@
 
 use std::io;
 use std::path::Path;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 
 /// Writes `contents` to `path` as an executable file (mode 0755).
 ///
@@ -36,23 +38,36 @@ pub fn write_executable(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<(
 
 /// [`write_executable`] that runs `while_writing` while the write is in
 /// progress (a test seam: a test forks there to force the race).
+#[cfg(unix)]
 fn write_executable_with(
     path: &Path,
     contents: &[u8],
     while_writing: impl FnOnce(),
 ) -> io::Result<()> {
     use std::io::Write;
-    #[cfg(unix)]
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    options.mode(0o755);
-    let mut file = options.open(path)?;
-    file.write_all(contents)?;
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()?;
+    let written = child.stdin.take().map_or(Ok(()), |mut stdin| stdin.write_all(contents));
+    // The pipe is closed now. Only the `sh` child can hold the file open, so
+    // a fork of this process from here on holds neither the pipe nor the file.
     while_writing();
-    drop(file);
+    let status = child.wait()?;
+    written?;
+    succeeded(status, path)
+}
+
+#[cfg(not(unix))]
+fn write_executable_with(
+    path: &Path,
+    contents: &[u8],
+    while_writing: impl FnOnce(),
+) -> io::Result<()> {
+    // No ETXTBSY outside Unix: a plain write is enough.
+    std::fs::write(path, contents)?;
+    while_writing();
     Ok(())
 }
 
@@ -61,9 +76,31 @@ fn write_executable_with(
 ///
 /// # Errors
 ///
-/// Returns the error of the read or the write.
+/// Returns the error of the copy.
 pub fn copy_executable(from: &Path, to: &Path) -> io::Result<()> {
-    write_executable(to, std::fs::read(from)?)
+    #[cfg(unix)]
+    {
+        let status = Command::new("/bin/sh")
+            .args(["-c", "cat \"$1\" > \"$2\" && chmod 755 \"$2\"", "sh"])
+            .arg(from)
+            .arg(to)
+            .stdin(Stdio::null())
+            .status()?;
+        succeeded(status, to)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
+#[cfg(unix)]
+fn succeeded(status: std::process::ExitStatus, path: &Path) -> io::Result<()> {
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("writing {} failed: {status}", path.display())))
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
