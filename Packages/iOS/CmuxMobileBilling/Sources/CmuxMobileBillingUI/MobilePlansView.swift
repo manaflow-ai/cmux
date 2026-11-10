@@ -222,16 +222,25 @@ public struct MobilePlansView: View {
         }
     }
 
+    /// Restore Purchases needs only the App Store, not the plan list or the
+    /// account read, so it stays on screen when either fails to load (App
+    /// Review 3.1.1: a restore is always offered with the subscriptions).
+    private var showsRestore: Bool {
+        if billing.account.account != nil { return true }
+        if case .failed = billing.account { return true }
+        return false
+    }
+
     @ViewBuilder
     private var actionsSection: some View {
-        if let account = billing.account.account {
+        if showsRestore {
             Section {
                 Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases")) {
                     Task { await billing.restorePurchases() }
                 }
                 .disabled(billing.restore == .restoring || billing.purchase.isPurchasing)
                 .accessibilityIdentifier("BillingRestore")
-                if account.currentPlan.source == .apple {
+                if let account = billing.account.account, account.currentPlan.source == .apple {
                     Button(L10n.string("mobile.billing.manage", defaultValue: "Manage Subscription")) {
                         showingManageSubscriptions = true
                     }
