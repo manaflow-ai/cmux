@@ -1,6 +1,12 @@
 import type { SwitchClock } from "./harnessSwitch";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
+/// How long a Send waits for its compose reservation before it starts without it. The reserve is a
+/// speculative warm: the platform may hold it for up to two minutes (Rust's 120 s call, 125 s for the
+/// process), and a Send that waited that long showed nothing but the start, with the composer locked
+/// (Leo, 2026-11-09: "it seems like it's not actually properly starting").
+export const RESERVATION_SEND_WAIT_MS = 3000;
+
 type Native = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 type Attempt = {
   key: string;
@@ -81,6 +87,25 @@ export class CloudComposeReservation {
     return attempt?.key === key ? attempt.ready : false;
   }
 
+  /// The handed-off reservation's answer for a Send, or false once `waitMs` passed. A reserve that
+  /// answers later is this compose's no longer: it is released when it settles (never before: a
+  /// DELETE ahead of its create would leak the machine until expiry), and never handed off again.
+  async readyForSend(key: string, waitMs: number = RESERVATION_SEND_WAIT_MS): Promise<boolean> {
+    const attempt = this.attempt;
+    if (attempt?.key !== key || attempt.abandoned) return false;
+    let cancel: (() => void) | undefined;
+    const late = new Promise<"late">((resolve) => {
+      cancel = this.clock.schedule(() => resolve("late"), waitMs);
+    });
+    const answer = await Promise.race([attempt.ready, late]);
+    cancel?.();
+    if (answer !== "late") return answer;
+    attempt.transferred = false;
+    attempt.abandoned = true;
+    void attempt.ready.then(() => this.release(attempt));
+    return false;
+  }
+
   abandon(): void {
     this.stopRelease();
     const attempt = this.attempt;
@@ -106,8 +131,9 @@ export class CloudComposeReservation {
   }
 }
 
-/// Keep oneCloudStart's pending-send guard while waiting for the speculative request. A failed
-/// prewarm falls back to the ordinary Send path; it never prevents sending a chat.
+/// Keep oneCloudStart's pending-send guard while waiting for the speculative request. A failed or
+/// slow prewarm falls back to the ordinary Send path; it never prevents sending a chat, nor holds it
+/// for longer than RESERVATION_SEND_WAIT_MS.
 export function reservedCloudCall(
   call: Native,
   reservation: CloudComposeReservation,
@@ -123,7 +149,9 @@ export function reservedCloudCall(
       })
         .then((reply) => (reply as { ticket?: unknown } | undefined)?.ticket)
         .catch(() => undefined);
-      if (!(await reservation.ready(reservationKey))) {
+      // A reserve slower than RESERVATION_SEND_WAIT_MS no longer holds the Send: it goes as an
+      // ordinary one, and the late reservation is released (readyForSend).
+      if (!(await reservation.readyForSend(reservationKey))) {
         const { reservationKey: _reservationKey, gestureTicket: _gestureTicket, ...ordinary } = params;
         // The native gesture was already consumed to obtain this ticket. Keep it on the
         // ordinary Send fallback so a failed or unavailable reservation cannot turn into a

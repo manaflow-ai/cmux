@@ -109,6 +109,7 @@ import {
   noteDraftHeld,
   noteDraftSent,
   readDurableDraftState,
+  readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
   useDraftActionsVersion,
@@ -270,6 +271,9 @@ export type ComposerWake = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The chat's saved draft was read into the prompt, or acpmux answered that it can't say: the
+  /// prompt holds what it will hold, so the last launch's copy may give way (App.tsx, firstPaint.ts).
+  onDraftSettled?(sessionId: string): void;
   /// The harnesses the @ menu offers as read-only guests: only where the chat's daemon serves
   /// them (App's `guestsHere`). Undefined: none.
   guestHarnesses?: AcpmuxSnapshot["catalog"];
@@ -503,6 +507,7 @@ function ComposerFrame({
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
+  onDraftSettled,
   onTyping,
   onPromptEdit,
   onSuggestionTaken,
@@ -1160,6 +1165,9 @@ function ComposerFrame({
     let current = true;
     void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
+      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+      // drafts, a dropped read): not while no client can ask yet.
+      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
       // acpmux did not answer (its action map not installed yet, a connection that failed or
       // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
       // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
@@ -1178,7 +1186,7 @@ function ComposerFrame({
     return () => {
       current = false;
     };
-  }, [sessionId, draftActionsVersion]);
+  }, [sessionId, draftActionsVersion, onDraftSettled]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
