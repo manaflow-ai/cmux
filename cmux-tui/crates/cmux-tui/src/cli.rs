@@ -558,42 +558,53 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 }
 
 /// Scopes `main` routes by their first word, before the cmux global options
-/// are read, whose own parser takes `--json` anywhere after the scope word:
+/// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
 const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
-/// leading `--json` moves to the end (before any `--`), where that scope's
-/// own parser reads it, so `cmux --json chats list` is `cmux chats list
-/// --json` (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+/// leading `--json` moves to just after the scope word (to the end for `host`
+/// and `harness run`), where that scope's own parser reads it, so `cmux --json
+/// chats list` is `cmux chats --json list` (docs/cli-conventions.md in
+/// cmuxterm-hq: `--json` goes anywhere).
 /// `link` prints JSON only: a leading `--json` or `--jsonl` there becomes
 /// one `--json` after the word, which only shapes a refusal. Any other leading option stays where it is, and the parser's
 /// refusal names the right form. `device` keeps its own handling
 /// (devices::device_args).
 pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
     let lead = args.iter().take_while(|word| matches!(word.as_str(), "--json" | "--jsonl")).count();
-    let Some(scope) = args.get(lead).cloned() else {
+    let (Some(scope), Some(rest)) = (args.get(lead).cloned(), args.get(lead..)) else {
         return;
     };
     if lead == 0 {
         return;
     }
+    let only_json = args.iter().take(lead).all(|w| w == "--json");
     if scope == "link" {
         // `link` prints JSON only and ignores `--json`, which still asks for
         // the error object on a refusal.
         args.drain(..lead);
         args.insert(1, "--json".to_owned());
-    } else if (scope == "host" || JSON_AFTER_SCOPE.contains(&scope.as_str()))
-        && args[..lead].iter().all(|w| w == "--json")
-    {
-        // These read `--json` after their own words (`host status --json`,
-        // `chats list --json`), and `acp`'s positional wrappers (`harness run
-        // NAME --tab`, `chats open`) match the words right after the scope: it
-        // goes last, before any `--`, where a person types it.
+    } else if only_json && (scope == "host" || harness_tab_run(rest)) {
+        // `host`'s verbs read `--json` after their own words (`host status --json`), and
+        // `harness run NAME --tab` is acp.rs's wrapper, which matches the words right after the
+        // scope: it goes last, before any `--`, where a person types it.
         args.drain(..lead);
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
+    } else if only_json && JSON_AFTER_SCOPE.contains(&scope.as_str()) {
+        // acpmux's global `--json`, right after the scope word: never after a verb whose
+        // trailing words are another program's (`acp gh pr list`).
+        args.drain(..lead);
+        args.insert(1, "--json".to_owned());
     }
+}
+
+/// `harness run NAME --tab …`, which acp.rs's wrapper opens as a tab (it matches `harness run`
+/// as the first two words and `--tab` before any `--`).
+fn harness_tab_run(words: &[String]) -> bool {
+    matches!(words, [harness, run, ..] if harness == "harness" && run == "run")
+        && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
 }
 
 /// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
