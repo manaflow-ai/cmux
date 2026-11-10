@@ -150,6 +150,24 @@ import Testing
         #expect(again == [a[7], b[9]], "rows mapped again: \(again.map(\.rawValue).sorted())")
     }
 
+    /// A parked workspace closes (or another window takes it) while its space is hidden. No row parks then and no
+    /// parked row hears a change, so nothing asked for the check of the parked rows: its row, its map closure and
+    /// its observation stayed until the next space switch. The next pass's fill asks for the check too.
+    @Test func aParkedRowOfAWorkspaceTheWindowLostIsForgottenByTheNextPass() {
+        let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
+        fixture.show(a)
+        fixture.show(b)
+        fixture.frame()
+        fixture.held.remove(a[7]) // it closes while space a is hidden
+        fixture.show(b) // a pass of the shown space that parks nothing (a reorder, a new row)
+        fixture.frame()
+        let maps = fixture.maps
+        fixture.held.insert(a[7]) // the same id lists here again
+        fixture.show(a)
+        let again = a.filter { fixture.maps[$0] != maps[$0] }
+        #expect(again == [a[7]], "the row of the workspace the window lost was kept parked; rows mapped again: \(again.map(\.rawValue))")
+    }
+
     @Test func aParkedRowMappedWithOldInputsIsNotServed() {
         let fixture = Fixture(), a = Fixture.space("a", 20), b = Fixture.space("b", 20)
         fixture.show(a, inputs: 0)
