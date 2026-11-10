@@ -228,7 +228,7 @@ extension SettingsSchema {
         // The agent chat's fonts, sizes and width (looks only).
         "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
-        "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
+        "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
         "agentPane.display.senderIcon.corner", "agentPane.display.font.preset", "agentPane.display.font.ui",
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family",
         "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
@@ -272,6 +272,8 @@ extension SettingsSchema {
         "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
         "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.
+        "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.
         "agents.hiddenChats.discard", "agents.hiddenChats.discardAfterMinutes",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.

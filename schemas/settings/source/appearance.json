@@ -1661,7 +1661,7 @@
           },
           "help": {
             "key": "settings.ui.paneAnimations.help",
-            "text": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+            "text": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
           },
           "kind": "toggle",
           "swift_owner": "PaneAnimationsSetting",
