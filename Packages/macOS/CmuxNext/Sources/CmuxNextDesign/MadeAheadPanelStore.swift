@@ -1,26 +1,37 @@
 import CmuxNextWakeups
 import os
 
-/// Says when a made-ahead panel is dropped, so a silent loss of the made-ahead path shows in a bench's log.
+/// Says when a dead panel is dropped, so a picker that shows nothing has its reason in a bench's log.
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "openPanel")
 
-/// What ``MadeAheadOpenPanel`` does, over any ``ReusableOpenPanel``: keep one panel made ahead of the click, hand
-/// it out while it is free, and make it while the person is idle. The panel factory, the warm-up check and the
-/// clock are injected, so a test drives it with stand-in panels and a manual clock, and awaits each check on
-/// ``checksRan`` (`MadeAheadPanelStoreTests`).
+/// What ``MadeAheadOpenPanel`` does, over any panel type: a new panel for each request, and the process's first
+/// panel paid ahead of the first click, while the person is idle. It keeps no panel. A live `NSOpenPanel` makes
+/// its panel service (`com.apple.appkit.xpc.openAndSavePanelService`) keep the folder it shows in sync on each
+/// file-system event (DesktopServicesPriv `TNode::SynchronizeChildren`): 2.8 to 4.8 % of a core for the life of
+/// each app on a busy Mac (2026-11-10), so the panel kept for later clicks went away. The panel factory, the
+/// warm-up check and the clock are injected, so a test drives it with stand-in panels and a manual clock, and
+/// awaits each check on ``checksRan`` (`MadeAheadPanelStoreTests`).
 @MainActor
-final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
+final class MadeAheadPanelStore<Panel: OpenPanelLabels> {
     private let makePanel: @MainActor () -> Panel
     private let warmCheck: @MainActor () -> OpenPanelWarmCheck
     private let timer: DemandTimer
-    /// The panel made ahead and the texts it had when it was made (both or neither).
-    private var made: (panel: Panel, defaults: OpenPanelDefaults)?
+    /// A panel made here, held weakly: the store never keeps a panel alive.
+    private struct Made {
+        weak var panel: Panel?
+    }
+    /// One entry per panel made here that may still be alive. Entries of panels that went are removed at the next make.
+    private var madePanels: [Made] = []
 
-    /// Whether a panel was made ahead of a click.
-    var isMade: Bool { made != nil }
-    /// Whether the last panel made came back dead (no prompt: its view service never answered). No warm-up runs
-    /// again until a click makes a working panel: each `NSOpenPanel()` with no view service blocks the main
-    /// thread about 40 s (no GUI session, 2026-10-23).
+    /// Whether this process made a working panel, in the warm-up or for a request: its first-panel cost (the
+    /// frameworks and the first answer of the panel service) is paid, and no other warm-up runs.
+    private(set) var isWarm = false
+    /// The panels made here that are still alive: one per picker on screen, and 0 at rest. The store holds none;
+    /// a request's panel lives as long as its caller and its sheet keep it.
+    var livePanels: Int { madePanels.count(where: { $0.panel != nil }) }
+    /// Whether a panel made here came back dead (no prompt: its view service never answered). No warm-up runs
+    /// after that: each `NSOpenPanel()` with no view service blocks the main thread about 40 s (no GUI session,
+    /// 2026-10-23), and a click that then makes a working panel has paid the first panel (``isWarm``).
     private(set) var warmGaveUp = false
     /// The dead panels dropped so far.
     private(set) var droppedPanels = 0
@@ -38,13 +49,13 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
 
     /// - Parameters:
     ///   - clock: The clock of the warm-up's checks; tests pass a manual clock.
-    ///   - makePanel: Makes a new panel (`NSOpenPanel()`, 105 to 300 ms on the main thread).
-    ///   - warmCheck: Whether a warm-up may make the panel now; read when a check fires.
+    ///   - makePanel: Makes a new panel (`NSOpenPanel()`, synchronous on the main thread).
+    ///   - warmCheck: Whether a warm-up may make its panel now; read when a check fires.
     init(clock: any Clock<Duration> = ContinuousClock(), makePanel: @escaping @MainActor () -> Panel,
          warmCheck: @escaping @MainActor () -> OpenPanelWarmCheck) {
         self.makePanel = makePanel
         self.warmCheck = warmCheck
-        timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: clock)
+        timer = DemandTimer(owner: "openPanel.warm", clock: clock)
         let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         checksRan = ran.stream
         checkRan = ran.continuation
@@ -54,50 +65,54 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     // cancels its own task when it goes.
     nonisolated deinit {}
 
-    /// The panel made ahead when it is free, with a new panel's choices and texts, else a new one (kept when
-    /// none is). Nil when the new one came back dead (no prompt): it is neither kept nor handed out, since a dead
-    /// panel's sheet may never call its handler and a caller waiting on it would hang.
+    /// A new panel for this request; the caller owns it, and it goes when the caller's sheet ended. Nil when it
+    /// came back dead (no prompt): it is not handed out, since a dead panel's sheet may never call its handler
+    /// and a caller waiting on it would hang.
     func panel() -> Panel? {
-        if let kept = made, kept.panel.isFreeForReuse {
-            kept.panel.resetChoices()
-            kept.defaults.apply(to: kept.panel)
-            return kept.panel
-        }
-        let panel = makePanel()
-        guard OpenPanelDefaults(of: panel) != nil else {
+        let panel = make()
+        guard panel.openPanelPrompt != nil else {
             dropDead(onClick: true)
             return nil
         }
-        if made == nil { keep(panel) }
+        isWarm = true
         return panel
     }
 
-    /// Makes the panel once the person has paused: the first check 2 s from now, then one a second while busy,
-    /// ten at most. Nothing after a dead panel (``warmGaveUp``).
+    /// Pays the process's first panel once the person has paused: the first check 2 s from now, then one a second
+    /// while busy, ten at most. Nothing in a warm process, and nothing after a dead panel (``warmGaveUp``).
     func warmWhenIdle() {
-        guard made == nil, !warmGaveUp, !timer.isScheduled else { return }
+        guard !isWarm, !warmGaveUp, !timer.isScheduled else { return }
         check(after: .seconds(2), triesLeft: 10)
     }
 
-    /// Keeps `panel` for later clicks, unless its view service never answered (no prompt): then the warm-up
-    /// gives up and the next click makes a new panel.
-    private func keep(_ panel: Panel) {
-        guard let defaults = OpenPanelDefaults(of: panel) else {
+    /// Makes one panel and lets it go at once: the process has then loaded what a panel needs, and no panel
+    /// stays alive to keep its service at work. A panel whose view service never answered (no prompt) ends the
+    /// warm-ups.
+    private func warm() {
+        let panel = make()
+        guard panel.openPanelPrompt != nil else {
             dropDead(onClick: false)
             return
         }
-        made = (panel, defaults)
-        warmGaveUp = false
+        isWarm = true
     }
 
-    /// Records a dead panel: no warm-up runs until a click makes a working one, and a notice says so.
+    /// A new panel, with its entry in ``livePanels``.
+    private func make() -> Panel {
+        madePanels.removeAll { $0.panel == nil }
+        let panel = makePanel()
+        madePanels.append(Made(panel: panel))
+        return panel
+    }
+
+    /// Records a dead panel: no warm-up runs after it, and a notice says so.
     private func dropDead(onClick: Bool) {
         warmGaveUp = true
         droppedPanels += 1
         let dropped = droppedPanels
         let source = onClick ? "click (no picker shown)" : "warm-up"
         logger.notice(
-            "made-ahead open panel dropped from a \(source, privacy: .public) (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no warm-up until a click makes a working panel"
+            "open panel dropped from a \(source, privacy: .public) (no prompt, its view service never answered): \(dropped, privacy: .public) so far; no further warm-up"
         )
     }
 
@@ -106,18 +121,18 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
             guard let self else { return }
             warmChecks += 1
             defer { checkRan.yield() }
-            guard made == nil, !warmGaveUp else { return }
+            guard !isWarm, !warmGaveUp else { return }
             switch warmCheck() {
             case .never(let reason):
                 // Once per store (the app has one): a test host or a fleet step without the console session would repeat it per view.
                 if !saidNever {
                     saidNever = true
-                    logger.notice("open panel warm-up off: \(reason, privacy: .public); each click makes its panel")
+                    logger.notice("open panel warm-up off: \(reason, privacy: .public); the first click pays the first panel")
                 }
             case .busy:
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
             case .ready:
-                keep(makePanel())
+                warm()
             }
         }
     }

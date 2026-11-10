@@ -1,8 +1,8 @@
 import CmuxNextDesign
 import Testing
 
-/// The first file-picker click of a launch is not cold: the made-ahead panel's warm-up starts when the app's launch
-/// settles, not only when a view that offers the picker reaches a window (Lead decision 2026-10-23).
+/// The first file-picker click of a launch is not cold: the picker's warm-up (the process's first panel, made and let
+/// go) starts when the app's launch settles, not only when a view that offers the picker reaches a window.
 @MainActor
 struct MadeAheadOpenPanelLaunchWarmUpTests {
     @Test func theWarmUpStartsWhenTheScheduleRunsIt() {

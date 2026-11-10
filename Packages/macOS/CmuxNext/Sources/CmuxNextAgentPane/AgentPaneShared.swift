@@ -5,7 +5,7 @@ public import CmuxNextDictation
 /// The app-wide objects every agent pane view shares, built once in the composition root and handed to each
 /// ``AgentPaneView`` the agent tabs make, so the app holds one value for them, not one field per object.
 ///
-/// - `openPanel`: the app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
+/// - `openPanel`: the app's file picker (`AppServices.openPanel`) for Add Files, Attach and a page's
 ///   file input; nil (tests) shows no file picker.
 /// - `eventSources`: the app's table of processes that post input (`AppServices.personInput.sources`): a pane
 ///   judges whether a key or click is the person's from it, never by a system call per event.

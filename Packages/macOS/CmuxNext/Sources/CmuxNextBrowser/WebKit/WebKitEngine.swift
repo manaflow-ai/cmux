@@ -61,15 +61,14 @@ public final class WebKitEngine: BrowserEngine {
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
-    /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
-    /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
-    /// and its dead-panel guard.
+    /// file picker (`AppServices.openPanel`, passed through `TabContentCache`), which agent
+    /// composer pages share, so a browser tab's file input gets its warm-up and its dead-panel guard.
     public let fileInput: any WebFileInputAnswering
 
     /// An engine over the App's `stores`.
     ///
     /// - Parameters:
-    ///   - fileInput: Answers every tab's file input (the App's made-ahead panel; a test passes a stand-in,
+    ///   - fileInput: Answers every tab's file input (the App's file picker; a test passes a stand-in,
     ///     since a test host cannot make an `NSOpenPanel`).
     ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
     ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.

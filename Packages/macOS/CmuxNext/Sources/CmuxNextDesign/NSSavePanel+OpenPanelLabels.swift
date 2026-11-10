@@ -1,11 +1,6 @@
 import AppKit
 
-/// AppKit's panel texts, read as optionals (``OpenPanelLabels``).
+/// AppKit's panel prompt, read as an optional (``OpenPanelLabels``).
 extension NSSavePanel: OpenPanelLabels {
     var openPanelPrompt: String? { prompt }
-    var openPanelMessage: String? { message }
-    func setOpenPanelTexts(prompt: String, message: String) {
-        self.prompt = prompt
-        self.message = message
-    }
 }

@@ -6,8 +6,8 @@ public import WebKit
 /// the page's window (the agent composer's + then Attach files). WebKit shows no chooser for a web
 /// view without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing
 /// there. The chosen files go back to the page, which reads them as it reads a drop. The panel is
-/// the app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so once it is made the
-/// click pays only the sheet; a WebKit browser tab's file input takes the same path
+/// a new one from the app's picker (`MadeAheadOpenPanel`; an agent pane starts its warm-up), so the
+/// click does not pay the process's first panel; a WebKit browser tab's file input takes the same path
 /// (`WebFileInputAnswering`). A page hosted in Chromium does not come here (the CEF shim has no
 /// file-dialog handler yet). A web view holds its UI delegate weakly: the view that sets this as
 /// its delegate keeps it.
@@ -18,7 +18,7 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
     /// panel, which page script can't make (the agent pane records where they came from).
     public var onChosen: (@MainActor ([URL]) -> Void)?
 
-    /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
+    /// - Parameter openPanel: The app's file picker (`AppServices.openPanel`).
     public init(openPanel: MadeAheadOpenPanel) {
         self.openPanel = openPanel
     }

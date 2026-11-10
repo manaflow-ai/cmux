@@ -58,7 +58,7 @@ extension AgentTabStore {
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
-    /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
+    /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the app's open panel, the posting-process table).
     let paneShared: AgentPaneShared
     private let attentionTabs: AgentPaneAttentionTabs?
     /// The page every agent tab loads: the bundled file, or in Debug builds

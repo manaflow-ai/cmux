@@ -21,8 +21,8 @@ Diff: `DiffPageService` conforms to `DiffViewerOpening` and is `ViewerService.di
 ## The system open panel on the click path (PL-fleet-gui, 2026-10-23)
 
 Home's "+", an agent composer's Add Files / Attach and every WebKit view's `<input type="file">` (cmux pages on WebKit and
-WebKit browser tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (the made-ahead `MadeAheadOpenPanel`, one
-instance made at the composition root).
+WebKit browser tabs, one path: `WebFileInputAnswering`) still use `NSOpenPanel` (`MadeAheadOpenPanel`, one
+instance made at the composition root; since 2026-11-10 it makes a new panel for each request and keeps none).
 
 Chromium is not on that path. Chromium is the default engine for browser tabs and for cmux pages (`PageWebView` follows
 `browser.defaultEngine`), and the CEF shim (`shim_client.mm`) has no `CefDialogHandler`: a Chromium file input runs
@@ -46,6 +46,9 @@ What of the panel can block the main thread, measured with
 | same | new `NSOpenPanel()` per click | 298 to 376 ms | 317 to 325 ms | 650 to 738 ms |
 | cmux17/cmux21 macOS 27.0, cmux-app-review-mac 26.5.1, a fresh process (JXA) | first panel | 316 to 386 ms | | |
 | mac26 (loaded), a fresh process | first panel | 1 510 ms | | |
+| aws-m4pro-7, macOS 26.7, 120 Hz virtual display, Debug, light, 2026-11-10, base 1e8eb03533a | kept panel (taken back that day) | 0.2 ms p50, 0.3 max | 269 to 286 ms | 275.0 ms p50, 286.0 max (n = 10); first open of a process 286.0 p50, 292.4 max (n = 6) |
+| same host and hold, head 96c1d4ef710 | new panel per request, after the launch warm-up | 104.5 ms p50, 114.4 max; first open of a process 120.2 p50, 139.2 max | 274 to 293 ms | 387.8 ms p50, 403.5 max (n = 10); first open of a process 416.3 p50, 434.7 max (n = 6) |
+| same host and hold, both builds | a process's first panel with no warm-up | 370 and 404 ms (n = 2) | 301 and 307 ms | 684 and 709 ms |
 | aws-m4pro-3, macOS 27.0.1, no console session | any | about 40 s (10 + 10 + 20 s of `HostCallsAuxiliary` waits), then prompt nil | | |
 
 What blocks: `NSOpenPanel()` itself. Its init waits synchronously on the panel's view service (about 300 ms for a
@@ -57,20 +60,32 @@ runs a nested run loop, not a frozen main thread. No caller uses `runModal`; eve
 The options:
 
 - `begin` / `beginSheetModal` instead of `runModal`: already so.
-- A panel kept warm once the service answered: already so. `MadeAheadPanelStore` keeps one panel and resets its choices and
-  texts after each use, off the click; the click then pays 0.2 ms to get it. The warm-up runs only while this account is
-  the console user and the person is idle, and stops after a dead panel. A newly made panel that reads no prompt is
-  dropped, never shown. A kept panel whose view service ended later is not detected (every caller sets its prompt,
-  so it always reads one; open, perf-lead.md row 25). The warm-up is not bounded: it is the same
-  `NSOpenPanel()` on the main thread, so for a console user whose panel service hangs or respawns slowly it freezes
-  the main thread once, up to about 40 s, before the dead panel stops it. No deadline is possible around it (below).
-- A light in-app placeholder while the panel comes up: it cannot help the one case left, a click with no panel made ahead
-  (before the first warm-up, in a session that never warms, after a dead panel). That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
+- A panel kept warm once the service answered: taken back on 2026-11-10 (perf lead decision 2 of DEV IDLE CPU). From
+  2026-10-23 `MadeAheadPanelStore` kept one panel for the life of the app, and a click paid 0.2 ms to get it (the first
+  two rows of the table above). But a live `NSOpenPanel` keeps its panel service
+  (`com.apple.appkit.xpc.openAndSavePanelService`) at work at rest: the service syncs the folder the panel shows on each
+  file-system event (DesktopServicesPriv `TSystemNotificationTask::HandleFSEvent`, `TNode::HandleSync`,
+  `TNode::SynchronizeChildren`). On a Mac whose folders change all the time that was 2.8 to 4.8 % of a core for the
+  life of each cmux app (two apps, 15.5 h: 25 min 45 s of CPU time in one service). Now the app keeps no panel at rest:
+  each request makes its own `NSOpenPanel` (as Chromium makes its file dialog's panel at the request,
+  `components/remote_cocoa/app_shim/select_file_dialog_bridge.mm`), and the caller's sheet is its last owner.
+- What stays of the warm-up: the process's first panel. `MadeAheadPanelStore` makes one panel while this account is the
+  console user and the person is idle, and lets it go at once, so the first click does not pay the frameworks' load and
+  the panel service's first answer. It runs once per process and stops after a dead panel. A newly made panel that reads
+  no prompt is dropped, never shown. The warm-up is not bounded: it is the same `NSOpenPanel()` on the main thread, so
+  for a console user whose panel service hangs or respawns slowly it freezes the main thread once, up to about 40 s,
+  before the dead panel stops it. No deadline is possible around it (below). The click-to-sheet times of both paths,
+  base and head on one host, are the last three rows of the table above: a new panel per request puts 112 ms (p50) on
+  each open and 130 ms on a process's first open, against the kept panel; the warm-up keeps the first open at 416 ms,
+  not 684 ms. In the same run the panel service used 867 ms of CPU time in 40 s of changes in the home folder with the
+  kept panel, and none with no panel alive.
+- A light in-app placeholder while the panel comes up: it cannot help the case left, a click that makes its panel. That wait is the `NSOpenPanel()` init on the main thread, and a placeholder
   needs the same main thread to draw. AppKit has no public way to make an `NSOpenPanel` off the main thread or to ask its
   view service ahead without making one.
 
 So AppKit leaves no non-blocking path for a click or a warm-up that has to make its panel: about 300 ms on a working
-host, 40 s with no view service or a hung one. The made-ahead panel removes it for every click after the warm-up. The way to remove it for every click is
+host, 40 s with no view service or a hung one. Each click now pays its own panel (the kept panel that removed it cost
+CPU time at rest for the life of the app, above). The way to remove it for every click is
 the decision at the top of this file: cmux's own picker (`CmuxPicker`, no XPC service) for these entry points too.
 The dead-panel guard does not shorten that block: a click whose new panel comes back dead still waits it out, then ends
 the input as a cancel instead of a sheet that never ends.

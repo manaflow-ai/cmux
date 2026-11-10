@@ -6,10 +6,10 @@ import Testing
 import CmuxNextTestSupport
 
 /// The agent composer's + > Attach files or images is a page `<input type="file">` that
-/// `PageOpenPanel` answers with the app's panel made ahead (`MadeAheadOpenPanel`). A new panel per
-/// click showed its sheet 160 ms after the click, 830 ms for the process's first (capture-mini
-/// bench, 2026-10-21); the panel made ahead shows it in 45 to 95 ms. So a chat that reaches a
-/// window starts the warm-up, as Home's transcript does; a process that never ran the app's event
+/// `PageOpenPanel` answers with a new panel from the app's picker (`MadeAheadOpenPanel`). A new panel
+/// showed its sheet 160 ms after the click, 830 ms for the process's first (capture-mini
+/// bench, 2026-10-21). So a chat that reaches a window starts the warm-up, which pays the process's
+/// first panel and lets it go, as Home's transcript does; a process that never ran the app's event
 /// loop (this test host) still makes no panel.
 @MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct AgentPaneOpenPanelWarmUpTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -41,6 +41,6 @@ import CmuxNextTestSupport
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(shared.warmChecks > checks && !shared.isWarming, "the warm-up never finished")
-        #expect(!shared.isMade, "a panel was made ahead in a process that never ran the app")
+        #expect(!shared.isWarm && shared.livePanels == 0, "a panel was made in a process that never ran the app")
     }
 }
