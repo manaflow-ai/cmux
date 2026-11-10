@@ -173,11 +173,11 @@ pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
-pub mod skill_distill;
 pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+pub mod skill_distill;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;

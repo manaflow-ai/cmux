@@ -215,8 +215,7 @@ fn command_step(line: &str) -> String {
         .split("&&")
         .flat_map(|p| p.split(';'))
         .map(|p| p.split('|').next().unwrap_or("").trim())
-        .filter(|p| !p.is_empty() && !p.starts_with("cd ") && *p != "cd")
-        .next()
+        .find(|p| !p.is_empty() && !p.starts_with("cd ") && *p != "cd")
         .unwrap_or("");
     let mut words = part.split_whitespace().skip_while(|w| {
         w.contains('=') && !w.starts_with('-') || matches!(*w, "sudo" | "env" | "time" | "exec")
