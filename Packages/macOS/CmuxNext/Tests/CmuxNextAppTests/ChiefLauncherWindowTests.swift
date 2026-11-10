@@ -18,24 +18,39 @@ import Testing
 struct ChiefLauncherWindowTests {
     typealias Fixture = SidebarMultiViewWindowTests.Fixture
 
-    /// The Chief stand-in: empty space around a message box (a text view that takes the keys) and a view that keeps
-    /// its presses (`mouseDownCanMoveWindow` false, as a bubble or a button would).
+    /// The Chief stand-in: empty space around a message box (a text view that takes the keys), a view that keeps its
+    /// presses (it handles them itself, as a send button does, and says nothing of the window), and a transcript (one
+    /// view: its top half a message whose text selects, its bottom half empty space between messages).
     final class Chief: NSView {
         let draft = NSTextView(frame: NSRect(x: 8, y: 8, width: 220, height: 40))
         let keeper = Keeper(frame: NSRect(x: 8, y: 300, width: 120, height: 40))
+        let transcript = Transcript(frame: NSRect(x: 160, y: 60, width: 150, height: 200))
         init() {
             super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
             addSubview(draft)
             addSubview(keeper)
+            addSubview(transcript)
         }
         @available(*, unavailable) required init?(coder: NSCoder) { nil }
     }
 
     final class Keeper: NSView {
-        override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         private(set) var presses = 0
         override func mouseDown(with event: NSEvent) { presses += 1 }
+    }
+
+    /// A transcript stand-in: it takes every press (selection) and says which are on empty space.
+    final class Transcript: NSView, WindowBackgroundDragDeciding {
+        override var isFlipped: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        private(set) var selects = 0
+        override func mouseDown(with event: NSEvent) {}
+        override func mouseDragged(with event: NSEvent) { selects += 1 }
+        func pressMovesWindow(atWindowPoint point: CGPoint, hit: NSView) -> Bool? {
+            guard hit === self else { return nil }
+            return convert(point, from: nil).y < bounds.midY // the bottom half: empty space
+        }
     }
 
     /// A window showing `k1` (Home is `k0`), the actions bound, the Chief closed; its frames saved in a scratch domain.
@@ -121,7 +136,7 @@ struct ChiefLauncherWindowTests {
         #expect(abs(launcher.frame.midX - visible.midX) <= 1, "not centered: \(launcher.frame) on \(visible)")
         #expect(launcher.frame.maxY > visible.midY, "not in the upper part of the screen: \(launcher.frame)")
         let start = launcher.frame
-        try Self.drag(at: NSPoint(x: 260, y: 200), in: chief, by: CGVector(dx: -300, dy: -80))
+        try Self.drag(at: NSPoint(x: 260, y: 330), in: chief, by: CGVector(dx: -300, dy: -80))
         #expect(abs(launcher.frame.minX - (start.minX - 300)) <= 1 && abs(launcher.frame.minY - (start.minY - 80)) <= 1,
                 "a drag on empty space did not move it: \(start) -> \(launcher.frame)")
         let left = launcher.frame
@@ -141,10 +156,52 @@ struct ChiefLauncherWindowTests {
         try Self.drag(at: NSPoint(x: 60, y: 320), in: chief, by: CGVector(dx: 120, dy: 40))
         #expect(launcher.frame == start, "a press on a view that keeps it moved the window: \(launcher.frame)")
         #expect(chief.keeper.presses == 1, "the view did not get its press")
-        try Self.drag(at: NSPoint(x: 260, y: 200), in: chief, by: CGVector(dx: 1, dy: 1))
+        try Self.drag(at: NSPoint(x: 260, y: 330), in: chief, by: CGVector(dx: 1, dy: 1))
         #expect(launcher.frame == start, "a click on empty space moved the window")
         try Self.drag(at: NSPoint(x: 60, y: 320), in: chief, by: CGVector(dx: 120, dy: 40), flags: .command)
         #expect(abs(launcher.frame.minX - (start.minX + 120)) <= 1, "Cmd-drag did not move it: \(launcher.frame)")
+    }
+
+    /// A transcript (one view) moves the window from its empty space and keeps a press on a message for its selection.
+    @Test func theTranscriptSaysWhereItsEmptySpaceIs() async throws {
+        let (f, chief) = try await Self.open()
+        defer { f.close() }
+        #expect(Self.perform("home.openChiefDock", f))
+        let launcher = try #require(f.controller.chiefPanelView?.launcher)
+        let start = launcher.frame
+        try Self.drag(at: NSPoint(x: 75, y: 150), in: chief.transcript, by: CGVector(dx: 60, dy: 0)) // a message
+        #expect(launcher.frame == start, "a drag on a message moved the window: \(launcher.frame)")
+        #expect(chief.transcript.selects > 0, "the message's text did not get the drag")
+        try Self.drag(at: NSPoint(x: 75, y: 40), in: chief.transcript, by: CGVector(dx: 60, dy: 0)) // empty space
+        #expect(abs(launcher.frame.minX - (start.minX + 60)) <= 1, "a drag on the transcript's empty space did not move it: \(launcher.frame)")
+    }
+
+    /// The Chief's own popups (its settings card, a menu or picker: a child panel that takes the keys) and sheets are
+    /// not a click outside: the window stays, and gets the keys back when the popup closes.
+    @Test func itsOwnPopupsAndSheetsDoNotHideIt() async throws {
+        let (f, chief) = try await Self.open()
+        defer { f.close() }
+        #expect(Self.perform("home.openChiefDock", f))
+        let launcher = try #require(f.controller.chiefPanelView?.launcher)
+        try #require(launcher.isKeyWindow || launcher.firstResponder === chief.draft)
+        let popup = NativePopupHost(panel: NativePopupPanel(identifier: "test.chiefLauncher.popup"))
+        let anchor = launcher.convertToScreen(chief.convert(chief.keeper.frame, to: nil))
+        _ = popup.show(size: CGSize(width: 200, height: 120), anchor: anchor, in: launcher, makeKey: true)
+        f.frame()
+        #expect(popup.isShown, "the popup did not show")
+        #expect(launcher.isVisible && f.controller.frameChiefPanelShown, "the Chief's own popup hid it")
+        popup.hide()
+        f.frame()
+        #expect(launcher.isVisible, "closing the popup hid it")
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        sheet.isReleasedWhenClosed = false
+        launcher.beginSheet(sheet, completionHandler: nil)
+        f.frame()
+        #expect(launcher.isVisible && f.controller.frameChiefPanelShown, "a sheet on it hid it")
+        launcher.endSheet(sheet)
+        sheet.close()
+        f.frame()
+        #expect(launcher.isVisible, "closing the sheet hid it")
     }
 
     /// Esc hides it, and so does a click outside (it gives up the keys), each giving the Chief back to Home.
