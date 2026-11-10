@@ -89,7 +89,7 @@ enum AgentPaneCapture {
         if let source = CGImageSourceCreateWithURL(file as CFURL, nil), CGImageSourceGetType(source) != nil,
            CGImageSourceGetCount(source) > 0 {
             defer { try? FileManager.checked.removeItem(at: file) }
-            return answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
+            return answer((try? Data(blockingContentsOf: file)) ?? Data(), taken: taken)
         }
         let stem = "Screen Recording \(stamp(taken))"
         do {
