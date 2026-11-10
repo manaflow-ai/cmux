@@ -16,6 +16,8 @@ struct DiffCommentsTests {
     final class StoringGit: DiffGitRunning, DiffCommentsStoring {
         var comments: [String: [JSONValue]] = [:]
         var keys: [String] = []
+        var reviews: [String: JSONValue] = [:]
+        var posted: [[String]] = []
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue { ["root": .string(repository)] }
         func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue { ["files": []] }
@@ -23,7 +25,9 @@ struct DiffCommentsTests {
         func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? { nil }
 
         func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
-            ["root": .string(root), "comments": .array(comments[root] ?? [])]
+            var listed: [String: JSONValue] = ["root": .string(root), "comments": .array(comments[root] ?? [])]
+            listed["review"] = reviews[root]
+            return .object(listed)
         }
 
         func saveComment(root: String, comment: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
@@ -43,6 +47,14 @@ struct DiffCommentsTests {
             }
             comments[root]?.removeAll { removed.contains($0["id"]?.stringValue ?? "") }
             return ["deleted": .number(Double(removed.count)), "ids": .array(removed.map(JSONValue.string))]
+        }
+
+        func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+            keys.append(key)
+            posted.append(ids)
+            let cleared = try await deleteComments(root: root, ids: ids, versions: versions, key: key)
+            return ["url": "https://github.com/o/r/pull/7#pullrequestreview-1", "posted": .number(Double(ids.count)),
+                    "in_body": 0, "cleared": cleared["ids"] ?? []]
         }
     }
 
@@ -144,6 +156,35 @@ struct DiffCommentsTests {
         ]), context: PageCallContext(page: "cmux.diff", opid: "diff-comments-2", userGesture: true))
         #expect(reply["cleared"]?.arrayValue?.compactMap(\.stringValue) == ["c1"])
         #expect(git.comments[Self.repository]?.compactMap { $0["id"]?.stringValue } == ["c2"])
+        await provider.close()
+    }
+
+    /// A review worktree's drafts (`git.review.start`): the page learns which pull request they go
+    /// to, and Post to GitHub sends them with the person's gh only on their click, under the page's
+    /// opid, so a retry posts once.
+    @Test func aReviewWorktreesDraftsArePostedOnlyOnAClick() async throws {
+        let git = StoringGit()
+        git.reviews[Self.repository] = ["url": "https://github.com/o/r/pull/7", "repo": "o/r", "number": 7]
+        let (provider, grant, root) = try provider(git: git, chat: nil)
+        defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
+        let page = PageCallContext(page: "cmux.diff")
+        _ = try await provider.call("cmux.diff.comments", params: comments("comments.save", [
+            "repoRoot": .string(Self.repository), "comment": ["filePath": "a.ts", "message": "Off by one"],
+        ]), context: page)
+        let listed = try await provider.call("cmux.diff.comments", params: comments("comments.list", ["repoRoot": .string(Self.repository)]), context: page)
+        #expect(listed["review"]?["number"] == 7)
+
+        let post = comments("comments.post", ["repoRoot": .string(Self.repository), "ids": ["c1"]])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.diff.comments", params: post, context: page)
+        }
+        #expect(git.posted.isEmpty)
+        let reply = try await provider.call("cmux.diff.comments", params: post,
+                                            context: PageCallContext(page: "cmux.diff", opid: "diff-post-1", userGesture: true))
+        #expect(reply["url"]?.stringValue == "https://github.com/o/r/pull/7#pullrequestreview-1")
+        #expect(git.posted == [["c1"]])
+        #expect(git.keys.last == "diff-post-1")
+        #expect(git.comments[Self.repository]?.isEmpty == true)
         await provider.close()
     }
 

@@ -3801,6 +3801,8 @@ mod feed_local;
 mod frontend_browser_status;
 #[path = "cli/git_branches.rs"]
 mod git_branches;
+#[path = "cli/git_review.rs"]
+mod git_review;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[cfg(unix)]

@@ -828,6 +828,8 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git review start [TARGET] <pull-request-url>
+git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side new|old] --message <text>
 git comments list [--root <path>]
 git comments save [--root <path>] --comment <json-object>
 git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
@@ -1191,6 +1193,31 @@ uncommitted changes are untouched. The result is the worktree's `root`,
 `no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
 worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
+
+`git review start <url>` (`git.review.start`, capability `git-review-v1`)
+checks a GitHub pull request out for review, only on this machine. `gh pr view`
+reads the pull request and `git fetch` brings its head and base branch from the
+remote of TARGET's repository that is `OWNER/REPO` on github.com, both in the
+user's environment. The worktree is `git worktree create`'s, named
+`review-<number>`, at the head, and the merge-base with the base branch is
+recorded as its `cmuxBase`, so the diff viewer's branch scope shows exactly the
+pull request's change. The result is the worktree's `root`, `branch`, `head`,
+`base` (the merge-base), the pull request's `url`, `repo`, `number` and
+`title`, and `diff`, the git command that prints its diff. A worktree an
+earlier review made on the same head is reused with its drafts (`reused`). It
+refuses with `no_remote`, `gh_unavailable`, `gh_failed`, `fetch_failed`,
+`pull_request_moved` or `git_failed`.
+
+`git review comment` (`git.review.comment`), run in such a worktree, saves one
+draft review comment on lines `--start-line` to `--line` of `--file`, on the
+pull request's version (`--side new`, default) or the base's (`--side old`).
+The diff viewer shows it with its other comments. The lines must lie in one
+hunk of the pull request's diff as GitHub shows it (three lines of context);
+otherwise it refuses with `not_in_diff`, whose `extra.new_lines` or
+`extra.old_lines` lists the lines that side shows. `not_a_review` names a
+worktree `review start` did not make. Nothing here posts: the person posts the
+drafts as one review from the diff viewer (`git.review.post`, which is not a
+`cmux` verb or an MCP tool).
 
 `git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
 run in a worktree whose branch `git worktree create` recorded a base for, brings

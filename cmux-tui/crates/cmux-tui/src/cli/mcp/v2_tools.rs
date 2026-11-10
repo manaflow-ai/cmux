@@ -38,6 +38,11 @@ const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
 const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
 
+/// A review posts under the person's own GitHub account: an agent leaves
+/// drafts (`git_review_comment`) and the person posts them from the diff
+/// viewer.
+const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
+
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
@@ -73,6 +78,7 @@ const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Ke
 
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
+    ("git.review.post", REVIEW_POST_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),

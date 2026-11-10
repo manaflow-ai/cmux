@@ -14,16 +14,22 @@ public protocol DiffCommentsStoring: AnyObject {
     /// `diff.comments.delete {root, ids, versions}` → `{deleted, ids}`: a comment `versions` names
     /// goes only while its `updatedAt` is still that version, checked under the host's lock.
     func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// `git.review.post {root, ids, versions}` → `{url, posted, in_body, cleared}`: a review
+    /// worktree's drafts to GitHub as one review, with the person's gh; those still unchanged leave.
+    func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue
 }
 
 /// The diff tab's review comments (hq #7563): `cmux.diff.comments {method, params}` carries the
 /// page's comment methods (webviews/src/comments/bridge.ts):
-/// - `comments.list {repoRoot}` → `{comments}`, `comments.save {repoRoot, comment}` → `{comment}`,
+/// - `comments.list {repoRoot}` → `{comments, review?}` (`review`: the pull request a review
+///   worktree's comments go to, `git.review.start`), `comments.save {repoRoot, comment}` → `{comment}`,
 ///   `comments.delete {repoRoot, id}`: the session host's store, for the tab's own repository only;
 /// - `comments.send {repoRoot, ids, versions, text}`: `text` (every comment as one prompt) to the
 ///   chat that opened the tab, then those comments leave the store unless edited since
 ///   (`versions`: each id's `updatedAt` as sent); answers `{sent, cleared}`. It needs a real click or key, and the
-///   page's opid is the prompt's id, so a resend is delivered once.
+///   page's opid is the prompt's id, so a resend is delivered once;
+/// - `comments.post {repoRoot, ids, versions}`: a review worktree's drafts to GitHub as one review
+///   (`git.review.post`), on a real click, the page's opid its key; answers the host's result.
 /// Viewed files and prefs have their own ops (DiffPageProvider+Stores.swift); the page uses those.
 extension DiffPageProvider {
     static let commentsOp = "cmux.diff.comments"
@@ -44,7 +50,10 @@ extension DiffPageProvider {
         do {
             switch method {
             case "comments.list":
-                return ["comments": .array(try await store.listComments(root: root)["comments"]?.arrayValue ?? [])]
+                let listed = try await store.listComments(root: root)
+                var reply: [String: JSONValue] = ["comments": .array(listed["comments"]?.arrayValue ?? [])]
+                if let review = listed["review"], review.objectValue != nil { reply["review"] = review }
+                return .object(reply)
             case "comments.save":
                 guard let comment = inner["comment"], comment.objectValue != nil else { throw PageError.invalidParams("comment is required") }
                 guard let saved = try await store.saveComment(root: root, comment: comment, key: key)["comment"] else {
@@ -57,6 +66,14 @@ extension DiffPageProvider {
                 return .object([:])
             case "comments.send":
                 return try await sendComments(inner, root: root, store: store, context: context)
+            case "comments.post":
+                // Posting publishes under the person's GitHub account: only their click does it.
+                guard context.userGesture else {
+                    throw PageError(code: "transport.gesture_required", message: "Posting needs a click or key in the page")
+                }
+                let ids = inner["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                guard !ids.isEmpty, ids.count <= Self.maximumSentComments else { throw PageError.invalidParams("ids are required") }
+                return try await store.postReview(root: root, ids: ids, versions: inner["versions"]?.objectValue ?? [:], key: key)
             default:
                 throw PageError(code: "cmux.diff.unsupported", message: method)
             }
@@ -123,6 +140,14 @@ extension DiffAgentGit: DiffCommentsStoring {
         var params: [String: JSONValue] = ["root": .string(root), "ids": .array(ids.map(JSONValue.string))]
         if !versions.isEmpty { params["versions"] = .object(versions) }
         return try await mutate("diff.comments.delete", .object(params), key: key)
+    }
+
+    public func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        var params: [String: JSONValue] = ["root": .string(root), "ids": .array(ids.map(JSONValue.string))]
+        if !versions.isEmpty { params["versions"] = .object(versions) }
+        // Only the person posts: the host refuses it on any connection but the app's own.
+        return try Self.mutationValue(
+            try await link.userMutate("git.review.post", params: Data(JSONValue.object(params).compactText.utf8), idempotencyKey: key))
     }
 
     private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {

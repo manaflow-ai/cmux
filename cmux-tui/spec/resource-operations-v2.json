@@ -9843,6 +9843,219 @@
             "max_items": 500
           },
           "description": "The root's saved comments, oldest first: by createdAt, then the order they were first saved. Each is the page's object with the daemon's id, createdAt and updatedAt."
+        },
+        "review": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "DiffReviewTarget"
+          },
+          "description": "The pull request the comments go to, for a worktree git.review.start made."
+        }
+      },
+      "extra": false
+    },
+    "DiffReviewTarget": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The pull request's link, https://github.com/OWNER/REPO/pull/N."
+        },
+        "repo": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "OWNER/REPO."
+        },
+        "number": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The pull request's title when the review started."
+        },
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The head commit reviewed; the posted review is on it."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The merge-base of the head and the base branch: the worktree's diff starts there."
+        }
+      },
+      "extra": false
+    },
+    "GitReviewPostResult": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The posted review's link."
+        },
+        "posted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 0
+          },
+          "description": "Drafts posted as inline comments."
+        },
+        "in_body": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 0
+          },
+          "description": "Drafts on lines the pull request's diff does not show, posted in the review's body."
+        },
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "max_items": 500
+          },
+          "description": "The ids of the drafts removed: every posted one still unchanged."
+        }
+      },
+      "extra": false
+    },
+    "GitReviewStartResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The review worktree's folder, the root its drafts are kept under."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's branch, cmux/review-<number> (a taken name gets a suffix)."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "repo": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "number": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The merge-base, recorded as branch.<branch>.cmuxBase so the diff page's branch scope shows the pull request's change."
+        },
+        "diff": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The git command that prints the pull request's diff in the worktree."
+        },
+        "setup": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupStart"
+          },
+          "description": "Always state none: a review runs no setup recipe, which would run the pull request's code before anyone read it."
+        },
+        "reused": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The worktree is one an earlier review of the pull request made on the same head, kept with its drafts."
         }
       },
       "extra": false
@@ -26399,6 +26612,259 @@
         "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, upstream_mismatch, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
+      ]
+    },
+    "git.review.comment": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "file": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The file, relative to the worktree's root (or absolute under it), as the pull request names it."
+          },
+          "line": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "The line the draft is on (the last of a range)."
+          },
+          "start_line": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "The first line of a range; default line."
+          },
+          "side": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "new",
+                "old",
+                "additions",
+                "deletions"
+              ]
+            },
+            "description": "new (the pull request's version, default) or old (the base's, for a removed line)."
+          },
+          "message": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 16384
+            },
+            "description": "The draft's text."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSaveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The worktree must be one git.review.start made. The lines must lie in one hunk of the pull request's diff as GitHub shows it (merge-base to head, renames found, three lines of context) on that side; otherwise operation.failed not_in_diff, whose extra.new_lines or old_lines lists the lines that side shows.",
+        "The draft is saved as diff.comments.save saves the diff page's comment, with its filePath, side, startLine, endLine, lineText and message, so the diff page shows it at once.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_review, not_in_diff, not_a_repository, no_working_directory, target_not_found, too_many_comments, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.review.post": {
+      "class": "mutation",
+      "risk": "send-external",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The review worktree's root, as diff.comments.list names it."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 500
+            },
+            "description": "The drafts to post."
+          },
+          "versions": {
+            "required": true,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Every id's updatedAt as the caller read it: a draft edited since is not posted and stays, also when the post is a retry that finds its review already on GitHub."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitReviewPostResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The drafts are posted as one review (event COMMENT) on the reviewed head with the person's own gh (gh api POST repos/OWNER/REPO/pulls/N/reviews), never prompting, stopped after 120 s. A draft on lines the pull request's diff shows is an inline comment; any other goes in the review's body with its file and lines.",
+        "Once GitHub took the review, the posted drafts still unchanged leave the store, in the same locked step; cleared names them.",
+        "The app calls it only on the person's click; agents leave drafts and never post.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_review, nothing_to_post, gh_unavailable, gh_failed, timed_out, no_state_directory, store_failed or git_failed; extra.message explains it and extra.output carries what gh printed."
+      ]
+    },
+    "git.review.start": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The pull request's link, https://github.com/OWNER/REPO/pull/N; anything after the number is left out."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitReviewStartResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The repository named must have a remote that is OWNER/REPO on github.com. gh pr view reads the pull request; git fetch brings its head and base branch; both run in the user's environment, never prompt, and stop after 120 s.",
+        "The worktree is git.worktree.create's, named review-<number>, at the pull request's head, with the merge-base recorded as branch.<branch>.cmuxBase and the link as branch.<branch>.cmuxReview. A worktree an earlier review made on the same head is reused with its drafts.",
+        "The pull request is recorded with the worktree's diff comments, so diff.comments.list answers it as review.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, gh_unavailable, gh_failed, fetch_failed, pull_request_moved, name_taken, path_exists, no_home, timed_out, store_failed, no_state_directory or git_failed; extra.message explains it and extra.output carries what gh or git printed (at most 16 KiB)."
       ]
     },
     "git.status": {

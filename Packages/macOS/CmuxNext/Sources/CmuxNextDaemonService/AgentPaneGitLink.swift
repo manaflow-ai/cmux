@@ -16,14 +16,23 @@ public final class AgentPaneGitLink {
     private let clientName: String
     /// The commits' and pushes' own connection, opened at the first write.
     private var writeLink: AgentPaneGitLink?
+    /// The person's own mutations' connection (``userMutate(_:params:idempotencyKey:)``), opened at
+    /// the first: it proves itself the app with `hello`, which only that link has.
+    private var userLink: AgentPaneGitLink?
+    private let hello: ClientHelloIdentity?
     private var opening: Task<DaemonConnection, any Error>?
     /// Reads and drops the connection's tree events: every handshake
     /// subscribes, and nothing here uses them.
     private var drain: Task<Void, Never>?
 
-    public init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+    public convenience init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+        self.init(daemon: daemon, clientName: clientName, hello: nil)
+    }
+
+    private init(daemon: DaemonService, clientName: String, hello: ClientHelloIdentity?) {
         self.daemon = daemon
         self.clientName = clientName
+        self.hello = hello
     }
 
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
@@ -115,6 +124,30 @@ public final class AgentPaneGitLink {
         }
     }
 
+    /// Session host mutation `operation` only the person sends (`git.review.post`, a review under
+    /// their GitHub account): on a connection of its own that proves itself the verified app, as
+    /// the control connection does, so the host takes it as the user's without holding terminal
+    /// commands behind it. A daemon the app did not start (another machine's) has no such
+    /// connection: `native.not_connected`. Throws like ``mutate(_:params:idempotencyKey:)``.
+    public func userMutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        guard let hello = daemon.clientHello else { throw AgentPaneGitFailure.notConnected }
+        let connection: DaemonConnection
+        do {
+            let user = userLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-user", hello: hello)
+            userLink = user
+            connection = try await user.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+            return try await Self.encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
+    }
+
     /// Session host mutation `operation` with `params` under `idempotencyKey`, on the write
     /// connection, answering its `MutationResult` (the palette's git worktree and checkpoint
     /// actions). Throws `DaemonError.notConnected` when the link does not open, else the
@@ -149,6 +182,8 @@ public final class AgentPaneGitLink {
     public func close() {
         writeLink?.close()
         writeLink = nil
+        userLink?.close()
+        userLink = nil
         let opening = opening
         self.opening = nil
         // task-owner: one bounded close of a connection nothing else holds
@@ -158,10 +193,11 @@ public final class AgentPaneGitLink {
     private func open() -> Task<DaemonConnection, any Error> {
         let daemon = daemon
         let clientName = clientName
+        let hello = hello
         return Task {
             let connection = DaemonConnection(
                 configuration: DaemonConnection.Configuration(
-                    clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil),
+                    clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil, clientHello: hello),
                 endpointProvider: { try await daemon.endpoint() })
             do {
                 try await connection.start()

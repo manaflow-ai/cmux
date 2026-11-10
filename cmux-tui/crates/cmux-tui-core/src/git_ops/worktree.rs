@@ -36,7 +36,7 @@ use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 use cmux_json::JsonSet as _;
 
-const OPERATION: &str = "git.worktree.create";
+pub(super) const OPERATION: &str = "git.worktree.create";
 pub(super) const BRANCH_PREFIX: &str = "cmux/";
 const MAX_NAME_CHARS: usize = 48;
 /// Suffixes tried after a taken name: `name-2` up to this.
@@ -44,9 +44,9 @@ const MAX_SUFFIX: usize = 99;
 
 /// A started create, as the journal keeps it.
 #[derive(Debug, Serialize, Deserialize)]
-struct Attempt {
-    root: PathBuf,
-    branch: String,
+pub(super) struct Attempt {
+    pub(super) root: PathBuf,
+    pub(super) branch: String,
     base: String,
     base_commit: String,
 }
@@ -74,7 +74,7 @@ pub(super) fn dispatch(
                 attempt
             }
         };
-        match create(repository, &git, &attempt) {
+        match create(repository, &git, &attempt, None) {
             Ok(()) => {
                 let mut value = described(&attempt, target.common_dir());
                 value.set("setup", setup(mux, &attempt, target.common_dir()));
@@ -103,7 +103,7 @@ pub(super) fn dispatch(
 }
 
 /// The base, and the first free name in this project's worktree folder.
-fn plan(
+pub(super) fn plan(
     repository: &Repository,
     common_dir: &Path,
     fields: &Map<String, Value>,
@@ -161,12 +161,22 @@ fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it.
-fn create(
+/// reply's run already made it. `review` (a pull request's address) checks
+/// it out running none of the checked-out code: no git hook (`post-checkout`)
+/// and no filter driver (a `smudge` or `process` command can name a script in
+/// the checkout). Its branch records the pull request (`cmuxReview`) before
+/// any file is written, so a checkout that fails halfway is still known as
+/// a review's (no teardown runs in it), and only a worktree that records it
+/// gets the review's files: another creation's worktree that took the name
+/// first is refused, never reset.
+pub(super) fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
+    review: Option<&str>,
 ) -> Result<(), ResourceError> {
+    let trusted = review.is_none();
+    let marker = format!("branch.{}.cmuxReview", attempt.branch);
     if !made(attempt) {
         if attempt.root.exists() {
             let message = format!(
@@ -186,15 +196,80 @@ fn create(
         // A first run stopped mid-checkout leaves the branch it made: the
         // retry checks that branch out instead of making it again.
         let branch_made = repository.commit(&format!("refs/heads/{}", attempt.branch)).is_some();
-        let arguments: Vec<&str> = if branch_made {
-            vec!["worktree", "add", root.as_ref(), attempt.branch.as_str()]
+        let mut arguments: Vec<&str> = vec!["worktree", "add"];
+        // Untrusted: made with no files, which come once its own
+        // configuration is known (below).
+        if !trusted {
+            arguments.push("--no-checkout");
+        }
+        if branch_made {
+            arguments.extend([root.as_ref(), attempt.branch.as_str()]);
         } else {
             let branch = attempt.branch.as_str();
-            vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
-        };
-        let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
+            arguments.extend(["-b", branch, root.as_ref(), attempt.base_commit.as_str()]);
+        }
+        let environment = if trusted { Vec::new() } else { offline(&repository.root)? };
+        let run = git
+            .run_with(&arguments, &borrowed(&environment))
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && !made(attempt) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if let Some(url) = review.filter(|_| run.success) {
+            // In the worktree's own admin folder too, which stays whatever its
+            // HEAD becomes: a detached or switched checkout is still a review's.
+            if let Some(admin) = admin_dir(&attempt.root)
+                && let Err(error) = std::fs::write(admin.join(REVIEW_FILE), url)
+            {
+                let message = format!("{}: {error}", admin.display());
+                return Err(refused(OPERATION, "git_failed", message, Value::Null));
+            }
+            let run = git
+                .run(&["config", marker.as_str(), url])
+                .map_err(|failure| run_failed(OPERATION, &failure))?;
+            if !run.success {
+                let message = "the worktree was made, but recording its pull request failed";
+                return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+            }
+        }
+    }
+    // An ordinary worktree never takes a review's checkout (the pull
+    // request's code): its setup recipe would run there.
+    if review.is_none() && reviewed(&attempt.root) {
+        let message = format!(
+            "{} is a pull request review's worktree on {}",
+            attempt.root.display(),
+            attempt.branch
+        );
+        return Err(refused(OPERATION, "path_exists", message, Value::Null));
+    }
+    if let Some(url) = review {
+        let recorded = repository
+            .run(&["config", "--get", marker.as_str()], 4096)
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default();
+        if !recorded.eq_ignore_ascii_case(url) {
+            let message = format!(
+                "{} is another worktree on {}, not this review's",
+                attempt.root.display(),
+                attempt.branch
+            );
+            return Err(refused(OPERATION, "path_exists", message, Value::Null));
+        }
+    }
+    if !trusted {
+        // The worktree's own configuration can turn on a filter driver the
+        // main checkout's does not (`includeIf "onbranch:..."`): its files are
+        // checked out with every driver it sees blanked. Again on a retry, so
+        // a run stopped before this step still gets its files.
+        let environment = offline(&attempt.root)?;
+        let checkout = UserGit { root: &attempt.root, deadline: git.deadline };
+        let run = checkout
+            .run_with(&["reset", "--hard", "--quiet"], &borrowed(&environment))
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
+        if !run.success {
+            let message = "checking out the worktree's files failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -207,6 +282,43 @@ fn create(
         return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
     }
     Ok(())
+}
+
+/// The environment a git run in `root` needs to run none of the checked-out
+/// code: no hook, no fsmonitor command, and every filter driver `root`'s
+/// configuration names blanked. Set through `GIT_CONFIG_COUNT`, which keeps a
+/// driver's name whole and wins over every configuration file.
+pub(super) fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
+    let mut settings = vec![
+        ("core.hooksPath".to_string(), "/dev/null".to_string()),
+        ("core.fsmonitor".to_string(), "false".to_string()),
+    ];
+    let filters =
+        cmux_git::filter_overrides(root).map_err(|failure| run_failed(OPERATION, &failure))?;
+    settings.extend(filters);
+    let mut environment = vec![("GIT_CONFIG_COUNT".to_string(), settings.len().to_string())];
+    for (index, (key, value)) in settings.into_iter().enumerate() {
+        environment.push((format!("GIT_CONFIG_KEY_{index}"), key));
+        environment.push((format!("GIT_CONFIG_VALUE_{index}"), value));
+    }
+    Ok(environment)
+}
+
+/// [`untrusted`] for a run that reaches no remote: a partial clone's missing
+/// object would be fetched on demand through the transport command
+/// (`uploadpack`, `core.sshCommand`) the checked-out branch's own
+/// configuration names. An empty `GIT_ALLOW_PROTOCOL` refuses every
+/// transport and `GIT_NO_LAZY_FETCH` stops git before it tries, as
+/// cmux-git's confined reads do.
+pub(super) fn offline(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
+    let mut environment = untrusted(root)?;
+    environment.push(("GIT_NO_LAZY_FETCH".to_string(), "1".to_string()));
+    environment.push(("GIT_ALLOW_PROTOCOL".to_string(), String::new()));
+    Ok(environment)
+}
+
+pub(super) fn borrowed(environment: &[(String, String)]) -> Vec<(&str, &str)> {
+    environment.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect()
 }
 
 /// Starts the new worktree's setup from the project's recipe; what the
@@ -222,6 +334,15 @@ fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
 }
 
 /// A linked worktree's own git folder, from its `.git` file.
+/// In a review worktree's admin folder: the pull request it checks out.
+const REVIEW_FILE: &str = "cmux-review";
+
+/// Whether the worktree at `root` was made for a pull request review
+/// (`git.review.start`), whatever its HEAD is now.
+pub(super) fn reviewed(root: &Path) -> bool {
+    admin_dir(root).is_some_and(|admin| admin.join(REVIEW_FILE).is_file())
+}
+
 pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
     let link = std::fs::read_to_string(root.join(".git")).ok()?;
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
