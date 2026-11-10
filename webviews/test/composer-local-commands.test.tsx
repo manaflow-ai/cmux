@@ -238,7 +238,7 @@ test("the set is per harness, and never holds a command that sends to the model"
   expect(localCommand("/diff", "codex")?.action).toEqual({ kind: "section", section: "changes" });
   // Claude Code has no /diff of its own; an unknown harness has no local commands.
   expect(localCommand("/diff", "claude")).toBeUndefined();
-  expect(localCommand("/mcp", "gemini")).toBeUndefined();
+  expect(localCommand("/mcp", "other-agent")).toBeUndefined();
   expect(localCommand("/mcp tools", "claude")).toBeUndefined();
   for (const harness of ["claude", "codex"])
     for (const sends of ["compact", "clear", "init", "review", "plan", "goal", "loop"])
