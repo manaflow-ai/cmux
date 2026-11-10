@@ -29,12 +29,6 @@ export const stackWorld = () => {
   const userVmPlans = new Map<string, string>()
   /** Each Stack user's paid plan (client_read_only_metadata.cmuxPlan); absent = none. */
   const userPlans = new Map<string, string>()
-  /** A write the service takes but a later writer overwrites at once (the read-back sees this instead). */
-  const clobber = { left: 0, with: null as string | null }
-  /** Every user grant the cmux side wrote in Stack, in order. */
-  const userVmPlanWrites: Array<{ user: string; vm_plan: string }> = []
-  /** Fail this many user grant writes first (a Stack outage). */
-  const failWrites = { left: 0 }
   let calls = 0
   const fake = {
     findUserByEmail: async () => undefined,
@@ -54,21 +48,6 @@ export const stackWorld = () => {
     },
     getUserPlan: async (u: string) => userPlans.get(u) ?? null,
     getUserVmPlan: async (u: string) => ({ vm_plan: userVmPlans.get(u) ?? null }),
-    setUserVmPlan: async (u: string, vm_plan: string) => {
-      calls++
-      if (failWrites.left > 0) {
-        failWrites.left--
-        throw new Error("stack PATCH /users returned 503")
-      }
-      userVmPlans.set(u, vm_plan)
-      userVmPlanWrites.push({ user: u, vm_plan })
-      if (clobber.left > 0) {
-        clobber.left--
-        if (clobber.with === null) userVmPlans.delete(u)
-        else userVmPlans.set(u, clobber.with)
-      }
-      return "set" as const
-    },
     listTeamMembers: async (t: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
@@ -88,7 +67,7 @@ export const stackWorld = () => {
       return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userPlans, userVmPlanWrites, failWrites, clobber, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userPlans, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 
