@@ -29,8 +29,8 @@ import Testing
 /// (this frame or an earlier one), it is never scaled to its layer (``TerminalKeyResizeFrameTests/Sample/drawnUnscaled``),
 /// and it took a new size in at least half of the drag frames. "The frame shown at the layer's pixel size" was red at
 /// d703d217459e (aws-m4pro-3: 5 of 42 samples showed the frame of one drag frame earlier) and is no longer the rule;
-/// those samples are "frames behind their pane": at most 1 frame of 4 per terminal (this port's choice, not a
-/// measured limit: aws-m4pro-3 gave 1 of 21 at 3be5828e3a33).
+/// those samples are "frames behind their pane": at most a quarter of the sampled frames per terminal (the drag's
+/// and the landing's; this port's choice, not a measured limit: aws-m4pro-3 gave 1 of 21 at 3be5828e3a33).
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
@@ -77,7 +77,7 @@ struct TerminalDividerDragFrameTests {
 
         var misplaced: [String] = [], unsized: [String] = [], stretched: [String] = []
         // Frames in which a terminal showed a frame of another size than its pane's area (a size waits a frame or more
-        // for its frame to be drawn): reported for the PR's numbers, not asserted.
+        // for its frame to be drawn): bounded below.
         var behind = Array(repeating: 0, count: before.count)
         var changes = Array(repeating: 0, count: before.count)
         var frameless: [String] = []
