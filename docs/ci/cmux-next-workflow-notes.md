@@ -246,11 +246,12 @@ same mapping.
 
 Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
 unavailable, no result by the deadline, a result for another sha, repo, configuration or
-recipe version, or a mint or post error is failure. The wait blocks on the endpoint
+recipe version, or a mint or post error is failure. The results service down is no verdict
+and hands off (note-82, note-83). The wait blocks on the endpoint
 (`wait=N` returns at a terminal state, else at its deadline) under one overall deadline of
 40 min from the job's start, each read hard-bounded by `timeout` to what is left; a missing result (404) is
-retried by curl itself, 30 s apart, inside that bound. The terminal post comes before the
-App token's hour ends (it is minted just before the wait). Nothing sleeps in a loop here.
+read again 30 s later, inside that bound. The terminal post comes before the
+App token's hour ends (it is minted just before the wait).
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
 gate does not admit. The job checks nothing out: no pull request code runs beside the token.
@@ -1061,3 +1062,45 @@ Above `compile-status: PR` in `.github/workflows/cmux-next.yml`.
 The pull request this head belongs to (empty on a push). A head whose run the controller never
 saw has no check; a read that names its pull request has the controller queue one
 (cmuxterm-hq#5571), instead of this step waiting 40 minutes for a check that never comes.
+
+## note-82
+
+Above `compile-status: the results service down` and `FALLBACK` in `.github/workflows/cmux-next.yml`, and
+release-compile-fast's read loop.
+
+The results service is a cache, not a dependency. With the build controller down, its proxy answers every read
+with a 52x/530 (the origin is down). compile-status read it with `curl --retry-all-errors` bounded only by its
+40-minute deadline, so it retried the 530 for 40 minutes and then posted "No compile result for this head in 40
+minutes" on every pull request (cmux#40600, run 42850259745). Now it reads the way release-compile-fast does: two
+probes 30 s apart (`PROBE_GAP`), and no connection (000) or a 52x/530 on both is the service down at once. During the
+wait no read retries inside curl: a 404 (no result yet) is read again 30 s later (`READ_GAP`), and any other answer
+that is not a 200 (a 52x/530, a 403, a 5xx, no connection) for 5 minutes in a row (`BAD_BOUND`) is the service down
+too. release-compile-fast's read uses the same loop, so a service that goes down after its probes hands its gate to
+the Mac fallback in 5 minutes, not 20.
+
+The service down is no verdict, and compile-status hands it to the fallback Release compile where one runs for the
+head (`FALLBACK`): a feat-cmux-next push that is still the branch head (release-compile-fast, which reads the same
+service, says unavailable and release-compile runs on a Mac, or its gateway route gives its own verdict), and a
+same-repository pull request labelled `full-ci` or one path_route sends to the Mac Release compile (`mac_release`).
+It leaves cmux-next/compile pending, naming the handoff, and ends green; compile-status-handoff posts the verdict
+(note-83). Every other pull request runs no Release compile but this one, so nothing in the run can stand in: it
+posts state `error` ("no fallback compile runs here; re-run this job"), never a failure that reads as a compile
+failure and never a success, and the job's red line is a no-verdict line (`(results service down, ...)`), which
+autoland re-runs once as infrastructure. The fleet's app compile (app-compile-fleet) gives the same answer for
+the same outage.
+
+`tests/test_ci_cmux_next_compile_status.py` serves 530 from a local HTTP server to the real step and real curl.
+Its `UnboundedRetryDetector` fails on any `curl --retry-all-errors` in this workflow without a fixed bound, and on
+one that reads our own service (a cmux.com host) with a bound over 5 minutes.
+
+## note-83
+
+Above `compile-status-handoff` in `.github/workflows/cmux-next.yml`.
+
+Runs only when compile-status handed off (its `handoff` output names the outage) and waits on the fallback with
+`needs`, so nothing polls. It posts cmux-next/compile from the fallback's own result: release-compile-fast's pass or
+fail (a gateway's fleet compile), else release-compile's success or failure. Success is a real Release compile of
+the head; a failure says "the Release compile (fallback) failed" and links the run, and the job is red. When neither
+ran (a pull request whose app-compile-fleet gave a verdict, so release-compile skipped; a push superseded on the way;
+a cancelled Mac job) it posts `error`, asks for a re-run of all jobs (a re-run of failed jobs alone would rerun only
+this job), and ends with scripts/ci/needs_verdict.py's `no verdict: ` line and exit 3, never the PR's own red.
