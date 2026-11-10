@@ -368,7 +368,8 @@ test("the prefix passes hold no rows of a chat that closed", async () => {
   };
   const closed = [...open(), ...open()];
   for (let pass = 0; pass < 4; pass += 1) {
-    await Bun.sleep(1);
+    // A turn of the event loop between collections: a WeakRef holds its target until the job ends.
+    await new Promise((resolve) => setImmediate(resolve));
     Bun.gc(true);
   }
   expect(closed.filter((ref) => ref.deref() !== undefined).length).toBe(0);
