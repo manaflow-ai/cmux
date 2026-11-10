@@ -1323,6 +1323,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextWakeups"

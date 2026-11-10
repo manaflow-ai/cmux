@@ -2131,11 +2131,10 @@ CmuxNextApp	class	PageCollection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextApp	class	PageElement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift	from enum WindowHintTargets:14: which targets get window hints
 CmuxNextApp	enum	WindowHintTargets	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift	from enum WindowHintTargets:14: which targets get window hints
 CmuxNextApp	class	AgentHistory	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/AgentHistory.swift	agent history folds per machine; hide set
-CmuxNextApp	class	BrowserVisitSink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/BrowserVisitSink.swift	BrowserVisitSink: queued visit/title/remove writes to the visit log
 CmuxNextApp	class	ClosedHistoryRetention	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/ClosedHistoryRetention.swift	closed history retention: age/group limits and prune timers
 CmuxNextApp	class	CommandHistory	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/CommandHistory.swift	command history mirrors, suggestions, retention sync
 CmuxNextApp	extension	DaemonHistoryClient	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/DaemonTrailLocation.swift	trail record call site
-CmuxNextApp	class	HiddenHistoryStore	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift	hidden history doc merge and revision
+CmuxNextApp	class	HiddenHistoryStore	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift	reads the daemon-written history.hidden projection on connect
 CmuxNextApp	enum	HistoryAppStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryAppStrings.swift	localized string table (bundle resources)
 CmuxNextApp	enum	HistoryControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryControl.swift	history control methods
 CmuxNextApp	class	HistoryPageService	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageService.swift	history page host; entries/remove/clear dispatch, cookie backups
@@ -2144,7 +2143,7 @@ CmuxNextApp	class	HistoryPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	enum	HistoryPageStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageTab.swift	from class HistoryPageTab:14: history page tab
 CmuxNextApp	enum	HistoryPalettePages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPalettePages.swift	from enum HistoryPalettePages:10: palette page builders for history
 CmuxNextApp	struct	HistoryRestorer	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryRestorer.swift	from struct HistoryRestorer:10: open/reopen/resume per entry kind
-CmuxNextApp	class	RoutingVisitSink	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService+Daemon.swift	from extension HistoryService:11: merges daemon entries with command rows; filter, enrich closed (Swift copy of merge)
+CmuxNextHistoryDaemon	class	DaemonVisitSink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistoryDaemon/DaemonVisitSink.swift	queues omnibox visit/title/remove writes for the daemon visit store while the local daemon reconnects
 CmuxNextApp	extension	HistoryService	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService+Daemon.swift	merges daemon entries with command rows; filter, enrich closed (Swift copy of merge)
 CmuxNextApp	class	HistoryService	0	MIXED	40	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService.swift	entries() merges locations, closed, agents, commands, page visits and sorts (:113-140)
 CmuxNextApp	extension	LocationTrailService	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService+Location.swift	location of focus state
@@ -7728,9 +7727,6 @@ CmuxNextHistory	extension	AgentJournalRecord.Subject	0	MIRROR	0	100	Packages/mac
 CmuxNextHistory	struct	AgentJournalRecord	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift	from struct AgentSession:6: Swift copy of agent session record folded from journal
 CmuxNextHistory	struct	AgentSession	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift	Swift copy of agent session record folded from journal
 CmuxNextHistory	struct	AgentSessionFold	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSessionFold.swift	Swift copy of agent session journal fold with cursor
-CmuxNextHistory	actor	BrowserVisitLog	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	from struct BrowserVisit:4: Swift browser visit record and log (daemon owns visits)
-CmuxNextHistory	struct	BrowserVisit	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	Swift browser visit record and log (daemon owns visits)
-CmuxNextHistory	struct	BrowserVisitSummary	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/BrowserVisitLog.swift	from struct BrowserVisit:4: Swift browser visit record and log (daemon owns visits)
 CmuxNextHistory	extension	DaemonHistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	decode of daemon history entry
 CmuxNextHistory	extension	KeyedDecodingContainer	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	from struct DaemonHistoryEntry:6: decode of daemon history entry
 CmuxNextHistory	struct	DaemonHistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/DaemonHistoryEntry.swift	decode of daemon history entry
@@ -7746,7 +7742,6 @@ CmuxNextHistory	extension	URL	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextHistory	enum	HistoryRange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	extension	HistoryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	from struct HistoryQuery:5: Swift copy of history query filter apply
 CmuxNextHistory	struct	HistoryQuery	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryQuery.swift	Swift copy of history query filter apply
-CmuxNextHistory	class	HistorySQLite	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistorySQLite.swift	SQLite handle for history stores
 CmuxNextHistory	enum	HistoryScope	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	back/forward scope rules
 CmuxNextHistory	enum	LocationTrailDirection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	from enum HistoryScope:4: back/forward scope rules
 CmuxNextHistory	extension	LocationTrail	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryScope.swift	from enum HistoryScope:4: back/forward scope rules
