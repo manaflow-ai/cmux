@@ -919,6 +919,8 @@ describe("clean-room provider key probe", () => {
   const GEMINI_SHAPE = `AIza${"Q".repeat(35)}`;
   const MISTRAL = "opaqueMistral7Kq2Zr9Lw4";
   const MISTRAL_ARG = "opaqArg8Hx3Np";
+  const REFRESH_ENV = tok("rtenv_", 30);
+  const REFRESH_ARG = tok("rtarg_", 30);
   const plant = (files: Record<string, string>): string => {
     const root = mkdtempSync(join(tmpdir(), "key-probe-"));
     for (const [rel, text] of Object.entries(files)) {
@@ -964,6 +966,13 @@ describe("clean-room provider key probe", () => {
       "proc/107/comm": `${MISTRAL_ARG}\n`,
       "proc/107/environ": "",
       "proc/107/cmdline": `tool\0--mistral-api-key\0${MISTRAL_ARG}\0`,
+      "proc/108/comm": "codex\n",
+      "proc/108/environ": `CODEX_AUTH_JSON=${JSON.stringify({ tokens: { refresh_token: REFRESH_ENV } })}\0`,
+      "proc/108/cmdline": "codex\0",
+      [`home/cmux/${REFRESH_ENV}/.codex/auth.json`]: "{}",
+      "proc/109/comm": `${REFRESH_ARG}\n`,
+      "proc/109/environ": "",
+      "proc/109/cmdline": `login\0--json\0{"refresh_token": "${REFRESH_ARG}"}\0`,
       // A key inside node_modules and inside a binary file still counts.
       "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
       "home/cmux/bin/blob": `\0\0ELF${PROJ}\0\0`,
@@ -981,10 +990,11 @@ describe("clean-room provider key probe", () => {
     });
     try {
       const { out, probe } = run(root);
-      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, MISTRAL, MISTRAL_ARG, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
+      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, REFRESH_ENV, REFRESH_ARG, MISTRAL, MISTRAL_ARG, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
       const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
       expect(got).toEqual([
         "cmdline process [a secret] (1 pid): MISTRAL_API_KEY",
+        "cmdline process [a secret] (1 pid): an OAuth refresh token",
         "cmdline process env (1 pid): OPENAI_API_KEY",
         "cmdline process node (1 pid): an OpenAI project key",
         "cmdline process sh (1 pid): XAI_API_KEY",
@@ -992,11 +1002,13 @@ describe("clean-room provider key probe", () => {
         "cmdline process tool (1 pid): OPENAI_API_KEY",
         "env process [a Google AI key] (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
+        "env process codex (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
         "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
         "file /home/cmux/.claude/.credentials.json: a Claude login file",
         "file /home/cmux/.claude/.credentials.json:1: an Anthropic OAuth token",
         "file /home/cmux/.codex/auth.json: a Codex login file",
         "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
+        "file /home/cmux/[a secret]/.codex/auth.json: a Codex login file",
         "file /home/cmux/app/node_modules/x/.env:1: ANTHROPIC_API_KEY",
         "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
         "file /home/cmux/aws.txt:2: an AWS access key id",
@@ -1009,7 +1021,7 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/.codex/.tmp/plugins/p/skills/api.md:1: an OAuth refresh token",
         "file /opt/tool/bin/blob: an OpenAI project key",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("20 findings: ");
+      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
       expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
@@ -1049,7 +1061,11 @@ describe("clean-room provider key probe", () => {
       // Outside every walked root, reached only through links.
       "usr/share/secret/key.env": `${PROJ}\n`,
       "usr/k": `${PROJ}\n`,
+      "workspace/project/.env": `OPENAI_API_KEY=${MISTRAL}\n`,
     });
+    // A plugin cache (whose matches are shipped) linking to a workspace, walked before the workspace itself.
+    mkdirSync(join(root, "home/cmux/.claude/plugins"), { recursive: true });
+    symlinkSync(join(root, "workspace/project"), join(root, "home/cmux/.claude/plugins/project"));
     symlinkSync(join(root, "usr/share/secret"), join(root, "home/cmux/linked"));
     symlinkSync(join(root, "usr/k"), join(root, "home/cmux/k.txt"));
     // A loop back to an ancestor, a second link to the same folder, and a link to nothing.
@@ -1059,12 +1075,14 @@ describe("clean-room provider key probe", () => {
     try {
       const { probe } = run(root);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "file /home/cmux/k.txt:1: an OpenAI project key",
-        "file /home/cmux/linked/key.env:1: an OpenAI project key",
         "file /home/cmux/project/dev/.env:1: ANTHROPIC_API_KEY",
         "file /home/cmux/project/dev/.env:1: an Anthropic API key",
         "file /home/cmux/project/proc/notes:1: an OpenAI project key",
+        "file /usr/k:1: an OpenAI project key",
+        "file /usr/share/secret/key.env:1: an OpenAI project key",
+        "file /workspace/project/.env:1: OPENAI_API_KEY",
       ]);
+      expect(probe.shipped ?? []).toEqual([]);
       expect(probe.complete).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });

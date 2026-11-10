@@ -147,7 +147,11 @@ REFRESH = dict(SHAPES)["an OAuth refresh token"]
 
 
 def shape_kinds(text):
-    """The kinds of key `text` holds by shape, skipping public stand-ins. Never the values."""
+    """The kinds of key `text` holds by shape, skipping public stand-ins. Never the values. Every text the probe
+    checks (an environment value, an argument, a file's line or chunk) goes through here, so a refresh token is
+    recorded for redaction wherever it was found: its shape names only the JSON around it, not the token alone."""
+    for m in REFRESH.finditer(text):
+        found(m.group(1))
     return {kind for kind, pattern in SHAPES if any(not PUBLIC_VALUE.search(m.group(0)) for m in pattern.finditer(text))}
 
 
@@ -223,8 +227,6 @@ def scan_text(text):
             if m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
                 found(m.group(2))
                 seen.add(m.group(1))
-        for m in REFRESH.finditer(line):
-            found(m.group(1))
         out.extend((n, what) for what in sorted(seen))
     return out
 
@@ -254,10 +256,7 @@ def scan_file(path):
                 # rest), so only a short stretch from each hit is checked, not the whole chunk with every shape.
                 for hit in PREFILTER.finditer(window):
                     at = hit.start()
-                    near = window[max(0, at - 2):at + HIT_SPAN].decode("latin-1")
-                    seen.update(shape_kinds(near))
-                    for m in REFRESH.finditer(near):
-                        found(m.group(1))
+                    seen.update(shape_kinds(window[max(0, at - 2):at + HIT_SPAN].decode("latin-1")))
                 tail = window[-OVERLAP:]
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
@@ -338,12 +337,13 @@ def pseudo_devices():
 
 def scan_files(root, deadline, report):
     pseudo = pseudo_devices()
+    real_root = os.path.realpath(root)
     seen_dirs, seen_files = set(), set()
 
     def fresh(seen, st):
-        """Whether a folder or file (stat followed through links) is on stored media and not walked yet."""
+        """Whether a folder or file (stat followed through links) has not been walked yet, by device and inode."""
         key = (st.st_dev, st.st_ino)
-        if st.st_dev in pseudo or key in seen:
+        if key in seen:
             return False
         seen.add(key)
         return True
@@ -354,7 +354,8 @@ def scan_files(root, deadline, report):
             continue
         for dirpath, dirnames, filenames in os.walk(start, followlinks=True, onerror=lambda e: report["unreadable"].append(shown(root, e.filename))):
             try:
-                if not fresh(seen_dirs, os.stat(dirpath)):
+                st = os.stat(dirpath)
+                if st.st_dev in pseudo or not fresh(seen_dirs, st):
                     dirnames[:] = []
                     continue
             except OSError:
@@ -368,27 +369,32 @@ def scan_files(root, deadline, report):
                 path = os.path.join(dirpath, name)
                 if path == os.path.abspath(__file__):
                     continue
-                where = shown(root, path)
+                walked = shown(root, path)
                 try:
                     try:
                         st = os.stat(path)
                     except FileNotFoundError:
                         continue  # a link to nothing, or a file gone since the listing, holds nothing
-                    # A socket, fifo or device, a kernel file, or a file already read holds no new stored key.
-                    if not stat.S_ISREG(st.st_mode) or not fresh(seen_files, st):
+                    if not stat.S_ISREG(st.st_mode) or st.st_dev in pseudo:
+                        continue  # a socket, fifo or device, or a kernel file, holds no stored key
+                    # A login file is one by the name it is reached under (a link named .codex/auth.json counts),
+                    # each time, before the file is skipped as already read.
+                    for suffix, what in LOGIN_FILES.items():
+                        if walked.endswith("/" + suffix) and st.st_size > 0:
+                            report["findings"].append({"place": "file", "where": walked, "what": what})
+                    if not fresh(seen_files, st):
                         continue
-                    size = st.st_size
-                    found = scan_file(path)
+                    # Its contents are named and classed by where the file really is, so a link from a place whose
+                    # matches are shipped (a plugin cache) to a workspace cannot class the workspace's keys as shipped.
+                    where = shown(real_root, os.path.realpath(path))
+                    hits = scan_file(path)
                 except OSError:
                     if os.path.lexists(path):
                         report["scanned"]["files_unreadable"] += 1
                     continue
                 report["scanned"]["files"] += 1
-                for suffix, what in LOGIN_FILES.items():
-                    if where.endswith("/" + suffix) and size > 0:
-                        report["findings"].append({"place": "file", "where": where, "what": what})
                 listed = report["shipped"] if SHIPPED.search(where) else report["findings"]
-                for line, what in found:
+                for line, what in hits:
                     listed.append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
 
 
