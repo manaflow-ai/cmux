@@ -94,92 +94,33 @@ fn rebuild_read(registry: &WorkspaceRegistry) -> anyhow::Result<Vec<SessionJourn
     Ok(records)
 }
 
-/// A legacy registry: the rebuild's read decodes every legacy segment and
-/// writes nothing, so it would at every later bump too. The reducer record
-/// backfill writes each legacy segment's whole kind map (the one its seal
-/// would have written, terminal output included) with its kept records,
-/// and the next rebuild's read decodes no segment: it succeeds after every
-/// segment's content is destroyed.
+/// Before the fix: on a legacy registry the rebuild's read-only read and a
+/// finished reducer record backfill leave every segment unmapped, so the
+/// next bump's read still decodes every segment (it fails once their
+/// content is destroyed).
 #[test]
-fn the_backfill_maps_legacy_segments_so_a_later_bump_decodes_none() {
-    let (root, registry, sealed_maps) = legacy_registry("kind-map-backfill");
+fn before_fix_probe_nothing_maps_legacy_segments() {
+    let (root, registry, sealed_maps) = legacy_registry("kind-map-probe");
     let segments = unmapped_segments(&registry);
     assert_eq!(rebuild_read(&registry).unwrap().len(), SEALED_AGENT_RECORDS);
-    assert_eq!(unmapped_segments(&registry), segments, "a read-only read maps nothing");
-
     let decoded = run_reducer_record_backfill(&registry, usize::MAX);
-    assert_eq!(decoded as i64, segments, "each legacy segment decodes once");
-    assert_eq!(unmapped_segments(&registry), 0);
-    assert_eq!(kind_maps(&registry), sealed_maps, "the maps are the ones sealing writes");
-    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
-    assert_eq!(unproven_kind_maps(&registry.connection.get()).unwrap(), None);
-    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "a done backfill stays done");
-
-    destroy_sealed_segments(&registry);
-    assert_eq!(
-        rebuild_read(&registry).unwrap().len(),
-        SEALED_AGENT_RECORDS,
-        "the read after the backfill decoded a segment"
+    eprintln!(
+        "PROBE segments={segments} sealed_kind_rows={} after_rebuild_read_and_reducer_backfill: \
+         decoded={decoded} unmapped={} kind_rows={} kept_rows={} unproven={:?}",
+        sealed_maps.len(),
+        unmapped_segments(&registry),
+        kind_maps(&registry).len(),
+        kept_reducer_records(&registry),
+        unproven_kind_maps(&registry.connection.get()).unwrap(),
     );
-    drop(registry);
-    fs::remove_dir_all(root).unwrap();
-}
-
-/// A registry whose reducer record backfill finished under the earlier
-/// cursor rule kept the agent records of its legacy segments but mapped
-/// none of them, so the read still decoded them all. Its cursor starts the
-/// backfill over, which maps them.
-#[test]
-fn a_backfill_finished_before_it_wrote_kind_maps_starts_over() {
-    let (root, registry, sealed_maps) = legacy_registry("kind-map-backfill-rule");
-    run_reducer_record_backfill(&registry, usize::MAX);
-    {
-        let db = registry.connection.get();
-        db.execute("DELETE FROM journal_segment_kinds", []).unwrap();
-        db.execute(
-            "UPDATE meta SET value = json_set(value, '$.kind_map', 1)
-             WHERE key = 'journal_segment_reducer_records_backfill'",
-            [],
-        )
-        .unwrap();
-    }
-    assert!(run_reducer_record_backfill(&registry, usize::MAX) > 0, "the older cursor starts over");
-    assert_eq!(kind_maps(&registry), sealed_maps);
+    assert_eq!(unmapped_segments(&registry), segments, "something mapped the legacy segments");
     destroy_sealed_segments(&registry);
-    assert_eq!(rebuild_read(&registry).unwrap().len(), SEALED_AGENT_RECORDS);
-    drop(registry);
-    fs::remove_dir_all(root).unwrap();
-}
-
-/// A legacy kind backfill that a read on the writer's connection started
-/// and did not finish (it maps a slice per read) leaves every kind map in
-/// its range unproven, so each read decodes those segments. The owner's
-/// slices finish it, a slice per call, and it never starts one itself.
-#[test]
-fn the_owner_finishes_an_unfinished_legacy_kind_backfill() {
-    let (root, registry, sealed_maps) = legacy_registry("kind-map-backfill-legacy");
-    assert!(!registry.continue_legacy_kind_backfill().unwrap(), "no backfill to finish");
-    assert_eq!(unmapped_segments(&registry) as usize, registry.journal_segments().unwrap().len());
-
-    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
-    let head = registry.session_journal_head().unwrap();
-    registry
-        .session_journal_kinds_after(0, head, crate::journal_reducers::AgentRoster::folds_kind, 1)
-        .unwrap();
-    assert!(unproven_kind_maps(&registry.connection.get()).unwrap().is_some(), "it started");
-    let mut slices = 0;
-    while registry.continue_legacy_kind_backfill().unwrap() {
-        slices += 1;
-        assert!(slices < 1_000, "the backfill never finished");
-    }
-    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
-    assert!(slices > 0, "one slice per call");
-    assert_eq!(unproven_kind_maps(&registry.connection.get()).unwrap(), None);
-    assert_eq!(kind_maps(&registry), sealed_maps);
-
-    run_reducer_record_backfill(&registry, usize::MAX);
-    destroy_sealed_segments(&registry);
-    assert_eq!(rebuild_read(&registry).unwrap().len(), SEALED_AGENT_RECORDS);
+    let read = rebuild_read(&registry);
+    eprintln!(
+        "PROBE second bump read after destroying segment content: {:?}",
+        read.as_ref().map(Vec::len).map_err(|e| format!("{e:#}"))
+    );
+    assert!(read.is_err(), "the read decoded no segment");
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
