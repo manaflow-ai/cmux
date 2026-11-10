@@ -444,7 +444,7 @@ def check_wiring():
     recheck = next(s for s in owner_wait["steps"] if s.get("id") == "recheck")
     _check(recheck["env"]["GH_TOKEN"] == expected_token,
            "owner hand-off recheck stays off the shared workflow-token budget")
-    _check("environment" in owner_wait and owner_wait["environment"] == "ci-routing-agent",
+    _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
         _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")

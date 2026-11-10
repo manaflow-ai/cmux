@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextSidebar
 import Foundation
@@ -97,14 +98,28 @@ extension CloudHandlers {
 extension CloudHandlers {
     /// `cloud resize-machine`'s checked `--size` and `--disk` (the rules' `resize`): what the
     /// resize call sends and the fields it answers (`size`, `disk_gib`, as given).
-    typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
+    struct Resize {
+        var cpu: Int?
+        var memoryMb: Int?
+        var storageMb: Int?
+        var fields: [String: ActionResultValue]
+
+        /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
+        func appServerArgs(machine: String) -> [String: JSONValue] {
+            var size: [String: JSONValue] = [:]
+            if let cpu { size["cpu"] = .number(Double(cpu)) }
+            if let memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
+            if let storageMb { size["disk_mb"] = .number(Double(storageMb)) }
+            return ["machine": .string(machine), "size": .object(size)]
+        }
+    }
 
     static func resizeRequest(_ invocation: ActionInvocation) throws -> Resize {
         let checked = try CloudHandlerRules().arg("resize", invocation) as? [String: Any] ?? [:]
         var fields: [String: ActionResultValue] = [:]
         if let size = checked["size"] as? String { fields["size"] = .string(size) }
         if let disk = checked["diskGib"] as? Int { fields["disk_gib"] = .int(disk) }
-        return (checked["cpu"] as? Int, checked["memoryMb"] as? Int, checked["storageMb"] as? Int, fields)
+        return Resize(cpu: checked["cpu"] as? Int, memoryMb: checked["memoryMb"] as? Int, storageMb: checked["storageMb"] as? Int, fields: fields)
     }
 }
 
@@ -116,7 +131,7 @@ extension CloudHandlers {
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
             "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
             "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.capabilities.desktop,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,

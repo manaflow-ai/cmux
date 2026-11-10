@@ -51,12 +51,16 @@ public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, Ca
     case instant
     case crossfade
     case lift
+    /// The agent chat's tool-call roll (`MotionGate.rollTitle`): the old name rises and fades out
+    /// above as the new one rises in from below, softening as it goes.
+    case roll
 
     public var tunableTitle: String {
         switch self {
         case .instant: "Instant"
         case .crossfade: "Crossfade"
         case .lift: "Lift"
+        case .roll: "Roll (as a chat's tool calls)"
         }
     }
 }
@@ -95,6 +99,13 @@ public nonisolated enum SidebarTunables {
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
         default: .off, code: "SidebarTunables.agentMark")
+
+    /// How a row shows an agent driving the screen or a browser (`AgentDriveIndicatorView`): on whatever
+    /// `presenceDots` says, since it is the one presence mark that needs the person's eye.
+    public static let driveIndicator = Tunable<SidebarDriveIndicatorVariant>.choice(
+        "sidebar.driveIndicator", .sidebar, "Agent drive indicator",
+        help: "How a workspace row shows an agent using the computer or a browser: a capsule with its name, a glyph, a solid badge or the old dot.",
+        default: .capsule, code: "SidebarTunables.driveIndicator")
 
     /// Multiplayer agent presence (cx-gg84): off until the dots are styled
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
@@ -199,11 +210,13 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
+    /// agent-derived title after creation, or is renamed. Roll is the shipped default (Leo,
+    /// 2026-11-08: "i feel like when workspaces get renamed (esp by agents) it should have that
+    /// same fade in animation that the tool call situation has...").
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
-        help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
+        help: "A late or renamed workspace or agent-chat title: instant, crossfade, a short upward lift in the existing title slot, or the chat's tool-call roll.",
+        default: .roll, code: "SidebarTunables.workspaceTitleMotion")
 
     /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
     public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(
@@ -234,6 +247,7 @@ public nonisolated enum SidebarTunables {
             agentMark.descriptor,
             collapseMotion.descriptor,
             dragThreshold.descriptor,
+            driveIndicator.descriptor,
             groupByStatus.descriptor,
             groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
@@ -257,18 +271,22 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
-            SidebarGroupPalette.tunable.descriptor,
+            SpaceSwitcherStyle.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
             SidebarNoColorGroupLook.tunable.descriptor,
             SidebarGroupGlass.tunable.descriptor,
             SidebarLeadingColumnLook.tunable.descriptor,
+            SidebarPinnedRowLeading.tunable.descriptor,
             SidebarInsertMotion.nudgeDistance.descriptor,
             SidebarInsertMotion.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,
             updateCardAutomaticControl.descriptor,
+            updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
+            workspaceHoverCardLeave.descriptor,
+            workspaceHoverCardTitle.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,

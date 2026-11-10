@@ -1,12 +1,12 @@
 public import CmuxHomeCore
+import CmuxNextActions
 public import CmuxNextDaemon
-public import CmuxNextHome
 
-/// Presents the brain's owner controls in the existing transcript button and menu.
-/// Eligibility and reopening messages belong to Rust; this only follows visible snapshots.
+/// The brain's owner controls for the Chief a Home view shows: stop, stop all, continue and retry,
+/// one request at a time. Eligibility and reopening messages belong to Rust; this only follows
+/// visible snapshots.
 @MainActor
 public final class HomeChiefTurnActions {
-    private weak var transcript: HomeNativeTranscriptView?
     private var control: HomeChiefTurnControl?
     private var working = false
     private var sequence: Seq = 0
@@ -15,11 +15,17 @@ public final class HomeChiefTurnActions {
     private var inFlight = false
 
     public var onStopFailure: ((HomeChiefEngineError) -> Void)?
+    /// The app's Chief Homes (``HomeChiefHomes/turnActions(for:)``): Stop and the pill's Start now row run its
+    /// registry's actions. Nil: neither.
+    private weak var homes: HomeChiefHomes?
 
-    public init(transcript: HomeNativeTranscriptView) {
-        self.transcript = transcript
-        transcript.onContinue = { [weak self] in self?.continueTurn() }
+    /// Continue is offered (a stopped turn, nothing running); the view follows it.
+    public private(set) var continueAvailable = false {
+        didSet { if continueAvailable != oldValue { onContinueAvailable?(continueAvailable) } }
     }
+    public var onContinueAvailable: ((Bool) -> Void)?
+
+    public init() {}
 
     public func update(control: HomeChiefTurnControl, isChief: Bool, working: Bool, sequence: Seq) {
         let available = isChief && !control.isHosted
@@ -31,12 +37,11 @@ public final class HomeChiefTurnActions {
         self.sequence = sequence
         self.working = working
         self.control = available ? control : nil
-        transcript?.onChiefRetry = self.control == nil ? nil : { [weak self] message in self?.retry(message) }
         refresh()
     }
 
     private func refresh() {
-        transcript?.continueAvailable = control != nil && stopped && !working && !inFlight
+        continueAvailable = control != nil && stopped && !working && !inFlight
     }
 
     public func stop(onFailure: ((HomeChiefEngineError) -> Void)? = nil) {
@@ -69,8 +74,8 @@ public final class HomeChiefTurnActions {
         return answer
     }
 
-    private func continueTurn() {
-        guard let control, transcript?.continueAvailable == true, !inFlight else { return }
+    public func continueTurn() {
+        guard let control, continueAvailable, !inFlight else { return }
         inFlight = true
         refresh()
         let generation = generation
@@ -87,7 +92,8 @@ public final class HomeChiefTurnActions {
         }
     }
 
-    private func retry(_ message: MessageID) {
+    /// Asks the Chief to answer `message` again (a failed turn's Retry).
+    public func retry(_ message: MessageID) {
         guard let control else { return }
         // task-owner: one retry request; ends with the daemon response
         Task { @MainActor in _ = await control.retryChief(message: message.rawValue) }

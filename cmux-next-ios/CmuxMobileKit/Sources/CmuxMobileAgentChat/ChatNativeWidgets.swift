@@ -25,7 +25,8 @@ struct ChatNativeWidgets {
     func make(_ kind: ChatRow.Kind, id: String, expanded: Bool) -> Layout? {
         switch kind {
         case .prompt(let text, let attachments, _, _):
-            return attachments.isEmpty ? prompt(text) : nil
+            // A reply's leading quote draws as a quote (muted, behind a bar) in SwiftUI's `UserBubble`.
+            return attachments.isEmpty && NextStepAsk.replyQuote(text) == nil ? prompt(text) : nil
         case .thought(_, let isLive):
             return isLive ? nil : header(symbol: "brain", symbolColor: .secondaryLabel, title: "Thought", key: "thought-\(id)")
         case .tool(let call):

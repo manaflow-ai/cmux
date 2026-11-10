@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextBookmarks
+@testable import CmuxNextBookmarks
 import CmuxNextDaemon
+import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -76,24 +78,51 @@ struct BookmarkFolderIconTests {
 
     // MARK: Drawing
 
-    @Test func theBarDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
+    /// A bar folder menu's subfolder row draws the folder's own icon, else the folder symbol.
+    @Test func theBarsFolderMenuDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
         let services = Self.services()
-        let bar = BookmarkBarSourceAdapter(service: services.bookmarks, tabKey: "bookmark-folder-icon-test")
-        let plain = try #require(bar.favicon(for: try Self.folder(nil))?.tiffRepresentation)
+        func image(_ icon: String?) throws -> Data? {
+            let row = BookmarksBarMenu.Row.folder(try Self.folder(icon), [])
+            let menu = BookmarksBarMenu(host: services, profile: "default", tabKey: "bookmark-folder-icon-test", rows: [row], title: "Work")
+            menu.menuNeedsUpdate(menu.menu)
+            return menu.menu.items.first?.image?.tiffRepresentation
+        }
+        let plain = try #require(try image(nil))
         for icon in ["🚀", "star.fill"] {
-            let drawn = try #require(bar.favicon(for: try Self.folder(icon))?.tiffRepresentation)
-            #expect(drawn != plain, "a folder with icon \(icon) still draws the folder symbol on the bar")
+            let drawn = try #require(try image(icon))
+            #expect(drawn != plain, "a folder with icon \(icon) still draws the folder symbol in the bar's menu")
         }
         // A stored asset not read yet (no home daemon here): the folder symbol stands in.
-        #expect(bar.favicon(for: try Self.folder(Self.asset))?.tiffRepresentation == plain)
+        #expect(try image(Self.asset) == plain)
     }
 
+    /// The manager page's rows get these images (`cmux.bookmarkPage.icons`).
     @Test func theManagerDrawsAFoldersEmojiOrStoredIcon() throws {
+        let bookmarks = Self.services().bookmarks
+        #expect(bookmarks.folderIconImage(of: try Self.folder(nil), side: 32) == nil, "a folder without an icon draws the folder symbol")
+        #expect(bookmarks.folderIconImage(of: try Self.folder("🚀"), side: 32) != nil, "an emoji folder icon draws in its own colors")
+        #expect(bookmarks.folderIconImage(of: try Self.folder(Self.asset), side: 32) == nil, "the folder symbol stands in while the asset loads")
+    }
+
+    /// The React page asks the host for the icons of the rows on screen: an emoji folder gets its
+    /// image, a folder without an icon and an unknown id get none, and the state names the profile.
+    @Test func theManagerPageGetsAFoldersIconFromItsHost() async throws {
         let services = Self.services()
-        let manager = BookmarkManagerSourceAdapter(services: services, tabKey: "bookmark-folder-icon-test")
-        #expect(manager.favicon(for: try Self.folder(nil)) == nil, "a folder without an icon draws the folder symbol")
-        #expect(manager.favicon(for: try Self.folder("🚀")) != nil, "an emoji folder icon draws in its own colors")
-        #expect(manager.favicon(for: try Self.folder(Self.asset)) == nil, "the folder symbol stands in while the asset loads")
+        var tree = BookmarkTree()
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_emoji"), index: nil))
+        try tree.apply(.create(.folder("Plain", in: BookmarkRoot.bar.rawValue, id: "bm_plain"), index: nil))
+        try tree.apply(.update(id: "bm_emoji", icon: .set("🚀")))
+        services.bookmarks.trees["default"] = tree
+        let host = BookmarkPageHostProvider(host: services, tabKey: "bookmark-page-host-test")
+        let context = PageCallContext(page: PageDescriptor.bookmarks.id)
+        let state = try await host.call("cmux.bookmarkPage.state", params: .object([:]), context: context)
+        #expect(state["browser_profile_id"]?.stringValue == "default")
+        let ids: [CmuxNextSettings.JSONValue] = [.string("bm_emoji"), .string("bm_plain"), .string("bm_gone")]
+        let reply = try await host.call("cmux.bookmarkPage.icons", params: .object(["ids": .array(ids)]), context: context)
+        let icons = reply["icons"]?.objectValue ?? [:]
+        #expect(icons["bm_emoji"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
+        #expect(icons["bm_plain"] == nil && icons["bm_gone"] == nil)
+        #expect(reply["masks"]?.arrayValue == [], "an emoji draws in its own colors, not as a mask")
     }
 
     // MARK: Actions

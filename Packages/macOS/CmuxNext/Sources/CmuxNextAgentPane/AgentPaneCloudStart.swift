@@ -26,15 +26,25 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var reservationKey: String?
     /// Native Send authorization reserved before waiting for the speculative lease.
     var gestureTicket: String?
-    /// The page's send again after its `cloud.signIn` answered `cloud_signed_in`: authorized only by
+    /// The page's send again after its `cloud.signIn` signed in: authorized only by
     /// the click that sign-in kept for this ``key`` (``AgentPaneModel/takeCloudSignInGrant(_:)``), never a gesture.
     var signedIn = false
+    /// The team to switch to before this send (the plan card's Switch to <team>): a team id of the
+    /// person's, switched to by the App as the team picker does; nil keeps the active team.
+    public var team: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
     /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
+    /// The Mac files this send's link chips may carry to the machine, set by the pane from what it
+    /// authorized itself (``AgentPaneModel/cloudCarriedFiles(_:)``); never read from the page.
+    public var carriedFiles: Set<String> = []
+    /// Those of ``carriedFiles`` this app saved under Chat Uploads (in `~/Library`, which the upload
+    /// CLI never reads from): cloned into the private paste folder first, as image copies are. Only
+    /// app-owned files are staged: a staged copy no longer carries the CLI's folder rules.
+    public var stagedFiles: Set<String> = []
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
@@ -60,7 +70,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
-              let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
+              let harness = name("harness"), let model = name("model"), let environment = name("environment"),
+              let team = name("team") else { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let gestureTicket = params?["gestureTicket"]
@@ -71,6 +82,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
+        self.team = team
         self.attachments = attachments
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
@@ -134,9 +146,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
-    /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
-    public func seed(cwd: String?) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+    /// prompt, sent once with the Send's gesture, on the agent and model the page picked. `draft`: what
+    /// the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
+    public func seed(cwd: String?, draft: String? = nil) -> AgentPaneSeed {
+        AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
                       promptBy: .person, harness: harness, model: model)
     }
 }
@@ -196,8 +209,8 @@ struct AgentPaneHandOff {
     /// `cloud.startChat`, and a refusal made here, before the App's start ran (the folder check, the
     /// gesture, an attachment), logged under `app.cloud` beside the App's own start failures: such a
     /// refusal never reaches CloudStartChat, so without this the log said nothing at all.
-    func cloud(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
-        let reply = await cloudChecked(start, signingIn: signingIn)
+    func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
+        let reply = await cloudChecked(start)
         if let code = Self.refusedHere(reply) {
             Self.cloudLog.error("cloud start chat refused on this Mac before it reached Cloud (nothing was sent): \(code, privacy: .public)")
         }
@@ -217,7 +230,7 @@ struct AgentPaneHandOff {
         return code.hasPrefix("transport.") || refusedHereCodes.contains(code) ? code : nil
     }
 
-    private func cloudChecked(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
+    private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
         if let reservationKey = start.reservationKey,
@@ -226,8 +239,12 @@ struct AgentPaneHandOff {
             // the source of truth for the one live reservation; page state is only a hand-off hint.
             return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         }
-        guard AgentPaneCloudAttachments(start.attachments) != nil else {
-            return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
+        // A Send without the reservation: one still out is this pane's to release as it answers.
+        if start.reservationKey == nil { model.dropCloudReservation() }
+        var start = start
+        (start.carriedFiles, start.stagedFiles) = await model.cloudCarriedFiles(start.attachments)
+        guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles) != nil else {
+            return AgentPaneReply.failure(code: "cloud_attachments", message: AgentPaneCloudAttachments.refusal(start.attachments))
         }
         // The page names the folder the composer shows as the chat's, and the Send's gesture (`held`)
         // is the person's pick of it, as a typed folder's is for a chat that starts here
@@ -236,99 +253,26 @@ struct AgentPaneHandOff {
         // off this Mac, so each must be a real folder that is never home or above it. Leo, on a Cloud
         // start of a folder inside a Git working copy refused as "This folder isn't open in this
         // tab": "what's this". Nil: the App uses the tab's folder.
-        var start = start
         start.uploadRoot = nil
         if let cwd = start.cwd {
-            let home = model.transport.homeFolder
-            let folder: String
-            switch await Self.copyableFolder(cwd, home: home) {
-            case .success(let checked): folder = checked
+            switch await AgentPaneCloudStart.checkedFolder(cwd, home: model.transport.homeFolder) {
+            case .success(let checked):
+                start.cwd = checked.folder
+                start.uploadRoot = checked.root
             case .failure(let refusal): return refusal.reply
             }
-            let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
-            if root != folder {
-                switch await Self.copyableFolder(root, home: home) {
-                case .success(let checked) where checked == root: break
-                case .success: return AgentPaneCloudFolderRefusal.missing.reply
-                case .failure(let refusal): return refusal.reply
-                }
-            }
-            let gitFolders = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.gitFolders(of: root) }.value
-            for gitFolder in gitFolders {
-                if case .failure(let refusal) = await Self.copyableFolder(gitFolder, home: home) { return refusal.reply }
-            }
-            start.cwd = folder
-            start.uploadRoot = root
         }
         // The send again after a sign-in: the click that sign-in kept for this key authorizes it,
         // taken in `held` right before `run`, so a `cloud.signInCancel` the page sent first always wins.
-        let grantKey = start.signedIn && !signingIn ? start.key : nil
+        let grantKey = start.signedIn ? start.key : nil
         return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey) { [start] replacements in
-            // Reserve the send's click before opening the browser. The callback may take longer
-            // than a gesture lives; this hold authorizes only this already-validated request.
-            if signingIn {
-                let generation = model.cloudSignInGeneration
-                guard let signIn = model.onCloudSignIn else {
-                    replacements.endSandbox()
-                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
-                }
-                // `cloud.signInCancel` ends this wait at once (nil), not when the browser returns:
-                // the hold goes with it, so the person's new pick can start right away.
-                switch await model.waitForCloudSignIn(signIn) {
-                case true?: break
-                case false?:
-                    replacements.endSandbox()
-                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
-                case nil:
-                    replacements.endSandbox()
-                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
-                }
-                // Browser auth can take minutes. Another send may have adopted this pane while
-                // it was open; never start Cloud over that chat or consume its preserved prompt.
-                guard model.sessionId == nil else {
-                    replacements.endSandbox()
-                    return AgentPaneReply.failure(
-                        code: "cloud_chat_already_started",
-                        message: "A chat opened while you were signing in. This prompt was not sent to Cloud."
-                    )
-                }
-                // The person picked another place to run (or left this chat) while the browser was
-                // open: the sign-in stands, but the prompt stays in the composer for that pick.
-                guard model.cloudSignInGeneration == generation else {
-                    replacements.endSandbox()
-                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
-                }
-                // Signed in, but nothing starts yet: the page may have left Cloud after this check and
-                // before its cancel arrives. The click is kept for this exact start, and the page sends
-                // it again (`signedIn`) only while it still waits for it; its cancel drops the click.
-                replacements.endSandbox()
-                model.keepCloudSignInGrant(start.key, generation: generation)
-                return AgentPaneReply.failure(code: "cloud_signed_in", message: "cloud_signed_in")
-            }
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it.
             if reply["ok"] as? Bool != true { replacements.endSandbox() }
             return reply
         }
-    }
-
-    /// `path` canonical when it is a real folder that is not the home folder or above it, and neither
-    /// is nor holds one of home's credential folders (``AgentPaneCloudFolderRefusal/secretFolders``);
-    /// the refusal otherwise. A Cloud start copies such a folder only on the Send's own gesture (`held`).
-    nonisolated static func copyableFolder(_ path: String, home: String?) async -> Result<String, AgentPaneCloudFolderRefusal> {
-        await Task.detached(priority: .userInitiated) { () -> Result<String, AgentPaneCloudFolderRefusal> in
-            guard let folder = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(folder) else { return .failure(.missing) }
-            // No home given: this Mac's own, so the home and credential checks never lapse.
-            let home = home ?? NSHomeDirectory()
-            let canonicalHome: String? = AcpmuxPathPolicy.canonical(home) ?? (home as NSString).standardizingPath
-            guard !AgentHome.isHomeOrAbove(folder, home: canonicalHome) else { return .failure(.homeOrAbove) }
-            if let canonicalHome, let secret = AgentPaneCloudFolderRefusal.secretFolder(of: folder, home: canonicalHome) {
-                return .failure(.secret("~/" + secret))
-            }
-            return .success(folder)
-        }.value
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
@@ -361,47 +305,6 @@ struct AgentPaneHandOff {
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
         return await body(replacements)
-    }
-}
-
-/// Why a Cloud start refused its folder on this Mac, before anything was copied: each has its own
-/// code, and the page its own words (webviews `cloudStartProgress.ts` `cloudRefusalText`).
-nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
-    /// Not a folder on this Mac (gone, or a file).
-    case missing
-    /// The home folder or a folder above it.
-    case homeOrAbove
-    /// A credential folder under home, or a folder that holds one: its `~/` spelling.
-    case secret(String)
-
-    /// Home's folders of keys and credentials, relative to home, that a Cloud copy never takes, nor a
-    /// folder holding one (`~/.config` holds gcloud's, `~/Library` Keychains). cmux-tui's
-    /// `link/access_cli.rs` `SECRET_FOLDERS` keeps the like list for a shared folder's files. Never all of
-    /// `~/Library`: iCloud Drive and the cloud-storage folders (Dropbox, Google Drive) hold projects there.
-    static let secretFolders = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library/Keychains"]
-
-    /// The first of ``secretFolders`` that `folder` (canonical) is in or holds, by path components; nil
-    /// for none. Reads no disk: a credential folder need not exist to be refused.
-    static func secretFolder(of folder: String, home: String) -> String? {
-        secretFolders.first { relative in
-            // By case too: this Mac's disk does not tell `~/.SSH` from `~/.ssh`.
-            let secret = (home as NSString).appendingPathComponent(relative).lowercased(), folder = folder.lowercased()
-            return AcpmuxPathPolicy.contains(root: secret, path: folder) || AcpmuxPathPolicy.contains(root: folder, path: secret)
-        }
-    }
-
-    var code: String {
-        switch self {
-        case .missing: "cloud_folder_missing"
-        case .homeOrAbove: "cloud_folder_home"
-        case .secret: "cloud_folder_secret"
-        }
-    }
-
-    /// The reply: the secret's message is the folder's `~/` spelling, which the page's words name.
-    var reply: [String: Any] {
-        if case .secret(let folder) = self { return AgentPaneReply.failure(code: code, message: folder) }
-        return AgentPaneReply.failure(code: code, message: code)
     }
 }
 
@@ -460,27 +363,44 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneModel {
-    /// Runs the browser sign-in for a held `cloud.signIn`: its answer, or nil once
-    /// `cloud.signInCancel` withdrew the send (``endCloudSignInWait(_:)``), whichever comes first.
-    /// A sign-in that finishes after a cancel still stands; only its send is gone.
-    func waitForCloudSignIn(_ signIn: @escaping @MainActor () async -> Bool) async -> Bool? {
-        endCloudSignInWait(nil)
+    /// `cloud.signIn {key}`: the Cloud start card's Sign in, on its click. Signs the app's Cloud account
+    /// in (no browser when it already is, in another pane, window or Settings) and keeps the click for
+    /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`). The page owns
+    /// the rest: the card's waiting state, the wait's deadline and its cancel (webviews cloudSignIn.ts).
+    func signInToCloud(key: String) async -> [String: Any] {
+        guard onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil else { return Self.unsupported("cloud.signIn") }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let generation = cloudSignInGeneration
-        return await withCheckedContinuation { done in
-            cloudSignInWait = (generation, done)
-            Task { @MainActor in
-                let signedIn = await signIn()
-                guard cloudSignInWait?.generation == generation else { return }
-                endCloudSignInWait(signedIn)
-            }
+        var signedIn = onCloudSignedIn?() == true
+        if !signedIn, let signIn = onCloudSignIn {
+            // One browser sign-in per pane: a click after a cancel, while that browser is still open,
+            // waits on it again; a second `auth.signIn()` would end it and lose its progress.
+            let browser = cloudSignInBrowser ?? Task { @MainActor in await signIn() }
+            cloudSignInBrowser = browser
+            signedIn = await browser.value
+            if cloudSignInBrowser == browser { cloudSignInBrowser = nil }
         }
+        guard signedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue") }
+        // The page left Cloud or gave up meanwhile: the sign-in stands, but no click is kept.
+        guard cloudSignInGeneration == generation else {
+            return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+        }
+        keepCloudSignInGrant(key, generation: generation)
+        return AgentPaneReply.success(["signedIn": true])
     }
 
-    /// Ends the sign-in wait, if one is out, with `answer` (nil: withdrawn).
-    func endCloudSignInWait(_ answer: Bool?) {
-        guard let wait = cloudSignInWait else { return }
-        cloudSignInWait = nil
-        wait.done.resume(returning: answer)
+    /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or
+    /// its deadline passed), so the kept click goes and a sign-in still out keeps none. An expired one
+    /// also ends its browser sign-in (the App's sign-in ends its auth attempt on that), so the card's
+    /// Sign in again opens a fresh one instead of waiting on the abandoned one.
+    func cancelCloudSignIn(expired: Bool) -> [String: Any] {
+        cloudSignInGeneration += 1
+        cloudSignInGrant = nil
+        if expired {
+            cloudSignInBrowser?.cancel()
+            cloudSignInBrowser = nil
+        }
+        return AgentPaneReply.success()
     }
 
     /// How long a sign-in's kept click waits for the page's send again; the page sends it at once.

@@ -22,10 +22,6 @@ struct CaptureSceneDefinition: Sendable {
 final class CaptureSceneRegistry {
     let services: AppServices
     let frames = BenchFrames()
-    /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
-    var blockedTerminal: String?
-    /// The terminals `home-chief` opened, closed after its snapshot.
-    var openedTerminals: [String] = []
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -126,11 +122,8 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
         }
 
-        // Home is native: it settles on its own conditions, and neither the
-        // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isHome || readinessIsComplete(readiness) else {
+        guard readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -138,12 +131,11 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+        let actionReadiness = await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
+              actionReadinessReport["animations_pending"]?.boolValue == false else {
+            return .object(["error": .string("scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
@@ -163,11 +155,8 @@ final class CaptureSceneRegistry {
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-        let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
-        if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
-        result["click"] = click
-        guard isHome || Self.pageComposited(result) else {
+        guard Self.pageComposited(result) else {
             return .object([
                 "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -270,7 +259,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
-        CaptureSceneDefinition(name: sessionInfoNativeScene,
+        CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it
                                description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
@@ -281,13 +270,9 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: "workspace-auto-name",
                                description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
-        CaptureSceneDefinition(name: homeChiefScene,
-                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
-        CaptureSceneDefinition(name: "home-chief-long-draft",
-                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
 }
 
@@ -450,7 +435,7 @@ extension CaptureSceneRegistry {
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
             // Never connected: the scene sets the tree itself, and no connect runs its op.
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: "capture", message: "capture") })
+            let resolver = CloudEndedLinkResolver(error: .unsupported)
             let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -718,9 +703,9 @@ extension CaptureSceneRegistry {
 extension CaptureSceneRegistry {
     static let cloudMachineDisconnectedScene = "cloud-machine-disconnected"
     /// The machine whose link dropped, then the one whose connect the provider refused, with each one's connect error.
-    static let endedLinkMachines: [(id: String, name: String, code: String, message: String)] = [
-        ("capture-vm-dropped", "dropped-link-vm", "cmux.cloud.link_down", "the machine's link went down"),
-        ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
+    static let endedLinkMachines: [(id: String, name: String, error: CloudLinkError)] = [
+        ("capture-vm-dropped", "dropped-link-vm", .disconnected(reason: "the machine's link went down")),
+        ("capture-vm-refused", "refused-vm", .failed(code: "vm_start_failed", message: "the provider could not start this machine")),
     ]
 
     /// Shows the settled showcase window's sidebar, adds both machines with a header per computer
@@ -747,8 +732,7 @@ extension CaptureSceneRegistry {
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
-            let (code, message) = (machine.code, machine.message)
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: code, message: message) })
+            let resolver = CloudEndedLinkResolver(error: machine.error)
             let session = CloudMachineSession(machine: CloudMachine(id: machine.id, status: .running, displayName: machine.name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -759,7 +743,7 @@ extension CaptureSceneRegistry {
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
             ]))
-            // A click's connect: its `cloud.machine.connect` fails, and the link ends.
+            // A click's connect fails, and the link ends.
             session.connect(origin: .user)
         }
         services.windows.reconcileMembership()

@@ -259,12 +259,9 @@ extension CloudHandlerRules {
         case "invalidPort": return CloudStrings.invalidPort
         case "idlePauseMustBeOneOf": return CloudStrings.idlePauseMustBeOneOf(first)
         case "machineWorkspaceRequired": return CloudStrings.machineWorkspaceRequired(first)
-        case "networkIDRequired": return CloudStrings.networkIDRequired
-        case "ruleIDRequired": return CloudStrings.ruleIDRequired
         case "publicationRequired": return CloudStrings.publicationRequired
         case "publicKeyRequired": return CloudStrings.publicKeyRequired
         case "fileContentsRequired": return CloudStrings.fileContentsRequired
-        case "tunnelKeyRequired": return CloudStrings.tunnelKeyRequired
         case "snapshotRequired": return CloudStrings.snapshotRequired
         case "apiKeyRequired": return CloudStrings.apiKeyRequired
         case "machineConfigUnreadable": return CloudStrings.machineConfigUnreadable(first)
@@ -276,11 +273,9 @@ extension CloudHandlerRules {
         case "resizeNeedsSizeOrDisk": return CloudStrings.resizeNeedsSizeOrDisk(first)
         case "bootstrapScriptRequired": return CloudStrings.bootstrapScriptRequired
         case "machineNameInvalid": return CloudStrings.machineNameInvalid
-        case "ruleJSONRequired": return CloudStrings.ruleJSONRequired
         case "unknownMachine": return CloudStrings.unknownMachine(first)
         case "noMachine": return CloudStrings.noMachine
         case "createDeclined": return CloudStrings.createDeclined
-        case "desktopUnavailable": return CloudStrings.desktopUnavailable(first)
         case "signInFirst": return CloudStrings.signInFirst
         case "diagnosticsAllWell": return CloudStrings.diagnosticsAllWell(first)
         case "noTeams": return CloudStrings.noTeams

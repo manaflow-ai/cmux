@@ -102,6 +102,18 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   daemon_move_index  {visible, moving, index, held} -> {final, current}
  * Layout nodes and columns use the daemon's wire shapes. Called per intent
  * apply and overlay restore, never per frame. */
+/* The sidebar's launch order hold, operation "sidebar_launch_order" of
+ * cmux_layout_reducer_json (cmux-layout-reducer sidebar_launch_order.rs): until
+ * the home owner serves, rows keep the order drawn at launch.
+ *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
+ * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
+ * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
+ * or New Tab Page at one of the fork's ten places.
+ *   {kind, placement, tabSplit?} -> {op, edge?, left?, make}
+ * op is split (edge right|left|top|bottom), column (left), row, tab,
+ * workspace or window; make is in_place or made_then_moved. Called once per
+ * New action run. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
@@ -371,6 +383,7 @@ typedef struct CmuxFocusTopology {
     uint32_t column_pane_count;
     uint32_t screen_count;
     uint32_t reserved;
+    const CmuxFocusStr *column_siblings; /* NULL, or column_pane_count ids parallel to column_panes: each pane's close sibling (issue 38194); empty is none */
 } CmuxFocusTopology;
 
 typedef struct CmuxFocusResolved {
@@ -500,11 +513,17 @@ uint8_t cmux_input_focus_aims_at_emptied_pane(CmuxInput *input, const uint8_t *w
  * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
  * count gives CMUX_FOCUS_NONE (live_openers: -1).
  */
-/* the tab a pane selects after `selected` closed; opener_children[i] was opened by opener_parents[i] */
+/* 2026-11-08's rule, kept for the pinned app: the shown tab before `selected`, else after it; the opener arrays do not pick (null-checked only) */
 uint32_t cmux_close_focus_tab(uint32_t selected, const uint32_t *old, size_t old_count,
                               const uint32_t *surviving, size_t surviving_count,
                               const uint32_t *shown, size_t shown_count,
                               const uint32_t *opener_children, const uint32_t *opener_parents, size_t opener_count);
+/* Chrome's rule (DetermineNewSelectedIndex): a child, a sibling, the opener, the group's neighbor, else the shown tab after `selected`, else before it */
+uint32_t cmux_close_focus_tab_chrome(uint32_t selected, const uint32_t *old, size_t old_count,
+                                     const uint32_t *surviving, size_t surviving_count,
+                                     const uint32_t *shown, size_t shown_count,
+                                     const uint32_t *opener_children, const uint32_t *opener_parents, size_t opener_count,
+                                     const uint32_t *group_tabs, const uint32_t *group_ids, size_t group_count);
 /* the workspace a window shows after `shown` left; orders: order_count row orders flattened, order i holds order_lengths[i] ids */
 uint32_t cmux_close_focus_workspace(uint32_t shown, const uint32_t *old, size_t old_count,
                                     const uint32_t *surviving, size_t surviving_count,
@@ -982,6 +1001,8 @@ typedef struct CmuxSidebarFaceRow {
     CmuxSidebarFaceRange status_line;
     uint64_t last_activity_ms;
     double progress_value;
+    uint32_t front_chat;       /* the chat Copy Agent Identifier copies: the front tab's, else the first chat */
+    uint32_t reserved2;
 } CmuxSidebarFaceRow;
 
 typedef struct CmuxSidebarFaceListedTab {

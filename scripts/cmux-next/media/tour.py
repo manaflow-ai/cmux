@@ -17,7 +17,7 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. `customize: true` gives the launch its own empty customize folder
+settings. `launch_args` are arguments the app launches with (`--showcase`). `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
 there and the daemon installs and reloads it; every tour gets its own folder either
@@ -29,7 +29,7 @@ and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
-              with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
+              with no CLI verb (a DEBUG verb such as debug.page),
               after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
@@ -44,6 +44,14 @@ and optionally:
     capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
               "menu": false}; reads top-left window-point `capture` bounds after
               settling, crops the composited snapshot, and verifies real 2x pixels
+    relaunch  true: quit the app alone and open it again on the same socket, before the
+              step's `cmux`/`rpc`; its daemon, Chief owner and state stay (what a person's
+              quit and reopen keeps)
+    collect   a file name (`sidebar-order.png`) for an image the step's `rpc`
+              writes itself, as debug.palette.capture does for the palette panel
+              the window shot leaves out: `{collect}` in the rpc's params is its
+              path, and the image is kept beside the step's shot as a "collected"
+              window; an rpc that writes none fails the step
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -90,14 +98,17 @@ from typing import Any
 
 MAX_SECONDS = 300
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture"}
+STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
+             "collect"}
+# A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
+COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,
 # sheets), at most this many, each at least this big in points.
 MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -153,6 +164,17 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "step"
 
 
+def fill_collect(value: Any, path: str) -> Any:
+    """`value` (an rpc's params) with every `{collect}` in its strings replaced by `path`."""
+    if isinstance(value, str):
+        return value.replace("{collect}", path)
+    if isinstance(value, list):
+        return [fill_collect(item, path) for item in value]
+    if isinstance(value, dict):
+        return {key: fill_collect(item, path) for key, item in value.items()}
+    return value
+
+
 def fill_repo(words: list[str], repo: str, where: str) -> list[str]:
     """`{repo}` in a step's words, filled in with this checkout.
 
@@ -194,6 +216,9 @@ def load_tour(path: Path) -> dict[str, Any]:
         raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
     if "customize" in data and not isinstance(data["customize"], bool):
         raise TourError(f"{path}: `customize` must be true or false")
+    launch_args = data.get("launch_args", [])
+    if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
+        raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -216,6 +241,12 @@ def load_tour(path: Path) -> dict[str, Any]:
                                 or not isinstance(rpc.get("method"), str) or not rpc["method"].strip()
                                 or not isinstance(rpc.get("params", {}), dict)):
             raise TourError(f"{where}: `rpc` must be {{\"method\": name, \"params\": object}}")
+        collect = step.get("collect")
+        if collect is not None:
+            if not isinstance(collect, str) or not COLLECT_NAME.fullmatch(collect):
+                raise TourError(f"{where}: `collect` is a lowercase file name such as `palette.png`")
+            if rpc is None or "{collect}" not in json.dumps(rpc.get("params") or {}):
+                raise TourError(f"{where}: `collect` needs an `rpc` whose params name `{{collect}}`")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
         capture = step.get("capture")
@@ -252,7 +283,7 @@ def load_tour(path: Path) -> dict[str, Any]:
         if step.get("cmux"):
             step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env, "customize": data.get("customize", False)}
+            "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -676,7 +707,7 @@ class App:
         if not self.bundle_tag:
             return None
         home = Path(os.path.expanduser(f"~{self.session.user}"))
-        return home / "Library/Application Support/cmux/tags" / self.bundle_tag / "tui"
+        return home / "Library/Application Support/cmux-next/tags" / self.bundle_tag / "tui"
 
     def stop_daemon(self) -> None:
         """End the tagged build's daemon and its terminals through its own socket.
@@ -692,7 +723,9 @@ class App:
         """Start from no workspaces, not the ones an earlier tour on this tag left."""
         directory = self.state_directory()
         if self.fresh_state and directory:
-            self.session.run(["rm", "-rf", str(directory)])
+            # And an older build's in classic's cmux/tags, which a new build adopts at launch.
+            old = directory.parents[3] / "cmux/tags" / directory.parent.name / "tui"
+            self.session.run(["rm", "-rf", str(directory), str(old)])
             print(f"fresh state: cleared {directory}", flush=True)
 
     def write_shell_home(self) -> Path:
@@ -707,6 +740,27 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
+        self.start()
+
+    def relaunch(self) -> None:
+        """Quit the app alone and open it again: its daemon and state stay, as a person's quit and reopen."""
+        pid = self.pid()
+        if isinstance(pid, int):
+            self.session.run(["kill", str(pid)])
+            deadline = time.monotonic() + 15
+            while self.session.run(["kill", "-0", str(pid)]).returncode == 0 and time.monotonic() < deadline:
+                time.sleep(0.25)
+            self.session.run(["kill", "-9", str(pid)])
+        if self.process and self.process.poll() is None:
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        self.identity = {}
+        self.start()
+
+    def start(self) -> None:
+        """Opens the app on this tour's socket and waits for its first answer."""
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
@@ -1028,8 +1082,17 @@ def capture_fixture(app: App, path: Path, config: dict[str, Any]) -> str | None:
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
+    if step.get("relaunch"):
+        result["command"] = "relaunch"
+        try:
+            app.relaunch()
+            if screen.pid is not None:
+                screen.pid = app.pid()
+        except TourError as problem:
+            result["status"] = "failed"
+            result["detail"] = f"relaunch: {problem}"
     command = step.get("cmux")
-    if command:
+    if command and result["status"] == "ok":
         result["command"] = "cmux " + command_line(command)
         done = app.cli(command, daemon=bool(step.get("daemon")))
         output = (done.stdout.strip() + "\n" + done.stderr.strip()).strip()
@@ -1040,15 +1103,26 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     rpc = step.get("rpc")
+    collected = shots / f"{index:02d}-collect-{step['collect'][:-4]}.png" if step.get("collect") else None
+    windows: list[dict[str, Any]] = []
     if rpc and result["status"] == "ok":
         result["rpc"] = rpc["method"]
+        params = rpc.get("params") or {}
+        if collected:
+            collected.unlink(missing_ok=True)
+            params = fill_collect(params, str(collected))
         try:
-            answer = app.request(rpc["method"], rpc.get("params") or {})
+            answer = app.request(rpc["method"], params)
             error = answer.get("error") if isinstance(answer, dict) else None
             # A method that answers but could not do it says so in its own `ok` (a bool, or
             # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
             if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
                 error = "answered ok: false"
+            if not error and collected:
+                if collected.is_file() and collected.stat().st_size > 0:
+                    windows.append({"kind": "collected", "shot": f"shots/{collected.name}"})
+                else:
+                    error = f"wrote no image for `collect` {step['collect']}"
             result["output"] = json.dumps(answer)[-1500:]
         except (OSError, ValueError, TourError, socket.timeout) as problem:
             error = str(problem)
@@ -1092,11 +1166,12 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         else:
             result["shot"] = f"shots/{path.name}"
             if screen.app and step.get("windows", not step.get("display") and not step.get("capture")):
-                windows, problem = shoot_other_windows(app, path)
-                if windows:
-                    result["windows"] = windows
+                others, problem = shoot_other_windows(app, path)
+                windows += others
                 if problem:
                     result["windows_error"] = problem
+    if windows:
+        result["windows"] = windows
     result["seconds"] = round(time.monotonic() - started, 2)
     return result
 
@@ -1121,11 +1196,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
                                            else customize)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
-              launch_env=launch_env)
+              launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
     video_started = False
+    # When the recording (video or stills) began: each step's `at` is its start on that clock, which
+    # whats-new-clips.py's render-tour uses to cut a step range out of capture.mov.
+    clock: float | None = None
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -1159,6 +1237,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         else:
             video.pid = app.pid()
             video_started = video.start()
+            clock = time.monotonic()
             if video_started:
                 manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
             else:
@@ -1167,7 +1246,10 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
                 recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
+            step_started = time.monotonic()
             result = run_step(app, screen, step, index, shots)
+            if clock is not None:
+                result["at"] = round(step_started - clock, 3)
             manifest["steps"].append(result)
             print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)

@@ -52,6 +52,11 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_machine_channel.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 
@@ -160,6 +165,11 @@ reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the l
 path = "tests/test_cmux_next_guardrails_blocking.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_guardrails_observation.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI gates. guardrails.py's observation-onchange and observation-scope rules run only in the local pre-push hook; run python3 -I tests/test_cmux_next_guardrails_observation.py yourself after changing them (about 3 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails_qos.py"
@@ -399,4 +409,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_takeover.py"
 lane = "linux-guard"

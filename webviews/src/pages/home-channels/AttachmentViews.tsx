@@ -1,9 +1,12 @@
 // Attachments in a message and in the composer. A message shows its images as one grid (one image
 // large, several in tiles, "+N" past four), each opening the lightbox (arrow keys move, Escape
-// closes); a video plays inline with its poster and the browser's controls; any other file is a
-// row with its type, size and a download link. The composer shows each file it uploads as a tile
+// closes); a video plays inline with its poster and the browser's controls, and its Expand opens it
+// in the same lightbox, paused until Play like the agent chat's large player (ReplyMedia
+// VideoViewer); any other file is a row with its type, size and a download link. The composer shows each file it uploads as a tile
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { VideoThumbnail } from "../../agent-session/acpmux/chips/ReplyMedia";
+import "../../agent-session/acpmux/chips/chips.css";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
@@ -16,12 +19,22 @@ import "../../ui/motion/motion.css";
 /** The page's attachment service (absent: attachments show as named rows only). */
 export const AttachmentContext = createContext<AttachmentService | undefined>(undefined);
 
+/** A page's own viewer for a message's media (the Messages page's picture viewer and View Larger).
+ * Absent: pictures and videos open in the lightbox here. */
+export interface AttachmentOpener {
+  openImages(conversation: string, images: readonly HomeAttachment[], index: number): void;
+  /** `video`: the bubble's player, which pauses; the viewer goes on from its time. */
+  openVideo(conversation: string, part: HomeAttachment, video?: HTMLVideoElement): void;
+}
+
+export const AttachmentOpenContext = createContext<AttachmentOpener | undefined>(undefined);
+
 /** Most image tiles shown in a message; the last one counts the rest. */
 const GRID_TILES = 4;
 
 /** A data URL (or URL) of one image variant: `src` once loaded, `failed` when this host cannot read
  * it (an owner without attachment reads here, a record that is gone). */
-function useImage(
+export function useImage(
   conversation: string,
   part: HomeAttachment,
   prefer: "preview" | "original",
@@ -47,20 +60,46 @@ function useImage(
   return state;
 }
 
+/** What a drag that starts on `part` does instead of the page's own drag: the host's drag of the
+ * real file (Home: a Finder promise, HomePageAttachmentDrag.swift). Absent: no drag. */
+export type AttachmentDragOut = (part: HomeAttachment) => void;
+
+/** The drag props of an element that drags `part` out: the page's drag is cancelled at its start
+ * and the host starts its own while the press is held. */
+export function dragOutProps(part: HomeAttachment, onDragOut: AttachmentDragOut | undefined) {
+  if (!onDragOut) return {};
+  return {
+    draggable: true,
+    onDragStart: (event: { preventDefault(): void }) => {
+      event.preventDefault();
+      onDragOut(part);
+    },
+  };
+}
+
 /** The attachment parts of one message, grouped as they show. */
 export function MessageAttachments({
   conversation,
   parts,
   strings,
+  onDragOut,
 }: {
   conversation: string;
   parts: readonly HomeAttachment[];
   strings: Strings;
+  /** A drag on an attachment hands it to the host (to Finder, the Desktop, another app). */
+  onDragOut?: AttachmentDragOut;
 }) {
   const images = parts.filter((part) => attachmentClass(part.mimeType) === "image");
   const videos = parts.filter((part) => attachmentClass(part.mimeType) === "video");
   const files = parts.filter((part) => !images.includes(part) && !videos.includes(part));
+  // The lightbox steps through what the message shows, in order: its images, then its videos.
+  const media = [...images, ...videos];
   const [open, setOpen] = useState<number>();
+  /** Each inline player by its index in `videos`: the lightbox takes over its position on Play and
+   * hands its own back on close. */
+  const inline = useRef(new Map<number, HTMLVideoElement>());
+  const opener = useContext(AttachmentOpenContext);
   return (
     <div className="hc-attachments">
       {images.length > 0 && (
@@ -73,22 +112,43 @@ export function MessageAttachments({
               single={images.length === 1}
               more={index === GRID_TILES - 1 ? images.length - GRID_TILES : 0}
               strings={strings}
-              onOpen={() => setOpen(index)}
+              onOpen={() => (opener ? opener.openImages(conversation, images, index) : setOpen(index))}
+              onDragOut={onDragOut}
             />
           ))}
         </div>
       )}
       {videos.map((part, index) => (
-        <VideoPlayer key={`${part.hash}:${index}`} conversation={conversation} part={part} strings={strings} />
+        <VideoPlayer
+          key={`${part.hash}:${index}`}
+          conversation={conversation}
+          part={part}
+          strings={strings}
+          onDragOut={onDragOut}
+          videoRef={(element) => {
+            if (element) inline.current.set(index, element);
+            else inline.current.delete(index);
+          }}
+          onExpand={() =>
+            opener ? opener.openVideo(conversation, part, inline.current.get(index)) : setOpen(images.length + index)
+          }
+        />
       ))}
       {files.map((part, index) => (
-        <FileRow key={`${part.hash}:${index}`} conversation={conversation} part={part} strings={strings} />
+        <FileRow
+          key={`${part.hash}:${index}`}
+          conversation={conversation}
+          part={part}
+          strings={strings}
+          onDragOut={onDragOut}
+        />
       ))}
       {open !== undefined && (
         <Lightbox
           conversation={conversation}
-          images={images}
+          items={media}
           index={open}
+          inline={(index) => inline.current.get(index - images.length)}
           strings={strings}
           onIndex={setOpen}
           onClose={() => setOpen(undefined)}
@@ -113,6 +173,7 @@ function ImageTile({
   more,
   strings,
   onOpen,
+  onDragOut,
 }: {
   conversation: string;
   part: HomeAttachment;
@@ -120,6 +181,7 @@ function ImageTile({
   more: number;
   strings: Strings;
   onOpen(): void;
+  onDragOut?: AttachmentDragOut | undefined;
 }) {
   const { src, failed } = useImage(conversation, part, "preview");
   const size = single ? frame(part, 360, 280) : undefined;
@@ -128,11 +190,13 @@ function ImageTile({
       type="button"
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
+      data-attachment={part.hash}
       aria-label={part.name}
       /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
       disabled={failed}
       onClick={onOpen}
+      {...dragOutProps(part, onDragOut)}
     >
       {src && <img src={src} alt={part.name} draggable={false} />}
       {failed && (
@@ -146,45 +210,63 @@ function ImageTile({
   );
 }
 
-function VideoPlayer({
-  conversation,
-  part,
-  strings,
-}: {
-  conversation: string;
-  part: HomeAttachment;
-  strings: Strings;
-}) {
+/** A video's playable link on the daemon's listener: `src` once had, `failed` when it cannot be
+ * had. A link answers 10 minutes: a player that seeks later gets an error, and `renew` asks for a
+ * new link once a minute at most; `resumeAt` is the position to go on from after it. */
+function useVideoLink(conversation: string, part: HomeAttachment) {
   const service = useContext(AttachmentContext);
-  const [src, setSrc] = useState<string>();
-  const posterSrc = usePoster(conversation, part);
-  const size = frame(part, 480, 320);
+  const [state, setState] = useState<{ src?: string; failed: boolean }>({ failed: !service });
   /** The playback position to restore after a new link (the old one ended mid-play). */
   const resume = useRef<{ at: number; tried: number } | undefined>(undefined);
   useEffect(() => {
     if (!service) return;
     let live = true;
     service.url(conversation, part.hash, "original", part.name).then(
-      (value) => live && setSrc(value),
-      () => undefined,
+      (src) => live && setState({ src, failed: false }),
+      () => live && setState({ failed: true }),
     );
     return () => {
       live = false;
     };
   }, [service, conversation, part.hash, part.name]);
-  // A link answers 10 minutes: a player that seeks later gets an error; ask for a new link once a
-  // minute at most and go on from the same position.
   const renew = (video: HTMLVideoElement) => {
-    if (!service || !src) return;
+    if (!service || !state.src) return;
     const now = Date.now();
     if (resume.current && now - resume.current.tried < 60_000) return;
     resume.current = { at: video.currentTime, tried: now };
-    service.url(conversation, part.hash, "original", part.name, true).then(setSrc, () => undefined);
+    service.url(conversation, part.hash, "original", part.name, true).then(
+      (src) => setState({ src, failed: false }),
+      () => undefined,
+    );
   };
+  return { ...state, renew, resumeAt: () => resume.current?.at };
+}
+
+function VideoPlayer({
+  conversation,
+  part,
+  strings,
+  videoRef,
+  onExpand,
+  onDragOut,
+}: {
+  conversation: string;
+  part: HomeAttachment;
+  strings: Strings;
+  videoRef(element: HTMLVideoElement | null): void;
+  onExpand(): void;
+  onDragOut?: AttachmentDragOut | undefined;
+}) {
+  const { src, renew, resumeAt } = useVideoLink(conversation, part);
+  const opener = useContext(AttachmentOpenContext);
+  const posterSrc = usePoster(conversation, part);
+  const size = frame(part, 480, 320);
   return (
-    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }}>
+    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }} data-attachment={part.hash}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
+        ref={videoRef}
+        data-attachment-video={part.hash}
         src={src}
         poster={posterSrc}
         controls
@@ -194,18 +276,32 @@ function VideoPlayer({
         height={size.height}
         aria-label={part.name}
         onError={(event) => renew(event.currentTarget)}
+        onDoubleClick={opener ? (event) => opener.openVideo(conversation, part, event.currentTarget) : undefined}
         onLoadedMetadata={(event) => {
-          const at = resume.current?.at;
+          const at = resumeAt();
           if (at) event.currentTarget.currentTime = at;
         }}
       />
       <figcaption>
-        <span className="hc-att-name">{part.name}</span>
+        {/* The name drags the clip out (the player keeps its own pointer for seeking). */}
+        <span className="hc-att-name" {...dragOutProps(part, onDragOut)}>
+          {part.name}
+        </span>
         <span className="hc-att-meta">
           {[part.durationMs !== undefined ? duration(part.durationMs) : "", formatBytes(part.byteCount)]
             .filter(Boolean)
             .join(" · ")}
         </span>
+        <button
+          type="button"
+          className="hc-att-expand"
+          aria-label={strings.format("attachment.expand", part.name)}
+          /* tooltip-allow: an icon-only button names itself on hover */
+          title={strings.format("attachment.expand", part.name)}
+          onClick={onExpand}
+        >
+          <HomeIcon name="expand" />
+        </button>
         {src && (
           <a
             className="hc-att-download ui-reveal"
@@ -239,7 +335,17 @@ function usePoster(conversation: string, part: HomeAttachment): string | undefin
   return src;
 }
 
-function FileRow({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
+function FileRow({
+  conversation,
+  part,
+  strings,
+  onDragOut,
+}: {
+  conversation: string;
+  part: HomeAttachment;
+  strings: Strings;
+  onDragOut?: AttachmentDragOut | undefined;
+}) {
   const service = useContext(AttachmentContext);
   const extension = part.name.includes(".") ? part.name.slice(part.name.lastIndexOf(".") + 1).toUpperCase() : "";
   // The link could not be had (the daemon does not answer, the record is gone): the row says so,
@@ -262,7 +368,7 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
     anchor.click();
   };
   return (
-    <div className="hc-att-file ui-reveal-host">
+    <div className="hc-att-file ui-reveal-host" data-attachment={part.hash} {...dragOutProps(part, onDragOut)}>
       <span className="hc-att-file-mark" aria-hidden>
         {extension.slice(0, 4) || <HomeIcon name="attach" />}
       </span>
@@ -292,23 +398,27 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
 
 function Lightbox({
   conversation,
-  images,
+  items,
   index,
+  inline,
   strings,
   onIndex,
   onClose,
 }: {
   conversation: string;
-  images: readonly HomeAttachment[];
+  /** The message's images, then its videos. */
+  items: readonly HomeAttachment[];
   index: number;
+  /** The inline player of the video at `index`, if it is one. */
+  inline(index: number): HTMLVideoElement | undefined;
   strings: Strings;
   onIndex(index: number): void;
   onClose(): void;
 }) {
-  const part = images[index];
-  const { src } = useImage(conversation, part, "original");
-  const { src: preview } = useImage(conversation, part, "preview");
-  const step = (by: number) => onIndex((index + by + images.length) % images.length);
+  const part = items[index];
+  const isVideo = attachmentClass(part.mimeType) === "video";
+  const step = (by: number) => onIndex((index + by + items.length) % items.length);
+  const canStep = items.length > 1;
   const closeButton = useRef<HTMLButtonElement | null>(null);
   return (
     <Dialog
@@ -322,7 +432,7 @@ function Lightbox({
       <KeyboardScope
         className="hc-lightbox-body"
         handleKeyDown={(event) => {
-          if (images.length < 2 || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+          if (!canStep || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
           event.preventDefault();
           step(event.key === "ArrowRight" ? 1 : -1);
         }}
@@ -330,7 +440,7 @@ function Lightbox({
         <header className="hc-lightbox-bar">
           <span className="hc-att-name">{part.name}</span>
           <span className="hc-att-meta">
-            {images.length > 1 ? `${index + 1} / ${images.length} · ` : ""}
+            {canStep ? `${index + 1} / ${items.length} · ` : ""}
             {formatBytes(part.byteCount)}
           </span>
           <span className="lg-spacer" />
@@ -339,7 +449,7 @@ function Lightbox({
           </DialogButton>
         </header>
         <div className="hc-lightbox-stage">
-          {images.length > 1 && (
+          {canStep && (
             <button
               type="button"
               className="hc-lightbox-step prev"
@@ -349,8 +459,18 @@ function Lightbox({
               <HomeIcon name="chevronLeft" />
             </button>
           )}
-          {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
-          {images.length > 1 && (
+          {isVideo ? (
+            <LightboxVideo
+              key={`${part.hash}:${index}`}
+              conversation={conversation}
+              part={part}
+              inline={inline(index)}
+              strings={strings}
+            />
+          ) : (
+            <LightboxImage key={`${part.hash}:${index}`} conversation={conversation} part={part} />
+          )}
+          {canStep && (
             <button
               type="button"
               className="hc-lightbox-step next"
@@ -363,6 +483,69 @@ function Lightbox({
         </div>
       </KeyboardScope>
     </Dialog>
+  );
+}
+
+function LightboxImage({ conversation, part }: { conversation: string; part: HomeAttachment }) {
+  const { src } = useImage(conversation, part, "original");
+  const { src: preview } = useImage(conversation, part, "preview");
+  return (src ?? preview) ? <img src={src ?? preview} alt={part.name} /> : null;
+}
+
+/** A video large in the lightbox: the agent chat's player (ReplyMedia VideoThumbnail), paused with
+ * its Play and length until Play, then with sound and the player's controls. Play takes over the
+ * inline player (paused, its position carried over); leaving hands the position back. */
+function LightboxVideo({
+  conversation,
+  part,
+  inline,
+  strings,
+}: {
+  conversation: string;
+  part: HomeAttachment;
+  inline: HTMLVideoElement | undefined;
+  strings: Strings;
+}) {
+  const { src, failed, renew } = useVideoLink(conversation, part);
+  const posterSrc = usePoster(conversation, part);
+  const large = useRef<HTMLVideoElement | null>(null);
+  const played = useRef(false);
+  useEffect(
+    () => () => {
+      const element = large.current;
+      if (!played.current || !element || !inline) return;
+      const time = element.currentTime;
+      if (Number.isFinite(time)) inline.currentTime = time;
+    },
+    [inline],
+  );
+  if (src)
+    return (
+      <span className="hc-lightbox-video">
+        <VideoThumbnail
+          src={src}
+          name={part.name}
+          onError={() => large.current && renew(large.current)}
+          videoRef={(element) => {
+            // Kept after unmount: leaving reads its last position.
+            if (element) large.current = element;
+          }}
+          onPlay={(element) => {
+            played.current = true;
+            if (!inline || inline === element) return undefined;
+            const time = inline.currentTime;
+            // The large player is the one playing: the inline copy stops before it gains sound.
+            inline.pause();
+            return Number.isFinite(time) && time > 0 ? time : undefined;
+          }}
+        />
+      </span>
+    );
+  return (
+    <span className={`hc-lightbox-unread${failed ? " failed" : " loading"}`}>
+      {posterSrc && <img src={posterSrc} alt={part.name} />}
+      {failed && <output className="hc-att-meta">{strings.t("lightbox.videoUnavailable")}</output>}
+    </span>
   );
 }
 
@@ -407,7 +590,8 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
   const fraction = item.progress.total > 0 ? item.progress.sent / item.progress.total : 0;
   const percent = `${Math.round(fraction * 100)}%`;
   const state = item.error ? "failed" : item.part ? "done" : "uploading";
-  const status = item.error ?? (item.part ? formatBytes(item.file.size) : strings.format("attach.uploading", percent));
+  const status =
+    item.error ?? (item.part ? formatBytes(item.part.byteCount) : strings.format("attach.uploading", percent));
   const kind = useMemo(() => attachmentClass(item.file.type), [item.file.type]);
   return (
     <li className={`hc-tray-item ${state}`}>

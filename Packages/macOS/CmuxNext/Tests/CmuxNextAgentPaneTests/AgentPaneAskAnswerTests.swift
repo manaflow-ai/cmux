@@ -163,6 +163,16 @@ struct AgentPaneAskAnswerTests {
         #expect(AcpmuxPermissionPrompt.option(allow: false, offered: options) == "never", "the banner's mapping, unchanged")
     }
 
+    /// A banner's Always allow is the prompt's one `allow_always`: none offered, or two, is no
+    /// Always allow (``AcpmuxPermissionPrompt/alwaysOption(offered:)``).
+    @Test func aBannersAlwaysAllowIsThePromptsOneAllowAlways() {
+        let once: [[String: Any]] = [["optionId": "yes", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]]
+        #expect(AcpmuxPermissionPrompt.alwaysOption(offered: once) == nil)
+        let always = once + [["optionId": "always", "kind": "allow_always"]]
+        #expect(AcpmuxPermissionPrompt.alwaysOption(offered: always) == "always")
+        #expect(AcpmuxPermissionPrompt.alwaysOption(offered: always + [["optionId": "twice", "kind": "allow_always"]]) == nil)
+    }
+
     /// An option that is not the ask's allow once or deny once (Always allow, another option, an
     /// option of another ask) and an ask no longer pending answer nothing.
     @Test func onlyTheAsksOneClickOptionsAndOnlyWhileItIsPending() async {

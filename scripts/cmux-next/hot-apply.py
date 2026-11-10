@@ -3,6 +3,7 @@
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
+                       [--restart-acpmux]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
 
@@ -19,17 +20,34 @@ with live_apply.py's rules:
   rust   SHA's cmux-tui tree key differs from the app's and no Rust the app links (its FFI
          crates, scripts/ci/cmux_next_route.py) changed: the cmux binary published for SHA's tree
          key (files.cmux.com/cmux-tui/tree/KEY, sha256 from its completion.json) replaces the
-         app's Contents/Resources/bin/cmux, and the app's daemon is handed to it the way the app
+         app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
+         cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
+         same build, or removed where that build has none; then the app's daemon is handed to it the way the app
          hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
-         daemon keeps its build until it restarts: --acpmux-home H restarts the one of H.
+         daemon keeps its build until it restarts: --acpmux-home H restarts the one of H, and
+         --restart-acpmux restarts every acpmux daemon running from the app's bin folder (each
+         `acpmux daemon run` or `cmux acp daemon run` there whose socket's `daemon status` names its
+         pid), so the agent daemon swaps too: `daemon restart` keeps hosted sessions, which resume
+         on the new build. Each restarts with its own launch environment, read from the process (its
+         Chief home, Computer Use socket and policy stay). A daemon a restart would cost its chats
+         (a memory store without agent hosts) or whose environment is unreadable is left, and the
+         receipt lists every acpmux daemon left on the old build, with why.
   left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies)
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
+
+--branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
+app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
+is the fork's, so the app has no Rust the branch lacks. Its web part is left to try-pr.sh, which
+serves the branch's web with web-overlay.sh follow (a branch has no published bundles).
+
+`plan` says whether CI published SHA's tree (`published`). `apply --binary PATH` swaps in PATH, a
+cmux built for SHA some other way, instead of the published one.
 
 `apply` applies the parts (`--parts` picks; default every part `plan` finds) and checks each:
 the app's bin/cmux hashes to the published sha256, a new daemon owner answers from it, and the
@@ -77,6 +95,14 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
+# The commit-addressed builds a tree's source.json names, which publish its companions.
+COMMIT_BASE = os.environ.get("CMUX_HOT_APPLY_COMMIT_BASE") or TUI_BASE.rsplit("/", 1)[0]
+# The executables the app bundles beside bin/cmux from the same build (bundle-cmux-tui.sh
+# place_companion): (the published artifact, the file in bin/). The daemon runs each sibling of
+# its own executable, so they go in with bin/cmux, or go away when the build has none, as there.
+COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("browser-host", "cmux-browser-host"),
+              ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
+              ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
@@ -197,7 +223,7 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
-def plan(repo: Path, app: Path, sha: str) -> dict:
+def plan(repo: Path, app: Path, sha: str, branch: bool = False) -> dict:
     base = app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
@@ -206,16 +232,30 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     if is_ancestor(repo, sha, base):
         out["notes"].append("the app already contains SHA")
         return out
+    since = base
     if not is_ancestor(repo, base, sha):
-        out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
-        return out
-    result = live_apply.classify_range(str(repo), base, sha)
+        fork = git(repo, "merge-base", base, sha, check=False)
+        # --branch: SHA is a pull request's head, branched before the app's commit. Its daemon fits the
+        # app when the app has no Rust the branch lacks: the app's cmux-tui tree is the one at the fork.
+        # Only the Rust part is taken then; the app's newer Swift and web stay as they are.
+        if not branch or not SHA.fullmatch(fork):
+            out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
+            return out
+        if tree_key(repo, fork) != tree_key(repo, base):
+            out["left"]["unrelated"] = [f"the app's commit {base} has Rust that {sha} (branched at {fork}) lacks"]
+            return out
+        since = fork
+        out["fork"] = fork
+    result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
     web = files.get("web-live", [])
-    if web:
+    if web and branch:
+        # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
+        out["left"]["web (not published for a branch)"] = web
+    elif web:
         want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
         have = app_abi(app)
         if have == want:
@@ -225,11 +265,12 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     rust = files.get("daemon", [])
     if rust:
         linked = linked_rust(repo, rust)
-        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, base)
+        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
             out["parts"].append("rust")
+            out["published"] = published(out["tree_key"])
             helpers = helper_rust(repo, rust)
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
@@ -243,6 +284,14 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
 def triple() -> str:
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
+
+
+def published(key: str) -> bool:
+    """CI published the cmux binaries of tree KEY (its completion.json is there)."""
+    try:
+        return json.loads(fetch(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
+    except (OSError, ValueError):  # urllib's errors are OSErrors: a 404 is an unpublished tree
+        return False
 
 
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
@@ -266,6 +315,76 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
     return copy, want
+
+
+def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+    commit-addressed manifest its source.json names; None for one that build published none of."""
+    owner = json.loads(fetch(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
+    if not SHA.fullmatch(owner):
+        raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
+    binaries = json.loads(fetch(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
+    out: dict[str, tuple[Path, str] | None] = {}
+    for artifact, file in COMPANIONS:
+        asset = f"cmux-tui-{artifact}-{triple()}"
+        want = binaries.get(asset)
+        if not want:
+            out[file] = None
+            continue
+        copy = state / "builds" / want / file
+        if not copy.is_file() or sha256_file(copy) != want:
+            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
+            if hashlib.sha256(body).hexdigest() != want:
+                raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+                part.write(body)
+            os.chmod(part.name, 0o755)
+            os.replace(part.name, copy)
+        out[file] = (copy, want)
+    return out
+
+
+def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
+    """The companions beside a cmux built elsewhere (--binary: a dev build's bin/)."""
+    return {file: keep(state, binary.parent / file) if (binary.parent / file).is_file() else None
+            for _, file in COMPANIONS}
+
+
+def place_companions(app: Path, companions: dict[str, tuple[Path, str] | None], state: Path) -> dict:
+    """Puts each companion beside bin/cmux, or removes the app's when the build has none; returns
+    what was there before, by file (None: absent), for put_back."""
+    prior: dict = {}
+    for file, new in companions.items():
+        target = app / BIN / file
+        if target.is_symlink() or (not target.exists() and new is None):
+            continue  # a link (cmux-tui, acpmux) follows bin/cmux; nothing to remove
+        prior[file] = dict(zip(("copy", "sha256"), map(str, keep(state, target)))) if target.is_file() else None
+        if new is None:
+            target.unlink()
+            continue
+        # Renamed into place: a rewritten Mach-O keeps a stale code signature.
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(new[0], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != new[1]:
+            raise RuntimeError(f"{target} does not hash to {new[1]}")
+    return prior
+
+
+def restore_companions(app: Path, prior: dict) -> None:
+    for file, was in prior.items():
+        target = app / BIN / file
+        if was is None:
+            target.unlink(missing_ok=True)
+            continue
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(was["copy"], staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        if sha256_file(target) != was["sha256"]:
+            raise RuntimeError(f"{target} does not hash to {was['sha256']}")
 
 
 def keep(state: Path, path: Path) -> tuple[Path, str]:
@@ -407,16 +526,141 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     return step
 
 
-def restart_acpmux(app: Path, homes: list[str]) -> list[dict]:
+def acpmux_status(app: Path, **where: str) -> dict:
+    """`acpmux daemon status` of one daemon, by ACPMUX_SOCKET or ACPMUX_HOME; {} when none answers."""
+    env = {k: v for k, v in os.environ.items() if k not in ("ACPMUX_SOCKET", "ACPMUX_HOME")}
+    env.update({f"ACPMUX_{k.upper()}": v for k, v in where.items()})
+    try:
+        out = subprocess.run([str(app / BIN / "acpmux"), "--json", "daemon", "status"], capture_output=True,
+                             text=True, env=env, timeout=10).stdout
+        status = json.loads(out or "{}")
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+def process_env(pid: int) -> dict[str, str] | None:
+    """The environment process PID started with (its own user's process only), or None when unreadable:
+    /proc/PID/environ on Linux, KERN_PROCARGS2 on macOS (exec path, argv, then the environment)."""
+    environ = Path(f"/proc/{pid}/environ")
+    if environ.parent.is_dir():
+        try:
+            raw = environ.read_bytes().split(b"\0")
+        except OSError:
+            return None
+    elif sys.platform == "darwin":
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
+            return None
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return None
+        data = buf.raw[:size.value]
+        argc = int.from_bytes(data[:4], sys.byteorder)
+        rest = data[4:]
+        rest = rest[rest.index(b"\0"):].lstrip(b"\0")  # past the exec path and its padding
+        raw = rest.split(b"\0")[argc:]
+    else:
+        return None
+    env: dict[str, str] = {}
+    for entry in raw:
+        if not entry:
+            break  # the environment ends at the first empty string
+        key, sep, value = entry.decode(errors="replace").partition("=")
+        if sep:
+            env[key] = value
+    # A process always starts with some environment (HOME, PATH): none read means it is hidden from us (another
+    # user's process, or a kernel that withholds it), never that it had none (#40219 review P2).
+    return env or None
+
+
+def keeps_its_chats(status: dict) -> bool:
+    """As the app's AcpmuxVersionHandoff.keepsItsChats: a daemon keeps its chats across a restart when its
+    agents run under agent hosts or its chats are on disk (`store.mode` local); a memory store without agent
+    hosts would lose them."""
+    store = status.get("store") if isinstance(status.get("store"), dict) else {}
+    return bool(status.get("agentHosts")) or store.get("mode") == "local"
+
+
+def running_acpmux(app: Path) -> list[dict]:
+    """The acpmux daemons running from APP's bin folder: each `acpmux daemon run` (or the multi-call
+    `cmux acp daemon run`) there, with the home its socket's `daemon status` names when that status names
+    the same pid, whether a restart keeps its chats, and whether its launch environment is readable."""
+    found = []
+    for pid in app_pids(app, ("acpmux", "cmux")):
+        command = subprocess.run(["ps", "-ww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
+        # The program and its arguments after the bin folder (the app path may hold spaces, a program name none).
+        program, _, rest = command.rpartition(f"/{BIN}/")[2].strip().partition(" ")
+        words = rest.split()
+        if not ((program == "acpmux" and words[:2] == ["daemon", "run"])
+                or (program == "cmux" and words[:3] == ["acp", "daemon", "run"])):
+            continue  # the CLI, an agent host, a terminal daemon or an MCP server: not an acpmux daemon
+        lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
+        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
+            status = acpmux_status(app, socket=name)
+            if str(status.get("pid")) == pid and status.get("home"):
+                found.append({"pid": int(pid), "home": str(status["home"]), "socket": name,
+                              "build": str(status.get("build", "")), "keeps_chats": keeps_its_chats(status),
+                              "env_readable": process_env(int(pid)) is not None})
+                break
+        else:
+            # Its `daemon status` timed out, was malformed or named another pid: it is still a daemon on the old
+            # build, so the receipt names it rather than dropping it (#40219 Codex F2).
+            found.append({"pid": int(pid), "home": None, "build": "", "keeps_chats": False, "env_readable": False,
+                          "status_unreadable": True})
+    return found
+
+
+def outside_login_session() -> bool:
+    """Whether this run is an ssh session on macOS. There `acpmux daemon restart` starts a daemon of the person's
+    own home (under ~/.acpmux) as a launchd job in the login session, and launchd drops the environment the
+    restart passes (#40219 Codex F1); any other home's daemon (a Chief's) starts in the ssh security session,
+    where its agents cannot read the login keychain (acpmux daemon/login_session.rs, login_placement.rs). So no
+    daemon found running is restarted from ssh; a home named by --acpmux-home still is, as before. The test is
+    the ssh variables, not the security session acpmux asks: a shell that strips them is not caught."""
+    return sys.platform == "darwin" and bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"))
+
+
+def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
+                   sockets: dict[str, str] | None = None) -> list[dict]:
+    """`acpmux daemon restart` in each home; hosted sessions are kept and resume. The new daemon starts from
+    the CLI that runs the restart, so the restart runs with the running daemon's own launch environment
+    (its Chief home, Computer Use socket, agent launch policy: everything its owner started it with), read
+    from the process, never written down. With BEFORE (home -> the pid that ran), each must answer again
+    from another pid, else it raises; a home given by --acpmux-home whose daemon's environment cannot be
+    read restarts with this process's, as before. SOCKETS (home -> the socket the daemon was found serving) finds
+    a daemon started on a socket of its own, which answers there and not at its home's default."""
     done = []
     for home in homes:
-        # ACPMUX_SOCKET wins over ACPMUX_HOME: an inherited one would restart another home's daemon.
-        env = {k: v for k, v in os.environ.items() if k != "ACPMUX_SOCKET"}
+        where = {"socket": sockets[home]} if sockets and sockets.get(home) else {"home": home}
+        running = acpmux_status(app, **where)
+        own = process_env(int(running["pid"])) if running.get("pid") else None
+        if own is None and before and home in before:
+            raise RuntimeError(f"cannot read the launch environment of the acpmux daemon in {home}: not restarted")
+        env = dict(own if own is not None else os.environ)
+        # ACPMUX_SOCKET wins over ACPMUX_HOME: one this process inherited, or one the daemon inherited but does not
+        # serve, would restart another home's daemon. The daemon's own, when it answers there, is kept: the new
+        # daemon must serve the socket its clients use (#40219 review P2).
+        sock = env.get("ACPMUX_SOCKET")
+        if own is None or not sock or acpmux_status(app, socket=sock).get("pid") != running.get("pid"):
+            env.pop("ACPMUX_SOCKET", None)
+        env["ACPMUX_HOME"] = home
+        t0 = time.monotonic()
         result = subprocess.run([str(app / BIN / "acpmux"), "daemon", "restart"], capture_output=True, text=True,
-                                env=dict(env, ACPMUX_HOME=home), timeout=60)
+                                env=env, timeout=60)
         if result.returncode != 0:
             raise RuntimeError(f"acpmux daemon restart ({home}): {(result.stderr or result.stdout).strip()[:300]}")
-        done.append({"home": home, "restarted": True})
+        step = {"home": home, "restarted": True, "own_environment": own is not None}
+        if before and home in before:
+            now = acpmux_status(app, **where)
+            step.update(old_pid=before[home], new_pid=now.get("pid"), build=now.get("build"),
+                        seconds=round(time.monotonic() - t0, 3))
+            if not now.get("pid") or now.get("pid") == before[home]:
+                raise RuntimeError(f"acpmux in {home} did not answer from a new daemon after its restart")
+        done.append(step)
     return done
 
 
@@ -501,7 +745,7 @@ def record(state: Path, receipt: dict) -> None:
 
 
 def command_plan(args) -> int:
-    out = plan(Path(args.repo), Path(args.app), args.sha)
+    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch)
     print(json.dumps(out, indent=2))
     return 0 if out["parts"] or not out["left"] else 3
 
@@ -509,7 +753,7 @@ def command_plan(args) -> int:
 def command_apply(args) -> int:
     repo, app, state = Path(args.repo), Path(args.app), state_dir()
     t0 = time.monotonic()
-    planned = plan(repo, app, args.sha)
+    planned = plan(repo, app, args.sha, args.branch)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
     receipt = {"action": "apply", **planned, "applied": [], "rolled_back": False, "steps": {},
                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -522,15 +766,42 @@ def command_apply(args) -> int:
     undo: dict = {}
     try:
         if "rust" in parts:
-            new, want = fetch_cmux(planned["tree_key"], state)
+            # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
+            if args.binary:
+                new, want = keep(state, Path(args.binary))
+                companions = local_companions(Path(args.binary), state)
+            else:
+                new, want = fetch_cmux(planned["tree_key"], state)
+                companions = fetch_companions(planned["tree_key"], state)
             prior, prior_sha = keep(state, target)
-            undo["rust"] = {"copy": str(prior), "sha256": prior_sha}
+            undo["rust"] = {"copy": str(prior), "sha256": prior_sha, "companions": {}}
+            # Before the handoff, so the new daemon starts the companions of its own build.
+            undo["rust"]["companions"] = place_companions(app, companions, state)
+            receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
-            if args.acpmux_home:
-                undo["rust"]["acpmux_homes"] = args.acpmux_home
-                receipt["steps"]["acpmux"] = restart_acpmux(app, args.acpmux_home)
+            daemons = running_acpmux(app) if args.restart_acpmux or not args.acpmux_home else []
+            # A daemon whose chats a restart would lose (a memory store without agent hosts), or whose launch
+            # environment cannot be read, keeps its build: the receipt names it and why.
+            ssh = outside_login_session()
+            safe = ([d for d in daemons if d["keeps_chats"] and d["env_readable"]]
+                    if args.restart_acpmux and not ssh else [])
+            left = [dict(d, why="not asked (--restart-acpmux)" if not args.restart_acpmux else
+                         "its daemon status did not answer" if d.get("status_unreadable") else
+                         "this run is an ssh session: the restarted daemon would lose its launch environment or the "
+                         "login keychain; run hot-apply in the Mac's own terminal" if ssh else
+                         "its chats would be lost: a memory store without agent hosts" if not d["keeps_chats"] else
+                         "its launch environment is unreadable") for d in daemons if d not in safe]
+            homes = list(dict.fromkeys(args.acpmux_home + [d["home"] for d in safe]))
+            if homes:
+                undo["rust"]["acpmux_homes"] = homes
+                undo["rust"]["acpmux_own_env"] = [d["home"] for d in safe]
+                undo["rust"]["acpmux_sockets"] = {d["home"]: d["socket"] for d in safe}
+                receipt["steps"]["acpmux"] = restart_acpmux(app, homes, {d["home"]: d["pid"] for d in safe},
+                                                            undo["rust"]["acpmux_sockets"])
+            if left:  # they keep the build they mapped
+                receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
             undo["web"] = overlay_snapshot(live)
             receipt["steps"]["web"] = apply_web(repo, args.sha, live)
@@ -562,13 +833,25 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
     if "rust" in undo:
         target = (app / BIN / "cmux").resolve()
         try:
+            restore_companions(app, undo["rust"].get("companions") or {})
             if sha256_file(target) == undo["rust"]["sha256"]:
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:
                 out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
             # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
             if undo["rust"].get("acpmux_homes"):
-                out["rust"]["acpmux"] = restart_acpmux(app, undo["rust"]["acpmux_homes"])
+                # The ones restarted with their own environment go back with it, or not at all (#40219 review P2).
+                # One that no longer answers is skipped with a note, so the cmux swap-back still counts.
+                own = set(undo["rust"].get("acpmux_own_env") or [])
+                sockets = undo["rust"].get("acpmux_sockets") or {}
+                where = {h: ({"socket": sockets[h]} if sockets.get(h) else {"home": h}) for h in own}
+                before = {h: int(acpmux_status(app, **where[h]).get("pid") or 0) for h in own}
+                gone = [h for h in own if not before[h]]
+                homes = [h for h in undo["rust"]["acpmux_homes"] if h not in gone]
+                out["rust"]["acpmux"] = restart_acpmux(app, homes, {h: p for h, p in before.items() if p} or None,
+                                                       sockets)
+                if gone:
+                    out["rust"]["acpmux_not_answering"] = gone
         except Exception as error:  # noqa: BLE001
             out["rust"] = {"ok": False, "error": str(error)}
     return out
@@ -613,10 +896,15 @@ def main(argv=None) -> int:
         p.add_argument("sha")
         p.add_argument("--app", default=DEFAULT_APP)
         p.add_argument("--repo", default=str(ROOT))
+        p.add_argument("--branch", action="store_true",
+                       help="SHA is a branch head (a pull request) that may predate the app's commit")
         if name == "apply":
             p.add_argument("--parts", default="web,rust")
+            p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
+            p.add_argument("--restart-acpmux", action="store_true",
+                           help="also restart every acpmux daemon running from the app's bin folder (sessions resume)")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")

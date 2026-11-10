@@ -2,6 +2,7 @@
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -23,8 +24,12 @@ struct ChiefQuestionBar: View {
     /// the bar leaves before the conversation moves up into its room (R3-2).
     @State private var shown: ChiefBarItem?
     @State private var visible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let fadeDuration = 0.2
+
+    /// The fade the host's band runs with the bar: none under Reduce Motion, as the bar's own.
+    static func bandFadeDuration(reduceMotion: Bool) -> Double { reduceMotion ? 0 : fadeDuration }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,12 +48,12 @@ struct ChiefQuestionBar: View {
                     guard appearing else { return }
                     // Room first, then the bar fades in.
                     resized()
-                    fading(false, Self.fadeDuration)
-                    withAnimation(.easeOut(duration: Self.fadeDuration)) { visible = true }
+                    fading(false, Self.bandFadeDuration(reduceMotion: reduceMotion))
+                    withAnimation(.easeOut(duration: Self.fadeDuration).unlessReduceMotion) { visible = true }
                 } else if shown != nil {
                     // The bar fades out first; then the room closes.
-                    fading(true, Self.fadeDuration)
-                    withAnimation(.easeIn(duration: Self.fadeDuration)) {
+                    fading(true, Self.bandFadeDuration(reduceMotion: reduceMotion))
+                    withAnimation(.easeIn(duration: Self.fadeDuration).unlessReduceMotion) {
                         visible = false
                     } completion: {
                         shown = nil
@@ -139,12 +144,12 @@ struct ChiefQuestionBar: View {
         Button { session.retryConnecting() } label: {
             HStack(spacing: 10) {
                 if retrying {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                 } else {
                     Image(systemName: "exclamationmark.triangle.fill").font(.body).foregroundStyle(.orange)
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Chief isn't available").font(.footnote.weight(.semibold))
+                    Text(session.unavailableTitle ?? String(localized: "Chief isn't available")).font(.footnote.weight(.semibold))
                     Text(reason).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
                 }
                 Spacer(minLength: 4)
@@ -203,7 +208,7 @@ struct ChiefQuestionBar: View {
     @ViewBuilder private func label(_ question: AgentQuestion, flow: ChiefAnswerFlow) -> some View {
         let icon = Group {
             if flow.isBusy {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else {
                 Image(systemName: "questionmark.bubble.fill").font(.body)
             }
@@ -460,7 +465,7 @@ struct ChiefQuestionSheet: View {
     private func statusRow(_ text: String) -> some View {
         HStack(spacing: 8) {
             if flow.isBusy {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else if flow.state == .sent {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             } else if flow.state == .unconfirmed {

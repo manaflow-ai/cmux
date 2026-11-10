@@ -67,13 +67,13 @@ extension CloudHandlers {
         guard let chat else { return nil }
         if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
         let tabs = services.agentTabs
-        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        guard let session = tabs.sessions[tabs.tabKey(of: chat)] ?? chat.agentSession?.session else { return nil }
         let host = tabs.localSessionHost ?? tabs.host
         guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -88,12 +88,12 @@ extension CloudHandlers {
             }
             let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
             // Environments live in the cmux-next backend's CloudDO.
-            let environments = await cloud.appServerEnvironmentOptions()
+            let environments = (try? await cloud.appServerEnvironmentOptions()) ?? []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 // The app server's create takes no repository and no size for now.
                 supportsRepository: false, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: true,
+                environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
                 sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
@@ -181,7 +181,7 @@ extension CloudHandlers {
                 guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID,
-                    otherTeams: CloudStartChat.loginScopes(cloud), openTerminal: { [weak services] line in
+                    otherTeams: cloud.auth.loginScopes, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
@@ -238,17 +238,17 @@ extension CloudHandlers {
                                           persistent: checked["persistent"] as? Bool ?? false, bootstrapPath: checked["bootstrapPath"] as? String,
                                           bootstrapKind: checked["bootstrapKind"] as? String == "lane" ? .lane : .plain)
         request.machineConfigPath = checked["machineConfigPath"] as? String
+        // A bare `--environment` (no value) arrives as `true`: refused, never a machine without it.
+        if let environment = invocation["environment"] {
+            guard let word = environment.stringValue else { throw CloudWorkspaceSetupWizard.EnvironmentOption.Unknown() }
+            request.environment = try CloudWorkspaceSetupWizard.EnvironmentOption.word(word) // an env_ id, or a name createRequested reads
+        }
         // The rules parsed `--repo` (a login or token in it is refused, never echoed).
         if let repo = checked["repo"] as? [String: Any], let owner = repo["owner"] as? String, let name = repo["name"] as? String,
            let host = repo["host"] as? String {
             request.repo = CloudMachineRepo(owner: owner, name: name, ref: repo["ref"] as? String, host: host)
         }
         return request
-    }
-
-    /// A quoted `~/boot.sh` reaches the app unexpanded.
-    static func expandingHome(_ path: String) -> String {
-        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
     }
 
     /// The request's facts for the rules (``CloudHandlerRules``).
@@ -277,7 +277,7 @@ extension CloudHandlers {
     /// `pending`, and the create and the bootstrap go on (`cloud list-machines` shows the
     /// machine; its bootstrap status file says how far it got).
     static func createRequested(_ request: CloudMachineRequest, flow: CloudCreationFlow, window: WindowState?, _ context: AppActionContext) {
-        let creations = context.services.cloud.creations, work = context.services.work
+        let cloud = context.services.cloud, creations = cloud.creations, work = context.services.work
         result("new Cloud machine", context, pendingAfter: createdMachineWait, pending: newMachineFields(request, nil).merging(["status": .string("creating")]) { _, new in new }) {
             var request = request
             do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
@@ -286,6 +286,8 @@ extension CloudHandlers {
             do { request.machineConfig = try await request.loadMachineConfig(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
             }
+            if let wanted = request.environment { request.environment = try await CloudWorkspaceSetupWizard.EnvironmentOption.id(for: wanted, loading: { try await cloud.appServerEnvironmentOptions() }) }
+            try CloudWorkspaceSetupWizard.EnvironmentOption.NameRefused.check(request.name, await request.namedCreate(listCurrent: { cloud.hasCurrentList(within: CloudStartSession.listFresh) }, refresh: { await cloud.refresh() }, machines: { context.services.machines.cloud.map(\.machine.title) }, creating: { name in cloud.creations.all.filter { $0.session == nil }.compactMap(\.request.name) + (cloud.startSessionRuns.isCreating(name, account: cloud.account) ? [name] : []) }))
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }
@@ -401,7 +403,7 @@ extension CloudHandlers {
         let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             guard source == ActionSuggestions.cloudTeams else { return otherSuggestions?(source) ?? [] }
-            return cloud.auth.teams.map { ActionEnumCase(value: $0.id, title: $0.displayName) }
+            return TeamRowText.suggestions(cloud.auth)
         }
         let otherState = registry.choiceState
         registry.choiceState = { action, target in

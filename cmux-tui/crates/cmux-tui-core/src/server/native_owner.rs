@@ -36,9 +36,13 @@ const COMMANDS: &[&str] = &[
     "agent-session-detach",
     "agent-session-children",
     "agent-session-fork",
+    "agent-session-side",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
+    "agent-session-context",
+    // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
+    "agent-session-btw",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -85,6 +89,10 @@ const COMMANDS: &[&str] = &[
     "clear-history",
     "terminal-clipboard-reply",
     "terminal-clipboard-subscribe",
+    // Shell mode of a chat on this machine (`shell_wire.rs`): the owner's `!` commands run here.
+    "shell-run",
+    "shell-read",
+    "shell-stop",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -96,8 +104,14 @@ const CAPABILITIES: &[&str] = &[
     terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-    terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
     WORKSPACE_REGISTRY_CAPABILITY,
+    // The rest of what the app requires (`DaemonCapability.required`): the commands behind them
+    // (`split`, `set-viewport-pane-width`, `undo-layout`) are in COMMANDS. A link that left them out
+    // read as a refused daemon, and the app updated the machine on every reconnect, also one already
+    // on its own build (2026-11-07: "started but its agent didn't (cmux-tui connection closed: EOF)").
+    VIEWPORT_SPLITS_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
     TERMINAL_ENV_CAPABILITY,
@@ -118,8 +132,11 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
     agent_inventory::CAPABILITY,
@@ -137,9 +154,12 @@ const CAPABILITIES: &[&str] = &[
     crate::fs_ops::FS_SYMLINK_CAPABILITY,
     crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
     crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+    crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+    crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    crate::shell_runs::CAPABILITY,
 ];
 
 /// Whether identify on this carrier lists `capability` (tests read the policy through this).
@@ -298,7 +318,10 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RestartTab { .. }
         | Command::ClearHistory { .. }
         | Command::TerminalClipboardReply { .. }
-        | Command::TerminalClipboardSubscribe { .. } => true,
+        | Command::TerminalClipboardSubscribe { .. }
+        | Command::ShellRun(_)
+        | Command::ShellRead(_)
+        | Command::ShellStop(_) => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }
@@ -312,5 +335,13 @@ mod fork_admission_tests {
     fn a_native_owner_may_fork_its_attached_chat() {
         assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
         assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
+    }
+
+    /// A Cloud chat's New side chat and `/side` (agent_session_side.rs): the owner's carrier
+    /// reaches it, and the carrier's identify names it.
+    #[test]
+    fn a_native_owner_may_open_a_side_chat_of_its_attached_chat() {
+        assert!(admits(r#"{"cmd":"agent-session-side","surface":1,"live":true}"#));
+        assert!(CAPABILITIES.contains(&agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY));
     }
 }

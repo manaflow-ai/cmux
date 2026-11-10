@@ -9,6 +9,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { ChiefTaskHat } from "./ChiefTaskHat";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
@@ -727,6 +728,7 @@ export function HomeChannelsPage({
                           strings={strings}
                           onOpen={runs.onOpen}
                         />
+                        <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
                           <Composer
                             key={open.id}
@@ -816,7 +818,14 @@ export function HomeChannelsPage({
                 conversations={conversations}
                 me={me}
               />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {palette && (
+                <Palette
+                  items={paletteItems}
+                  rank={store.rankPalette}
+                  strings={strings}
+                  onClose={() => setPalette(false)}
+                />
+              )}
             </div>
           </div>
         </PicturesContext.Provider>

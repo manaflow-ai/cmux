@@ -84,6 +84,11 @@ public actor DaemonClient {
             }
         }
         return try await withCheckedThrowingContinuation { continuation in
+            // A channel that already ended never answers: say so now, not at the deadline (or never).
+            if let ended {
+                continuation.resume(throwing: ended)
+                return
+            }
             pending[id] = continuation
             Task {
                 do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
@@ -125,6 +130,10 @@ public actor DaemonClient {
         var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
         line.append(0x0A)
         let reply: ReceivedLine = try await withCheckedThrowingContinuation { continuation in
+            if let ended {
+                continuation.resume(throwing: ended)
+                return
+            }
             pending[id] = continuation
             Task {
                 do { try await channel.send(line) } catch { self.fail(id: id, error: error) }

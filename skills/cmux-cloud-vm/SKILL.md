@@ -46,6 +46,11 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
   Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
   chat's tab.
+- Another folder or repository for a chat that already runs: `cmux chat cd SESSION_ID DIR`,
+  or `cmux chat cd SESSION_ID --repo OWNER/NAME [--ref REF]` (the machine clones it into
+  `~/chats/SESSION_ID/NAME` with the GitHub access it has). The chat goes on there as a new
+  session with the conversation so far; send its next prompt to the answer's `session_id`.
+  `follow_up.new_chat` starts a new chat in the same folder.
 - Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
@@ -54,6 +59,21 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
   ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
 
 `cmux cloud start-chat --help` has every flag.
+
+### A test, proof or lane makes a machine: name it `cmux-test-<run>`, kill it after
+
+A machine a test, proof, journey or agent lane makes counts against the person's team cap
+like any other (20, paused ones count). Leo's own team filled with leftover `chat-…` and
+`lease-…` machines, and his NIGHTLY could not make one (2026-11-09). So:
+
+- Name it `cmux-test-<run>` (lowercase letters, digits, `.`, `_`, `-`): `cmux cloud
+  start-chat --name cmux-test-<run> ...` or `cmux machine new --name cmux-test-<run>`.
+  Never let a test start-chat pick its own `chat-…` name: that name is the person's.
+- Kill it in a cleanup that always runs: a shell `trap 'cmux cloud kill-machine --target machine:$ID --confirm --json' EXIT`,
+  a `finally`, or an `if: always()` step in a workflow.
+- The platform deletes a `cmux-test-…` machine (and a journey's `cloud journey auto jr-…`
+  or a chat proof's `ccp-<run>`) 6 hours after its create, and the cap message names
+  these as test leftovers. A machine with any other name is never touched.
 
 ## Start with discovery
 

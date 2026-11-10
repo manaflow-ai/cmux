@@ -283,6 +283,8 @@ impl SurfaceSessionScope {
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::HistoryChanged { .. }
+            | MuxEvent::FeedViewChanged { .. }
+            | MuxEvent::FeedReportsChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
             | MuxEvent::Conversation(_)
@@ -293,6 +295,8 @@ impl SurfaceSessionScope {
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::AppsChanged(_)
+            | MuxEvent::StashChanged { .. }
+            | MuxEvent::TasksChanged(_)
             | MuxEvent::Empty => true,
         }
     }

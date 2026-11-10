@@ -54,6 +54,7 @@ class HotApplyRust(unittest.TestCase):
         self.new = hashlib.sha256(self.new_body).hexdigest()
         self.publish(self.new_body, self.new)
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
 
     def tearDown(self):
@@ -65,6 +66,21 @@ class HotApplyRust(unittest.TestCase):
         (tree / self.name).write_bytes(body)
         (tree / f"{self.name}.sha256").write_text(f"{digest}  {self.name}\n")
         (tree / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {self.name: listed or digest}}))
+        (tree / "source.json").write_text(json.dumps({"commit": FIX}))
+        self.publish_companions({})
+
+    def publish_companions(self, bodies):
+        """The commit-addressed build source.json names, with these companions (file -> bytes)."""
+        built = self.tmp / "commits" / FIX
+        built.mkdir(parents=True, exist_ok=True)
+        triple = self.name.removeprefix("cmux-tui-")
+        artifacts = {"cmux-app-host": "app-host", "cmux-cloud": "cloud-server", "cmux-holder": "holder"}
+        binaries = {}
+        for file, body in bodies.items():
+            asset = f"cmux-tui-{artifacts[file]}-{triple}"
+            (built / asset).write_bytes(body)
+            binaries[asset] = hashlib.sha256(body).hexdigest()
+        (built / "manifest.json").write_text(json.dumps({"binaries": binaries}))
 
     def hot(self, *args):
         done = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=self.env)
@@ -189,6 +205,86 @@ class HotApplyRust(unittest.TestCase):
         code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
         self.assertEqual(code, 1)
         self.assertEqual(self.sha(), self.old)
+
+    def side_commit(self, tree_of, message):
+        """A commit on FIX's parent with TREE_OF's tree: a branch that never merged."""
+        tree = run_git("rev-parse", f"{tree_of}^{{tree}}").stdout.strip()
+        done = subprocess.run(["git", "-C", str(ROOT), "-c", "user.name=t", "-c", "user.email=t@localhost",
+                               "commit-tree", tree, "-p", self.base, "-m", message],
+                              capture_output=True, text=True, check=True)
+        return done.stdout.strip()
+
+    def test_a_branch_head_from_before_the_app_takes_its_daemon_with_branch(self):
+        # The app was built after the PR branched, with no Rust change since: the PR's daemon fits it.
+        app = self.side_commit(self.base, "app: no Rust change after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(FIX, "the PR: FIX's Rust")
+        code, receipt, _ = self.hot("apply", head, "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("unrelated", receipt["left"])
+        self.assertEqual(self.sha(), self.old)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", head, "--branch", "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        plan = json.loads(done.stdout)
+        self.assertEqual((plan["parts"], plan["fork"], plan["published"]), (["rust"], self.base, True))
+        code, receipt, err = self.hot("apply", head, "--branch", "--parts", "rust", "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_branch_lacking_the_app_s_rust_is_refused(self):
+        # The app has FIX's Rust, which the branch (forked before it) does not: its daemon would drop it.
+        app = self.side_commit(FIX, "app: FIX's Rust after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(self.base, "the PR: no Rust")
+        code, receipt, _ = self.hot("apply", head, "--branch", "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("has Rust that", receipt["left"]["unrelated"][0])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_an_unpublished_tree_says_so_and_binary_swaps_a_given_build(self):
+        subprocess.run(["rm", "-rf", str(self.tmp / "tree")], check=True)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertFalse(json.loads(done.stdout)["published"])
+        built = self.tmp / "built-cmux"
+        built.write_bytes(self.new_body)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_companions_go_in_with_the_daemon_and_come_back_on_rollback(self):
+        # The app host is the build's; the holder the app has is gone from the build; the cloud
+        # server is new in it. The daemon then runs no sibling of another build.
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        holder = self.app / "Contents/Resources/bin/cmux-holder"
+        app_host.write_bytes(b"old host")
+        holder.write_bytes(b"old holder")
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"new host")
+        self.assertFalse(holder.exists())
+        self.assertEqual((self.app / "Contents/Resources/bin/cmux-cloud").read_bytes(), b"new cloud")
+        self.assertTrue((self.app / "Contents/Resources/bin/cmux-tui").is_symlink(), "a link is left alone")
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"old host")
+        self.assertEqual(holder.read_bytes(), b"old holder")
+        self.assertFalse((self.app / "Contents/Resources/bin/cmux-cloud").exists())
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_binary_brings_the_companions_beside_it(self):
+        built = self.tmp / "dev/bin"
+        built.mkdir(parents=True)
+        (built / "cmux").write_bytes(self.new_body)
+        (built / "cmux-app-host").write_bytes(b"dev host")
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"old host")
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built / "cmux"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"dev host")
 
     def test_a_commit_the_app_already_has_is_a_no_op(self):
         with open(self.app / "Contents/Info.plist", "wb") as handle:
@@ -384,6 +480,164 @@ class FindSocket(unittest.TestCase):
         self.stub(hang)
         with self.assertRaisesRegex(RuntimeError, "never answered on /tmp/s.sock"):
             self.hot.find_socket(self.app, Path("cmux"))
+
+
+
+class RunningAcpmux(unittest.TestCase):
+    """--restart-acpmux: the acpmux daemons running from the app's bin folder are found and restarted, each
+    with its own launch environment, and never one whose chats a restart would lose."""
+
+    CHIEF = "/u/.cmux/chief/default/acpmux"
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hot_apply_acpmux_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_acpmux_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.app = Path("/Apps/cmux NIGHTLY.app")
+        self.real_run = self.hot.subprocess.run
+        self.calls = []
+        prefix = str(self.app / self.hot.BIN)
+        # A team Mac, 2026-11-10: the NIGHTLY's bin ran a Chief daemon, an agent host and session tails.
+        self.procs = {"52164": (f"{prefix}/acpmux", "daemon run", f"{self.CHIEF}/acpmux.sock"),
+                      "14106": (f"{prefix}/acpmux", "__agent-host", "/u/host.sock"),
+                      "14567": (f"{prefix}/acpmux", "--json session tail x -f", f"{self.CHIEF}/acpmux.sock"),
+                      "14315": (f"{prefix}/cmux", "mcp serve", "/u/mcp.sock"),
+                      "23925": ("/Other.app/Contents/Resources/bin/acpmux", "daemon run", "/u/.acpmux/acpmux.sock")}
+        self.status = {self.CHIEF: {"pid": 52164, "home": self.CHIEF, "build": "c230bb58a 2026-10-29",
+                                    "agentHosts": True, "store": {"mode": "local"}}}
+        self.envs = {52164: {"ACPMUX_CHIEF_MUX_HOME": "/u/.cmux/chief/default", "ACPMUX_SOCKET": "/u/own.sock",
+                             "CMUX_NEXT_CUA_SOCKET": "/u/cua.sock"}}
+        self.hot.process_env = lambda pid: dict(self.envs[pid]) if pid in self.envs else None
+
+        def run(argv, **kwargs):
+            env = kwargs.get("env") or {}
+            self.calls.append((list(argv), dict(env)))
+            if argv[0] == "ps" and "-p" in argv:
+                exe, args, _ = self.procs[argv[-1]]
+                return subprocess.CompletedProcess(argv, 0, f"{exe} {args}\n", "")
+            if argv[0] == "ps":
+                full = argv[-1] == "pid=,command="
+                return subprocess.CompletedProcess(argv, 0, "".join(
+                    f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in self.procs.items()), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{self.procs[pid][2]}\n", "")
+            if argv[1:] == ["--json", "daemon", "status"]:
+                home = env.get("ACPMUX_HOME") or str(Path(env["ACPMUX_SOCKET"]).parent)
+                if home not in self.status:
+                    return subprocess.CompletedProcess(argv, 1, "", "no daemon")
+                return subprocess.CompletedProcess(argv, 0, json.dumps(self.status[home]), "")
+            if argv[1:] == ["daemon", "restart"]:
+                old = self.status[env["ACPMUX_HOME"]]["pid"]
+                self.status[env["ACPMUX_HOME"]]["pid"] = old + 1  # the new daemon, with the env it was given
+                self.envs[old + 1] = {k: v for k, v in env.items() if k != "ACPMUX_HOME"}
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            raise AssertionError(argv)
+        self.hot.subprocess.run = run
+
+    def tearDown(self):
+        self.hot.subprocess.run = self.real_run
+
+    def test_only_the_apps_daemons_are_found_with_their_homes(self):
+        found = self.hot.running_acpmux(self.app)
+        self.assertEqual(found, [{"pid": 52164, "home": self.CHIEF, "socket": f"{self.CHIEF}/acpmux.sock",
+                                  "build": "c230bb58a 2026-10-29",
+                                  "keeps_chats": True, "env_readable": True}])
+
+    def test_the_multicall_daemon_is_found_too(self):
+        prefix = str(self.app / self.hot.BIN)
+        self.procs["52164"] = (f"{prefix}/cmux", "acp daemon run", f"{self.CHIEF}/acpmux.sock")
+        self.assertEqual([d["pid"] for d in self.hot.running_acpmux(self.app)], [52164])
+
+    def test_the_restart_runs_with_the_daemons_own_environment(self):
+        done = self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+        self.assertEqual((done[0]["old_pid"], done[0]["new_pid"], done[0]["own_environment"]), (52164, 52165, True))
+        env = next(env for argv, env in self.calls if argv[1:] == ["daemon", "restart"])
+        # Its Chief home and Computer Use socket kept; by home, never a socket (its own or an inherited one).
+        self.assertEqual(env, {"ACPMUX_CHIEF_MUX_HOME": "/u/.cmux/chief/default", "CMUX_NEXT_CUA_SOCKET": "/u/cua.sock",
+                               "ACPMUX_HOME": self.CHIEF})
+
+    def test_an_unreadable_environment_is_not_restarted(self):
+        self.envs.pop(52164)
+        with self.assertRaises(RuntimeError):
+            self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+        self.assertFalse([argv for argv, _ in self.calls if argv[1:] == ["daemon", "restart"]])
+        self.assertFalse(self.hot.running_acpmux(self.app)[0]["env_readable"])
+
+    def test_a_memory_store_without_agent_hosts_is_not_one_that_keeps_its_chats(self):
+        self.assertTrue(self.hot.keeps_its_chats({"agentHosts": True, "store": {"mode": "memory"}}))
+        self.assertTrue(self.hot.keeps_its_chats({"agentHosts": False, "store": {"mode": "local"}}))
+        self.assertFalse(self.hot.keeps_its_chats({"agentHosts": False, "store": {"mode": "memory"}}))
+        self.status[self.CHIEF].update(agentHosts=False, store={"mode": "memory"})
+        self.assertFalse(self.hot.running_acpmux(self.app)[0]["keeps_chats"])
+
+    def test_a_daemon_still_on_its_old_pid_fails_the_step(self):
+        real = self.hot.subprocess.run
+
+        def no_new_daemon(argv, **kwargs):
+            if argv[1:] == ["daemon", "restart"]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return real(argv, **kwargs)
+        self.hot.subprocess.run = no_new_daemon
+        with self.assertRaises(RuntimeError):
+            self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+
+    def test_a_daemon_serving_its_own_socket_keeps_it(self):
+        # #40219 review P2: a daemon started with ACPMUX_SOCKET and serving there (not at its home's default)
+        # is found there and comes back on that socket.
+        custom = "/u/custom/acpmux.sock"
+        self.status["/u/custom"] = self.status.pop(self.CHIEF)  # the fake answers by the socket's folder
+        self.envs[52164]["ACPMUX_SOCKET"] = custom
+        real = self.hot.subprocess.run
+
+        def by_socket(argv, **kwargs):
+            env = kwargs.get("env") or {}
+            if argv[1:] == ["daemon", "restart"]:
+                self.calls.append((list(argv), dict(env)))
+                entry = self.status["/u/custom"]
+                entry["pid"] += 1
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            if argv[1:] == ["--json", "daemon", "status"] and "ACPMUX_HOME" in env:
+                return subprocess.CompletedProcess(argv, 1, "", "no daemon")  # nothing at the home's default
+            return real(argv, **kwargs)
+        self.hot.subprocess.run = by_socket
+        done = self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164}, {self.CHIEF: custom})
+        self.assertEqual(done[0]["new_pid"], 52165)
+        env = next(env for argv, env in self.calls if argv[1:] == ["daemon", "restart"])
+        self.assertEqual(env["ACPMUX_SOCKET"], custom)
+
+    def test_a_daemon_whose_status_does_not_answer_is_reported(self):
+        # #40219 Codex F2: never dropped from discovery, so the receipt names it as left on the old build.
+        self.status.clear()
+        self.assertEqual(self.hot.running_acpmux(self.app),
+                         [{"pid": 52164, "home": None, "build": "", "keeps_chats": False, "env_readable": False,
+                           "status_unreadable": True}])
+
+    def test_an_ssh_session_on_macos_restarts_nothing(self):
+        # #40219 Codex F1: there launchd would start the daemon without its launch environment.
+        saved = (self.hot.sys.platform, dict(os.environ))
+        try:
+            self.hot.sys.platform = "darwin"
+            os.environ["SSH_CONNECTION"] = "1 2 3 4"
+            self.assertTrue(self.hot.outside_login_session())
+            os.environ.pop("SSH_CONNECTION")
+            os.environ.pop("SSH_TTY", None)
+            self.assertFalse(self.hot.outside_login_session())
+        finally:
+            self.hot.sys.platform = saved[0]
+            os.environ.clear()
+            os.environ.update(saved[1])
+
+    def test_an_empty_environment_is_an_unreadable_one(self):
+        # #40219 review P2: a process always starts with some environment; none read means it is hidden.
+        reloaded = __import__("importlib.util").util
+        spec = reloaded.spec_from_file_location("hot_apply_env_under_test", SCRIPT)
+        fresh = reloaded.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIsNone(fresh.process_env(2 ** 22 + 12345))  # no such process
+        self.assertIsNotNone(fresh.process_env(os.getpid()))
 
 
 if __name__ == "__main__":

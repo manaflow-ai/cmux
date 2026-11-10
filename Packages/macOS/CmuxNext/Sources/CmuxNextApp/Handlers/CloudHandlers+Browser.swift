@@ -278,7 +278,7 @@ extension CloudHandlers {
                 return
             }
             guard let window = window(context) else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
-            let choice = await CmuxDialogCenter.shared.present(previewPicker(inventory, machineName: session.machine.title), in: .window(window))
+            let choice = await CmuxDialogCenter.shared.present(CloudPreviewPresentation(inventory).picker(machineName: session.machine.title, cancelTitle: CloudStrings.cancel), in: .window(window))
             guard choice.button == "open", !choice.isDismissal, let port = choice.text("port").flatMap(Int.init),
                   let preview = inventory.previews.first(where: { $0.port == port }) else { return }
             // A person can leave the picker open longer than the bootstrap credential lives.
@@ -300,23 +300,10 @@ extension CloudHandlers {
         return inventory
     }
 
-    static func previewPicker(_ inventory: CloudMachinePreviews, machineName: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: CloudPortStrings.title, lines: [machineName], fields: [
-            .choice(id: "port", label: nil,
-                    options: inventory.previews.map { CmuxDialogOption(label: "\($0.port) · \($0.origin)", value: String($0.port)) },
-                    selected: inventory.previews.first.map { String($0.port) }),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
-        identifier: "cmux.dialog.cloud.livePreviews")
-    }
-
     static func previewAnswer(_ inventory: CloudMachinePreviews) -> CloudAnswer {
-        let facts: [String: Any] = [
-            "machine": inventory.machine, "listening": inventory.listening,
-            "previews": inventory.previews.map { ["port": $0.port, "url": $0.url, "origin": $0.origin, "expiresAt": $0.expiresAt] },
-            "unavailable": inventory.unavailable.map { ["port": $0.port, "code": $0.code] },
-        ]
-        return cloudAnswer(CloudPortStrings.title, CloudHandlerRules.answer(CloudHandlerRules().ask("cloud_handler_previews", facts)),
-                           none: CloudPortStrings.noPreviews)
+        let presentation = CloudPreviewPresentation(inventory)
+        return CloudAnswer(title: CloudPortStrings.title, text: presentation.text,
+                           copyable: presentation.copyable, fields: presentation.fields)
     }
 
     /// A platform preview is an HTTPS website, independent of the Mac's loopback proxy routes.

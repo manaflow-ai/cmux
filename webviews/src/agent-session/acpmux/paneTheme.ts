@@ -2,11 +2,12 @@ import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import { applyAgentTheme } from "../shared/theme";
 import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
-import { configureSelectionReply } from "./conversation/SelectionReply";
-import { configureChatWidth } from "./chatWidth";
+import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureToolRunLook } from "./toolRunLook";
-import { configureSentLook } from "./conversation/SentMessageLine";
+import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { configureInboxThreadLook } from "./conversation/inboxThreadLook";
+import { configureReceivedLook } from "./conversation/receivedLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeLook } from "./conversation/noticeLook";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
@@ -16,10 +17,11 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
   // The agent chat's scrollbars fade at rest and widen near the pointer (scrollers.ts).
   document.documentElement.setAttribute(SCROLLER_FADE_ATTRIBUTE, "");
-  configureChatWidth(theme.chatWidth);
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);
+  configureInboxThreadLook(theme.inboxThreadLook);
+  configureReceivedLook(theme.receivedLook);
   configureMessageLineLook(theme.messageLineLook);
   configureNoticeLook(theme.noticeLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);

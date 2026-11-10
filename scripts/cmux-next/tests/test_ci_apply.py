@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ci_apply  # noqa: E402
 import live_apply  # noqa: E402
 
-APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
+APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
 HELPER = "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift"
 BODY = [("-", "        return 1"), ("+", "        return 2")]
 
@@ -55,6 +55,15 @@ class PlanTests(unittest.TestCase):
     def test_web_and_daemon_take_both_appliers(self):
         p = lane([("M", "webviews/src/a.tsx"), ("M", "cmux-tui/crates/cmux-tui-core/src/a.rs")])
         self.assertEqual((p["lane"], p["appliers"]), ("web+daemon", ["web", "daemon"]))
+
+    def test_a_pull_request_into_main_or_an_unknown_base_builds_clean(self):
+        # Stakes decide before the diff: main ships to everyone, so even a docs-only PR into it takes no lane.
+        for base in ("main", None):
+            with self.subTest(base=base):
+                p = lane([("M", "docs/x.md")], base_ref=base)
+                self.assertEqual(p["lane"], "full")
+                self.assertTrue(any(why.startswith(f"base {base or 'not given'}") for why in p["fallback"]))
+        self.assertEqual(lane([("M", "docs/x.md")], base_ref="feat-cmux-next")["lane"], "no-app")
 
     def test_full_ci_label_and_non_pr_events_build_clean(self):
         self.assertEqual(lane([("M", "webviews/src/a.tsx")], labels={"full-ci"})["lane"], "full")

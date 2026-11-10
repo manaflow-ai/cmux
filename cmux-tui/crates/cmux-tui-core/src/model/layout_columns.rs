@@ -408,8 +408,10 @@ impl Screen {
             return false;
         };
         let mut column = column;
-        if is_lone_pinned(&self.layout_columns) {
-            even_lone_dock_split(&mut self.layout_columns[0], &mut column);
+        if is_lone_pinned(&self.layout_columns)
+            && let Some(dock) = self.layout_columns.first_mut()
+        {
+            even_lone_dock_split(dock, &mut column);
         }
         self.layout_columns.insert(if before { index } else { index + 1 }, column);
         self.sync_layout_column_projection();

@@ -392,6 +392,27 @@ const stripMachines = {
   cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
+// Leo, 2026-11-09, of the machine chip's list ending in four retired lanes, each "Reconnecting": "Those
+// are being retired; drop retired and unreachable machines from the list, or group them at the bottom."
+// The person's machines, a pool that is busy, and four lanes acpmux has not reached for an hour.
+const UNAVAILABLE_FOR = 60 * 60_000;
+const retiredLanes = ["lane-1", "lane-2", "lane-3", "lane-4"];
+const unavailableMachines = (() => {
+  const live = ["studio-mini", "gpu-box", "swarm-03", "swarm-07", "swarm-11"];
+  const all = [...live, ...retiredLanes];
+  const by = <T,>(value: (name: string) => T) => Object.fromEntries(all.map((name) => [name, value(name)]));
+  return {
+    ...stripMachines,
+    sessions: [],
+    peers: all,
+    peerKinds: by(() => "ssh" as const),
+    peerConnected: by((name) => live.includes(name)),
+    peerStates: by((name) => (live.includes(name) ? "connected" : "reconnecting")),
+    peerLinks: Object.fromEntries(
+      retiredLanes.map((name) => [name, { link: "reconnecting" as const, since: Date.now() - UNAVAILABLE_FOR }]),
+    ),
+  };
+})();
 const onMachine = (peer: string) => ({
   summary: { sessionId: "", harness: "claude", host: peer, peer },
 });
@@ -421,7 +442,7 @@ const openRunToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Where should this chat run/ });
   await waitRows("run")(ctx);
 };
-/// Where > Another machine: the first ready machine is the pick and the machine control opens.
+/// Where > Remote: the first ready machine is the pick and the machine control opens.
 const pickAnother: Play = async (ctx) => {
   await openWhere(ctx);
   await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
@@ -466,7 +487,7 @@ function stripVariants(arm: StripArm) {
       height: 320,
       note: note(
         arm === "where-machine"
-          ? "Another machine picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          ? "Remote picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
           : "Which machine, open.",
       ),
       props,
@@ -910,7 +931,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Remote, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Remote shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -967,7 +988,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: This Mac, Cloud and Another machine, as Codex's strip. A person with other machines sees the same three; with none, Another machine is Add Machine….",
+      note: "Leo's case: This Mac, Cloud and Remote, as Codex's strip. A person with other machines sees the same three; with none, Remote is Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -1029,6 +1050,36 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     ...stripVariants("where-machine"),
+    "machines-unavailable-collapsed": {
+      height: 460,
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      props: unavailableMachines,
+      play: pickAnother,
+    },
+    "machines-unavailable-open": {
+      height: 640,
+      note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
+      props: { ...unavailableMachines, unavailableExpanded: true },
+      play: pickAnother,
+    },
+    "machines-unavailable-after-add": {
+      height: 460,
+      note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
+      props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-hidden": {
+      height: 420,
+      note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
+      props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-inline": {
+      height: 640,
+      note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
+      props: { ...unavailableMachines, unavailableGroup: "inline" as const },
+      play: pickAnother,
+    },
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
@@ -1119,6 +1170,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
@@ -1147,7 +1232,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        // The four machines acpmux cannot reach wait under Unavailable (4), closed.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "computer-menu-fleet": {

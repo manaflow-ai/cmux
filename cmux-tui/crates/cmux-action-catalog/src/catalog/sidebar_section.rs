@@ -542,6 +542,30 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "sidebar.floatOnHover.on",
+        group: GROUP,
+        title: t("SidebarSectionActions", "action.sidebar.floatOnHover.on", "Float Hidden Sidebar on Hover"),
+        keywords: &["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"],
+        category: "sidebar",
+        symbol: "sidebar.squares.left",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 139).folder("options")], ..SurfacePlan::DEFAULT },
+        cli_name: "action sidebar-float-on-hover-on",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "sidebar.floatOnHover.off",
+        group: GROUP,
+        title: t("SidebarSectionActions", "action.sidebar.floatOnHover.off", "Never Float Hidden Sidebar"),
+        keywords: &["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "off", "never", "disable"],
+        category: "sidebar",
+        symbol: "sidebar.left",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 140).folder("options")], ..SurfacePlan::DEFAULT },
+        cli_name: "action sidebar-float-on-hover-off",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "sidebar.groupBy.none",
         group: GROUP,
         title: t("SidebarSectionActions", "action.sidebar.groupBy.none", "Group by None"),

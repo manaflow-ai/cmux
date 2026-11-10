@@ -47,7 +47,7 @@ BENCHES = [
     bench("agent-engine", "agent-engine-bench.py", "--modes", "own", "--chats", "1", "--flings", "1"),
     bench("instant-new-surfaces", "instant-new-surfaces-bench.py", "--runs", "1"),
     bench("typing-frame", "typing-frame-bench.py", "--sessions", "light", "--rounds", "1", "--samples", "10",
-          "--surfaces", "terminal,home", "--phases", "idle"),
+          "--surfaces", "terminal,dock", "--phases", "idle"),
     bench("sidebar-churn", "sidebar-churn-typing.py", "--workspaces", "10", "--groups", "2", "--samples", "10"),
     bench("bench-idle", "bench_idle.py", "--scenarios", "terminals", "--settle", "2", "--measure", "5", "--no-fail", json_flag=False),
 ]
@@ -61,7 +61,9 @@ def fresh_state():
     import shutil
     bundle = bundle_id(opts.app) or ""
     for home in {account_home(), os.path.expanduser("~")}:
-        for folder in (os.path.join(home, "Library/Application Support/cmux/tags", TAG),
+        # NEXT's own tag folder and an older build's in classic's (a new build adopts that one at launch).
+        for folder in (os.path.join(home, "Library/Application Support/cmux-next/tags", TAG),
+                       os.path.join(home, "Library/Application Support/cmux/tags", TAG),
                        os.path.join(home, ".acpmux/builds", bundle), os.path.join(home, ".cmux/mux/tags", TAG)):
             if bundle and os.path.isdir(folder):
                 shutil.rmtree(folder, ignore_errors=True)

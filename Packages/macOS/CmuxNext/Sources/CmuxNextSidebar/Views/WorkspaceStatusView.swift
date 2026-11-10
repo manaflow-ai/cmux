@@ -147,7 +147,7 @@ final class WorkspaceStatusView: NSView {
         } else if let icon, !icon.isEmpty {
             let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * iconScale, weight: .medium)
                 .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-            if let image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            if let image = NSImage.systemSymbol(icon, fallback: nil)?.withSymbolConfiguration(config) {
                 let attachment = NSTextAttachment()
                 attachment.image = image
                 let size = image.size

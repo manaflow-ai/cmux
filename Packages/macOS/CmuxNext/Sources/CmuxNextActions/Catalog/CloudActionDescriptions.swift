@@ -21,8 +21,8 @@ nonisolated enum CloudActionDescriptions {
             After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
             before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
             pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
-            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
-            ask the person first.
+            .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, \
+            machine_config and enrollment. An agent's create may ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -77,6 +77,13 @@ nonisolated enum CloudActionDescriptions {
             folder, moves the chat back, opens it here and closes the machine's tab. Only a person runs it: \
             an agent's run (MCP, or the CLI from an agent's chat) is refused.
             """,
+        "cloudMoveToMachine": """
+            Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine \
+            machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it \
+            to that machine, moves the chat there with the old machine's last changes, opens it there and closes \
+            the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is \
+            refused.
+            """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
             paused machine first, and returns machine_id, workspace_id and the tab's surface_id (terminal_id \
@@ -94,12 +101,6 @@ nonisolated enum CloudActionDescriptions {
             per repo; no token stored), else a GitHub CLI sign-in there. No token leaves this Mac. Returns ok, \
             method (app or device), fallback_reason, gh_status (app, logged_in, pending, missing or failed), \
             the identity it set and, while a sign-in waits, device_code and verification_uri; --focus opens that page.
-            """,
-        "cloudEnrollMachine": """
-            Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
-            --ssh-key (default ~/.ssh/id_ed25519.pub) for its cmux user, pins its host key, writes a Host \
-            block in ~/.ssh/cmux-cloud/config named --name that dials through this app's tunnel, then peers \
-            acpmux. Returns ssh_host, address, steps_done, steps_pending, rerun_command and registry_command.
             """,
         "cloudFilesList": """
             Lists a directory on the machine (--target machine:<id> --path /absolute/dir) and returns path, \
@@ -131,15 +132,18 @@ nonisolated enum CloudActionDescriptions {
             for scp or sftp.
             """,
         "cloudTunnelAttach": """
-            Attaches this Mac's Cloud tunnel to a private network. The network id (from \
-            `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.
+            Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path \
+            argument is optional: none means the joined team; a network id (--arg path=<team id>) must \
+            be that team's. Returns no fields.
             """,
         "cloudTunnelDetach": """
-            Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path \
-            argument: --arg path=<network id>. Returns no fields.
+            Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: \
+            none means the joined team; a network id (--arg path=<team id>) must be that team's. \
+            Returns no fields.
             """,
         "cloudTunnelRotateKey": """
-            Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.
+            Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, \
+            then uses it. Returns no fields.
             """,
         "cloudNetworkList": """
             Lists the account's Cloud networks and returns count and text with one line per network: its \
@@ -207,13 +211,12 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
         "cloudOpenDesktop": """
-            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac. For a \
-            machine that reports a desktop the default is --viewer rd: the agent's display as a live \
-            video stream over this Mac's link to the machine, opened watching (Take over in the pane \
-            gives you the mouse and keyboard, Hand back returns them). --viewer web shows the noVNC page \
-            in a browser tab over this Mac's Cloud tunnel, the default for a machine without a desktop \
-            report. Refused when the machine has no desktop, or the viewer cannot reach it. Answers at \
-            once with no fields, before the desktop shows.
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: the \
+            agent's display as a live video stream over the machine's carrier (--viewer rd, the only \
+            viewer), opened watching (Take over in the pane gives you the mouse and keyboard, Hand back \
+            returns them). Only the machine's creator can open it, on a cmux NEXT machine that serves a \
+            desktop; anything else is refused at once, as is a classic machine. Answers at once with no \
+            fields, before the desktop shows.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \

@@ -4,22 +4,24 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// The Stop all agents toast (HomeHostView+StopAll) for the daemon's answer: what stopped, a
-/// count of the subagents acpmux refused to stop (which and why in the tooltip), and the note
-/// about one still starting. A daemon from before #23344 sends no `errors` or `note`, and its
-/// toast is as before.
+/// The Stop all agents toast (`HomeChiefSurface.stopAllAgents`) for the daemon's answer, one row: what
+/// stopped and a count of the subagents acpmux refused to stop. Which ones and why, and the note
+/// about one still starting, are the tooltip's. A daemon from before #23344 sends no `errors` or
+/// `note`, and its toast is as before.
 @MainActor
 struct HomeStopAllToastTests {
     private let refused = "a2: its turn did not stop: acpmux: session busy"
     private let starting = "a1 is still starting; it stops as soon as it starts."
 
-    @Test func refusalsAndAStartingSubagentShowACountAndTheNote() throws {
+    @Test func refusalsAndAStartingSubagentAreOneRowWithTheNoteInTheTooltip() throws {
         let toast = try CmuxToast.stopAll(decoding: Data(#"""
         {"stopped":true,"subagents":["a1","a3"],"errors":["a2: its turn did not stop: acpmux: session busy"],
          "note":"a1 is still starting; it stops as soon as it starts."}
         """#.utf8))
-        #expect(toast.message == [HomeStopAllStrings.stopped(["a1", "a3"]), "1 could not be stopped", starting].joined(separator: "\n"))
-        // The tooltip has the refusal, then the note (readable even when the toast cuts it off).
+        // Not "all": one refused. The note is not on the row, where it read as a contradiction.
+        #expect(toast.message == [HomeStopAllStrings.stopped(["a1", "a3"], all: false), "1 could not be stopped"].joined(separator: " · "))
+        #expect(!toast.message.contains("\n"))
+        // The tooltip has the refusal, then the note.
         #expect(toast.detail == [refused, starting].joined(separator: "\n"))
         // Restart is for the ones that stopped: a refused one is not in `subagents`.
         #expect(toast.action?.title == HomeStopAllStrings.restart)
@@ -35,7 +37,7 @@ struct HomeStopAllToastTests {
 
     @Test func theChiefStoppingWhileEverySubagentRefusesSaysSo() {
         let answer = ChiefStopAll(stopped: true, subagents: [], errors: [refused])
-        #expect(HomeStopAllStrings.message(for: answer) == [HomeStopAllStrings.stoppedChief, "1 could not be stopped"].joined(separator: "\n"))
+        #expect(HomeStopAllStrings.message(for: answer) == [HomeStopAllStrings.stoppedChief, "1 could not be stopped"].joined(separator: " · "))
     }
 
     @Test func noRefusalAndNoStartingSubagentIsOneLineWithNoDetail() throws {
@@ -56,19 +58,18 @@ struct HomeStopAllToastTests {
         #expect(none.message == HomeStopAllStrings.stoppedNone)
     }
 
-    /// The note alone (no refusal) is its own line under what stopped, and the tooltip repeats it.
-    @Test func aStartingSubagentAloneAddsOnlyTheNote() {
+    /// The note alone (no refusal) leaves the row as it is and goes only in the tooltip.
+    @Test func aStartingSubagentAloneAddsTheNoteToTheTooltipOnly() {
         let answer = ChiefStopAll(stopped: false, subagents: ["a1"], note: starting)
-        #expect(HomeStopAllStrings.message(for: answer) == [HomeStopAllStrings.stopped(["a1"]), starting].joined(separator: "\n"))
+        #expect(HomeStopAllStrings.message(for: answer) == HomeStopAllStrings.stopped(["a1"]))
         #expect(HomeStopAllStrings.detail(for: answer) == starting)
     }
 
-    /// The detail is the message's tooltip and the toast's VoiceOver help; the toast stays short.
-    @Test func theToastViewShowsTheDetailOnHoverOfTheMessage() throws {
-        let view = CmuxToastView(toast: CmuxToast.stopAll(ChiefStopAll(stopped: false, subagents: ["a1"], errors: [refused])))
-        let label = try #require(view.messageLabel)
-        #expect(label.themedToolTip == refused)
-        #expect(view.accessibilityHelp() == refused)
-        #expect(label.stringValue == [HomeStopAllStrings.stopped(["a1"]), "1 could not be stopped"].joined(separator: "\n"))
+    /// The refusal is the toast's detail (the web toast shows it on hover and in VoiceOver help);
+    /// the message stays short.
+    @Test func theToastCarriesTheRefusalAsItsDetail() {
+        let toast = CmuxToast.stopAll(ChiefStopAll(stopped: false, subagents: ["a1"], errors: [refused]))
+        #expect(toast.detail == refused)
+        #expect(toast.message == [HomeStopAllStrings.stopped(["a1"], all: false), "1 could not be stopped"].joined(separator: " · "))
     }
 }

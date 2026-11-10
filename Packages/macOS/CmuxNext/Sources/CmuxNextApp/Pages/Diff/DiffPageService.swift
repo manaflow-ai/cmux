@@ -19,14 +19,6 @@ extension InternalPageID {
     nonisolated static let diff = InternalPageID(rawValue: "diff")
 }
 
-/// Why ``DiffPageService/open(folder:source:in:focus:)`` opened nothing.
-nonisolated enum DiffOpenFailure: Error, Sendable, Equatable {
-    /// The folder is in no git repository (or the session host cannot say).
-    case notRepository
-    /// The folder's machine did not answer (#25581): the reason, naming the machine.
-    case unavailable(String)
-}
-
 /// Owns the diff viewer tabs: `cmux-page://cmux.diff/` pages, one per tab, each
 /// with its own provider, grant and patch source (``DiffPageProvider``,
 /// ``DiffSessionGrant``, ``DiffPatchSource``).
@@ -44,6 +36,8 @@ final class DiffPageService: InternalPageProvider {
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
         var turn: DiffTurn?
+        /// The chat on this Mac that opened it last: Send to agent's (``DiffTabChat``).
+        var chat: DiffTabChat?
         /// The chat's session host. A remote tab must retain this link for every page read.
         var gitLink: AgentPaneGitLink?
         var runtime: DiffPageRuntime?
@@ -81,6 +75,8 @@ final class DiffPageService: InternalPageProvider {
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
+    /// Send to agent's prompts (``DiffTabChat``), through this Mac's acpmux.
+    private let replies = AcpmuxReplySender()
     /// The diff tabs' open timeline (the instant-surfaces bench's `diff_right`).
     let timeline = DiffOpenTimeline()
 
@@ -153,8 +149,10 @@ final class DiffPageService: InternalPageProvider {
         guard let link = gitLink(for: pane.selectedTab) else { throw .notRepository }
         let tabRuntime = runtime(for: link)
         guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
+        let chat = DiffTabChat.local(session: pane.selectedTab?.agentSession?.session, isLocal: link.isLocal, replies: replies,
+                                     environment: QuitAgents.environment(services))
         return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
-                    in: pane, focus: focus, created: created, failed: failed)
+                    in: pane, focus: focus, chat: chat, created: created, failed: failed)
     }
 
     /// Whether an open from a pane on the machine of `link` reads there. A selected chat's diff
@@ -175,14 +173,14 @@ final class DiffPageService: InternalPageProvider {
     @discardableResult
     func open(repository: DiffRepository, source: DiffOpenSource = .default, turn: DiffTurn? = nil,
               gitLink: AgentPaneGitLink? = nil, runtime: DiffPageRuntime? = nil, in pane: PaneController,
-              focus: Bool, on machine: DaemonService? = nil, created: (@MainActor (SurfaceID) -> Void)? = nil,
+              focus: Bool, on machine: DaemonService? = nil, chat: DiffTabChat? = nil, created: (@MainActor (SurfaceID) -> Void)? = nil,
               failed: (@MainActor ((any Error)?) -> Void)? = nil) -> String {
         let link = gitLink ?? services.agentGit.local
         // The recents are repositories of this Mac.
         if link.isLocal { record(repository, source: source) }
         let before = Set(tabs.keys)
         let key = show(in: pane, focus: focus,
-                       Tab(repository: repository, source: source, turn: turn, gitLink: link,
+                       Tab(repository: repository, source: source, turn: turn, chat: chat, gitLink: link,
                            runtime: runtime, machine: machine), created: created, failed: failed) {
             source.reuses(root: $0.repository?.root, source: $0.source, for: repository.root)
                 && $0.gitLink === link && $0.machine?.machineID == machine?.machineID
@@ -190,6 +188,7 @@ final class DiffPageService: InternalPageProvider {
         // A tab already there takes the chat's turn: a card's reloads it on the turn and file; a
         // header's newer turn is what its Last turn shows from then on, with no reload.
         guard before.contains(key), let shown = tabs[key] else { return key }
+        if let chat { tabs[key]?.chat = chat }
         switch source.change(shownTurn: shown.turn, turn) {
         case .keep: break
         case .newTurn:
@@ -433,6 +432,7 @@ final class DiffPageService: InternalPageProvider {
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
+        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self.flatMap { QuitAgents.environment($0.services) } })
         provider.startPreopen()
         tab.page = page
         tab.provider = provider

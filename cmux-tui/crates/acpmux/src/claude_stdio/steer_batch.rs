@@ -77,7 +77,7 @@ pub(super) struct Batches {
     /// that came meanwhile, oldest first, which go in the line written next.
     pub(super) rewrite: Option<(String, Vec<Part>)>,
     /// Claude Code refused a drop (one without `cancel_async_message`): each line stands.
-    no_drop: bool,
+    pub(super) no_drop: bool,
 }
 
 /// The content of one line of `parts` (two or more): how many messages from how many sessions,

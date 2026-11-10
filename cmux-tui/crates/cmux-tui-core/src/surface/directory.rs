@@ -49,6 +49,39 @@ impl Surface {
             .prompt_since()
     }
 
+    /// The last command the terminal's shell finished (OSC 133 `D`):
+    /// `extra.last_command` (`terminal-exit-status-v1`).
+    pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_activity::LastCommand> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_command()
+    }
+
+    /// When a client last wrote input: `extra.last_input`
+    /// (`terminal-activity-v1`, read-time only).
+    pub(crate) fn terminal_last_input(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_input()
+    }
+
+    /// Notes that a client wrote input to this terminal now.
+    pub(crate) fn note_terminal_input(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        pty.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .note_input(now_ms);
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {
@@ -134,7 +167,8 @@ impl Surface {
     }
 
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
-    /// program status as a terminal upsert, then post the notifications the
+    /// program status as a terminal upsert (and a program's wait starting or
+    /// ending as agent roster evidence), then post the notifications the
     /// records asked for (after the upsert, so a client that opens the
     /// notification finds the record). Adoption, the first view of an app
     /// terminal and its readiness call this directly.
@@ -156,11 +190,12 @@ impl Surface {
             let progress = metadata.take_progress_change().is_some();
             (metadata.take_busy_change() || progress, metadata.program_status())
         };
-        let (status_changed, shown_changed, alerts) = {
+        let (status_changed, shown_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let shown = records.take_shown_change(!self.is_dead());
             let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
-            (records.take_change(), shown, alerts)
+            let blocker = records.take_blocker_change(!self.is_dead());
+            (records.take_change(), shown, alerts, blocker)
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
@@ -173,6 +208,10 @@ impl Surface {
             && let Err(error) = mux.publish_terminal_progress(self, mutation)
         {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // After the terminal's upsert, so the roster's row follows it.
+        if let Some(state) = blocker {
+            mux.record_program_status_evidence(self, state);
         }
         // The tab indicator (TUI) changes only with the shown status.
         if let Some(status) = shown_changed {

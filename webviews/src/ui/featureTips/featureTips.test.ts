@@ -363,7 +363,14 @@ describe("tips from What's New highlights", () => {
     expect(readFileSync(GENERATED, "utf8")).toBe(generatedTips());
     const tips = JSON.parse(generatedTips()) as FeatureTipEntry[];
     expect(tips.map((tip) => tip.id)).toContain("agents-drive-visible-browser-tabs");
-    const { PANE_TIP_ANCHORS } = await import("../../agent-session/acpmux/featureTips");
+    const { PANE_TIP_ANCHORS } = await import("../../agent-session/acpmux/featureTipsModel");
     for (const tip of tips) expect(Object.keys(PANE_TIP_ANCHORS)).toContain(tip.anchor);
+  });
+
+  // Leo, 2026-11-06, on tips and guides: too many words, too often. A tip's sentence is the
+  // highlight's first sentence, so that sentence stays short and plain.
+  test("each tip's sentence is twelve words or fewer", () => {
+    const long = (JSON.parse(generatedTips()) as FeatureTipEntry[]).filter((tip) => tip.body.split(/\s+/).length > 12);
+    expect(long.map((tip) => `${tip.id}: ${tip.body}`)).toEqual([]);
   });
 });

@@ -58,7 +58,7 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { SubagentPaneContext, SubagentStopContext } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+  await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 
 afterAll(() => {
@@ -141,7 +141,7 @@ test("a running workflow and a background agent show what they do and what they 
     // No kind subtitle beside the name (design/chat-transcript.md "Subagent row anatomy") and no tokens
     // or tool uses (Leo, 2026-10-31: "we can remove the symbols and the tokens").
     ["probe", "Count: n2 · 1/3 agents"],
-    ["Watch the build", "Bash"],
+    ["Watch the build", "Running a command"],
   ]);
 });
 

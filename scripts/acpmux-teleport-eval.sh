@@ -11,6 +11,15 @@
 # After each hop one turn asks for the code word and the machine's hostname. A hop passes when
 # the reply holds the code word and the turn ended there. Prints one line per hop and a JSON
 # summary; exit 0 when every hop passed. The chat is left for inspection (its name is printed).
+#
+# The whole teleport (uncommitted work and a running turn), with two settings:
+#   TELEPORT_EVAL_CHECKOUT=DIR  start the chat in DIR, a git checkout on a branch it may push
+#                               (`wt new teamleaderleo/leo-workspace lane/teleport-eval-x`). An
+#                               uncommitted note with a second code word is written there, every
+#                               hop passes `--carry-changes`, and each reply must hold that word too,
+#                               read from the note on the new machine. The note is not committed.
+#   TELEPORT_EVAL_INTERRUPT=1   each hop starts a turn that is still running (it waits 20 s), moves
+#                               with `--interrupt`, and the turn's continuation must finish there.
 set -euo pipefail
 
 harness="${1:?usage: acpmux-teleport-eval.sh HARNESS MACHINE [MACHINE...]}"
@@ -22,8 +31,21 @@ WAIT="${TELEPORT_EVAL_WAIT:-600}"
 stamp="$(date +%Y%m%d%H%M%S)"
 name="teleport-eval-${harness}-t${stamp}"
 word="WORD-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n' | tr a-f A-F)"
-dir="$HOME/teleport-eval/${harness}-${stamp}"
-mkdir -p "$dir"
+CHECKOUT="${TELEPORT_EVAL_CHECKOUT:-}"
+INTERRUPT="${TELEPORT_EVAL_INTERRUPT:-}"
+note_word=""
+if [[ -n "$CHECKOUT" ]]; then
+  dir="$(cd "$CHECKOUT" && pwd -P)"
+  git -C "$dir" symbolic-ref -q HEAD >/dev/null || { echo "$dir is not on a branch" >&2; exit 2; }
+  note_word="NOTE-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n' | tr a-f A-F)"
+  printf 'The uncommitted note word is %s.\n' "$note_word" > "$dir/teleport-eval-note.txt"
+else
+  dir="$HOME/teleport-eval/${harness}-${stamp}"
+  mkdir -p "$dir"
+fi
+flags=()
+[[ -n "$CHECKOUT" ]] && flags+=(--carry-changes)
+[[ -n "$INTERRUPT" ]] && flags+=(--interrupt)
 
 # This script plays the person who owns the chat: run from inside an agent's session, a send
 # would otherwise arrive as another agent's inbox message, which a careful agent will not answer
@@ -49,8 +71,12 @@ for p in peers:
         break
 ' "$where")"
     [[ -n "$ssh" ]] || { echo "no ssh address for $where" >&2; return 1; }
-    # Arguments are this script's own literals and the generated chat name and code word.
-    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' "$@")"
+    # The chat as HOST/NAME there: that machine also lists the closed copy the move left on the
+    # one before it, under the same name. Arguments are this script's own literals and the
+    # generated chat name and code word.
+    local args=() a
+    for a in "$@"; do [[ "$a" == "$name" ]] && a="$where/$name"; args+=("$a"); done
+    ssh -o BatchMode=yes "$ssh" "PATH=\$HOME/.local/bin:\$PATH acpmux $(printf '%q ' "${args[@]}")"
   fi
 }
 
@@ -67,19 +93,37 @@ ask() {
   printf '%s\n' "$reply"
 }
 
+# Waits for a reply that holds `$1` without sending anything (an interrupted turn's continuation).
+ask_wait() {
+  local deadline=$(( $(date +%s) + WAIT )) reply=""
+  while (( $(date +%s) < deadline )); do
+    on wait "$name" --all --timeout 60 >/dev/null || true
+    reply="$(on last "$name" 2>/dev/null | tail -1)"
+    [[ "$reply" == *"$1"* ]] && break
+  done
+  printf '%s\n' "$reply"
+}
+
 results=()
 where=local
 # `--machine local`: a new chat on a person's Mac is otherwise placed on another machine.
 here new -m "$harness" -n "$name" --machine local --cwd "$dir" -d --quiet \
   "Remember the code word $word. Reply only: ok" >/dev/null
-echo "chat $name ($harness) in $dir, code word $word"
+echo "chat $name ($harness) in $dir, code word $word${note_word:+, note word $note_word (uncommitted)}"
 
 prev=local
 for m in "$@"; do
   if [[ "$prev" == local ]]; then
-    move=("$ACPMUX" --json session move "$name" --machine "$m")
+    move=("$ACPMUX" --json session move "$name" --machine "$m" "${flags[@]}")
   else
-    move=("$ACPMUX" --json session move "$name" --from "$prev" --machine "$m")
+    move=("$ACPMUX" --json session move "$name" --from "$prev" --machine "$m" "${flags[@]}")
+  fi
+  running=""
+  if [[ -n "$INTERRUPT" ]]; then
+    # A turn still running when the move starts: its continuation must finish on the target.
+    running="run-$RANDOM"
+    on send --no-wait "$name" "Run the shell command: sleep 20. Then reply exactly: $running" >/dev/null
+    sleep 8
   fi
   t0=$(date +%s)
   if ! out="$("${move[@]}" 2>&1)"; then
@@ -96,11 +140,33 @@ text = sys.stdin.read()
 d = json.loads(text[text.find("{"):])
 print((d.get("moves") or [{}])[0].get("name") or sys.argv[1])
 ' "$name" 2>/dev/null || printf '%s' "$name")"
+  carried="$(printf '%s' "$out" | python3 -I -c '
+import json, sys
+text = sys.stdin.read()
+d = json.loads(text[text.find("{"):])
+c = (d.get("moves") or [{}])[0].get("carried") or {}
+left = ",".join(l.get("path", "") for l in c.get("leftOut") or [])
+print(("%s files" % c.get("files", 0) + (", left behind: " + left if left else "")) if c else "nothing")
+' 2>/dev/null || echo "?")"
+  continued=true
+  if [[ -n "$running" ]]; then
+    # The interrupted turn's continuation runs there; wait for its reply before asking more.
+    cont="$(WAIT=180 ask_wait "$running" 2>&1 | tail -1)"
+    [[ "$cont" == *"$running"* ]] || continued=false
+  fi
   tag="hop-$(( ${#results[@]} + 1 ))-$RANDOM"
-  reply="$(ask "What code word did I ask you to remember? Run the command hostname too. Reply exactly: <codeword> <hostname> $tag" "$tag" 2>&1 | tail -1)"
-  if [[ "$reply" == *"$word"* && "$reply" == *"$tag"* ]]; then pass=true; else pass=false; fi
-  echo "hop $prev -> $m: moved in ${moved}s, reply: $reply, pass: $pass"
-  results+=("{\"from\":\"$prev\",\"to\":\"$m\",\"moveSeconds\":$moved,\"pass\":$pass}")
+  question="What code word did I ask you to remember? Run the command hostname too."
+  want="<codeword> <hostname>"
+  if [[ -n "$note_word" ]]; then
+    question+=" Also read teleport-eval-note.txt in your folder and give its note word."
+    want="<codeword> <hostname> <noteword>"
+  fi
+  reply="$(ask "$question Reply exactly: $want $tag" "$tag" 2>&1 | tail -1)"
+  pass=false
+  if [[ "$reply" == *"$word"* && "$reply" == *"$tag"* && "$continued" == true \
+        && ( -z "$note_word" || "$reply" == *"$note_word"* ) ]]; then pass=true; fi
+  echo "hop $prev -> $m: moved in ${moved}s, carried: $carried${running:+, running turn continued: $continued}, reply: $reply, pass: $pass"
+  results+=("{\"from\":\"$prev\",\"to\":\"$m\",\"moveSeconds\":$moved,\"continued\":$continued,\"pass\":$pass}")
   $pass || break
   prev="$m"
 done
