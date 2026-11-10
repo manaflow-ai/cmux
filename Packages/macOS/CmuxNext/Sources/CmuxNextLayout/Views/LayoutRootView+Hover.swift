@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Divider hover (cx-ww20): each screen view owns the hover of its
 /// handles and recomputes it from the pointer and the current frames. The
