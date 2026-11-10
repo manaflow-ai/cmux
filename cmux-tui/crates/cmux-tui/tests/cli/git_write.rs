@@ -797,3 +797,68 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     assert!(bad.join(".git").exists());
     let _ = fs::remove_dir_all(root);
 }
+
+/// Bench round 5 T10 (W6-E): `workspace create --worktree` then `close
+/// --remove-worktree` left the empty project folder
+/// `~/.cmux/worktrees.noindex/<repo>/`, and create said `~/.cmux/worktrees/…`
+/// while the removal said `~/.cmux/worktrees.noindex/…`. Removing a
+/// project's last worktree removes its empty folder, a folder that still
+/// holds another worktree stays, and the removal names the path create
+/// gave. The test makes the macOS layout (`worktrees` a link to
+/// `worktrees.noindex`) itself, so it holds on every unix host.
+#[test]
+fn w6e_removing_the_last_worktree_removes_the_empty_project_folder_and_names_the_created_path() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-w6e-worktree-tidy-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    let real = home.join(".cmux/worktrees.noindex");
+    fs::create_dir_all(&real).unwrap();
+    std::os::unix::fs::symlink("worktrees.noindex", home.join(".cmux/worktrees")).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "w6e-worktree-tidy",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let project = home.join(".cmux/worktrees/project");
+    let create = |name: &str, key: &str| {
+        let args = ["worktree", "create", "--name", name, "--idempotency-key", key];
+        let output = git_cli(&server, &repo, &args);
+        assert_success(&output);
+        let created = json_output(&output);
+        let path = project.join(name);
+        assert_eq!(created["value"]["root"], path.to_str().unwrap(), "{created}");
+        path
+    };
+    let remove = |worktree: &std::path::Path, key: &str| {
+        let output = git_cli(&server, worktree, &["worktree", "remove", "--idempotency-key", key]);
+        assert_success(&output);
+        json_output(&output)
+    };
+
+    let first = create("first", "c1");
+    let second = create("second", "c2");
+    let removed = remove(&first, "r1");
+    assert_eq!(removed["value"]["root"], first.to_str().unwrap(), "{removed}");
+    assert!(!first.exists(), "{removed}");
+    assert!(real.join("project").is_dir(), "the project folder went while it held a worktree");
+
+    let removed = remove(&second, "r2");
+    assert_eq!(removed["value"]["root"], second.to_str().unwrap(), "{removed}");
+    assert!(!real.join("project").exists(), "the empty project folder stayed: {removed}");
+    assert!(real.is_dir(), "the worktree root itself must stay");
+    assert!(home.join(".cmux/worktrees").is_dir(), "the worktree root link must stay");
+    let _ = fs::remove_dir_all(root);
+}
