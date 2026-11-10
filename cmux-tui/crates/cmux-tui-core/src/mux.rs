@@ -503,6 +503,15 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The index `delta` steps from `active` in a ring of `len` items (`len > 0`,
+/// `active < len`). `delta` comes from a client and can be any `isize`: it is
+/// reduced into the ring first, so the sum is below `2 * len` and never overflows.
+pub(crate) fn ring_step(active: usize, delta: isize, len: usize) -> usize {
+    let len_signed = isize::try_from(len).unwrap_or(isize::MAX);
+    let step = usize::try_from(delta.rem_euclid(len_signed)).unwrap_or(0);
+    active.saturating_add(step) % len
+}
+
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
