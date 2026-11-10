@@ -212,7 +212,8 @@ await requireBrowserLane("agent-pane-since-jump-dismiss.test.ts", async () => {
 
   test("pressing Jump to new hides it", async () => {
     const page = await openChat();
-    await page.locator(".acpmux-since-jump").click();
+    // The banner's jump itself (UnreadBanner), not its Mark read or collapse chevron beside it.
+    await page.locator(".acpmux-since-jump__body").click();
     await settle(page);
     await settle(page);
     const after = await state(page);
