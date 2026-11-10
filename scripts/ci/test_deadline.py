@@ -151,7 +151,8 @@ def _end(process: subprocess.Popen[bytes]) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS answers EPERM for a group whose members are all zombies.
             return
         try:
             process.wait(timeout=KILL_GRACE_SECONDS)
