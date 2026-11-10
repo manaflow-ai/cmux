@@ -307,7 +307,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 /**
  * Settles an agent create's slot (limits/agent-slots.ts) by how it ended: a recorded VM keeps the slot naming it; a
- * create whose send began (its intent is `creating`) may exist upstream unrecorded, so the slot stays, naming the
+ * create whose send began (its intent is `creating`, not rejected) may exist upstream unrecorded, so the slot stays, naming the
  * intent's VM id and bound to the creation key, until that VM is deleted or a retry records it; any other failure
  * gives the slot back. Best effort: a slot left unsettled
  * lapses on its own, after the longest create.
@@ -318,15 +318,25 @@ const settleAgentCreate = <C>(caller: Named<C, Principal>, slot: { readonly agen
     const tenantId = caller.value.tenantId;
     if (Exit.isSuccess(exit)) return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, { recorded: exit.value.id });
     const progress = (yield* limits.inspect(tenantId, key))?.progress;
+    // A send the provider definitely rejected (400/429) made nothing: its slot goes back like any other failure.
     const outcome = progress?.phase === "done" ? { recorded: progress.vmId }
-      : progress?.phase === "creating" ? { held: key, vmId: progress.vmId }
+      : progress?.phase === "creating" && progress.dispatch?.state !== "rejected" ? { held: key, vmId: progress.vmId }
       : "released" as const;
     return yield* limits.settleAgentSlot(tenantId, slot.agent, slot.slotId, outcome);
   }).pipe(Effect.ignore);
 
-/** A resumed agent create recorded `vmId`: the slot its first attempt held now names that VM. */
-const bindAgentCreate = <C>(caller: Named<C, Principal>, key: string, vmId: string) =>
-  Effect.flatMap(TenantLimits, (limits) => limits.bindAgentCreation(caller.value.tenantId, agentSlotOwner(caller.value), key, vmId)).pipe(Effect.ignore);
+/**
+ * A resumed agent create: one that recorded its VM binds the slot its first attempt held to that VM; one whose send
+ * the provider definitely rejected made nothing, so that held slot goes back.
+ */
+const resumedAgentCreate = <C>(caller: Named<C, Principal>, key: string, exit: Exit.Exit<{ readonly id: string }, unknown>) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const tenantId = caller.value.tenantId;
+    if (Exit.isSuccess(exit)) return yield* limits.bindAgentCreation(tenantId, agentSlotOwner(caller.value), key, exit.value.id);
+    const progress = (yield* limits.inspect(tenantId, key))?.progress;
+    if (progress?.phase === "creating" && progress.dispatch?.state === "rejected") yield* limits.forgetAgentVm(tenantId, progress.vmId, key);
+  }).pipe(Effect.ignore);
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
 
@@ -408,7 +418,9 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
-            if (resumeSlot(key, prior) === undefined) {
+            // A retry of a send the provider rejected allocates afresh, so an agent key is admitted again, atomically.
+            const rejectedRetry = prior?.phase === "creating" && prior.dispatch?.state === "rejected";
+            if (resumeSlot(key, prior) === undefined || (rejectedRetry && caller.value.agent !== undefined)) {
               yield* reclaimGoneCiVms(caller, scope);
               agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
             }
@@ -428,7 +440,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             if (agentSlot === undefined) {
               // A resumed agent create recorded its VM: the slot held for it now names that VM.
               if (caller.value.agent === undefined) return yield* create;
-              return yield* create.pipe(Effect.tap((vm) => bindAgentCreate(caller, key, vm.id)));
+              return yield* create.pipe(Effect.onExit((exit) => resumedAgentCreate(caller, key, exit)));
             }
             const slot = agentSlot;
             return yield* create.pipe(Effect.onExit((exit) => settleAgentCreate(caller, slot, key, exit)));

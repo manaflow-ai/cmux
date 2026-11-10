@@ -199,6 +199,23 @@ describe("an agent's sandboxes", () => {
     expect((await keyed("agent-create-c")).status).toBe(429);
   });
 
+  it.each([429, 400])("gives the slot back when the provider definitely rejects an agent's create (%i)", async (status) => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 1 });
+    const keyed = (idempotency: string) =>
+      h.request("/v1/vms", { ...bearer(agent.key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+    h.upstream.fail("create", status);
+    expect((await keyed("agent-rejected")).status).toBe(status);
+    expect(h.upstream.vms.size).toBe(0);
+    // Nothing was made, so the budget has room for another create.
+    expect((await keyed("agent-after-rejection")).status).toBe(201);
+    // The rejected key's retry is admitted again and finds the budget full.
+    const retry = await keyed("agent-rejected");
+    expect(retry.status).toBe(429);
+    expect(await retry.json()).toMatchObject({ budget: "agent_vms" });
+    expect(h.upstream.vms.size).toBe(1);
+  });
+
   it("stops at the $/h budget, counting the requested size", async () => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
     // The default 4 vCPU / 8 GiB VM is estimated at 0.26 USD/h.
