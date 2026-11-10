@@ -76,6 +76,7 @@
     "fast-checks.yml:checks": {"class": "linux-build", "warm": ["actions-cache"]},
     "fleet-artifact-cdn.yml:test": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "fleet-compile-check.yml:compile-check": {"class": "fleet-dispatch", "warm": ["linux-pool-warm"]},
+    "ios-app-review-readiness.yml:asc-readiness": {"class": "ios", "warm": [], "exempt": "read-only App Store Connect validation; selects Xcode for its tools and compiles nothing"},
     "ios-app-store.yml:upload-and-validate": {"class": "ios", "warm": ["actions-cache"]},
     "ios-appstore-upload.yml:upload": {"class": "ios", "warm": ["actions-cache"]},
     "ios-e2e.yml:mac-ios-e2e": {"class": "ios", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; a build script from a clean tree; no warm source wired yet"},

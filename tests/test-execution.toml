@@ -2280,3 +2280,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_dev_publish_supersede.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_app_store_urls.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_app_store_binary_entitlements.py"
+lane = "linux-guard"
