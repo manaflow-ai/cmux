@@ -128,9 +128,10 @@ impl HistoryHost {
     /// over the only copy of the sessions below the floor. So the raw saved
     /// value is first kept under a second `meta` key
     /// (`WorkspaceRegistry::keep_unloaded_reducer_state`) and a diagnostic
-    /// is sent. An error (the head, the floor or the copy cannot be read or
-    /// written) leaves the fold not restored: nothing is folded and nothing
-    /// is saved, and the next turn tries again.
+    /// is sent. An error (the registry does not give the saved value, the
+    /// head or the floor, or the copy is not written) leaves the fold not
+    /// restored: nothing is folded and nothing is saved, and the next turn
+    /// tries again.
     pub(super) fn restore(&self, mux: &Mux) -> anyhow::Result<()> {
         if self.lock().restored {
             return Ok(());
@@ -140,7 +141,15 @@ impl HistoryHost {
         let mut kept_at = None;
         let restored = {
             let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let saved = registry.journal_reducer_state(AGENT_FOLD_STATE_ID);
+            let saved = match registry.journal_reducer_state(AGENT_FOLD_STATE_ID) {
+                // The registry did not give the value. Nothing says that the
+                // saved fold is bad, and a fold from the first record would
+                // be saved over it.
+                Err(error) if error.is::<rusqlite::Error>() => {
+                    return Err(error.context("reading the saved agent history failed"));
+                }
+                saved => saved,
+            };
             let head = registry.session_journal_head()?;
             let pruned_through = registry.journal_pruned_through()?;
             let restored = match &saved {
