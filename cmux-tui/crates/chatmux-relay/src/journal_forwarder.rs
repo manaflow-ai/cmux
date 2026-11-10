@@ -1768,4 +1768,210 @@ mod tests {
         }
         remove_cursor_test_path(&root).await;
     }
+
+    /// Retention deleted the records after the stored cursor: the daemon
+    /// refuses that cursor with `cursor.gap` and names its floor. The same
+    /// cursor is refused for ever, so the worker must subscribe from the floor
+    /// (`oldest_revision`), and the receiver must learn which revisions it lost.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cursor_below_the_retention_floor_continues_from_the_floor_and_names_the_gap() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // A short name: a Unix socket path holds about 100 bytes.
+        let socket_root = std::env::temp_dir().join(format!("cmg-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&socket_root).await;
+        tokio::fs::create_dir_all(&socket_root).await.expect("socket directory");
+        tokio::fs::set_permissions(&socket_root, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("socket directory permissions");
+        let socket = socket_root.join("gap.sock");
+        let daemon_listener =
+            tokio::net::UnixListener::bind(&socket).expect("bind the daemon stub");
+        let (subscribes, mut seen) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        // The daemon stub: its retention floor is revision 40 and its head
+        // is revision 41.
+        let daemon = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = daemon_listener.accept().await else { return };
+                let (read_half, mut write_half) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read_half).lines();
+                let Ok(Some(_identity_request)) = lines.next_line().await else { continue };
+                let identity = json!({
+                    "protocol": PROTOCOL,
+                    "type": "response",
+                    "id": "chatmux-journal-identity",
+                    "ok": true,
+                    "result": [{"name": "gap"}],
+                });
+                if tokio::io::AsyncWriteExt::write_all(
+                    &mut write_half,
+                    format!("{identity}\n").as_bytes(),
+                )
+                .await
+                .is_err()
+                {
+                    continue;
+                }
+                let Ok(Some(line)) = lines.next_line().await else { continue };
+                let request = serde_json::from_str::<Value>(&line).expect("subscribe request");
+                let params = request["params"].clone();
+                let below_floor = params
+                    .pointer("/cursor/revision")
+                    .and_then(Value::as_str)
+                    .is_some_and(|revision| decimal_less(revision, "40"));
+                let _ = subscribes.send(params.clone());
+                if below_floor {
+                    let refused = json!({
+                        "protocol": PROTOCOL,
+                        "type": "response",
+                        "id": SUBSCRIBE_REQUEST_ID,
+                        "ok": false,
+                        "error": {
+                            "code": "cursor.gap",
+                            "message": "journal cursor is no longer retained",
+                            "details": {
+                                "requested": params["cursor"],
+                                "current": {"generation": "gen", "revision": "41"},
+                                "oldest_revision": "40",
+                            },
+                            "retryable": true,
+                        },
+                    });
+                    let refused = format!("{refused}\n");
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut write_half, refused.as_bytes())
+                            .await;
+                    continue;
+                }
+                let opened = json!({
+                    "protocol": PROTOCOL,
+                    "type": "response",
+                    "id": SUBSCRIBE_REQUEST_ID,
+                    "ok": true,
+                    "result": {"cursor": params["cursor"]},
+                });
+                let item = json!({
+                    "protocol": PROTOCOL,
+                    "type": "stream_item",
+                    "stream_id": params["stream_id"],
+                    "sequence": "41",
+                    "cursor": {"generation": "gen", "revision": "41"},
+                });
+                let opened = format!("{opened}\n{item}\n");
+                let _ =
+                    tokio::io::AsyncWriteExt::write_all(&mut write_half, opened.as_bytes()).await;
+                // The stream stays open: the worker has no reason to connect again.
+                let _ = lines.next_line().await;
+            }
+        });
+        // The receiver stub keeps the whole POST (head and body) and
+        // acknowledges the cursor of the one record.
+        let receiver_listener =
+            tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("bind the receiver stub");
+        let address = receiver_listener.local_addr().expect("receiver stub address");
+        let receiver = tokio::spawn(async move {
+            let (mut stream, _) = receiver_listener.accept().await.expect("accept the POST");
+            let mut buffer = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 4096];
+                let read = tokio::io::AsyncReadExt::read(&mut stream, &mut chunk)
+                    .await
+                    .expect("read the POST");
+                assert!(read > 0, "connection closed before one full POST");
+                buffer.extend_from_slice(&chunk[..read]);
+                if http_request_body(&buffer).is_some() {
+                    break;
+                }
+            }
+            let ack =
+                json!({"cursors": {"gen": {"generation": "gen", "revision": "41"}}}).to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{ack}",
+                ack.len()
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write the ack");
+            let _ = tokio::io::AsyncWriteExt::shutdown(&mut stream).await;
+            buffer
+        });
+
+        let (cursor_root, cursor_path) = cursor_test_path("gap").await;
+        let (shared, _cues) = test_shared(format!("http://{address}"), cursor_path);
+        shared.cursors.lock().await.insert(String::from("gap"), cursor("gen", "3"));
+        let worker = tokio::spawn(run_session(
+            shared.clone(),
+            Some(String::from("gap")),
+            String::from("gap"),
+            vec![socket.clone()],
+        ));
+
+        let first = tokio::time::timeout(Duration::from_secs(10), seen.recv())
+            .await
+            .expect("the worker must subscribe")
+            .expect("daemon stub");
+        assert_eq!(
+            first["cursor"],
+            json!({"generation": "gen", "revision": "3"}),
+            "setup: the first subscription must carry the stored cursor below the floor"
+        );
+        let second = tokio::time::timeout(Duration::from_secs(20), seen.recv())
+            .await
+            .expect("the worker must subscribe again after cursor.gap")
+            .expect("daemon stub");
+        assert_eq!(
+            second["cursor"],
+            json!({"generation": "gen", "revision": "40"}),
+            "after cursor.gap the worker must subscribe from the floor, not send the refused cursor again"
+        );
+        assert!(second.get("start").is_none(), "a cursor and a start exclude each other");
+
+        // The first retained record reaches the shared pool.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                {
+                    let pool = shared.pool.lock().expect("lock pool");
+                    if pool.pending.iter().any(|entry| !entry.records.is_empty()) {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the record after the floor must reach the pool");
+        let mut armed = false;
+        let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(60)));
+        assert!(flush_cycle(&shared, None, &mut armed, &mut timer).await);
+
+        let posted = receiver.await.expect("receiver stub");
+        let body = http_request_body(&posted).expect("posted body");
+        let body = serde_json::from_slice::<Value>(&body).expect("posted JSON body");
+        assert_eq!(body["sessions"][0]["sessionId"], "gen");
+        assert_eq!(body["sessions"][0]["records"][0]["sequence"], "41");
+        // The body is the unchanged wire contract; the gap goes in a header.
+        let head = String::from_utf8_lossy(&posted);
+        let gap = head
+            .lines()
+            .take_while(|line| !line.is_empty())
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("x-chatmux-journal-gap").then(|| value.trim().to_owned())
+            })
+            .expect("the POST after a gap must name the gap to the receiver");
+        assert_eq!(
+            serde_json::from_str::<Value>(&gap).expect("gap header JSON"),
+            json!([{"sessionId": "gen", "after": "3", "oldestRevision": "40"}]),
+        );
+        // The acknowledged cursor is above the floor: a restart does not
+        // meet the gap again.
+        assert_eq!(shared.cursors.lock().await.get("gap"), Some(&cursor("gen", "41")));
+
+        shared.cancellation.cancel();
+        worker.await.expect("session worker");
+        daemon.abort();
+        tokio::fs::remove_dir_all(&socket_root).await.expect("remove socket directory");
+        remove_cursor_test_path(&cursor_root).await;
+    }
 }
