@@ -631,13 +631,13 @@ async fn pin_while_parked(
 /// in hand, it asks once more: the daemon registers only after its bind, so the
 /// key is stored by then.
 pub(super) async fn park_for_key<L, A, F>(
-    open: impl std::future::Future<Output = Result<L, Failure>>,
+    open: impl Future<Output = Result<L, Failure>>,
     ask: A,
     every: Duration,
 ) -> Result<(L, [u8; 32]), Failure>
 where
     A: Fn() -> F,
-    F: std::future::Future<Output = Result<CarrierAnswer, Failure>>,
+    F: Future<Output = Result<CarrierAnswer, Failure>>,
 {
     let ask = &ask;
     let next = |wait: Duration| async move {
