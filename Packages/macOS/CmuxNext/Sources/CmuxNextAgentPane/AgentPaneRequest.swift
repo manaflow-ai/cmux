@@ -105,8 +105,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page asked the app to run a user facing action. `session`, when the page names
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
-    /// composer's Environment chip; its setup dialog starts on that environment.
-    case runAction(String, session: String? = nil, environment: String? = nil)
+    /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -180,12 +181,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
-    /// `cloud.signIn {task, ...}`: signs in, keeping the click for this exact Cloud start; the page
-    /// sends it again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
-    case cloudSignIn(AgentPaneCloudStart)
-    /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
-    /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
-    case cloudSignInCancel
+    /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
+    /// that start again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
+    case cloudSignIn(key: String)
+    /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
+    /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
+    case cloudSignInCancel(expired: Bool)
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).

@@ -628,7 +628,7 @@ extension PaneController {
     func mirrorItems(hiding hidden: Set<String>) -> [StripTabItem] {
         liveMirrors.filter { !hidden.contains($0.id) }.map { id, tab in
             let page = services.cache.existingBrowser(id)?.tab.state
-            let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.title.isEmpty ? nil : tab.title)
+            let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.titleText.isEmpty ? nil : tab.titleText)
                 ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(id), title: title, subtitle: page?.url?.absoluteString ?? tab.url,
                                     icon: .browser)

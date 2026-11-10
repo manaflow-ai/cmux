@@ -133,8 +133,19 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 
 /// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
 /// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path.
-export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
+/// keeps the host's link-click path. `reference`: it draws as a reference chip (whole on one line,
+/// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
+export function UrlChip({
+  href,
+  icon,
+  reference = false,
+  children,
+}: {
+  href: string;
+  icon?: ReactNode;
+  reference?: boolean;
+  children: ReactNode;
+}) {
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
   // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
@@ -208,7 +219,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={setAnchor}
-        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
+        className={`cv-link cv-chip is-web${ref || reference ? " is-ref" : ""}`}
         data-pr-state={state}
         data-pr-kind={pullRequest?.kind === "issue" ? "issue" : undefined}
         data-session-ref={agent["data-session-ref"]}
