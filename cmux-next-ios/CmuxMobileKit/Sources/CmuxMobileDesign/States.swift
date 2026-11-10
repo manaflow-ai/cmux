@@ -223,6 +223,8 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
     public var offersRetry = false
+    /// The action button's title when it is not "Retry" (signed out: "Sign in").
+    public var actionTitle: String? = nil
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
 
@@ -231,6 +233,11 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
     public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
+    /// The account's session was revoked: nothing reconnects until the person
+    /// signs in again, which the banner's one button starts.
+    public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
+                                       text: String(localized: "This device was signed out. Sign in again"),
+                                       offersRetry: true, actionTitle: String(localized: "Sign in"))
     public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
@@ -295,9 +302,9 @@ public struct ConnectionBanner: View {
             }
             if state.offersRetry, let retry {
                 Text("·").accessibilityHidden(true)
-                Button("Retry", action: retry)
+                Button(state.actionTitle ?? String(localized: "Retry"), action: retry)
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("connection.retry")
+                    .accessibilityIdentifier(state.actionTitle == nil ? "connection.retry" : "connection.action")
             }
         }
         .font(theme.type.meta.weight(.semibold))

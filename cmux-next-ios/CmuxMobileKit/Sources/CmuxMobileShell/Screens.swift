@@ -100,7 +100,7 @@ struct WorkspacesScreen: View {
                     // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
-                .cmuxMobileBanner(shell.banner, retry: shell.live.map { live in { live.retryConnection() } })
+                .cmuxMobileBanner(shell.banner, retry: shell.live.map { _ in { shell.bannerAction() } })
         }
     }
 }

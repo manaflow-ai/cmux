@@ -235,6 +235,13 @@ public final class LinkController {
                     self.adopt(link, generation: generation)
                 } catch {
                     log.error("dial failed: \(String(describing: error), privacy: .public)")
+                    if Self.sessionRevoked(error, afterRefresh: forceRefresh) {
+                        // A fresh token was refused too: the account's session is
+                        // gone, and no redial can fix that (matrix cell
+                        // pairing_revoked_token).
+                        self?.send(.signedOut(generation: generation))
+                        return
+                    }
                     if "\(error)".contains("401") { self?.refreshTokenNextDial = true }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
@@ -361,6 +368,14 @@ public final class LinkController {
                 }
             }
         }
+    }
+
+    /// Whether `error` says the account's session was revoked: the cmux
+    /// service answered 401 to a token minted fresh for this dial (an expired
+    /// token is refused once, then refreshed; only a refused refresh is final).
+    nonisolated static func sessionRevoked(_ error: any Error, afterRefresh: Bool) -> Bool {
+        guard afterRefresh, let failure = error as? LiveAPI.Failure else { return false }
+        return failure.status == 401
     }
 
     /// A short, display-safe reason for a dial or link error.
