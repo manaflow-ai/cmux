@@ -32,6 +32,8 @@ extension PageWebView {
     /// The document finished loading (either engine).
     func documentFinished() {
         loaded = true
+        // A restart that only reloaded (the renderer was never ended) is over: a later crash shows its notice.
+        rendererRestartPending = false
         applyUIScale()
         applyTheme(force: true)
         applyLiveDocumentAttributes()

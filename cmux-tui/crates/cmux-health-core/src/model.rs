@@ -532,7 +532,9 @@ impl Health {
         let repairable = matches!(part.mode, Mode::Ladder(_))
             && matches!(part.state, State::Stuck | State::Repairing | State::Failed);
         if repairable {
-            part.repair = Repair { held: part.repair.held, ..Repair::default() };
+            // `sent` never resets: a result for the action still out cannot match the click's.
+            part.repair =
+                Repair { held: part.repair.held, sent: part.repair.sent, ..Repair::default() };
             self.refresh(slot, now, Some(&mut actions));
         }
         actions
