@@ -5182,6 +5182,9 @@ function TranscriptView({
               className="acpmux-spacer"
               // The room held above the loaded rows for older history (conversation/olderReserve.ts).
               data-older-room={layout.origin || undefined}
+              // Older history is left to load. The room is not the sign of it: it goes once the reader
+              // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
+              data-loads-older={canLoadOlder || undefined}
               style={{
                 height: layout.totalHeight,
                 width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
