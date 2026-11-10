@@ -272,6 +272,12 @@ public final class MenuSwatchStrip: NSView {
         ring.stroke()
     }
 
+    /// Swatch `index`'s rect in this view (drawing order: No Color first when there is one); nil past the last.
+    public func swatchRect(_ index: Int) -> NSRect? {
+        let rects = swatches
+        return rects.indices.contains(index) ? rects[index] : nil
+    }
+
     private func swatch(at event: NSEvent) -> Int? {
         let point = convert(event.locationInWindow, from: nil)
         return swatches.firstIndex { $0.insetBy(dx: -Self.gap / 2, dy: -6).contains(point) }
