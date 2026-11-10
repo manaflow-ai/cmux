@@ -248,7 +248,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" }, "cmux.newtab.widget/1": { "export": "renderWidget", "title": "Clock", "symbol": "clock", "options": { "size": "wide" } } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -288,6 +288,12 @@ fn temp_dir() -> TempDir {
 const CLIENT: u64 = 7;
 
 fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
+    fixture_safe(defaults, idle, root, false)
+}
+
+/// `fixture_with`, with `CMUX_SAFE_MODE` as `safe_mode_env` says; the safe
+/// mode flag file is `<root>/safe-mode.json`.
+fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env: bool) -> Fixture {
     let bundled = root.0.join("bundled");
     let state = root.0.join("state");
     std::fs::create_dir_all(state.join("apps/local")).unwrap();
@@ -332,6 +338,8 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             idle_stop: idle,
             provider_deadline: Duration::from_millis(400),
             provider_user_deadline: Duration::from_millis(400),
+            safe_mode_file: Some(root.0.join("safe-mode.json")),
+            safe_mode_env,
         },
         Box::new(router.clone()),
         Box::new(fetcher.clone()),
@@ -463,6 +471,64 @@ fn session_info_panels_lists_only_visible_installed_apps() {
         f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap()["panels"],
         json!([])
     );
+}
+
+#[test]
+fn new_tab_widgets_list_with_the_layout_and_start_no_host() {
+    const WIDGET: &str = "cmux.newtab.widget/1";
+    let f = fixture();
+    let list = || {
+        f.supervisor
+            .store_call(CLIENT, "apps.panels.list", json!({ "interface": WIDGET }), Origin::Script)
+            .unwrap()
+    };
+    assert_eq!(list(), json!({ "panels": [], "layout": [] }));
+
+    f.install("cmux/demo");
+    let hosts = || f.supervisor.inner.lock().unwrap().hosts.len();
+    let before = hosts();
+    assert_eq!(
+        list()["panels"],
+        json!([{
+            "app": "cmux/demo", "section": WIDGET, "title": "Clock", "symbol": "clock", "size": "wide"
+        }])
+    );
+    // R1: listing a page's widgets reads the catalog only; a host starts on a mount.
+    assert_eq!(hosts(), before);
+
+    let layout = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
+    let set = |origin: Origin, layout: Value| {
+        f.supervisor.store_call(
+            CLIENT,
+            "apps.panels.layout.set",
+            json!({ "interface": WIDGET, "layout": layout, "idempotency_key": "layout-1" }),
+            origin,
+        )
+    };
+    assert_eq!(set(Origin::Script, layout.clone()).unwrap_err().code, "apps.origin");
+    assert_eq!(set(Origin::User, json!(["clock", "clock"])).unwrap_err().code, "bad-request");
+    assert_eq!(set(Origin::User, layout.clone()).unwrap()["layout"], layout);
+    assert_eq!(list()["layout"], layout);
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(f.state.join("apps-newtab-layout.json")).unwrap())
+            .unwrap();
+    assert_eq!(saved["layout"], layout);
+
+    // Session Info keeps its listing (no interface named), and a sidebar section is no page panel.
+    let session =
+        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
+    assert_eq!(session["panels"][0]["section"], "cmux.session.info.section/1");
+    assert!(session.get("layout").is_none());
+    let refused = f
+        .supervisor
+        .store_call(
+            CLIENT,
+            "apps.panels.list",
+            json!({ "interface": "cmux.section/1" }),
+            Origin::Script,
+        )
+        .unwrap_err();
+    assert_eq!(refused.code, "apps.panels.interface");
 }
 
 #[test]
@@ -896,6 +962,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             idle_stop: Duration::from_secs(60),
             provider_deadline: Duration::from_secs(30),
             provider_user_deadline: Duration::from_secs(600),
+            safe_mode_file: None,
+            safe_mode_env: false,
         },
         Box::new(Arc::new(FakeRouter::default())),
         Box::new(Arc::new(FakeFetcher::default())),
@@ -995,8 +1063,12 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_provider_changed_tests.rs"]
+mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
+#[path = "supervisor_safe_mode_tests.rs"]
+mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
 #[path = "supervisor_subscription_tests.rs"]

@@ -305,8 +305,9 @@ final class ShellModel {
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
             FeedRouting.shared.markAllNotificationsRead = { [weak live, weak backend] in
-                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read.
-                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read; a
+                // Mac reconnecting takes them too, and reads them once it is back.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canMarkAllNotificationsRead(on: $0) == true }
                 guard let backend, !macs.isEmpty else { return 0 }
                 var read = 0
                 for macID in macs { read += try await backend.markAllNotificationsRead(on: macID) }
@@ -569,6 +570,17 @@ final class ShellModel {
         case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
+    }
+
+    /// The banner's one button: "Sign in" when the account's session was
+    /// revoked (sign-out here, which keeps this phone's keys and the Macs that
+    /// allowed it, and opens sign-in), else "Retry".
+    func bannerAction() {
+        if banner == .signedOut {
+            Task { await auth.signOut() }
+            return
+        }
+        live?.retryConnection()
     }
 
     /// Saves a team's color and emoji (and `PUT /prefs` when live).

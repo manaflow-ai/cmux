@@ -109,11 +109,11 @@ struct SidebarInsertMotionTests {
     }
 
     /// The chosen motion: the rows below are within half a point of their slots in under 100 ms, the spring never
-    /// passes its target (critically damped under the default `ui.animations.bounce` none), and it is at rest by 150 ms.
+    /// passes its target (critically damped, as every spring is), and it is at rest by 150 ms.
     /// The full spring took a 28 pt row height about 140 ms to come within half a point.
     @Test func theNudgeLandsWithinAHundredMillisecondsWithNoOvershoot() {
         let nudge = SidebarInsertMotion.nudgeDistance.defaultValue
-        let spring = MotionPolicy(speed: .fast, reduceMotion: false, bounce: .none, enabledKinds: [.newWorkspace], liveResize: false,
+        let spring = MotionPolicy(speed: .fast, reduceMotion: false, enabledKinds: [.newWorkspace], liveResize: false,
                                   animationsEnabled: true, disabledCategories: []).spring(SidebarInsertMotion.nudge.token)
         #expect(spring.dampingFraction >= 1, "the nudge passes its target")
         let landed = spring.settlingTime(within: 0.5 / nudge)

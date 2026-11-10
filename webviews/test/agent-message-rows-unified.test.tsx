@@ -200,7 +200,7 @@ test("an older acpmux's inbox notice: bare names, no label, the whole message on
   expect(JSON.stringify(notice)).not.toContain("self-declared");
 });
 
-test("a notice thread rendered: the marker, the first line as its preview, the whole message opened", async () => {
+test("a notice thread rendered: the marker, and the whole message under its line before it is opened", async () => {
   const from = `gcp-codex-swarm-05/cloud-start-matrix ${SUFFIX}`;
   const whole = relayed("Matrix run 14 is green.\n\nNext: the cold-start numbers.", "56d7d1c5", from);
   const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
@@ -219,7 +219,11 @@ test("a notice thread rendered: the marker, the first line as its preview, the w
   const container = await render(<InboxNoticeCard rowId="r-old" notice={notice} onOpen={() => undefined} />);
   expect(container.querySelector(".cv-agentmsg")).not.toBeNull();
   expect(container.querySelector(".cv-unverified")).not.toBeNull();
-  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toContain("Matrix run 14 is green.");
+  // Shut, the card under the line holds the message whole (Leo, 2026-11-09); the line says it once.
+  const newest = container.querySelector(".cv-inbox__newest")?.textContent ?? "";
+  expect(newest).toContain("Matrix run 14 is green.");
+  expect(newest).toContain("Next: the cold-start numbers.");
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   await openAll(container);
   const text = container.textContent ?? "";
   expect(text).toContain("Next: the cold-start numbers.");
@@ -247,7 +251,9 @@ test("a thread with no messages and no preview reads them from acpmux before it 
   );
   await act(async () => undefined);
   expect(reads).toEqual(["pr:9"]);
-  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toContain("The whole message.");
+  // One short line, read whole: on the line, as a received line reads (inboxThreadRead.ts `fitsLine`).
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("The whole message.");
+  expect(container.querySelector(".cv-inbox__newest")).toBeNull();
   await openAll(container);
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
@@ -298,7 +304,7 @@ test("a send and a subagent's report draw through the same row as a received mes
 });
 
 test("a group's hover lists its messages newest first, short names, two lines each, then +N more", async () => {
-  const { MessageGroupHover, hoverMessages } =
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages } =
     await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const list: IncomingMessage[] = Array.from({ length: 7 }, (_, index) => ({
     name: `gcp-agent-lane-3/lane-${index} ${SUFFIX}`,
@@ -306,7 +312,12 @@ test("a group's hover lists its messages newest first, short names, two lines ea
     raw: "",
     ...(index === 6 && { unverified: true as const }),
   }));
-  const container = await render(<MessageGroupHover list={hoverMessages(list)} />);
+  // The `messages` look (a gallery version; the digest is group-hover-digest.test.tsx).
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={hoverMessages(list)} />
+    </GroupHoverLookContext.Provider>,
+  );
   const text = container.textContent ?? "";
   expect(text).not.toContain("self-declared");
   expect(text).not.toContain("[message");
@@ -321,7 +332,8 @@ test("a group's hover lists its messages newest first, short names, two lines ea
 });
 
 test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
-  const { MessageGroupHover, inboxHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, MessageGroupHover, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const notice: InboxNotice = {
     threads: [
       {
@@ -370,7 +382,11 @@ test("an inbox notice's hover lists every message of every thread, newest first,
   ]);
   // 3 + 4 + 1 messages in all.
   expect(list.total).toBe(8);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={list} />
+    </GroupHoverLookContext.Provider>,
+  );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items).toHaveLength(5);
   expect(items[0]?.textContent).toContain("third from a");
@@ -436,7 +452,7 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 // row and the group's hover still show "Sender not verified".
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
-  const { MessageGroupHover, hoverMessages, inboxHover } =
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
     await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
     threads: [
@@ -466,13 +482,15 @@ test("a thread's unverified sender marks its newest message's row and hover", as
   // Only the newest sender's message: the thread's flag names that sender, not the one before.
   expect(messages.map((m) => m?.unverified === true)).toEqual([false, true]);
   const container = await render(
-    <MessageGroupHover
-      list={hoverMessages(
-        messages,
-        [],
-        children.map((r) => r.at),
-      )}
-    />,
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover
+        list={hoverMessages(
+          messages,
+          [],
+          children.map((r) => r.at),
+        )}
+      />
+    </GroupHoverLookContext.Provider>,
   );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items[0]?.textContent).toContain("second");
@@ -735,12 +753,13 @@ test("two preview-only notices from one sender whose previews clean to nothing b
   expect(again).toEqual(["pr:1"]);
 });
 
-// Opening a received line or an inbox thread keeps the line as it was, its first line in place, as
-// the disclosure line these rows drew before kept its label: the chevron after the words stays on
-// its pixel instead of jumping back to the chip (gallery health, agent-pane.inbox-notice#one-open,
-// whose layout-shift row is 0). Leo, 2026-11-04: "we move all our affected, possibly affected
-// elements in the cohesive way".
-test("an opened received line or inbox thread keeps its first line, so its chevron does not move", async () => {
+// Opening a received line or an inbox thread keeps the line as it was, as the disclosure line these
+// rows drew before kept its label: the chevron after the words stays on its pixel instead of jumping
+// back to the chip (gallery health, agent-pane.inbox-notice#one-open, whose layout-shift row is 0).
+// A received line keeps its first line; an inbox thread's line carries none in either state, its
+// text in the card under it (Leo, 2026-11-09). Leo, 2026-11-04: "we move all our affected, possibly
+// affected elements in the cohesive way".
+test("an opened received line or inbox thread keeps its line as it was, so its chevron does not move", async () => {
   const message = received(
     relayed("Matrix run 14 is green.\n\nNext: the cold-start numbers.", "56d7d1c5", "vm/lane-a"),
     { verification: "verified", harness: "codex", relay: { by: "lane-gh broker", machine: "vm" } },
@@ -765,7 +784,10 @@ test("an opened received line or inbox thread keeps its first line, so its chevr
     ],
   };
   const thread = await render(<InboxNoticeCard rowId="r-keep" notice={notice} onOpen={() => undefined} />);
+  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(thread.querySelector(".cv-agentmsg__card")?.textContent).toContain("Rebase on main.");
   await openAll(thread);
   expect(thread.querySelector(".cv-agentmsg[data-open]")).not.toBeNull();
-  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
+  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(thread.querySelector(".cv-agentmsg__card")?.textContent).toContain("Rebase on main.");
 });

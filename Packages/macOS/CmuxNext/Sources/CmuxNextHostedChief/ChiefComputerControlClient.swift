@@ -14,6 +14,10 @@ public import Foundation
 /// The control and input routes take only the owner's signed-in session (403 `computer.user_origin_required`
 /// for an install token or a Chief's grant): the brain route sends the signed-in user's access token.
 ///
+/// A Chief of this Mac's own computer takes the same routes under `v1/local-chiefs/<id>` (backend
+/// chief-brain/local-computer-routes.ts), its key `local:<id>` wherever an agent id goes here
+/// (``HomeChiefComputerRoute/base(of:)``), plus `POST …/computer/act` for the Chief's own verbs (``act(agent:_:)``).
+///
 /// A refusal answers `{ok: false, error: {code, message}}` and throws ``Failure``.
 public struct ChiefComputerControlClient: Sendable {
     /// What the status route says about control.
@@ -30,6 +34,10 @@ public struct ChiefComputerControlClient: Sendable {
 
         /// The person no longer holds control (the Chief took it back, or never gave it).
         public var isNotHuman: Bool { code == "computer.not_human" }
+
+        /// This server makes no computers, so asking again cannot help: the provision route is not deployed
+        /// (404), or the Worker has no computer set up (409 `computer.unavailable`, routes.ts `handleComputerControl`).
+        public var isUnavailable: Bool { status == 404 || code == "computer.unavailable" }
 
         public var errorDescription: String? {
             message ?? String(localized: "cloud.computerControl.noAnswer", defaultValue: "The Chief's computer did not answer. Try again in a moment.", table: "HostedChief", bundle: .module)
@@ -48,20 +56,18 @@ public struct ChiefComputerControlClient: Sendable {
         self.send = send
     }
 
-    /// Whether `agent` is an agent id the routes take (`agent_` and its ULID); anything else never
-    /// reaches a path.
+    /// Whether `agent` is a computer key the routes take: an agent id (`agent_` and its ULID) or a Chief of
+    /// this Mac's `local:<id>`; anything else never reaches a path.
     public static func isAgentID(_ agent: String) -> Bool {
-        agent.hasPrefix("agent_") && agent.count <= 64 && agent.unicodeScalars.allSatisfy {
-            $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_")
-        }
+        HomeChiefComputerRoute.base(of: agent) != nil
     }
 
-    /// The agent whose status route `path` is (`v1/chiefs/<agent>/computer`), else nil.
+    /// The computer key whose status route `path` is (`v1/chiefs/<agent>/computer`, `v1/local-chiefs/<id>/computer`), else nil.
     public static func agent(ofStatusPath path: String) -> String? {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard parts.count == 4, parts[0] == "v1", parts[1] == "chiefs", parts[3] == "computer" else { return nil }
-        let agent = String(parts[2])
-        return isAgentID(agent) ? agent : nil
+        guard parts.count == 4, parts[0] == "v1", parts[3] == "computer" else { return nil }
+        let key = parts[1] == "chiefs" ? String(parts[2]) : parts[1] == "local-chiefs" ? "local:\(parts[2])" : ""
+        return isAgentID(key) ? key : nil
     }
 
     // MARK: Requests
@@ -80,10 +86,31 @@ public struct ChiefComputerControlClient: Sendable {
     }
 
     /// Set Up Computer: asks the Cloud service to give the Chief its computer (made in the background;
-    /// the status route says `provisioning`, then the computer). Throws the route's refusal.
+    /// the status route says `provisioning`, then the computer). Throws the route's refusal, or
+    /// ``HomeChiefProfileView/SetUpRefusal/unavailable`` when this server makes no computers (``Failure/isUnavailable``).
     @MainActor
     public func provision(agent: String) async throws {
-        _ = try await request("POST", agent, "computer/control", body: ["action": "provision"])
+        do {
+            _ = try await request("POST", agent, "computer/control", body: ["action": "provision"])
+        } catch let failure as Failure where failure.isUnavailable {
+            throw HomeChiefProfileView.SetUpRefusal.unavailable
+        } catch let failure as Failure where failure.code == "computer.local_limit" {
+            throw HomeChiefProfileView.SetUpRefusal.localLimit
+        }
+    }
+
+    /// Deletes the computer of a Chief of this Mac (`local:<id>`) for good, which frees its slot of the owner's
+    /// local-Chief computers at once: its Chief is deleted. A Cloud Chief's computer goes with its `chief.delete`.
+    @MainActor
+    public func delete(agent: String) async throws {
+        _ = try await request("POST", agent, "computer/control", body: ["action": "delete"])
+    }
+
+    /// One of a Chief of this Mac's own verbs on its computer (`cloud_computer` through `cloud.chiefComputer`):
+    /// `{op, …}` as `chief-vm computer` takes it; answers the route's value (done, image, windows, control).
+    @MainActor
+    public func act(agent: String, _ body: [String: Any]) async throws -> [String: Any] {
+        try await request("POST", agent, "computer/act", body: body)
     }
 
     /// Runs one input; answers the lease the route reports with it (`{done, control}`), nil when it reports none.
@@ -95,9 +122,9 @@ public struct ChiefComputerControlClient: Sendable {
 
     @MainActor
     private func request(_ method: String, _ agent: String, _ route: String, body: [String: Any]?) async throws -> [String: Any] {
-        guard Self.isAgentID(agent) else { throw Failure(status: 0, code: "not_found", message: nil) }
+        guard let base = HomeChiefComputerRoute.base(of: agent) else { throw Failure(status: 0, code: "not_found", message: nil) }
         let data = try body.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
-        let reply = try await send(method, "v1/chiefs/\(agent)/\(route)", data)
+        let reply = try await send(method, "\(base)/\(route)", data)
         let root = (try? JSONSerialization.jsonObject(with: reply.body)) as? [String: Any] ?? [:]
         guard (200..<300).contains(reply.status), root["ok"] as? Bool == true else {
             let error = root["error"] as? [String: Any]

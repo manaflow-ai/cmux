@@ -720,6 +720,13 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* A chip with its logo hidden (modelChipIcon.ts): its shortest name is its icon form, so a row at
+   its icon step still names the model. It comes after the hiders above, which it must beat. */
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"][data-fit-forms~="icon"] {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
@@ -773,7 +780,8 @@
 @container composer (max-width: 297px) {
   .nt-pickers .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
   .nt-pickers .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
-  .nt-pickers .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
+  /* A chip whose logo is hidden (modelChipIcon.ts) keeps its name's fit forms: no mark to stand for it. */
+  .nt-pickers .acpmux-model:not([data-chip-icon="off"]) :is([data-fit-part="model"], .acpmux-model-name) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -799,14 +807,19 @@
 }
 /* A tight row (#20548's narrow step): the group gap narrows and the card reaches 10px from the
    pane's edges. Every chevron and the turn's own controls stay. The default queue and its fold
-   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). */
+   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). Each part
+   says how far in from the column it sits (--acpmux-part-inset-left and -right, negative out past
+   it), so what is placed in its box from the column (the gap in its line under the tucked hat's pill,
+   subagents.css) follows it. */
 .acpmux-composer { --acpmux-composer-narrow-outset: 8px; }
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box,
   :root:not([data-top-strip]) .acpmux-composer:not(.acpmux-quick .acpmux-composer)
     > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
-    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+    --acpmux-part-inset-left: calc(-1 * var(--acpmux-composer-narrow-outset));
+    --acpmux-part-inset-right: calc(-1 * var(--acpmux-composer-narrow-outset));
+    margin-inline: var(--acpmux-part-inset-left) var(--acpmux-part-inset-right);
   }
   /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot {
@@ -986,10 +999,17 @@
    carry here; left on, its side hairlines stood in the gap above the card's top corners. */
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
-:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+/* Focus paints only (Leo, 2026-11-06: "I click into a chat and I refocus it, like it does a little jump
+   and a hop"): the focused selector restates the queue's paint over the focused rim rule, never its
+   margin or padding, which stay with the unfocused selectors and the strip rule after them. Carried
+   here, they outranked that rule's margin-bottom: 0 and the focused composer grew 4 px
+   (chat-focus-paints-only.test.ts). */
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue {
   margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
   padding: 0;
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -1065,11 +1085,14 @@
 :root[data-top-strip="tray"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 /* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
    chat's strip it is the tray's top, flush on the strip. */
+/* Focus paints only, as in plain above: margin and padding stay off the focused selector. */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
+}
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
-  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
-  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-queue-fill);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
@@ -1611,8 +1634,7 @@
   border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
-/* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
-.acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
+/* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */
 /* The cloud toggle (ChatGPT Work) is a round icon button. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
   width: var(--ds-control-compact);
@@ -1689,6 +1711,12 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
+   list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
+   while the group is open, as a Mac outline's disclosure does. */
+.acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+.acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
+.acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
    then one row per folder in the same name column as the folders above, × at the end. */
 .acpmux-extra-folders {
@@ -1743,3 +1771,11 @@
     animation: acpmux-env-row-swap var(--agent-motion-move) var(--agent-ease-out, ease-out) both;
   }
 }
+
+/* The active team on the Cloud row and the Cloud face (TeamTag.tsx): its icon and name in the
+   secondary ink, after the label, cut with an ellipsis before the label is. */
+.acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
+.acpmux-team-tag > svg { flex: none; }
+.acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
+.acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }

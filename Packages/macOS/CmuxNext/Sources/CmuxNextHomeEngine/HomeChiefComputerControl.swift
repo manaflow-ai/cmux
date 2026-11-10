@@ -4,7 +4,8 @@ public import Foundation
 /// One owner per computer kind: the Worker's ChiefBrainDO for a Cloud Chief's own sandbox
 /// (`POST v1/chiefs/<agent>/computer/control`), the app's `ChiefComputerControlStore` for a Cloud
 /// machine attached to a Chief on this Mac (`cloud computer-control`). While a person drives, the
-/// Chief's input actions are refused; its screenshots are not.
+/// Chief's actions on it are refused, screenshots and the window list too: what the person does
+/// there (a sign-in, a payment) is theirs.
 public enum HomeChiefComputerHolder: String, Equatable, Sendable {
     case chief
     case human
@@ -56,18 +57,23 @@ public struct HomeChiefComputerControlSource {
     public var send: ((HomeChiefComputerInput) async throws -> Void)?
     /// Opens the computer's full interactive desktop (a Cloud machine). Nil for a sandbox.
     public var openInteractive: (() -> Void)?
+    /// The person's input reached the computer on its desktop, past ``send``: their hold stays theirs
+    /// for its idle time more (a Cloud machine). Nil where the lease's owner sees the input itself.
+    public var noteInput: (() -> Void)?
 
     public init(state: @escaping () -> HomeChiefComputerControlState?,
                 observe: @escaping (_ onChange: @escaping @MainActor () -> Void) -> AnyObject,
                 takeOver: @escaping () async throws -> Void,
                 handBack: @escaping () async throws -> Void,
                 send: ((HomeChiefComputerInput) async throws -> Void)? = nil,
-                openInteractive: (() -> Void)? = nil) {
+                openInteractive: (() -> Void)? = nil,
+                noteInput: (() -> Void)? = nil) {
         self.state = state
         self.observe = observe
         self.takeOver = takeOver
         self.handBack = handBack
         self.send = send
         self.openInteractive = openInteractive
+        self.noteInput = noteInput
     }
 }

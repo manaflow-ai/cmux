@@ -135,11 +135,13 @@ fn an_assistant_app_is_claimed_but_a_terminal_is_the_persons() {
 
 #[test]
 fn the_chain_stops_at_the_first_app_and_on_a_loop() {
+    // The walk starts at acpmux itself, as every send's does.
     let table = [
+        proc(6, 5, "acpmux"),
         proc(5, 4, "/Applications/Ghostty.app/Contents/MacOS/ghostty"),
         proc(4, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
     ];
-    assert_eq!(chain(of(&table), 5).app.unwrap().0, "Ghostty.app");
+    assert_eq!(chain(of(&table), 6).app.unwrap().0, "Ghostty.app");
     let looped = [proc(3, 2, "sh"), proc(2, 3, "sh")];
     assert_eq!(chain(of(&looped), 3), Chain::default());
 }
@@ -300,6 +302,21 @@ fn acpmuxs_own_app_bundle_is_not_where_a_send_came_from() {
 }
 
 #[test]
+fn the_shipped_cli_resolved_to_cmux_is_not_where_a_send_came_from() {
+    // cmux.app's bin/acpmux is a link to bin/cmux, and the kernel names the resolved path: the
+    // first process is still acpmux, whatever its file is called, so the walk goes past it.
+    let table = [
+        proc(50, 40, "/Applications/cmux.app/Contents/Resources/bin/cmux"),
+        proc(40, 30, "/bin/zsh"),
+        proc(30, 20, "/Users/l/Library/Application Support/Claude/claude-code/2.1.3/claude"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked.harness, Some(("claude-code".into(), 30)));
+    assert_eq!(walked.app, Some(("Claude.app".into(), "/Applications/Claude.app".into())));
+}
+
+#[test]
 fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t-1")];
     let client = json!({"name": "claude-ai"});
@@ -313,4 +330,19 @@ fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_defau
     // With no harness markers, the MCP client names itself.
     let claim = of_mcp(&env(&[]), no_walk, Some(&client)).unwrap();
     assert_eq!(claim["harness"], "claude-ai");
+}
+
+#[test]
+fn ancestors_walk_every_parent_to_the_root_and_stop_at_a_loop() {
+    let table = [
+        proc(50, 40, "acpmux"),
+        proc(40, 30, "bash"),
+        proc(30, 20, "claude"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    assert_eq!(ancestors_in(of(&table), 50), vec![50, 40, 30, 20]);
+    // A pid that names itself as its parent ends the walk.
+    assert_eq!(ancestors_in(of(&[proc(9, 9, "x")]), 9), vec![9]);
+    // An unreadable pid reads as nothing.
+    assert!(ancestors_in(of(&table), 77).is_empty());
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// SF Symbol images for the pages (user 12922): a custom harness whose icon is an SF Symbol shows
 /// it on the agent pane and in Settings, which cannot draw symbols themselves. Each symbol is drawn
@@ -35,7 +36,8 @@ public final class HarnessSymbolImages {
 
     private static func draw(_ name: String) -> String? {
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
-        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        guard let symbol = NSImage.packOverride(forSymbol: name, pointSize: pointSize)
+            ?? NSImage.systemSymbol(name, fallback: nil)?.withSymbolConfiguration(config)
         else { return nil }
         let size = symbol.size
         let pixels = NSSize(width: ceil(size.width * 2), height: ceil(size.height * 2))

@@ -138,7 +138,7 @@ body {
   --ds-color-muted: var(--cmux-text-secondary, var(--cmux-app-text-secondary, color-mix(in srgb, CanvasText 62%, transparent))); /* secondary text */
   --ds-color-faint: var(--cmux-text-tertiary, var(--cmux-app-icon, color-mix(in srgb, CanvasText 45%, transparent))); /* tertiary text, placeholders and quiet glyphs */
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
-  --ds-color-pressed: var(--cmux-app-pressed, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent)); /* a control while pressed */
+  --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a selected row or the checked segment */
   --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines and dividers */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
@@ -689,12 +689,12 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* Anything entering eases out. */
   --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
-  --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1);
+  --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
-  --cmux-motion-send: 265ms;
+  --cmux-motion-send: 180ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
-  --cmux-motion-settle: 265ms;
+  --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;

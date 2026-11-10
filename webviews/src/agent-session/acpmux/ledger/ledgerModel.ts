@@ -2,15 +2,31 @@
 // (an index folded at each turn, so a read never scans a log). One totals strip, a range, a
 // group-by, and rows ranked by cost with a bar each. Every cost says where it came from: the agent
 // reported it, it was priced from acpmux's price table (whose version the page shows), or no price
-// was known for the model.
+// was known for the model. Beside the cost: what cache reads saved and how much of the input they
+// were, and a CSV of the rows shown, for an audit or a spreadsheet. Save writes the same range and
+// grouping to a file, as that CSV or as JSON (`ledgerJson`), every row the read returned.
 
 export const LEDGER_METHOD = "_acpmux/ledger";
 
 export const LEDGER_RANGES = ["24h", "7d", "30d", "all"] as const;
 export type LedgerRange = (typeof LEDGER_RANGES)[number];
 
-/// What rows group by: a session each, or one of acpmux's rollups.
-export const LEDGER_GROUPS = ["session", "workspace", "repo", "pr", "day", "person", "vendor", "model"] as const;
+/// What rows group by: a session each, or one of acpmux's rollups. There is no machine grouping:
+/// this ledger is one machine's (acpmux never forwards `_acpmux/ledger` to a peer), so `person` is
+/// this machine's login and name (`user@machine`) and machines group in a team view.
+/// `account`: the sign-in a chat ran on (its Claude profile or preset), so spend on an API key and
+/// on a subscription read apart.
+export const LEDGER_GROUPS = [
+  "session",
+  "workspace",
+  "repo",
+  "pr",
+  "day",
+  "person",
+  "vendor",
+  "model",
+  "account",
+] as const;
 export type LedgerGroup = (typeof LEDGER_GROUPS)[number];
 export type LedgerRollupDim = Exclude<LedgerGroup, "session">;
 
@@ -25,6 +41,8 @@ const RANGE_MS: Record<LedgerRange, number | undefined> = {
 
 /// How many session rows one read asks for (acpmux's own default).
 export const LEDGER_ROW_LIMIT = 200;
+/// How many Save asks for: acpmux's most, so a file holds every session of a busy month.
+export const LEDGER_EXPORT_LIMIT = 5000;
 
 export type LedgerTotals = {
   costUsd: number;
@@ -35,6 +53,10 @@ export type LedgerTotals = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /// Of `cacheWriteTokens`, the hour-long writes (priced at their own tier); 0 from an older acpmux.
+  cacheWrite1hTokens: number;
+  /// What cache reads saved against the input price, at acpmux's price table.
+  cacheSavedUsd: number;
   turns: number;
   toolCalls: number;
   wallMs: number;
@@ -45,6 +67,12 @@ export type LedgerTotals = {
 /// Cache reads are the same context sent again; counted in, a long chat's input reads as many
 /// times what it is.
 export const tokensIn = (totals: LedgerTotals) => totals.inputTokens + totals.cacheWriteTokens;
+
+/// The share of all input, 0 to 1, that was read from cache; undefined with no input at all.
+export function cacheShare(totals: LedgerTotals): number | undefined {
+  const all = totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+  return all > 0 ? totals.cacheReadTokens / all : undefined;
+}
 
 export type LedgerSession = LedgerTotals & {
   sessionId: string;
@@ -57,6 +85,7 @@ export type LedgerSession = LedgerTotals & {
   branch?: string;
   pullRequests: string[];
   person?: string;
+  account?: string;
   createdAt?: number;
   lastAt?: number;
 };
@@ -72,13 +101,17 @@ export type LedgerReply = {
 };
 
 /// The read for `range` ending `now`: every rollup the page offers, in one request.
-export function ledgerParams(range: LedgerRange, now: number): Record<string, unknown> {
+export function ledgerParams(
+  range: LedgerRange,
+  now: number,
+  limit: number = LEDGER_ROW_LIMIT,
+): Record<string, unknown> {
   const span = RANGE_MS[range];
   // All time starts at 0: acpmux reads a missing `since` as its default window, not as no start.
   return {
     since: span !== undefined ? now - span : 0,
     until: now,
-    limit: LEDGER_ROW_LIMIT,
+    limit,
     groupBy: LEDGER_GROUPS.filter((group): group is LedgerRollupDim => group !== "session"),
   };
 }
@@ -99,6 +132,8 @@ function readTotals(value: unknown): LedgerTotals {
     outputTokens: num(body.outputTokens),
     cacheReadTokens: num(body.cacheReadTokens),
     cacheWriteTokens: num(body.cacheWriteTokens),
+    cacheWrite1hTokens: num(body.cacheWrite1hTokens),
+    cacheSavedUsd: num(body.cacheSavedUsd),
     turns: num(body.turns),
     toolCalls: num(body.toolCalls),
     wallMs: num(body.wallMs),
@@ -135,6 +170,7 @@ export function readLedger(value: unknown): LedgerReply {
         ...optional("repo"),
         ...optional("branch"),
         ...optional("person"),
+        ...optional("account"),
         ...(typeof row.createdAt === "number" ? { createdAt: row.createdAt } : {}),
         ...(typeof row.lastAt === "number" ? { lastAt: row.lastAt } : {}),
       },
@@ -275,4 +311,143 @@ export function groupLabel(group: LedgerGroup, line: LedgerLine, locale?: string
   return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(
     date,
   );
+}
+
+/// The CSV columns after the group and its label, as acpmux names them (`acpmux ledger --csv`).
+const CSV_FIELDS = [
+  "costUsd",
+  "harnessCostUsd",
+  "tableCostUsd",
+  "unpricedTurns",
+  "inputTokens",
+  "outputTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "cacheWrite1hTokens",
+  "cacheSavedUsd",
+  "turns",
+  "toolCalls",
+  "wallMs",
+  "sessions",
+] as const satisfies readonly (keyof LedgerTotals)[];
+
+/// A CSV field: one line with no tab (a paste splits cells on both, and a split cell would dodge
+/// the next rule), never read by a spreadsheet as a formula (a leading `=`, `+`, `-` or `@` gets a
+/// `'`), and quoted when it holds a comma or quote.
+function csvField(value: string): string {
+  const flat = value.replace(/[\t\r\n]/g, " ");
+  const safe = /^[=+\-@]/.test(flat) ? `'${flat}` : flat;
+  return /[",]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+/// The rows `group` shows as CSV with a header, in the order they show: a session row adds its
+/// harness, repository, branch and models.
+export function ledgerCsv(reply: LedgerReply, group: LedgerGroup): string {
+  const session = group === "session";
+  const head = [group, "label", ...(session ? ["harness", "repo", "branch", "models"] : []), ...CSV_FIELDS];
+  const rows = new Map(reply.rows.map((row) => [row.sessionId, row]));
+  const lines = ledgerLines(reply, group).map((line) => {
+    const row = session ? rows.get(line.key) : undefined;
+    const extra = session ? [row?.harness ?? "", row?.repo ?? "", row?.branch ?? "", row?.models.join(" ") ?? ""] : [];
+    return [line.key, line.label, ...extra]
+      .map(csvField)
+      .concat(CSV_FIELDS.map((field) => String(line.totals[field])))
+      .join(",");
+  });
+  return `${[head.join(","), ...lines].join("\n")}\n`;
+}
+
+/// What Save writes: `ledgerCsv` for a spreadsheet, `ledgerJson` for a script.
+export type LedgerExportKind = "csv" | "json";
+
+type JsonValue = string | number | boolean;
+
+/// Money to a millionth of a dollar: sums of floats never print as 0.30000000000000004.
+const money = (usd: number) => Math.round(usd * 1e6) / 1e6;
+const iso = (ms: number | undefined) => (ms === undefined ? undefined : new Date(ms).toISOString());
+/// The share read from cache to four places, as acpmux's `cacheReadShare24h`.
+const share = (totals: LedgerTotals) => {
+  const value = cacheShare(totals);
+  return value === undefined ? undefined : Math.round(value * 10_000) / 10_000;
+};
+const defined = (entries: [string, JsonValue | undefined][]) =>
+  Object.fromEntries(entries.filter((entry): entry is [string, JsonValue] => entry[1] !== undefined));
+
+function jsonTotals(totals: LedgerTotals): Record<string, JsonValue> {
+  return defined([
+    ["costUsd", money(totals.costUsd)],
+    ["costSource", costSource(totals)],
+    ["harnessCostUsd", money(totals.harnessCostUsd)],
+    ["tableCostUsd", money(totals.tableCostUsd)],
+    ["unpricedTurns", totals.unpricedTurns],
+    ["inputTokens", totals.inputTokens],
+    ["cacheReadTokens", totals.cacheReadTokens],
+    ["cacheWriteTokens", totals.cacheWriteTokens],
+    ["cacheShare", share(totals)],
+    ["cacheSavedUsd", money(totals.cacheSavedUsd)],
+    ["tokensIn", tokensIn(totals)],
+    ["outputTokens", totals.outputTokens],
+    ["turns", totals.turns],
+    ["toolCalls", totals.toolCalls],
+    ["wallMs", totals.wallMs],
+    ["sessions", totals.sessions],
+  ]);
+}
+
+/// Sessions the read counted but did not return: grouped by session, a range with more sessions
+/// than acpmux's most (`LEDGER_EXPORT_LIMIT`) holds only the most expensive. Undefined when every
+/// session is there, and for a rollup, which always holds every group.
+export function ledgerShortfall(reply: LedgerReply, group: LedgerGroup): { shown: number; total: number } | undefined {
+  if (group !== "session" || reply.totals.sessions <= reply.rows.length) return undefined;
+  return { shown: reply.rows.length, total: reply.totals.sessions };
+}
+
+/// The range and grouping as JSON for a script: the range, the price table, the totals and every
+/// row the read returned (not only the ones on screen), ranked as the page ranks them, each with
+/// where its cost came from. An absent field is left out, never null. Grouped by session,
+/// `truncated` says whether the read missed sessions and `sessionsTotal` how many there were; the
+/// totals always count them all.
+export function ledgerJson(reply: LedgerReply, range: LedgerRange, group: LedgerGroup): string {
+  const sessions = new Map(reply.rows.map((row) => [row.sessionId, row]));
+  const rows = ledgerLines(reply, group).map((line) => {
+    const session = line.sessionId ? sessions.get(line.sessionId) : undefined;
+    return {
+      ...defined([
+        ["key", line.key],
+        ["label", line.label],
+        ["harness", session?.harness],
+        ["vendor", session?.vendor],
+        ["models", session?.models.join(" ") || undefined],
+        ["repo", session?.repo],
+        ["branch", session?.branch],
+        ["pullRequests", session?.pullRequests.join(" ") || undefined],
+        ["person", session?.person],
+        ["account", session?.account],
+        ["lastAt", iso(session?.lastAt)],
+      ]),
+      ...jsonTotals(line.totals),
+    };
+  });
+  const body = {
+    range: defined([
+      ["name", range],
+      ["since", iso(reply.range.since)],
+      ["until", iso(reply.range.until)],
+    ]),
+    groupBy: group,
+    ...(group === "session"
+      ? { truncated: ledgerShortfall(reply, group) !== undefined, sessionsTotal: reply.totals.sessions }
+      : {}),
+    ...(reply.priceTable ? { priceTable: reply.priceTable } : {}),
+    totals: jsonTotals(reply.totals),
+    rows,
+  };
+  return `${JSON.stringify(body, null, 2)}\n`;
+}
+
+/// A saved file's name without its extension: `cmux-costs-7d-by-repo-2026-11-09` (the range's end
+/// day, UTC).
+export function ledgerFileName(reply: LedgerReply, range: LedgerRange, group: LedgerGroup): string {
+  const day = reply.range.until !== undefined ? new Date(reply.range.until).toISOString().slice(0, 10) : undefined;
+  return ["cmux-costs", range, "by", group, day].filter(Boolean).join("-");
 }

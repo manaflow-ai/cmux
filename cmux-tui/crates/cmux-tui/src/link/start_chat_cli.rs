@@ -13,10 +13,13 @@
 //!   makes it only when the platform made none)
 //!   the one its first try took while that machine exists; for a send from a
 //!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). The platform binds one
-//!   machine per project, shared by that project's workspaces (leo-workspace
-//!   `design/cloud.md`). A machine that exists is pinned to the
-//!   send before anything runs there, so a retry of the send names it.
+//!   named for chats; and the send's keys ([`Keys`]). One workspace per
+//!   machine: the plan's ensure names no project, so the platform gives each
+//!   workspace its own machine, and new ones until the plan's machine cap
+//!   (leo-workspace `design/cloud.md`; Leo, 2026-11-06: "one workspace per
+//!   machine ... just arbitrarily many until you hit the cap"). A machine
+//!   that exists is pinned to the send before anything runs there, so a
+//!   retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's
 //!   when the workspace has none yet and no other workspace has it.
@@ -27,7 +30,9 @@
 //!   copy already finished there: a second push would overwrite what the chat
 //!   changed since. Answers the chat's folder there, and how it got there:
 //!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
-//!   `install_url` when a seed copied instead, and `skipped_files`. The push's
+//!   `install_url` when a seed copied instead, `skipped_files`, and `filling`
+//!   when a seed answered at the chat's head while the machine fills the rest
+//!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
@@ -151,7 +156,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             {
                 eprintln!("{}", json!({"store": {"used": false, "error": error}}));
             }
-            copy.run(&ledger, &push)
+            copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
+                push(socket, local, remote, &copy.subpath)
+            })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
@@ -281,7 +288,7 @@ struct PlanRequest {
     /// The cloud environment the send chose (`cloud.startChat`'s `environment`), echoed for `ensure`.
     #[serde(default)]
     environment: Option<String>,
-    /// The cmux credential is the first line of stdin: a project machine for a send from a local folder, on the
+    /// The cmux credential is the first line of stdin: a new machine for a send from a local folder, on the
     /// personal account, is the platform's workspace machine.
     #[serde(default)]
     credential_on_stdin: bool,
@@ -306,7 +313,7 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     })
 }
 
-/// [`plan`], ensuring the project's machine for a local folder on the personal account ([`ensures`]).
+/// [`plan`], ensuring the workspace's own machine for a local folder on the personal account ([`ensures`]).
 pub(super) fn plan_with(
     ledger: &Path,
     request: &str,
@@ -415,7 +422,8 @@ fn plan_with_calls(
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
                 create_key: keys.create,
                 repo: repo.clone(),
-                project_key: project_key.clone().unwrap_or_default(),
+                // No project key: the platform binds one workspace per machine, never a project's shared one.
+                project_key: None,
                 git_ref: None,
                 environment: request.environment.clone(),
                 platform: request.platform.clone(),
@@ -438,7 +446,7 @@ fn plan_with_calls(
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
                         if let Some(workspace) = workspace {
-                            pick::claim_project(pins, workspace, &request.account, id);
+                            pick::claim(pins, workspace, &request.account, id);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -524,7 +532,7 @@ fn reservation_destination(
     json!({"ok": true, "machine": machine})
 }
 
-/// Whether the send uses the platform's project machine: the folder has a project key,
+/// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
 /// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
 fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
@@ -659,7 +667,8 @@ pub(super) struct Ensure {
     workspace: String,
     create_key: String,
     repo: Option<String>,
-    project_key: String,
+    /// Set only by `ensure --project-key`: the platform then shares that project's machine.
+    project_key: Option<String>,
     git_ref: Option<String>,
     environment: Option<String>,
     platform: Option<String>,
@@ -688,8 +697,12 @@ impl Ensure {
             return None;
         }
         let project_key = match optional("--project-key")? {
-            Some(key) => project::normalize_key(&key)?,
-            None => format!("git:github.com/{}", repo.as_deref()?.to_lowercase()),
+            Some(key) => Some(project::normalize_key(&key)?),
+            // Without a project key the ensure needs the repository.
+            None => {
+                repo.as_ref()?;
+                None
+            }
         };
         Some(Self {
             workspace: flags.workspace()??.to_string(),
@@ -706,7 +719,10 @@ impl Ensure {
 
     /// The request body: the plan's `create_key` as the client key, so a retry gets the same machine.
     pub(super) fn body(&self) -> Value {
-        let mut body = json!({"clientKey": self.create_key, "projectKey": self.project_key});
+        let mut body = json!({"clientKey": self.create_key});
+        if let Some(project_key) = &self.project_key {
+            body.set("projectKey", json!(project_key));
+        }
         if let Some(key) = &self.reservation_key {
             body.set("reservationKey", json!(key));
             body.set("reservationSendKey", json!(self.reservation_send_key));
@@ -972,9 +988,20 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
 /// else copied (`cmux link sync push`), which refuses a machine without
-/// `fs-v1` (`machine_outdated`) itself.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
-    super::seed_cli::push(socket, local, remote)
+/// `fs-v1` (`machine_outdated`) itself. A seed answers once the machine has the
+/// head the chat opens on (the root's files, the harness folders and `subpath`),
+/// `filling` while it fills the rest under its sync barrier, so every tool in the
+/// chat still sees the whole checkout. The send's copy counts as finished then
+/// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
+/// never pushes over it. What a later delta builds on waits for the fill to be
+/// done (`seed_cli`'s record).
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+) -> Result<Value, (String, String)> {
+    super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -982,10 +1009,12 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, Str
 /// What the copy's answer carries of the push's own line: how it went
 /// (`mode`: seed or copy), why a seed copied instead (`fallback_code`,
 /// `fallback_why`, and `install_url` when the machine needs the GitHub App),
-/// and the files it left on this Mac, by name.
+/// the files it left on this Mac, by name, and `filling` when the machine
+/// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
+    {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }

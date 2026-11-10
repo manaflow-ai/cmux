@@ -2,8 +2,9 @@ public import Foundation
 
 /// What the Chief profile card's Computer tab shows (cmux issue 31488): the Chief's own computer,
 /// a Cloud sandbox with a desktop that the Chief works on by sight (`chief-vm computer`, backend
-/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The tab shows only when the plan pays for cmux Cloud and the Chief has
-/// set up a computer at least once; from then on it stays, also while the computer sleeps or is gone.
+/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The screen shows only when the plan pays for cmux Cloud and the
+/// Chief has a computer now, also while it sleeps. One that is gone (its sandbox's TTL ended) is no computer:
+/// the Computer tab offers a new one (``HomeChiefProfileView/Gate/notSetUp``).
 public struct HomeChiefComputer: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         /// Running: its screen streams.
@@ -12,7 +13,7 @@ public struct HomeChiefComputer: Equatable, Sendable {
         case asleep
         /// Starting or resuming.
         case waking
-        /// Gone, failed, or the Cloud service did not say.
+        /// Failed, or the Cloud service did not say.
         case unavailable
     }
 
@@ -28,18 +29,23 @@ public struct HomeChiefComputer: Equatable, Sendable {
         public var entitled: Bool?
         /// A computer the owner asked for is being made (Set Up Computer).
         public var provisioning: Bool
+        /// Why the last computer the owner asked for was not made, in the Cloud service's own words. They
+        /// can name its vendors, so the tab shows its own sentence, never these. Nil when none failed.
+        public var provisionError: String?
 
-        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false) {
+        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false,
+                    provisionError: String? = nil) {
             self.used = used
             self.computer = computer
             self.acting = acting
             self.entitled = entitled
             self.provisioning = provisioning
+            self.provisionError = provisionError
         }
 
         public static func == (a: Status, b: Status) -> Bool {
             a.used == b.used && a.acting == b.acting && a.computer?.id == b.computer?.id && a.computer?.state == b.computer?.state
-                && a.entitled == b.entitled && a.provisioning == b.provisioning
+                && a.entitled == b.entitled && a.provisioning == b.provisioning && a.provisionError == b.provisionError
         }
 
         /// The route's JSON (`{ok, value: {used, computer: {id, state} | null}}`); nil for anything else.
@@ -49,11 +55,12 @@ public struct HomeChiefComputer: Equatable, Sendable {
             let computer = value["computer"] as? [String: Any]
             let id = computer?["id"] as? String
             self.init(used: used, computer: id.map { ($0, computer?["state"] as? String ?? "unknown") }, acting: value["acting"] as? Bool ?? false,
-                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false)
+                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false,
+                      provisionError: value["provision_error"] as? String)
         }
     }
 
-    /// The computer's sandbox id; nil when the Chief has none now.
+    /// The computer's sandbox id.
     public var machineID: String?
     /// "<Chief name>'s screen".
     public var title: String
@@ -68,11 +75,15 @@ public struct HomeChiefComputer: Equatable, Sendable {
         self.acting = acting
     }
 
-    /// The section for `status` (nil hides it): a paid plan and a Chief that has used a computer.
+    /// Whether the plan allows the section. A plan the Mac knows decides; an unknown plan (the
+    /// app-server machine list carries no limits) leaves it to the server, whose
+    /// `cloud.plan.required` refusal stays the real gate.
+    public static func planAllows(paysForCloud: Bool?) -> Bool { paysForCloud ?? true }
+
+    /// The section for `status` (nil hides it): a paid plan and a Chief with a computer now.
     public init?(status: Status?, paid: Bool, chief: String) {
-        guard paid, let status, status.used else { return nil }
-        self.init(machineID: status.computer?.id, title: HomeEngineStrings.computerTitle(chief),
-                  state: status.computer.map { Self.state(of: $0.state) } ?? .unavailable, acting: status.acting)
+        guard paid, let status, status.used, let computer = status.computer else { return nil }
+        self.init(machineID: computer.id, title: HomeEngineStrings.computerTitle(chief), state: Self.state(of: computer.state), acting: status.acting)
     }
 
     /// Freestyle's VM states (`GET /v5/vms/ID`).

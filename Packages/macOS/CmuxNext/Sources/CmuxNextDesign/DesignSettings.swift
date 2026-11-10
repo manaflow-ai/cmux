@@ -68,7 +68,7 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
@@ -122,8 +122,6 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
-    /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
-    public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]

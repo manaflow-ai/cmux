@@ -158,9 +158,11 @@ machine attached to you as your computer. One op per call:
   screenshot shows it. A `"effect": "unverifiable"` result means the input
   was sent: check the screenshot.
 - The user can take over the desktop from your profile's Computer tab. While
-  they hold it, input ops fail with `computer.human_has_control` (screenshots
-  still work): stop, say you are waiting for them, and continue after they
-  give it back (`cloud_computer_control` `status`). When a step needs the
+  they hold it, every op fails with `computer.human_has_control`, screenshots
+  and the window list too (what they do there is theirs): stop, say you are
+  waiting for them, and continue after they give it back or 10 idle minutes
+  end their hold (`cloud_computer_control` `status`), with a fresh screenshot.
+  When a step needs the
   user (a sign-in, a password, a payment, a captcha), call
   `cloud_computer_control` `request_human` with a short `reason` and tell
   them; never type a password or card number yourself.

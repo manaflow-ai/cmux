@@ -149,7 +149,7 @@ fn an_input_op_reads_the_lease_then_drives_cmux_cua_on_the_chiefs_computer() {
 }
 
 #[test]
-fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
+fn while_the_person_has_control_every_op_is_refused_screenshots_too() {
     let fake = Fake {
         chief_computer: Some("vm-1".into()),
         action_answers: answers(&[
@@ -164,6 +164,8 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         json!({"op": "click", "x": 1, "y": 1}),
         json!({"op": "type", "text": "x"}),
         json!({"op": "open_url", "url": "https://example.com"}),
+        json!({"op": "screenshot"}),
+        json!({"op": "list_windows"}),
     ] {
         let refused = call(&mut server, "cloud_computer", arguments.clone());
         assert_eq!(refused["isError"], true, "{arguments}");
@@ -173,10 +175,23 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         assert_eq!(refused["structuredContent"]["state"], "not_run");
     }
     assert!(
-        app_runs(&server).iter().all(|run| run["action"] != "cloud exec"),
-        "no input reached the machine"
+        app_runs(&server).iter().all(|run| run["action"] == "cloud.computerControl"),
+        "nothing reached the machine"
     );
+}
 
+#[test]
+fn a_screenshot_reads_the_lease_then_the_chief_holding_it_gets_the_image() {
+    let fake = Fake {
+        chief_computer: Some("vm-1".into()),
+        action_answers: answers(&[
+            ("cloud.computerControl", holder("chief")),
+            ("cloud exec", exec("")),
+            ("cloud file-read", Ok(json!({"data_base64": "iVBORw0K"}))),
+        ]),
+        ..Fake::default()
+    };
+    let mut server = serve(fake);
     let shot = call(&mut server, "cloud_computer", json!({"op": "screenshot"}));
     assert_eq!(shot["isError"], false, "{shot}");
     assert_eq!(
@@ -184,11 +199,13 @@ fn while_the_person_has_control_input_is_refused_and_screenshots_still_work() {
         json!({"type": "image", "data": "iVBORw0K", "mimeType": "image/png"})
     );
     let runs = app_runs(&server);
-    let tail = &runs[runs.len() - 2..];
-    assert_eq!(tail[0]["action"], "cloud exec", "a screenshot reads no lease");
-    assert!(tail[0]["args"]["command"].as_str().unwrap().contains("get_desktop_state"));
-    assert_eq!(tail[1]["action"], "cloud file-read");
-    assert_eq!(tail[1]["target"], "machine:vm-1");
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    assert_eq!(runs[0]["action"], "cloud.computerControl");
+    assert_eq!(runs[0]["args"], json!({"machine": "vm-1", "action": "status"}));
+    assert_eq!(runs[1]["action"], "cloud exec");
+    assert!(runs[1]["args"]["command"].as_str().unwrap().contains("get_desktop_state"));
+    assert_eq!(runs[2]["action"], "cloud file-read");
+    assert_eq!(runs[2]["target"], "machine:vm-1");
 }
 
 #[test]
@@ -261,6 +278,115 @@ fn computer_control_asks_the_person_and_hands_back_through_the_apps_lease() {
             "{arguments}"
         );
     }
+}
+
+/// A Chief of this Mac's own computer (engine.json `computer` `chief:<id>`): every op goes to the
+/// app's `cloud.chiefComputer`, which asks the Worker as the signed-in owner; nothing runs `cloud exec`.
+#[test]
+fn the_chiefs_own_computer_runs_each_op_through_the_apps_own_computer_action() {
+    let mut server = serve(Fake {
+        chief_computer: Some("chief:conv_mario".into()),
+        action_answers: answers(&[(
+            "cloud.chiefComputer",
+            Ok(
+                json!({"done": "click", "image": "/9j/4AAQ", "screen": {"width": 1280, "height": 800}, "windows": [{"title": "Chrome"}]}),
+            ),
+        )]),
+        ..Fake::default()
+    });
+    let listed = call(&mut server, "cloud_machines", json!({}));
+    assert_eq!(listed["structuredContent"]["computer"], "chief:conv_mario", "{listed}");
+    let clicked = call(&mut server, "cloud_computer", json!({"op": "click", "x": 3, "y": 4}));
+    assert_eq!(clicked["isError"], false, "{clicked}");
+    assert_eq!(clicked["structuredContent"]["machine"], "chief:conv_mario");
+    let shot = call(&mut server, "cloud_computer", json!({"op": "screenshot"}));
+    assert_eq!(
+        shot["content"][1],
+        json!({"type": "image", "data": "/9j/4AAQ", "mimeType": "image/jpeg"})
+    );
+    let windows = call(&mut server, "cloud_computer", json!({"op": "list_windows"}));
+    assert_eq!(windows["structuredContent"]["result"], json!([{"title": "Chrome"}]));
+    let opened = call(
+        &mut server,
+        "cloud_computer",
+        json!({"op": "open_url", "url": "https://example.com"}),
+    );
+    assert_eq!(opened["isError"], false, "{opened}");
+    let runs: Vec<Value> = app_runs(&server)
+        .into_iter()
+        .filter(|run| run["action"] != "cloud list-machines")
+        .collect();
+    assert!(runs.iter().all(|run| run["action"] == "cloud.chiefComputer"), "{runs:?}");
+    let args: Vec<(Value, Value)> = runs
+        .iter()
+        .map(|run| {
+            let fields: Value =
+                serde_json::from_str(run["args"]["args"].as_str().unwrap()).unwrap();
+            (run["args"]["op"].clone(), fields)
+        })
+        .collect();
+    assert_eq!(runs[0]["args"]["chief"], "chief:conv_mario");
+    assert_eq!(args[0], (json!("click"), json!({"x": 3, "y": 4, "shot": false})));
+    assert_eq!(args[1], (json!("screenshot"), json!({})));
+    assert_eq!(args[2], (json!("windows"), json!({})));
+    assert_eq!(args[3], (json!("open"), json!({"url": "https://example.com", "shot": false})));
+    // A machine named in the call still goes to that machine, not the Chief's own computer.
+    let mut server = serve(Fake {
+        chief_computer: Some("chief:conv_mario".into()),
+        action_answers: answers(&[
+            ("cloud.computerControl", holder("chief")),
+            ("cloud exec", exec("")),
+        ]),
+        ..Fake::default()
+    });
+    let moved = call(
+        &mut server,
+        "cloud_computer",
+        json!({"op": "move", "machine": "machine:vm-1", "x": 5, "y": 6}),
+    );
+    assert_eq!(moved["isError"], false, "{moved}");
+    assert!(app_runs(&server).iter().all(|run| run["action"] != "cloud.chiefComputer"));
+}
+
+/// While the person holds the Chief's own computer the Worker refuses every op, and the tool says so;
+/// the lease tool asks and hands back through the same action.
+#[test]
+fn the_chiefs_own_computer_is_refused_while_the_person_holds_it_and_its_lease_goes_through_the_app()
+{
+    let held = json!({"code": "computer.human_has_control", "message": "the person is using your computer"});
+    let mut server = serve(Fake {
+        chief_computer: Some("chief:conv_mario".into()),
+        action_answers: answers(&[("cloud.chiefComputer", Err(held))]),
+        ..Fake::default()
+    });
+    let refused = call(&mut server, "cloud_computer", json!({"op": "type", "text": "x"}));
+    assert_eq!(refused["isError"], true);
+    assert_eq!(
+        refused["structuredContent"]["error"]["code"], "computer.human_has_control",
+        "{refused}"
+    );
+
+    let mut server = serve(Fake {
+        chief_computer: Some("chief:conv_mario".into()),
+        action_answers: answers(&[(
+            "cloud.chiefComputer",
+            Ok(json!({"control": {"holder": "human", "by": "chief"}})),
+        )]),
+        ..Fake::default()
+    });
+    let asked = call(
+        &mut server,
+        "cloud_computer_control",
+        json!({"action": "request_human", "reason": "Sign in"}),
+    );
+    assert_eq!(asked["isError"], false, "{asked}");
+    assert_eq!(asked["structuredContent"]["control"]["holder"], "human");
+    let status = call(&mut server, "cloud_computer_control", json!({"action": "status"}));
+    assert_eq!(status["isError"], false, "{status}");
+    let runs = app_runs(&server);
+    assert_eq!(runs[0]["args"]["op"], "request_human");
+    assert_eq!(runs[0]["args"]["args"], json!({"reason": "Sign in"}).to_string());
+    assert_eq!(runs[1]["args"]["op"], "control");
 }
 
 #[test]

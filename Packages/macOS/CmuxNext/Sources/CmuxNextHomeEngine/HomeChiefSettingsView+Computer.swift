@@ -65,7 +65,9 @@ extension HomeChiefSettingsView {
         }
         add(HomeEngineStrings.computerThisMac, nil)
         for machine in machines { add(machine.title, machine.target) }
-        if let computer, !machines.contains(where: { $0.target == computer }) { add(computer, computer) }
+        // The Chief's own computer (Set Up Computer in its profile) is no Cloud machine of the list.
+        if let computer, computer.hasPrefix("chief:") { add(HomeEngineStrings.computerOwn, computer) }
+        else if let computer, !machines.contains(where: { $0.target == computer }) { add(computer, computer) }
         menu.addItem(.separator())
         add(HomeEngineStrings.computerNew, nil, tag: Self.newComputerTag)
         computerPicker.menu = menu
@@ -75,15 +77,23 @@ extension HomeChiefSettingsView {
         // set, so the owner can still detach it.
         let hidden = !source.isLocal && computer == nil
         if computerRow.isHidden != hidden { computerRow.isHidden = hidden }
-        let attached = computer != nil
-        computerNote.stringValue = attached ? HomeEngineStrings.computerCloudNote : HomeEngineStrings.computerMacNote
-        if computerDesktop.isHidden == attached { computerDesktop.isHidden = !attached }
+        computerNote.stringValue = computer != nil ? HomeEngineStrings.computerCloudNote : HomeEngineStrings.computerMacNote
+        // Show Desktop opens a Cloud machine's; the Chief's own computer shows in its profile's Computer tab.
+        let machine = attachedMachine != nil
+        if computerDesktop.isHidden == machine { computerDesktop.isHidden = !machine }
         onComputerShown()
     }
 
-    /// The Cloud machine id the Chief uses as its computer (engine.json's `machine:<id>`); nil: this Mac.
+    /// The Cloud machine id the Chief uses as its computer (engine.json's `machine:<id>`); nil: this Mac or its own computer (`chief:<id>`).
     public var attachedMachine: String? {
-        shownComputer.map { String($0.dropFirst("machine:".count)) }
+        shownComputer.flatMap { $0.hasPrefix("machine:") ? String($0.dropFirst("machine:".count)) : nil }
+    }
+
+    /// Makes `target` (engine.json's `computer`: the Chief's own computer, `chief:<id>`) the Chief's Computer Use
+    /// computer, as a pick in the picker does; true when the brain took it (the picker shows it).
+    func attach(_ target: String) async -> Bool {
+        await pick("computer", target).value
+        return shownComputer == target
     }
 
     @objc func pickedComputer(_ sender: NSPopUpButton) {
@@ -113,7 +123,7 @@ extension HomeChiefSettingsView {
 
     /// Show Desktop: the attached machine's screen, live in a cmux browser (`cloud open-desktop`).
     @objc func showComputerDesktop() {
-        guard let target = shownComputer else { return }
-        onShowComputerDesktop(String(target.dropFirst("machine:".count)))
+        guard let machine = attachedMachine else { return }
+        onShowComputerDesktop(machine)
     }
 }

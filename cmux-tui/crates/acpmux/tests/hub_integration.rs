@@ -70,6 +70,8 @@ mod prompt_approval;
 mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
+#[path = "hub_integration/prompt_coach.rs"]
+mod prompt_coach;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[cfg(unix)]
@@ -1182,7 +1184,8 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert!(err.contains("unknown preset"), "{err}");
     // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
     // does not start (W5-L).
-    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all"}});
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all",
+        "env": {"FAKE_ASK_CLAIM": "0"}}});
     c.request(method::MUX_PRESETS, locked).await.unwrap();
     let err = c
         .request(

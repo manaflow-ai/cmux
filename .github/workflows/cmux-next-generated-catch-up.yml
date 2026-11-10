@@ -60,7 +60,9 @@ jobs:
           echo "Conflicting PRs to catch up: $prs" >> "$GITHUB_STEP_SUMMARY"
 
   catch-up:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}

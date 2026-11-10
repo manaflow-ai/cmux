@@ -7,8 +7,8 @@ import Foundation
 import CmuxNextCompat
 import UniformTypeIdentifiers
 
-/// The Chief's settings: the Details, Settings and Computer tabs of the profile panel the header's
-/// avatar and name pill open (`HomeChiefProfileView`, ``showSection(_:)``). Leo 2026-10-19 ("kinda
+/// The Chief's settings: the Details, Settings and Computer tabs of the Chief's profile, in the popover
+/// the Messages page's name pill opens (`HomeChiefProfileView`, ``showSection(_:)``). Leo 2026-10-19 ("kinda
 /// yikes"): it was a right sidebar with no surface of its own that ran under
 /// the header, a raw avatar text field, stacked pickers that all read
 /// "Default", and the trace stats in the body. Now it is one settings card:
@@ -85,7 +85,7 @@ public final class HomeChiefSettingsView: NSView {
     /// Chief whose brain runs on a paired server.
     var localViews: [NSView] = []
     let stack = NSStackView()
-    /// The profile panel's tabs' parts of the card (``showSection(_:)``); `addFullWidth` adds to ``filling``'s.
+    /// The profile's tabs' parts of the card (``showSection(_:)``); `addFullWidth` adds to ``filling``'s.
     let sections = HomeChiefSettingsSections()
     var filling: HomeChiefProfileTab?
     lazy var editChief = Self.footerButton(HomeEngineStrings.editChief, target: self, action: #selector(openAllSettings))

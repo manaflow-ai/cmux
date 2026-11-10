@@ -81,8 +81,19 @@ pub struct Watches {
     wake: Notify,
     jobs: Mutex<Jobs>,
     available: Notify,
+    /// Tests: how often the loop of `start` came around, and a panic asked of its next pass.
+    #[cfg(test)]
+    passes: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    panic_next: std::sync::atomic::AtomicBool,
 }
 impl Watches {
+    #[cfg(test)]
+    fn test_pass(&self) {
+        use std::sync::atomic::Ordering;
+        self.passes.fetch_add(1, Ordering::SeqCst);
+        assert!(!self.panic_next.swap(false, Ordering::SeqCst), "watch loop test panic");
+    }
     pub(super) fn peer_settled(&self) {
         self.wake.notify_one();
     }
@@ -150,33 +161,39 @@ impl Watches {
         for _ in 0..REMOTE_WORKERS {
             tokio::spawn(remote_worker(Arc::clone(hub)));
         }
-        let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
         let weak = Arc::downgrade(hub);
-        tokio::spawn(async move {
-            let Some(hub) = weak.upgrade() else { return };
-            hub.wait_logs().await;
-            hub.wait_startup().await;
-            let mut refresh = true;
-            loop {
-                if refresh && let Err(e) = reconcile(&hub).await {
-                    tracing::error!("watch: {e}");
-                }
-                refresh = tokio::select! {
-                    () = hub.shutdown.notified() => break,
-                    () = hub.watches.wake.notified() => true,
-                    () = hub.outbox.changed.notified() => { drain(&hub, false); false },
-                    e = events.recv() => match e {
-                        Ok(e) => concerns(&hub, &e),
-                        Err(broadcast::error::RecvError::Lagged(_)) => true,
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    }
-                };
-                // Coalesce already queued changes; no timer and no periodic reads.
+        // After a panic the loop starts over: subscribed again, then a full reconcile.
+        crate::supervise::restarting("watch", &hub.fatal, move || {
+            let weak = weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
+                hub.wait_logs().await;
+                hub.wait_startup().await;
+                let mut refresh = true;
                 loop {
-                    match events.try_recv() {
-                        Ok(e) => refresh |= concerns(&hub, &e),
-                        Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
-                        Err(_) => break,
+                    #[cfg(test)]
+                    hub.watches.test_pass();
+                    if refresh && let Err(e) = reconcile(&hub).await {
+                        tracing::error!("watch: {e}");
+                    }
+                    refresh = tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = hub.watches.wake.notified() => true,
+                        () = hub.outbox.changed.notified() => { drain(&hub, false); false },
+                        e = events.recv() => match e {
+                            Ok(e) => concerns(&hub, &e),
+                            Err(broadcast::error::RecvError::Lagged(_)) => true,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    };
+                    // Coalesce already queued changes; no timer and no periodic reads.
+                    loop {
+                        match events.try_recv() {
+                            Ok(e) => refresh |= concerns(&hub, &e),
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => refresh = true,
+                            Err(_) => break,
+                        }
                     }
                 }
             }
@@ -255,7 +272,7 @@ fn commit(
                 "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
                     "watchId": w.id, "watchDone": resolved}}});
             saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), unproven_caller: None, state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
+                caller: w.caller.clone(), unproven_caller: None, not_terminal: false, state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
                 accepted: None, created_at: now, updated_at: now });
         }
     })
@@ -399,10 +416,11 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 crate::server::outbox::resume(hub, vec![d]);
             }
             Some(_) => {}
-            None => {
-                hub.outbox.add(d.clone());
-                crate::server::outbox::resume(hub, vec![d]);
-            }
+            // Not saved: the watch still owes it and hands it over again on a later drain.
+            None => match hub.outbox.add(d.clone()) {
+                Ok(_) => crate::server::outbox::resume(hub, vec![d]),
+                Err(e) => tracing::warn!("watch: wake {} not queued: {e:#}", d.id),
+            },
         }
     }
 }
@@ -418,6 +436,35 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{Duration, sleep};
+
+    /// A panic in the watch loop ended it for the daemon's whole life: no watch resolved and no
+    /// owed wake was sent again, with one line in `panics.jsonl` as the only sign. The loop
+    /// starts again (`crate::supervise`).
+    #[tokio::test]
+    async fn the_watch_loop_runs_again_after_a_panic() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let hub = Hub::new(
+            config.clone(),
+            store::open(&config.store, Path::new("/nonexistent")).unwrap(),
+        );
+        Watches::start(&hub);
+        let passes = |hub: &Hub| hub.watches.passes.load(Ordering::SeqCst);
+        let reaches = |hub: Arc<Hub>, n: usize| async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while passes(&hub) < n {
+                    hub.watches.wake.notify_one();
+                    sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+        };
+        reaches(hub.clone(), 1).await.expect("the loop runs");
+        hub.watches.panic_next.store(true, Ordering::SeqCst);
+        let before = passes(&hub);
+        reaches(hub.clone(), before + 3).await.expect("the loop came around again after its panic");
+        assert!(!hub.watches.panic_next.load(Ordering::SeqCst), "the loop never panicked");
+    }
 
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {

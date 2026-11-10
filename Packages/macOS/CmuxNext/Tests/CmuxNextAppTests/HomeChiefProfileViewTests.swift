@@ -43,6 +43,67 @@ import Testing
         rig.page.computer.close()
     }
 
+    /// The sandbox's TTL ended (`used: true, computer: null`): the tab offers a new computer and the bar
+    /// is gone (it would say the Chief is using it, and Take Over would get 404). Being made, it says so.
+    @Test func aComputerThatIsGoneOffersANewOneAndHidesTheBar() async {
+        let rig = Rig(status: .init(used: true, computer: nil))
+        rig.page.onProvision = {}
+        rig.page.control = HomeChiefComputerControlSource(state: { .chief }, observe: { _ in NSObject() }, takeOver: {}, handBack: {})
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 1 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.computer.isHidden, "no \"Computer isn't available\" beside the offer")
+        #expect(!rig.page.gateButton.isHidden)
+        #expect(rig.page.gateButton.title == HomeEngineStrings.computerProvision)
+        #expect(rig.page.controlBar.isHidden)
+
+        rig.feed.status = .init(used: true, computer: nil, provisioning: true)
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 2 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        #expect(rig.page.gateButton.isHidden)
+        #expect(rig.page.controlBar.isHidden)
+
+        // A page with no Set Up Computer still says it is being made.
+        rig.page.onProvision = nil
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        rig.page.computer.close()
+    }
+
+    /// A background provision that failed says so, with the app's own sentence and not the Cloud service's
+    /// words, and Set Up Computer tries again; asking again takes the failure away at once.
+    @Test func aFailedBackgroundProvisionSaysSoAndOffersARetry() async {
+        let rig = Rig(status: .init(used: false, computer: nil, provisionError: "Freestyle did not make the VM (500)"))
+        var asks = 0
+        rig.page.onProvision = { asks += 1 }
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 1 }
+        await settle()
+        #expect(rig.page.shownGate == .notSetUp)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisionFailed("mario"))
+        #expect(!rig.page.gateButton.isHidden)
+
+        rig.feed.status = .init(used: false, computer: nil, provisioning: true)
+        rig.page.provision()
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        await until { asks == 1 }
+        await until { rig.feed.statuses >= 2 }
+        await settle()
+        #expect(!rig.page.computer.provisionFailed)
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+
+        // A status with no failure and nothing being made: the offer again.
+        rig.feed.status = .init(used: false, computer: nil)
+        rig.page.computer.open()
+        await until { rig.feed.statuses >= 3 }
+        await settle()
+        #expect(rig.page.gateLabel.stringValue == HomeEngineStrings.computerProvisionNote("mario"))
+        rig.page.computer.close()
+    }
+
     @Test func thePopupShowsOnlyWhileTheChiefActsDuringATurn() async {
         let feed = Feed(status: .init(used: true, computer: ("vm", "running"), acting: true))
         let popup = Self.popup(feed)

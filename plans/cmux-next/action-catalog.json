@@ -3,6 +3,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64,6 +65,7 @@
           "title" : "Section"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -806,6 +808,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -950,6 +953,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -960,6 +964,7 @@
           "title" : "Keep Sessions Running"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -970,6 +975,7 @@
           "title" : "End Sessions, Keep Layout"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -1319,6 +1325,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -1399,6 +1406,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -1409,6 +1417,7 @@
           "title" : "Scope"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -1710,6 +1719,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -1791,6 +1801,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2202,6 +2213,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2212,6 +2224,7 @@
           "title" : "Process"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2284,6 +2297,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2294,6 +2308,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2304,6 +2319,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2314,6 +2330,7 @@
           "title" : "Command"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2324,6 +2341,7 @@
           "title" : "Environment (JSON)"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -2334,6 +2352,7 @@
           "title" : "Focus"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -3308,6 +3327,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -3391,6 +3411,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -3544,6 +3565,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -3777,6 +3799,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : true,
@@ -4081,6 +4104,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4188,6 +4212,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4267,6 +4292,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4411,6 +4437,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4509,6 +4536,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4588,6 +4616,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4667,6 +4696,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4746,6 +4776,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4758,6 +4789,7 @@
           "title" : "Window"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4840,6 +4872,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -4914,6 +4947,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -5286,6 +5320,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6164,6 +6199,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6176,6 +6212,7 @@
           "title" : "Group"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6257,6 +6294,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6336,6 +6374,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6766,6 +6805,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -6918,6 +6958,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -7004,6 +7045,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -7777,6 +7819,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -7858,6 +7901,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -8088,6 +8132,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -8390,6 +8435,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -8466,6 +8512,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -8542,6 +8589,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -8622,6 +8670,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -9354,6 +9403,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -9589,6 +9639,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -9977,6 +10028,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -10125,6 +10177,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -10242,6 +10295,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -10466,6 +10520,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -11250,6 +11305,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -11350,6 +11406,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -11430,6 +11487,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -11508,6 +11566,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -12453,6 +12512,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -12463,6 +12523,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -12512,6 +12573,7 @@
           "title" : "Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -12597,6 +12659,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -12672,6 +12735,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -12757,6 +12821,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -12843,6 +12908,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -12931,6 +12997,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -13013,6 +13080,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -13093,6 +13161,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -13933,6 +14002,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14088,6 +14158,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14098,6 +14169,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14173,6 +14245,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14251,6 +14324,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14333,6 +14407,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14345,6 +14420,7 @@
           "title" : "Move Workspaces To"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14682,6 +14758,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -14950,6 +15027,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15152,6 +15230,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -15228,6 +15307,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15311,6 +15391,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15395,6 +15476,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15478,6 +15560,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15706,6 +15789,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -15932,6 +16016,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -16144,6 +16229,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -16154,6 +16240,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -16249,6 +16336,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -16570,6 +16658,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -16580,6 +16669,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -17760,6 +17850,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -17915,6 +18006,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -19604,6 +19696,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -19674,6 +19767,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -19937,6 +20031,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -19947,6 +20042,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -19968,6 +20064,7 @@
           "title" : "Open In"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -23285,6 +23382,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -23889,6 +23987,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -23899,6 +23998,7 @@
           "title" : "Text"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -23909,6 +24009,7 @@
           "title" : "Search the Web"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24058,6 +24159,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24068,6 +24170,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24163,6 +24266,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24173,6 +24277,7 @@
           "title" : "URL"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24194,6 +24299,7 @@
           "title" : "Engine"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24488,6 +24594,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24563,6 +24670,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -24952,6 +25060,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -26385,6 +26494,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -26468,6 +26578,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -27377,6 +27488,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -28913,6 +29025,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -29481,6 +29594,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -29927,6 +30041,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30335,6 +30450,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30345,6 +30461,7 @@
           "title" : "Person or Email Address"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30494,6 +30611,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30570,6 +30688,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30648,6 +30767,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30658,6 +30778,7 @@
           "title" : "Chief Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30668,6 +30789,7 @@
           "title" : "Harness"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30744,6 +30866,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30824,6 +30947,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30906,6 +31030,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -30923,6 +31048,7 @@
           "title" : "Chief"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31196,6 +31322,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31381,6 +31508,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31458,6 +31586,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31539,6 +31668,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31549,6 +31679,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31624,6 +31755,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31634,6 +31766,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31718,6 +31851,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31728,6 +31862,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31804,6 +31939,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31814,6 +31950,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31889,6 +32026,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -31966,6 +32104,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32042,6 +32181,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32059,6 +32199,7 @@
           "title" : "Members"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32069,6 +32210,7 @@
           "title" : "Group Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32164,6 +32306,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32174,6 +32317,7 @@
           "title" : "Channel Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32191,6 +32335,7 @@
           "title" : "Members"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32271,6 +32416,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32281,6 +32427,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32375,6 +32522,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32385,6 +32533,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32464,6 +32613,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32612,6 +32762,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32622,6 +32773,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32632,6 +32784,7 @@
           "title" : "My Bubble Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32642,6 +32795,7 @@
           "title" : "My Text Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32652,6 +32806,7 @@
           "title" : "Their Bubble Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32662,6 +32817,7 @@
           "title" : "Their Text Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32741,6 +32897,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32751,6 +32908,7 @@
           "title" : "Conversation"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32897,6 +33055,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -32907,6 +33066,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33055,6 +33215,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33070,6 +33231,7 @@
           "title" : "Header Style"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33080,6 +33242,7 @@
           "title" : "Expanded"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33090,6 +33253,7 @@
           "title" : "Team Chat"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33100,6 +33264,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33180,6 +33345,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33195,6 +33361,7 @@
           "title" : "Card Style"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33210,6 +33377,7 @@
           "title" : "Server"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33295,6 +33463,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33310,6 +33479,7 @@
           "title" : "Variant"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33325,6 +33495,7 @@
           "title" : "Picture Set"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33407,6 +33578,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33493,6 +33665,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33510,6 +33683,7 @@
           "title" : "To"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33689,6 +33863,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33786,6 +33961,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33796,6 +33972,7 @@
           "title" : "Text"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33901,6 +34078,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33911,6 +34089,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -33960,6 +34139,7 @@
           "title" : "Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34041,6 +34221,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34053,6 +34234,7 @@
           "title" : "Group"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34132,6 +34314,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34212,6 +34395,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34290,6 +34474,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34407,6 +34592,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34820,6 +35006,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -34898,6 +35085,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -35135,6 +35323,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -35495,6 +35684,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -35568,6 +35758,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36370,6 +36561,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36380,6 +36572,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36429,6 +36622,7 @@
           "title" : "Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36439,6 +36633,7 @@
           "title" : "Icon"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36672,6 +36867,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36751,6 +36947,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -36830,6 +37027,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -37107,6 +37305,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -37251,6 +37450,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -37403,6 +37603,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -37592,6 +37793,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -38616,6 +38818,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -38842,6 +39045,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -38852,6 +39056,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -38971,6 +39176,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -39196,6 +39402,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -39276,6 +39483,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -39395,6 +39603,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -39818,6 +40027,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -40040,6 +40250,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -40407,6 +40618,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -40479,6 +40691,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -40489,6 +40702,7 @@
           "title" : "Saved Group"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -41699,6 +41913,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -41847,6 +42062,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -41934,6 +42150,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -42591,6 +42808,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -42661,6 +42879,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -42866,6 +43085,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -44872,6 +45092,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -44905,6 +45126,7 @@
           "title" : "Time Range"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -44917,6 +45139,7 @@
           "title" : "Browser Profile"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -45324,6 +45547,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -45620,6 +45844,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -45920,6 +46145,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -46922,6 +47148,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -46932,6 +47159,7 @@
           "title" : "Device"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47097,6 +47325,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47433,6 +47662,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47582,6 +47812,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47592,6 +47823,7 @@
           "title" : "From Browser"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47602,6 +47834,7 @@
           "title" : "Sites"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -47612,6 +47845,7 @@
           "title" : "Reason"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -49759,6 +49993,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -51779,6 +52014,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -51859,6 +52095,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -51938,6 +52175,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52018,6 +52256,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52097,6 +52336,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52179,6 +52419,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52260,6 +52501,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52344,6 +52586,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52429,6 +52672,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52439,6 +52683,7 @@
           "title" : "Link"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52523,6 +52768,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52603,6 +52849,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52688,6 +52935,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52772,6 +53020,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52857,6 +53106,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -52941,6 +53191,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -53022,6 +53273,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -53107,6 +53359,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -53253,6 +53506,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -53737,6 +53991,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -54421,6 +54676,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -54431,6 +54687,7 @@
           "title" : "Site"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -54514,6 +54771,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -54619,6 +54877,7 @@
           "title" : "Permission"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55161,6 +55420,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55252,6 +55512,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55344,6 +55605,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55432,6 +55694,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55511,6 +55774,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55591,6 +55855,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55669,6 +55934,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55747,6 +56013,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55824,6 +56091,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55901,6 +56169,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55911,6 +56180,7 @@
           "title" : "Extension"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -55996,6 +56266,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56075,6 +56346,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56085,6 +56357,7 @@
           "title" : "Extension"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56163,6 +56436,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56173,6 +56447,7 @@
           "title" : "Extension"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56252,6 +56527,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56262,6 +56538,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56311,6 +56588,7 @@
           "title" : "Color"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56398,6 +56676,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56483,6 +56762,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56685,6 +56965,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56850,6 +57131,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56938,6 +57220,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -56950,6 +57233,7 @@
           "title" : "Browser Profile"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57045,6 +57329,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57132,6 +57417,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57219,6 +57505,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57231,6 +57518,7 @@
           "title" : "Browser Profile"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57309,6 +57597,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57319,6 +57608,7 @@
           "title" : "URL"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57400,6 +57690,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57566,6 +57857,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57724,6 +58016,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57813,6 +58106,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57902,6 +58196,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57935,6 +58230,7 @@
           "title" : "Time Range"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57945,6 +58241,7 @@
           "title" : "Browsing History"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57955,6 +58252,7 @@
           "title" : "Cookies and Site Data"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -57965,6 +58263,7 @@
           "title" : "Cached Images and Files"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -58055,6 +58354,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -58145,6 +58445,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -59692,6 +59993,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60378,6 +60680,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60388,6 +60691,7 @@
           "title" : "Checklist Item"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60458,6 +60762,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60528,6 +60833,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60598,6 +60904,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60729,6 +61036,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -60739,6 +61047,7 @@
           "title" : "Checklist Item"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -61009,6 +61318,186 @@
 
       ],
       "title" : "Disable Minimal Mode",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-open-item",
+      "computed" : {
+        "canonical_action_id" : "feed.openItem",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.openItem",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "open",
+        "item"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.forward.square",
+      "targets" : [
+
+      ],
+      "title" : "Open Feed Item",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "GitHub Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "comment",
+          "suggestions" : null,
+          "title" : "Comment"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-github-action",
+      "computed" : {
+        "canonical_action_id" : "feed.githubAction",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.githubAction",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "github",
+        "pull request",
+        "review",
+        "approve",
+        "comment",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.triangle.pull",
+      "targets" : [
+
+      ],
+      "title" : "Run a Feed Item's GitHub Action",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -62507,6 +62996,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62595,6 +63085,7 @@
           "title" : "Sound"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62632,6 +63123,7 @@
           "title" : "Event"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62647,6 +63139,7 @@
           "title" : "Volume (%)"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62732,6 +63225,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62820,6 +63314,7 @@
           "title" : "Sound"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62857,6 +63352,7 @@
           "title" : "Event"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62872,6 +63368,7 @@
           "title" : "Volume (%)"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62958,6 +63455,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -62990,6 +63488,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63078,6 +63577,7 @@
           "title" : "Sound"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63115,6 +63615,7 @@
           "title" : "Event"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63130,6 +63631,7 @@
           "title" : "Volume (%)"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63209,6 +63711,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63242,6 +63745,7 @@
           "title" : "Event"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63330,6 +63834,7 @@
           "title" : "Sound"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63411,6 +63916,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -63526,6 +64032,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64013,6 +64520,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64023,6 +64531,7 @@
           "title" : "Folder"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64033,6 +64542,7 @@
           "title" : "Harness"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64043,6 +64553,7 @@
           "title" : "Model"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64142,6 +64653,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -64996,8 +65508,11 @@
         "agent",
         "ui",
         "pointer",
+        "point",
+        "point at element",
         "inspect",
         "inspect element",
+        "inspect ui element",
         "pick",
         "element",
         "debug"
@@ -65018,7 +65533,7 @@
             "context" : "agentChat",
             "folder" : "tools",
             "group" : "inspect",
-            "label" : "Inspect Element",
+            "label" : "Point at Element…",
             "parent" : null,
             "rank" : 1,
             "style" : "item"
@@ -65036,7 +65551,7 @@
       "targets" : [
 
       ],
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -66944,7 +67459,7 @@
         "palette",
         "contextMenu"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
 
       ],
@@ -68088,6 +68603,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68098,6 +68614,7 @@
           "title" : "Session"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68108,6 +68625,7 @@
           "title" : "Workspace Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68118,6 +68636,7 @@
           "title" : "Default Workspace Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68128,6 +68647,7 @@
           "title" : "Workspace Key"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68138,6 +68658,7 @@
           "title" : "Folder"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68148,6 +68669,7 @@
           "title" : "Session Host"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68158,6 +68680,7 @@
           "title" : "Group"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68233,6 +68756,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68243,6 +68767,7 @@
           "title" : "Session"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68590,7 +69115,77 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "agents",
+      "cliName" : "action chief-toggle-computer",
+      "computed" : {
+        "canonical_action_id" : "chief.toggleComputer",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "chief.toggleComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "computer",
+        "screen",
+        "cloud",
+        "profile",
+        "panel",
+        "show",
+        "hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Chief: Toggle Computer",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68608,6 +69203,7 @@
           "title" : "Target"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68687,6 +69283,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68766,6 +69363,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68776,6 +69374,7 @@
           "title" : "Cloud Chief"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -68858,6 +69457,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -69075,6 +69675,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -69085,6 +69686,7 @@
           "title" : "Entry"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70084,6 +70686,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70171,6 +70774,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70258,6 +70862,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70725,6 +71330,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70740,6 +71346,7 @@
           "title" : "Surface"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70750,6 +71357,7 @@
           "title" : "Expires After"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70765,6 +71373,7 @@
           "title" : "Uses"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70786,6 +71395,7 @@
           "title" : "Access"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70882,6 +71492,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -70961,6 +71572,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71025,7 +71637,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "link.badge.minus",
+      "symbol" : "minus.circle",
       "targets" : [
 
       ],
@@ -71037,6 +71649,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71047,6 +71660,7 @@
           "title" : "Share ID"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71121,6 +71735,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71131,6 +71746,7 @@
           "title" : "Email or @handle"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71152,6 +71768,7 @@
           "title" : "Access"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71167,6 +71784,7 @@
           "title" : "Surface"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71254,6 +71872,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71264,6 +71883,7 @@
           "title" : "Email or @handle"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -71279,6 +71899,7 @@
           "title" : "Surface"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72117,6 +72738,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72263,6 +72885,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72273,6 +72896,7 @@
           "title" : "Command"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72283,6 +72907,7 @@
           "title" : "Arguments"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72293,6 +72918,7 @@
           "title" : "Registry Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72303,6 +72929,7 @@
           "title" : "Example"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72313,6 +72940,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72323,6 +72951,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72344,6 +72973,7 @@
           "title" : "Protocol"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72491,6 +73121,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72566,6 +73197,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72639,6 +73271,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72715,6 +73348,105 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "id",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "agentHarnessProfiles"
+          },
+          "title" : "Agent"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "icon",
+          "suggestions" : null,
+          "title" : "Icon"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-harness-set-icon",
+      "computed" : {
+        "canonical_action_id" : "agent.harness.setIcon",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentHarnessActionCatalog",
+      "hint" : null,
+      "id" : "agent.harness.setIcon",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "agent",
+        "harness",
+        "acp",
+        "icon",
+        "emoji",
+        "symbol",
+        "logo",
+        "mark",
+        "profile"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "face.smiling",
+      "targets" : [
+
+      ],
+      "title" : "Set Agent Icon…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72725,6 +73457,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72800,6 +73533,318 @@
 
       ],
       "title" : "Update Agent CLIs",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : true,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Worktree Name"
+        },
+        {
+          "isAskedInPalette" : true,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "base",
+          "suggestions" : null,
+          "title" : "Base Revision"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-create",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "branch",
+        "checkout",
+        "new",
+        "create",
+        "isolate"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.triangle.branch",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "New Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-apply",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.apply",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.apply",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "apply",
+        "merge",
+        "bring back",
+        "main",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "arrow.down.to.line",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Apply Worktree to Main Checkout",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : true,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "discard",
+          "suggestions" : null,
+          "title" : "Discard Unsaved Work"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "bool",
+          "name" : "confirm",
+          "suggestions" : null,
+          "title" : "Confirm"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "action git-worktree-remove",
+      "computed" : {
+        "canonical_action_id" : "git.worktree.remove",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.worktree.remove",
+      "isDebugOnly" : false,
+      "isDestructive" : true,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "worktree",
+        "remove",
+        "delete",
+        "clean up",
+        "branch"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "trash",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Remove Git Worktree",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "tab",
+      "cliName" : "action git-checkpoint-create",
+      "computed" : {
+        "canonical_action_id" : "git.checkpoint.create",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "GitActionCatalog",
+      "hint" : null,
+      "id" : "git.checkpoint.create",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "git",
+        "checkpoint",
+        "snapshot",
+        "save",
+        "capture",
+        "stash"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "camera",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Create Git Checkpoint",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -72885,6 +73930,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72895,6 +73941,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72905,6 +73952,7 @@
           "title" : "Size"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72915,6 +73963,7 @@
           "title" : "Persistent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72925,6 +73974,7 @@
           "title" : "Bootstrap"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72935,6 +73985,7 @@
           "title" : "Bootstrap Script"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72945,6 +73996,7 @@
           "title" : "Machine Config"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -72955,6 +74007,7 @@
           "title" : "Repository"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -73086,7 +74139,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
         "machine"
       ],
@@ -73167,6 +74220,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -73591,6 +74645,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -73601,6 +74656,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -73762,6 +74818,96 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud move-to-machine",
+      "computed" : {
+        "canonical_action_id" : "cloudMoveToMachine",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloudMoveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "move",
+        "machine",
+        "other",
+        "another",
+        "remote",
+        "chat",
+        "agent",
+        "sync"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : null,
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move to Another Machine",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "cloud",
@@ -73835,6 +74981,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -73983,6 +75130,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74065,6 +75213,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74146,6 +75295,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74156,6 +75306,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74237,6 +75388,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74318,6 +75470,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74328,6 +75481,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74409,6 +75563,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74490,6 +75645,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -74572,7 +75728,8 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isAskedInPalette" : false,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -74597,7 +75754,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Attaches this Mac's Cloud tunnel to a private network. The network id (from `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Attaches this Mac's Cloud tunnel to its team's network, the only one it joins. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74652,7 +75809,8 @@
     {
       "arguments" : [
         {
-          "isRequired" : true,
+          "isAskedInPalette" : false,
+          "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
@@ -74677,7 +75835,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Detaches this Mac's Cloud tunnel from a private network. The network id goes in the path argument: --arg path=<network id>. Returns no fields.",
+      "description" : "Detaches this Mac's Cloud tunnel from its team's network. The path argument is optional: none means the joined team; a network id (--arg path=<team id>) must be that team's. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74731,16 +75889,7 @@
     },
     {
       "arguments" : [
-        {
-          "isRequired" : true,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : "string",
-          "name" : "publicKey",
-          "suggestions" : null,
-          "title" : "SSH Public Key"
-        }
+
       ],
       "category" : "cloud",
       "cliName" : "cloud tunnel-rotate-key",
@@ -74757,7 +75906,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Replaces the client public key of this Mac's Cloud tunnel with --public-key. Returns no fields.",
+      "description" : "Gives this Mac a new WireGuard key for its Cloud tunnel: the agent daemon makes the key, registers it, then uses it. Returns no fields.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -74954,6 +76103,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75034,6 +76184,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75114,6 +76265,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75124,6 +76276,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75330,6 +76483,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75345,6 +76499,7 @@
           "title" : "Port"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75429,6 +76584,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75501,6 +76657,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75511,6 +76668,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75521,6 +76679,7 @@
           "title" : "API Key"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75658,6 +76817,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75807,6 +76967,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75898,6 +77059,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -75976,6 +77138,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76200,6 +77363,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76285,6 +77449,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76441,6 +77606,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76470,6 +77636,7 @@
           "title" : "Size"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76557,6 +77724,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76642,6 +77810,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76652,6 +77821,7 @@
           "title" : "Repository"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76735,6 +77905,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76841,6 +78012,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76940,6 +78112,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -76950,6 +78123,7 @@
           "title" : "Snapshot"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77091,6 +78265,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77368,6 +78543,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77383,6 +78559,7 @@
           "title" : "Port"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77540,6 +78717,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77628,6 +78806,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77716,6 +78895,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77804,6 +78984,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77819,6 +79000,7 @@
           "title" : "Port"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -77903,6 +79085,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78173,6 +79356,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78301,6 +79485,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78401,6 +79586,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78411,6 +79597,7 @@
           "title" : "Account ID"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78482,6 +79669,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78492,6 +79680,7 @@
           "title" : "SSH Destination"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78502,6 +79691,7 @@
           "title" : "Session"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78512,6 +79702,7 @@
           "title" : "cmux-tui Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78596,6 +79787,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78707,6 +79899,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78717,6 +79910,7 @@
           "title" : "SSH Destination"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78874,6 +80068,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -78891,6 +80086,7 @@
           "title" : "SSH Destination"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79196,6 +80392,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79208,6 +80405,7 @@
           "title" : "Machine"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79237,6 +80435,7 @@
           "title" : "Direction"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79313,6 +80512,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79323,6 +80523,7 @@
           "title" : "Machine"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79333,6 +80534,7 @@
           "title" : "Direction"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79343,6 +80545,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79353,6 +80556,7 @@
           "title" : "Command"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79363,6 +80567,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79373,6 +80578,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79383,6 +80589,7 @@
           "title" : "Attach To"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79393,6 +80600,7 @@
           "title" : "Size Ratio"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79619,6 +80827,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79701,6 +80910,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79871,6 +81081,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79952,6 +81163,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -79962,6 +81174,7 @@
           "title" : "Host Address"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80109,6 +81322,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80119,6 +81333,7 @@
           "title" : "Agent"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80129,6 +81344,7 @@
           "title" : "Machine Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80139,6 +81355,18 @@
           "title" : "Folder on the Machine"
         },
         {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "fromFolder",
+          "suggestions" : null,
+          "title" : "Folder on This Mac to Copy"
+        },
+        {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80164,7 +81392,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,
@@ -80226,6 +81454,224 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Status",
+                "value" : "status"
+              },
+              {
+                "title" : "Take Over",
+                "value" : "take_over"
+              },
+              {
+                "title" : "Give Back to Chief",
+                "value" : "hand_back"
+              },
+              {
+                "title" : "Ask the Person to Take Over",
+                "value" : "request_human"
+              }
+            ]
+          },
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "Control"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "reason",
+          "suggestions" : null,
+          "title" : "Reason"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud computer-control",
+      "computed" : {
+        "canonical_action_id" : "cloud.computerControl",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Who drives the Chief's computer on a Cloud machine (--machine <id>, the bare id): action status, request_human (with --reason: what the person should do), hand_back (ends your own ask) or take_over (the person only). Returns machine, holder (chief or human), since_ms and reason. While holder is human, send the computer no input.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.computerControl",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "control",
+        "take over",
+        "hand back",
+        "human"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "hand.raised.square",
+      "targets" : [
+
+      ],
+      "title" : "Chief Computer Control…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : null,
+          "title" : "Chief"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "op",
+          "suggestions" : null,
+          "title" : "Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "args",
+          "suggestions" : null,
+          "title" : "Arguments"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud chief-computer",
+      "computed" : {
+        "canonical_action_id" : "cloud.chiefComputer",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "A Chief of this Mac uses its own Cloud computer (Set Up Computer in its profile; engine.json computer chief:<id>): --chief <id>, --op screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human, hand_back or start, --args a JSON object of the op's fields (x, y, to_x, to_y, button, count, text, keys, direction, amount, url, reason, shot). Returns done, image (base64 PNG or JPEG), windows, screen and control; refused with computer.human_has_control while the person holds it.",
+      "focuses" : false,
+      "group" : "CloudSessionActionCatalog",
+      "hint" : null,
+      "id" : "cloud.chiefComputer",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cloud",
+        "chief",
+        "computer",
+        "desktop",
+        "screenshot",
+        "click",
+        "type"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "desktopcomputer",
+      "targets" : [
+
+      ],
+      "title" : "Use Chief’s Own Computer…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80778,6 +82224,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80788,6 +82235,7 @@
           "title" : "Setting"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -80859,6 +82307,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -81236,6 +82685,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -81246,6 +82696,7 @@
           "title" : "Replace Another App's cmux"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -81567,6 +83018,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -81602,6 +83054,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -81672,6 +83125,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -82164,6 +83618,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -82252,6 +83707,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -82658,6 +84114,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -83769,136 +85226,6 @@
 
       ],
       "title" : "Web Page Animations",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
-      "cliName" : "settings use-bouncy-animations",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.subtle",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.subtle",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "bouncy",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.up.and.down.and.sparkles",
-      "targets" : [
-
-      ],
-      "title" : "Use Bouncy Animations",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
-      "cliName" : "settings use-animations-without-bounce",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.none",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.none",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "critically damped",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.right.to.line",
-      "targets" : [
-
-      ],
-      "title" : "Use Animations Without Bounce",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -85860,6 +87187,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -85870,6 +87198,7 @@
           "title" : "Server"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -85880,6 +87209,7 @@
           "title" : "Worktree"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -85890,6 +87220,7 @@
           "title" : "Test Command"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -85970,6 +87301,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -86362,9 +87694,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "bigger",
-        "zoom"
+        "bigger"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86392,7 +87726,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Size",
+      "title" : "Increase Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86428,9 +87762,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "smaller",
-        "zoom"
+        "smaller"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86458,7 +87794,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Size",
+      "title" : "Decrease Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86494,6 +87830,9 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
         "default"
       ],
@@ -86523,7 +87862,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Size",
+      "title" : "Reset Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86566,7 +87905,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "bigger",
         "zoom"
       ],
@@ -86598,7 +87938,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Scale",
+      "title" : "Increase App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86641,7 +87981,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "smaller",
         "zoom"
       ],
@@ -86673,7 +88014,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Scale",
+      "title" : "Decrease App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86716,7 +88057,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "default",
         "zoom"
       ],
@@ -86748,7 +88090,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Scale",
+      "title" : "Reset App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87268,8 +88610,7 @@
         "appearance",
         "font",
         "compact",
-        "dense",
-        "default"
+        "dense"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -87335,6 +88676,9 @@
         "rows",
         "appearance",
         "font",
+        "default",
+        "normal",
+        "standard",
         "cozy",
         "medium",
         "middle"
@@ -87363,7 +88707,7 @@
       "targets" : [
 
       ],
-      "title" : "Density: Cozy",
+      "title" : "Density: Default",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87508,6 +88852,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -87527,7 +88872,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -87611,6 +88956,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -87621,6 +88967,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -87640,7 +88987,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -87657,6 +89004,7 @@
           "title" : "Based On"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -88506,6 +89854,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -88613,6 +89962,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -88818,6 +90168,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -88940,6 +90291,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89070,6 +90422,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89099,6 +90452,7 @@
           "title" : "Scope"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89128,6 +90482,7 @@
           "title" : "Property"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89208,6 +90563,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89237,6 +90593,7 @@
           "title" : "Scope"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -89326,6 +90683,288 @@
         "workspace"
       ],
       "title" : "Reset Appearance to Inherited",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Terminal",
+                "value" : "terminal"
+              },
+              {
+                "title" : "Browser",
+                "value" : "browser"
+              },
+              {
+                "title" : "Agent Chat",
+                "value" : "agentChat"
+              },
+              {
+                "title" : "New Tab Page",
+                "value" : "newTabPage"
+              }
+            ]
+          },
+          "name" : "kind",
+          "suggestions" : null,
+          "title" : "Kind"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider insert",
+      "computed" : {
+        "canonical_action_id" : "divider.insertNew",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.insertNew",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "insert",
+        "new",
+        "between",
+        "pane",
+        "terminal",
+        "browser",
+        "agent",
+        "chat",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "choices"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Insert New",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider hide",
+      "computed" : {
+        "canonical_action_id" : "divider.hide",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.hide",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "hide",
+        "invisible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye.slash",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Hide Divider",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider show",
+      "computed" : {
+        "canonical_action_id" : "divider.show",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "show",
+        "visible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 1,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Show Divider",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -90250,6 +91889,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90345,6 +91985,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90456,6 +92097,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90825,6 +92467,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -90992,6 +92635,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91072,6 +92716,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91352,6 +92997,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91362,6 +93008,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91449,6 +93096,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91459,6 +93107,7 @@
           "title" : "Working Directory"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -91965,6 +93614,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -92744,6 +94394,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -92773,6 +94424,7 @@
           "title" : "Edge"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -93247,6 +94899,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -93276,6 +94929,7 @@
           "title" : "Edge"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -95270,6 +96924,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96417,6 +98072,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96494,6 +98150,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96569,6 +98226,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96651,6 +98309,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96661,6 +98320,7 @@
           "title" : "History Entry ID"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96736,6 +98396,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -96769,6 +98430,7 @@
           "title" : "Time Range"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97169,6 +98831,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97254,6 +98917,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97339,6 +99003,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97351,6 +99016,7 @@
           "title" : "Window"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97572,6 +99238,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -97582,6 +99249,7 @@
           "title" : "Path"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98699,6 +100367,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98799,6 +100468,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98809,6 +100479,7 @@
           "title" : "URL"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98819,6 +100490,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98829,6 +100501,7 @@
           "title" : "Folder"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98912,6 +100585,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98922,6 +100596,7 @@
           "title" : "Folder Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -98932,6 +100607,7 @@
           "title" : "Folder"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99033,6 +100709,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99117,6 +100794,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99195,6 +100873,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99274,6 +100953,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99353,6 +101033,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99363,6 +101044,7 @@
           "title" : "Bookmark"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99373,6 +101055,7 @@
           "title" : "Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99454,6 +101137,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99539,6 +101223,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99549,6 +101234,7 @@
           "title" : "Bookmark"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99630,6 +101316,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99712,6 +101399,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99722,6 +101410,7 @@
           "title" : "Bookmark"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99732,6 +101421,7 @@
           "title" : "Folder"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -99809,6 +101499,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100069,6 +101760,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100079,6 +101771,7 @@
           "title" : "File"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100167,6 +101860,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100177,6 +101871,7 @@
           "title" : "Browser"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100187,6 +101882,7 @@
           "title" : "Profile to Import"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100281,6 +101977,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100291,6 +101988,7 @@
           "title" : "File"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100735,6 +102433,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -100807,6 +102506,7 @@
           "title" : "Item"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -101282,6 +102982,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -101292,6 +102993,7 @@
           "title" : "Title"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -101399,6 +103101,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102005,6 +103708,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102108,6 +103812,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102196,6 +103901,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102434,6 +104140,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102599,6 +104306,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -102681,6 +104389,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -103692,6 +105401,166 @@
 
       ],
       "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-on",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.on",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.on",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "reveal",
+        "hidden",
+        "auto hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 139,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Float Hidden Sidebar on Hover",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-off",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.off",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.off",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "off",
+        "never",
+        "disable"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 140,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Never Float Hidden Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
       "cliName" : "action sidebar-group-by-none",
       "computed" : {
         "canonical_action_id" : "sidebar.groupBy.none",
@@ -104248,6 +106117,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -104407,6 +106277,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -104497,6 +106368,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -104587,6 +106459,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -104677,6 +106550,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -104758,6 +106632,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : true,
           "isTargetDescription" : false,
@@ -105076,6 +106951,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105086,6 +106962,7 @@
           "title" : "App"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105096,6 +106973,7 @@
           "title" : "Tab"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105251,6 +107129,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105324,6 +107203,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105466,6 +107346,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105476,6 +107357,7 @@
           "title" : "App"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105553,6 +107435,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105628,6 +107511,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105638,6 +107522,7 @@
           "title" : "App"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105713,6 +107598,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -105723,6 +107609,7 @@
           "title" : "App"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106068,6 +107955,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106145,6 +108033,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106220,6 +108109,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106230,6 +108120,7 @@
           "title" : "Phone"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106306,6 +108197,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106383,6 +108275,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106459,6 +108352,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106538,6 +108432,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106548,6 +108443,7 @@
           "title" : "URL"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106625,6 +108521,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106635,6 +108532,7 @@
           "title" : "Text"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106780,6 +108678,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106856,6 +108755,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106866,6 +108766,7 @@
           "title" : "X"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106876,6 +108777,7 @@
           "title" : "Y"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106952,6 +108854,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106962,6 +108865,7 @@
           "title" : "From X"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106972,6 +108876,7 @@
           "title" : "From Y"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106982,6 +108887,7 @@
           "title" : "To X"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -106992,6 +108898,7 @@
           "title" : "To Y"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107002,6 +108909,7 @@
           "title" : "Seconds"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107078,6 +108986,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107088,6 +108997,7 @@
           "title" : "Text"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107164,6 +109074,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107205,6 +109116,7 @@
           "title" : "Button"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107283,6 +109195,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107361,6 +109274,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107382,6 +109296,7 @@
           "title" : "Appearance"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107459,6 +109374,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107469,6 +109385,7 @@
           "title" : "Latitude"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107479,6 +109396,7 @@
           "title" : "Longitude"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107555,6 +109473,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107565,6 +109484,7 @@
           "title" : "Locale"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107641,6 +109561,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107651,6 +109572,7 @@
           "title" : "App"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107728,6 +109650,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107738,6 +109661,7 @@
           "title" : "Bundle ID or Package"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107815,6 +109739,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -107892,6 +109817,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108039,6 +109965,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108049,6 +109976,7 @@
           "title" : "Link"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108059,6 +109987,7 @@
           "title" : "Open in Background"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108337,6 +110266,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108347,6 +110277,7 @@
           "title" : "Pairing Code"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108357,6 +110288,7 @@
           "title" : "Fingerprint Words"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108367,6 +110299,7 @@
           "title" : "Server Name"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -110571,6 +112504,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -110581,6 +112515,7 @@
           "title" : "Card"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -110655,6 +112590,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -110665,6 +112601,7 @@
           "title" : "Browser"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -110675,6 +112612,7 @@
           "title" : "Site"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -114029,8 +115967,6 @@
           "appearance.animationSpeed.off",
           "appearance.animationSpeed.normal",
           "appearance.animationSpeed.fast",
-          "appearance.animations.bounce.none",
-          "appearance.animations.bounce.subtle",
           "appearance.animations.cursor.toggle",
           "appearance.animations.feedback.toggle",
           "appearance.animations.home.toggle",

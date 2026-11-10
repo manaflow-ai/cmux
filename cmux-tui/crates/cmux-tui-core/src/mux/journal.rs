@@ -252,6 +252,15 @@ impl Mux {
         self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
     }
 
+    /// The `server-stats` `disk` section, `None` for an in-memory registry.
+    /// Reads on its own read-only connection, never under the registry lock
+    /// (cost: `diagnostics/disk_usage.rs`).
+    pub fn disk_usage_stats(&self) -> Option<crate::diagnostics::DiskUsageSnapshot> {
+        let database_path = self.journal_kernel.database_path()?;
+        let mut cache = self.disk_usage.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(crate::diagnostics::read_disk_usage(database_path, &mut cache))
+    }
+
     /// Resource projection and commit spans, see
     /// [`crate::diagnostics::ResourceProjectionStats`].
     pub fn resource_projection_stats(&self) -> crate::diagnostics::ResourceProjectionSnapshot {
@@ -270,6 +279,8 @@ impl Mux {
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
         snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
+            self.registry_connection.wal_file_bytes();
         snapshot
     }
 
@@ -444,19 +455,20 @@ impl Mux {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
     }
 
-    /// Records in `(sequence, through]` other than `terminal.output`, at
-    /// most `limit`, and the sequence the read covered through (see
-    /// `WorkspaceRegistry::session_journal_without_output_after`).
-    pub(crate) fn session_journal_without_output_after(
+    /// Records in `(sequence, through]` of the kinds `kinds` accepts, and
+    /// the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_kinds_after`).
+    pub(crate) fn session_journal_kinds_after(
         &self,
         sequence: u64,
         through: u64,
+        kinds: crate::workspace_registry::session_journal::kind_read::JournalKinds,
         limit: usize,
     ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
         self.workspace_registry
             .lock()
-            .unwrap()
-            .session_journal_without_output_after(sequence, through, limit)
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_kinds_after(sequence, through, kinds, limit)
     }
 
     pub(crate) fn session_journal_reader(
@@ -549,29 +561,34 @@ impl Mux {
                 return Err(validation_error);
             }
         };
-        let commit = if self.journal_ingress.enabled() {
+        // A hook that changes no durable state is answered from memory: no
+        // journal row, no registry commit (`agent_hooks_at_rest.rs`).
+        if let Some(commit) = self.answer_agent_hook_at_rest(ingress, origin, idempotency_key) {
+            return Ok(commit);
+        }
+        let in_flight = self.agent_hook_in_flight(ingress);
+        let appended = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            )?
+            )
         } else {
-            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            let appended = self.workspace_registry.lock().unwrap().append_journal_ingress(
                 ingress,
                 &validated,
                 origin,
                 idempotency_key,
-            )?;
-            if !commit.replayed {
+            );
+            if appended.as_ref().is_ok_and(|commit| !commit.replayed) {
                 self.publish_journal_event();
             }
-            commit
+            appended
         };
-        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
-            self.activity.note_agent_action();
-        }
-        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+        let result = appended.as_ref().ok();
+        self.note_agent_hook_result(ingress, result, in_flight.as_ref(), origin, idempotency_key);
+        self.finish_journal_ingress(ingress, origin, idempotency_key, appended?)
     }
 
     pub(super) fn finish_journal_ingress(
@@ -616,6 +633,8 @@ impl Mux {
                         "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
+                // A report at rest of this terminal runs the retry.
+                self.note_agent_hook_projection_pending(ingress);
             }
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry

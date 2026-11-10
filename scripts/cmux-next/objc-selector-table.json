@@ -125,6 +125,9 @@
    "26.5.2": true,
    "26.7": true
   },
+  "NSButton call:highlight/1": {
+   "26.6": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -625,7 +628,8 @@
    "27.0.1": true
   },
   "NSSwitch call:performClick/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.7": true
   },
   "NSTableCellView call:layout/0": {
    "26.5.2": true,
@@ -1226,6 +1230,10 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSWindow call:constrainFrameRect/2:to": {
+   "27.0": true,
+   "26.5.2": true
+  },
   "NSWindow call:endEditing/1": {
    "26.5.2": true,
    "26.7": true,
@@ -1376,6 +1384,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "WKWebView call:otherMouseUp/1": {
+   "26.7": true
+  },
   "WKWebView call:performDragOperation/1": {
    "26.5.2": true,
    "26.7": true,
@@ -1386,6 +1397,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "WKWebView call:scrollWheel/1": {
    "27.0.1": true
   },
   "WKWebView call:willOpenMenu/2:with": {

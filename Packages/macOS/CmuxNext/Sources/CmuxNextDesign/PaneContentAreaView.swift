@@ -34,6 +34,19 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// The ground the area shows under its content: its pane's (the window's color where panes paint it), else none.
+    public var restingGround: CGColor? { didSet { paintGround() } }
+
+    /// The ground of content that comes next but is not made yet (SPLIT NEW PANE GROUND, m81: a split's stand-in terminal
+    /// waits for its surface until after its key's frame): it shows instead of ``restingGround`` until then, so the new
+    /// pane has its terminal's ground from the key's frame, never the window's color.
+    public var waitingGround: CGColor? { didSet { paintGround() } }
+
+    private func paintGround() {
+        let ground = waitingGround ?? restingGround
+        if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
+    }
+
     /// The area's size when the hold began: the size its subviews keep; nil at rest.
     private var heldSize: CGSize?
 
@@ -132,6 +145,18 @@ public final class PaneContentAreaView: NSView {
     /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
     public func aheadOfHoldShown() {
         for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
+    }
+
+    /// Whether a key press's snap must keep waiting for a follower's size drawn ahead
+    /// (``PaneMotionHoldFollowing/aheadOfFollowAwaitsContent(refreshesWaited:)``, RESIZE P0 20).
+    public func aheadOfHoldAwaitsContent(refreshesWaited: Int) -> Bool {
+        subviews.contains { ($0 as? any PaneMotionHoldFollowing)?.aheadOfFollowAwaitsContent(refreshesWaited: refreshesWaited) == true }
+    }
+
+    /// A key press's held snap shows in this turn: no follower waits longer
+    /// (``PaneMotionHoldFollowing/aheadOfFollowWillShow()``, RESIZE P0 21).
+    public func aheadOfHoldWillShow() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowWillShow() }
     }
 
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.

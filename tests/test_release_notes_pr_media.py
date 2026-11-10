@@ -253,6 +253,40 @@ class GalleryPictureTests(HighlightRepo):
         self.assertNotEqual(self.url("after", self.AFTER), self.url("after", self.BEFORE))
 
 
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 32
+
+
+class RecordedClipTests(HighlightRepo):
+    """A clip the nightly tour recorded from the highlight's spec (whats-new-clips.py publish-auto), and for an
+    improvement its before on the previous nightly's app, win over the gallery pictures, role by role."""
+
+    def clip(self, role):
+        return release_notes.clip_auto_url("group-colors", role)
+
+    def gallery(self, role):
+        return release_notes.gallery_auto_url("group-colors", role)
+
+    def test_a_recorded_clip_and_its_before_are_the_media(self):
+        highlight = self.build("", {self.clip("after"): WEBP, self.clip("before"): WEBP + b"b",
+                                    self.gallery("after"): PNG, self.gallery("before"): PNG})
+        self.assertEqual([(m["url"], m["role"], m["kind"]) for m in highlight["media"]],
+                         [(self.clip("after"), "after", "image"), (self.clip("before"), "before", "image")])
+        self.assertTrue(release_notes.public_pr_media_url(self.clip("after")))
+
+    def test_a_role_with_no_clip_takes_the_gallery_picture(self):
+        highlight = self.build("", {self.clip("after"): WEBP, self.gallery("before"): PNG})
+        self.assertEqual([(m["url"], m["role"]) for m in highlight["media"]],
+                         [(self.clip("after"), "after"), (self.gallery("before"), "before")])
+
+    def test_only_new_and_improved_highlights_without_a_clip_line_look_for_one(self):
+        urls = release_notes.clip_auto_urls
+        auto = lambda role: release_notes.clip_auto_url("h", role)
+        self.assertEqual(urls({}, "h", "new"), {"after": auto("after")})
+        self.assertEqual(urls({}, "h", "improved"), {"after": auto("after"), "before": auto("before")})
+        self.assertEqual(urls({}, "h", "fixed"), {})
+        self.assertEqual(urls({"clip": "x"}, "h", "new"), {})
+
+
 class LatePictureTests(HighlightRepo):
     """A highlight whose pictures were published after its nightly cut rides along with the next build that
     finds them, once (release-notes.py late_pictures)."""
@@ -299,9 +333,57 @@ class LatePictureTests(HighlightRepo):
         shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
         self.assertEqual([h["id"] for h in self.notes(shipped)], ["group-colors"])
 
+    def test_an_improvement_with_no_before_rides_along_with_its_after_once(self):
+        # Its gallery state is new in its commit, so nothing renders at the commit before it.
+        del self.pictures[release_notes.gallery_auto_url("group-colors", "before")]
+        highlights = self.notes([])
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m.get("role") for m in highlights[0]["media"]], [None])
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        self.assertEqual(self.notes(shipped), [])
+
     def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
         roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
         self.assertEqual(self.notes(roles), [])
+
+    def test_a_recorded_clip_published_after_the_cut_rides_along_too(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        self.pictures = {clip("after"): WEBP, clip("before"): WEBP + b"b"}
+        highlights = self.notes([])
+        self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), clip("before")])
+
+    def add_spec(self):
+        os.makedirs(os.path.join(self.repo, "release-notes/next/clips"), exist_ok=True)
+        with open(os.path.join(self.repo, "release-notes/next/clips/group-colors.json"), "w") as f:
+            f.write("{}\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "its clip spec (#125)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_a_clip_recorded_after_it_shipped_with_its_stills_replaces_them_once(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        gallery = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        stills = [{"url": gallery(r), "sha256": "0" * 64, "role": r} for r in ("after", "before")]
+        self.add_spec()
+        self.pictures[clip("after")] = WEBP
+        highlights = self.notes(stills)
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), gallery("before")])
+        # Once the notes showed it, the same clip re-announces nothing; its before clip, when published, does.
+        shown = [{"url": clip("after"), "sha256": "0" * 64, "role": "after"}, stills[1]]
+        self.assertEqual(self.notes(shown), [])
+        self.pictures[clip("before")] = WEBP + b"b"
+        self.assertEqual([m["url"] for m in self.notes(shown)[0]["media"]], [clip("after"), clip("before")])
+
+    def test_stills_with_no_clip_published_or_no_spec_ride_no_more(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        stills = [{"url": release_notes.gallery_auto_url("group-colors", r), "sha256": "0" * 64, "role": r}
+                  for r in ("after", "before")]
+        self.pictures[clip("after")] = WEBP
+        self.assertEqual(self.notes(stills), [])  # no spec: a clip at that name is not this highlight's
+        self.add_spec()
+        del self.pictures[clip("after")]
+        self.assertEqual(self.notes(stills), [])
 
     def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
         self.assertEqual(self.notes([], pictures=False), [])
@@ -393,6 +475,17 @@ class GalleryRenderPlanTests(unittest.TestCase):
         text_at = lambda rev, path: files.get(rev)
         self.assertEqual(self.tool.infer(row, cases, text_at, lambda c, p: set()), "a.b/new")
 
+    def test_infer_takes_the_added_variant_its_note_calls_selected(self):
+        # A new file's first variant was its closed row, which showed nothing of the cards it added (2026-11-09).
+        cases = [self.case("a.b", "closed"), self.case("a.b", "cards")]
+        files = {"c": 'variants: {\n  closed: {},\n  cards: {},\n}\n'}
+        row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
+        # The notes come from the entries (notes.ts), so a note anywhere in a variant counts, and a nested prop's never.
+        notes = {"a.b": {"closed": "Closed, one row.", "cards": "Selected: opened."}}
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set(), notes),
+                         "a.b/cards")
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set()), "a.b/closed")
+
     def test_infer_takes_the_variant_whose_lines_the_commit_changed_most(self):
         cases = [self.case("a.b", v) for v in ("first", "picked", "picked-solid")]
         text = "variants: {\n  first: {\n    x: 1,\n  },\n  picked: {\n    x: 2,\n    y: 3,\n  },\n  \"picked-solid\": {},\n}\n"
@@ -407,7 +500,7 @@ class GalleryRenderPlanTests(unittest.TestCase):
         rows, missing = self.tool.resolve([row], [self.case("a.b", "x")], lambda rev, path: "")
         self.assertEqual((rows, missing), ([], ["h: no gallery state in src/none.gallery.ts"]))
 
-    def test_a_before_at_the_parent_is_the_same_state_there_else_its_entry_first(self):
+    def test_a_before_at_the_parent_is_the_same_state_there_never_another(self):
         rows = [{"id": "h", "role": "before", "state": "a.b/new", "entry": "a.b", "variant": "new", "parent": "p"},
                 {"id": "g", "role": "before", "state": "a.c/x", "entry": "a.c", "variant": "x", "parent": "p"},
                 {"id": "h", "role": "after", "state": "a.b/new", "entry": "a.b", "variant": "new"}]
@@ -415,10 +508,112 @@ class GalleryRenderPlanTests(unittest.TestCase):
         out, missing = self.tool.manifest(rows, at_parent, "p")
         self.assertEqual(out, [{**at_parent[1], "id": "h--before"}])
         self.assertEqual(missing, ["g: no gallery state a.c/x at p"])
-        out, _ = self.tool.manifest(rows[:1], [self.case("a.b", "first")], "p")
-        self.assertEqual(out[0]["params"]["variant"], "first")
+        # A state new in the highlight's commit has no before there: never the entry's first variant,
+        # which showed an unrelated picture (notes-sections took popover-pr-links, 2026-11-09).
+        out, missing = self.tool.manifest(rows[:1], [self.case("a.b", "first")], "p")
+        self.assertEqual((out, missing), ([], ["h: no gallery state a.b/new at p"]))
         # Without --parent, the befores rendered there are left out.
         self.assertEqual([c["id"] for c in self.tool.manifest(rows, at_parent)[0]], ["h--after"])
+
+    NOTES = {"a.b": {"notes-sections": "Picked and shipped", "notes-sections-light": "Light",
+                     "notes-flat": "Before: one flat list", "card-button": "Before (the old card)"}}
+    GALLERY = ('variants: {\n  "notes-sections": {},\n  "notes-sections-light": {},\n  "notes-flat": {},\n'
+               '  "card-button": {},\n  "card-solid": {},\n}\n')
+
+    def test_a_before_is_the_old_look_its_entry_marks_rendered_beside_the_after(self):
+        cases = [self.case("a.b", v) for v in ("notes-sections", "notes-sections-light", "notes-flat", "card-button", "card-solid")]
+        # The note-marked variant sharing the longest name prefix wins over other marked ones.
+        self.assertEqual(self.tool.marked_before("a.b/notes-sections", cases, self.NOTES), "a.b/notes-flat")
+        self.assertEqual(self.tool.marked_before("a.b/card", cases, self.NOTES), "a.b/card-button")
+        # A name in OLD_LOOK's words counts when no note says Before.
+        self.assertEqual(self.tool.marked_before("a.b/card", [self.case("a.b", v) for v in ("card", "card-solid")],
+                                                 {}), "a.b/card-solid")
+        self.assertIsNone(self.tool.marked_before("a.b/x", [self.case("a.b", "x"), self.case("a.b", "y")], {}))
+        # Another surface's old look is not this one's, and "Before/after" is a name, not a mark.
+        self.assertIsNone(self.tool.marked_before("a.b/popover-compact", cases, self.NOTES))
+        other = {"a.b": {"compare-side": "Before/after variant B"}}
+        self.assertIsNone(self.tool.marked_before("a.b/compare-slider",
+                                                  [self.case("a.b", "compare-slider"), self.case("a.b", "compare-side")], other))
+        rows = [{"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"},
+                {"id": "h", "role": "before", "sources": ["src/a.gallery.tsx"], "commit": "c", "parent": "p"}]
+        files = {"c^": "variants: {\n}\n", "c": self.GALLERY}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), self.NOTES)
+        self.assertEqual(missing, [])
+        self.assertEqual([(r["role"], r["state"], r.get("parent")) for r in out],
+                         [("after", "a.b/notes-sections", None), ("before", "a.b/notes-flat", None)])
+        # Rendered now, beside the after: both in the manifest without --parent.
+        self.assertEqual([c["id"] for c in self.tool.manifest(out, cases)[0]], ["h--after", "h--before"])
+
+    def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
+        files = {("p", "webviews/src/a.gallery.tsx"): "x: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get((rev, path)), {})
+        self.assertEqual((out[0]["state"], out[0]["parent"], missing), ("a.b/x", "p", []))
+
+    def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
+        # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
+        for at_parent in (None, "y: {}\n"):
+            with self.subTest(at_parent=at_parent):
+                out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent, {})
+                self.assertEqual(out, [])
+                self.assertEqual(len(missing), 1)
+                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+                self.assertIn('"Before:"', missing[0])
+
+    def test_parents_come_newest_highlight_first(self):
+        import json
+        from pathlib import Path
+        rows = [{"id": "a", "parent": "old", "born": 1}, {"id": "b", "parent": "new", "born": 3},
+                {"id": "c", "parent": "mid", "born": 2}, {"id": "d", "born": 4}]
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps(rows))
+            import contextlib, io
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.tool.main(["parents", "--plan", str(plan), "--limit", "2"])
+        self.assertEqual(out.getvalue().split(), ["new", "mid"])
+
+    def test_a_published_picture_is_never_uploaded_again(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp)
+            rows = [{"id": "h", "role": "after", "state": "a.b/x", "url": "u/after", "path": "p/after"},
+                    {"id": "h", "role": "before", "state": "a.b/y", "url": "u/before", "path": "p/before"}]
+            (results / "h--after-chromium.png").write_bytes(self.picture(40, 30, [(5, 6, 4)]))
+            (results / "h--before-chromium.png").write_bytes(self.picture(40, 30, [(9, 9, 4)]))
+            uploaded = []
+            fake = type("M", (), {"privacy_module": lambda self: type("P", (), {"ocr_binary": lambda self: "ocr"})(),
+                                  "check_privacy": lambda self, files, repo: None,
+                                  "MediaConflict": LookupError,
+                                  "put_files": lambda self, repo, branch, files, message, checked, expect: (
+                                      self.raced(files) if raced else uploaded.extend(
+                                          p for p in files if expect == {p: None}))})()
+            fake.raced = lambda files: (_ for _ in ()).throw(raced("got there first"))
+            raced = False
+            original = self.tool._load
+            self.tool._load = lambda name, path: fake
+            try:
+                # Signed notes pin the after's bytes: its late before goes up alone.
+                self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+                self.assertEqual(uploaded, ["p/before"])
+                uploaded.clear()
+                self.tool.publish(rows, results, exists=lambda url: True)
+                self.assertEqual(uploaded, [])
+                # Another run put the before there after `exists` read it: kept, named, nothing replaced.
+                raced = LookupError
+                problems = self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+                self.assertEqual(uploaded, [])
+                self.assertIn("h before: kept the copy already there (got there first)", problems)
+                # Any other failure (no branch, auth, retries spent) is not a race: it stops the run.
+                raced = RuntimeError
+                with self.assertRaises(RuntimeError):
+                    self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+            finally:
+                self.tool._load = original
 
 
 if __name__ == "__main__":

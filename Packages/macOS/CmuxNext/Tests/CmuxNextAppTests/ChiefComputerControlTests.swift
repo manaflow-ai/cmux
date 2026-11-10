@@ -191,6 +191,76 @@ struct ChiefComputerControlTests {
         #expect(throws: Never.self) { try store.checkNotHeld(machine: Self.machine(), byPerson: false) }
     }
 
+    /// A machine's hold ends by itself ten minutes after the person's last input, computed when read
+    /// (the viewer reports input under the id in lower case). Until then automation stays refused; after
+    /// it, a late input does not bring the hold back.
+    @Test func aHoldOnAMachineEndsTenMinutesAfterThePersonsLastInput() throws {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        let idle = ChiefComputerControlStore.leaseIdleMs
+        #expect(idle == 600_000, "the Worker's LEASE_IDLE_MS")
+        let machine = "VM-Lease"
+        let viewer = HomeChiefComputerControlSource.machine(machine.lowercased(), store: store, openInteractive: {})
+        var changes = 0
+        let token = store.observe(.machine(machine)) { changes += 1 }
+        try store.perform(.takeOver, machine: machine, byPerson: true)
+        #expect(changes == 1)
+
+        clock += idle - 1
+        #expect(store.state(.machine(machine))?.holder == .human)
+        viewer.noteInput?()
+        let lastInput = clock
+        clock += idle - 1
+        #expect(store.state(.machine(machine))?.holder == .human, "the input restarted the clock")
+        #expect(throws: ChiefComputerControlStore.Refusal.humanHasControl) { try store.checkNotHeld(machine: machine, byPerson: false) }
+
+        clock += 1
+        #expect(throws: Never.self) { try store.checkNotHeld(machine: machine, byPerson: false) }
+        #expect(store.state(.machine(machine)) == HomeChiefComputerControlState(holder: .chief, sinceMs: lastInput + idle))
+        #expect(changes == 2, "observers hear it once")
+
+        viewer.noteInput?()
+        #expect(store.state(.machine(machine))?.holder == .chief, "a late input does not bring it back")
+        // The person takes it again: a new hold, with its own ten minutes.
+        try store.perform(.takeOver, machine: machine, byPerson: true)
+        #expect(store.state(.machine(machine))?.sinceMs == clock)
+        withExtendedLifetime(token) {}
+    }
+
+    /// A Chief's ask nobody answered ends too, with its notice; a person's take-over of it restarts the clock.
+    @Test func aChiefsAskOnAMachineExpiresAndWithdrawsItsNotice() throws {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        let idle = ChiefComputerControlStore.leaseIdleMs
+        var ended: [String] = []
+        store.onAskEnded = { ended.append($0) }
+        try store.perform(.requestHuman, machine: "vm-ask", reason: "Sign in", byPerson: false)
+        #expect(store.state(.machine("vm-ask"))?.reason == "Sign in")
+        clock += idle
+        #expect(store.state(.machine("vm-ask")) == HomeChiefComputerControlState(holder: .chief, sinceMs: 1_000_000 + idle))
+        #expect(ended == ["vm-ask"])
+        #expect(store.state(.machine("vm-ask"))?.holder == .chief)
+        #expect(ended == ["vm-ask"], "only the read that ended it withdraws the notice")
+
+        try store.perform(.requestHuman, machine: "vm-ask", reason: "Sign in", byPerson: false)
+        clock += idle - 1
+        try store.perform(.takeOver, machine: "vm-ask", byPerson: true)
+        clock += idle - 1
+        #expect(store.state(.machine("vm-ask"))?.holder == .human, "the take-over counts as input")
+    }
+
+    /// A sandbox's lease is the Worker's: this store never ends it by its own clock.
+    @Test func aSandboxLeaseDoesNotExpireHere() {
+        let store = ChiefComputerControlStore()
+        var clock: Int64 = 1_000_000
+        store.now = { clock }
+        store.apply(agent: Self.agent, state: HomeChiefComputerControlState(holder: .human, sinceMs: 1_000_000), entitled: nil)
+        clock += 10 * ChiefComputerControlStore.leaseIdleMs
+        #expect(store.state(.agent(Self.agent))?.holder == .human)
+    }
+
     /// The Worker's since_ms only grows: a status read that left before a take-over's reply never
     /// writes the older lease back.
     @Test func anOlderSandboxAnswerNeverOverwritesANewerOne() {
@@ -297,6 +367,93 @@ struct ChiefComputerControlTests {
         _ = try await send("GET", "v1/chiefs/\(Self.agent)/computer", nil)
         #expect(store.state(.agent(Self.agent)) == HomeChiefComputerControlState(holder: .human, sinceMs: 3, reason: "Pick a seat"))
         #expect(store.entitled(agent: Self.agent) == false)
+    }
+
+    // MARK: Set Up Computer's refusals, and a Chief of this Mac's own computer
+
+    /// A server that makes no Chief computers (the route missing: 404; or 409 computer.unavailable)
+    /// is not a failure to retry; a full owner (computer.local_limit) is its own refusal; any other
+    /// refusal stays the route's ``ChiefComputerControlClient/Failure`` (Try again).
+    @Test func setUpTellsANoComputerServerAndAFullOwnerFromAFailure() async {
+        let transport = Transport()
+        let client = ChiefComputerControlClient(send: transport.send)
+        transport.replies = [(404, #"{"ok":false,"error":{"code":"not_found","message":"no route"}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.unavailable) { try await client.provision(agent: Self.agent) }
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.unavailable","message":"off"}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.unavailable) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.local_limit","message":"full","cap":3}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.localLimit) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(502, #"{"ok":false,"error":{"code":"computer.unreachable","message":"slow"}}"#)]
+        await #expect(throws: ChiefComputerControlClient.Failure.self) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(403, #"{"ok":false,"error":{"code":"cloud.plan.required","message":"plan"}}"#)]
+        await #expect(throws: ChiefComputerControlClient.Failure.self) { try await client.provision(agent: "local:conv_mario") }
+        #expect(transport.calls.map(\.path) == ["v1/chiefs/\(Self.agent)/computer/control"] + Array(repeating: "v1/local-chiefs/conv_mario/computer/control", count: 4))
+        #expect(transport.calls.allSatisfy { $0.method == "POST" && $0.body?["action"] as? String == "provision" })
+    }
+
+    /// A Chief of this Mac's computer is keyed `local:<conversation>` and reaches the owner's
+    /// `v1/local-chiefs/<id>/computer…` routes; nothing else becomes a route.
+    @Test func aLocalChiefsComputerUsesItsOwnRoutes() async throws {
+        #expect(HomeChiefComputerRoute.localKey("conv_mario") == "local:conv_mario")
+        #expect(HomeChiefComputerRoute.localKey("a b") == nil)
+        #expect(HomeChiefComputerRoute.localKey(String(repeating: "a", count: 65)) == nil)
+        #expect(HomeChiefComputerRoute.base(of: "local:conv_mario") == "v1/local-chiefs/conv_mario")
+        #expect(HomeChiefComputerRoute.base(of: Self.agent) == "v1/chiefs/\(Self.agent)")
+        #expect(HomeChiefComputerRoute.base(of: "local:../x") == nil)
+        #expect(HomeChiefComputerRoute.base(of: "vm-1") == nil)
+        let transport = Transport()
+        let store = ChiefComputerControlStore()
+        transport.replies = [(200, #"{"ok":true,"value":{"used":true,"control":{"holder":"chief","since_ms":4},"entitled":true}}"#)]
+        let send = ChiefComputerControlClient.feeding(transport.send, into: store)
+        _ = try await send("GET", "v1/local-chiefs/conv_mario/computer", nil)
+        #expect(store.state(.agent("local:conv_mario")) == HomeChiefComputerControlState(holder: .chief, sinceMs: 4))
+        let source = HomeChiefComputerControlSource.sandbox(agent: "local:conv_mario", store: store, client: ChiefComputerControlClient(send: transport.send))
+        transport.replies = [(200, #"{"ok":true,"value":{"control":{"holder":"human","since_ms":9}}}"#)]
+        try await source.takeOver()
+        #expect(transport.calls.last?.path == "v1/local-chiefs/conv_mario/computer/control")
+        #expect(transport.calls.last?.body?["action"] as? String == "take_over")
+    }
+
+    /// `cmux cloud chief-computer` (the local Chief's `cloud_computer` on its own computer): the op and
+    /// its arguments go to the act route as one body, the route's value comes back as the result,
+    /// and its refusal keeps its code; another client and a bad request are refused before any send.
+    @Test func theChiefsOwnVerbsGoToTheActRouteAndKeepTheLeaseRefusal() async throws {
+        let services = Self.services()
+        let transport = Transport()
+        let client = ChiefComputerControlClient(send: transport.send)
+        #expect(services.registry.bindEffect("cloud.chiefComputer") { client.actEffect($0) })
+        func run(_ arguments: [String: ActionValue], origin: ActionOrigin = .mcp) async -> (Result<[String: ActionResultValue], ActionWorkFailure>?, String?) {
+            var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
+            let refusal = services.registry.capturingRefusal {
+                captured = services.registry.capturingRun {
+                    _ = services.registry.perform("cloud.chiefComputer", invocation: ActionInvocation(arguments: arguments, origin: origin))
+                }
+            }
+            return (await captured.results.first?.value, refusal)
+        }
+        transport.replies = [(200, #"{"ok":true,"value":{"done":"click","image":"/9j/","screen":{"width":1280,"height":800}}}"#)]
+        let (clicked, _) = await run(["chief": .string("chief:conv_mario"), "op": .string("click"), "args": .string(#"{"x":3,"y":4,"shot":false,"op":"setup"}"#)])
+        guard case .success(let fields)? = clicked else { Issue.record("no result: \(String(describing: clicked))"); return }
+        #expect(fields["done"] == .string("click"))
+        #expect(fields["image"] == .string("/9j/"))
+        #expect(fields["screen"] == .object(["width": .int(1280), "height": .int(800)]))
+        #expect(transport.calls.last?.method == "POST")
+        #expect(transport.calls.last?.path == "v1/local-chiefs/conv_mario/computer/act")
+        #expect(transport.calls.last?.body as NSDictionary? == ["op": "click", "x": 3, "y": 4, "shot": false] as NSDictionary)
+
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.human_has_control","message":"The person has the computer."}}"#)]
+        let (held, _) = await run(["chief": .string("conv_mario"), "op": .string("type"), "args": .string(#"{"text":"x"}"#)])
+        guard case .failure(let failure)? = held else { Issue.record("not refused: \(String(describing: held))"); return }
+        #expect(failure.code == "computer.human_has_control")
+
+        let sent = transport.calls.count
+        let (_, remote) = await run(["chief": .string("chief:conv_mario"), "op": .string("click")], origin: .remote)
+        #expect(remote != nil)
+        let (_, badOp) = await run(["chief": .string("chief:conv_mario"), "op": .string("setup")])
+        #expect(badOp != nil)
+        let (_, badChief) = await run(["chief": .string("machine:vm-1"), "op": .string("click")])
+        #expect(badChief != nil)
+        #expect(transport.calls.count == sent)
     }
 
     /// Waits for the store's status read in flight for `agent` to land.

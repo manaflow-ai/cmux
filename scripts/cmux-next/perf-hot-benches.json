@@ -11,11 +11,6 @@
       "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
       "owner": "PL-daemon"
     },
-    "feed-live-event": {
-      "what": "one Feed owner event while the Feed list is open: FeedOrderedIndex.apply (binary search per moved id, one array move per inserted or removed row, for the list and the timeline) and the changed rows. FeedOrder.sortedNewest is not on this path: only FeedInboxGroups(items:) and tests call it; the live Inbox groups the ledger's ordered sections with no sort (FeedInboxGroups(sections:filter:now:)).",
-      "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
-      "owner": "Feed"
-    },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us); fleet entry scripts/measure/chromium-host-bench.sh",
@@ -76,10 +71,20 @@
       "bench": "scripts/cmux-next/activation-perf.py (workspace_switch.* rows)",
       "owner": "PL-switch"
     },
+    "pane-verb-turn": {
+      "what": "Toggle Pane Zoom and Swap Pane, from the action's handler to the layout the window shows: one store intent, then one layout apply per window that shows the workspace, all in the input's turn (no daemon wait)",
+      "bench": "PaneVerbsKeyTurnTests and PaneLayoutIntentTests (the change is in the layout model when the handler returns; the daemon's echo applies no layout), then scripts/cmux-next/pane-perf-terminal.py --actions zoom",
+      "owner": "Performance Lead"
+    },
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
       "owner": "PL-motion-cef"
+    },
+    "window-resize-step": {
+      "what": "one step of a live window resize (a person drags an edge): AppKit lays the window's view tree out inside setFrame, so every chrome view's layout() runs once per step and all of them share one refresh. Work that does not depend on the new size (rebuilding tooltips or accessibility elements, drawing a view that only moved) does not belong in it.",
+      "bench": "swift test --filter WindowResizeWorkPerStepTests with CMUX_TEST_SESSION_SIZES=large,real (prints WORK case=window-resize per session size: layout calls per step and per class); frame times by a real corner drag (CuaDriver, 1280x800 to 1040x640) with the same drag on Chrome as the reference: window-edge intervals from debug.motion record_start, main-thread time from debug.frames",
+      "owner": "Performance Lead"
     },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
@@ -90,6 +95,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "main-task-record": {
+      "what": "every scheduled main-thread task's always-on per-owner time record (MainTaskTimes.record from MainFrameBudget.run: the owner's slot lookup, one bucket and a few stores; debug.main_budget's owners)",
+      "bench": "CMUX_MAIN_TASK_RECORD_BENCH=1 swift test -c release --filter MainTaskRecordBench (ns per task for owners interned first, after 1500 names, and 400 owners in turn)",
+      "owner": "Performance Lead"
     },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
@@ -120,6 +130,16 @@
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
+    },
+    "session-list-change": {
+      "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
+      "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
+      "owner": "acpmux pane"
+    },
+    "workspace-list-change": {
+      "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "owner": "WORKSPACE LIST 800"
     }
   }
 }

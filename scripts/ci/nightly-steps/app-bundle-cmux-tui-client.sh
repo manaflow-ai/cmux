@@ -8,6 +8,11 @@
 # install-cmux-tui-client.sh verifies the manifest's build-provenance
 # attestation with gh before trusting it.
 set -euo pipefail
+# nightly-next compiles arm64 only (NIGHTLY_COMPILE_ARCHS); thin-app-bundle.sh drops any x86_64 slice
+# before signing, so fetch only the slices the variants ship. Run 42675465011 failed on an x86_64 slice
+# files.cmux.com trickled at 6 KB/s, a slice that build would have thrown away.
+client_arch=universal
+[[ "${NIGHTLY_COMPILE_ARCHS:-}" == arm64 ]] && client_arch=arm64
 app="build-universal/Build/Products/Release/cmux.app"
 cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
 if [[ "$TREE_PENDING" == true ]]; then
@@ -36,6 +41,7 @@ if [[ -f "$state/cmux-tui-client.pid" ]]; then
 fi
 ./scripts/install-cmux-tui-client.sh \
   "$app" \
+  --arch "$client_arch" \
   --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
   --expected-commit "$cmux_tui_commit" \
   --require-capability wireguard-hub \

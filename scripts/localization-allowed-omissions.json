@@ -162,6 +162,16 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
+  },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
     "identityLocales": {
@@ -7403,5 +7413,105 @@
   "settings.choice.dictationSourceSuperwhisper": {
     "class": "brand",
     "source": "Superwhisper"
+  },
+  "argument.value.dividerInsertKind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.value.dividerInsertKind.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.updates.liveWebReload": {
+    "class": "brand",
+    "source": "cmux Live"
+  },
+  "liveWeb.failed": {
+    "class": "brand",
+    "source": "cmux Live: %@"
+  },
+  "argument.cloud.computerControl.action": {
+    "source": "Control",
+    "identityLocales": {
+      "es": "Control is the standard Spanish word for this argument."
+    }
+  },
+  "argument.cloud.computerControl.machine": {
+    "source": "Machine",
+    "identityLocales": {
+      "fr": "Machine is the standard French word for a computer in this sense."
+    }
+  },
+  "argument.value.cloud.computerControl.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Status is the standard German word."
+    }
+  },
+  "home.engine.computer.upgrade": {
+    "source": "Upgrade",
+    "identityLocales": {
+      "de": "Upgrade is the usual German term for moving to a higher plan."
+    }
+  },
+  "home.engine.tab.computer": {
+    "source": "Computer",
+    "identityLocales": {
+      "de": "Computer is the standard German word for a computer."
+    }
+  },
+  "home.engine.section.computer": {
+    "source": "Computer",
+    "identityLocales": {
+      "de": "Computer is the standard German word for a computer."
+    }
+  },
+  "home.engine.tab.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German plural of Detail."
+    }
+  },
+  "home.engine.connection.gmail": {
+    "class": "brand",
+    "source": "Gmail"
+  },
+  "home.engine.connection.calendar": {
+    "source": "Google Calendar",
+    "identityLocales": {
+      "es": "Google Calendar is the product's name in Spanish."
+    }
+  },
+  "argument.cloud.chiefComputer.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "argument.cloud.chiefComputer.args": {
+    "source": "Arguments",
+    "identityLocales": {
+      "fr": {
+        "reason": "Arguments is the standard French plural noun for command arguments.",
+        "values": [
+          "Arguments"
+        ]
+      }
+    }
+  },
+  "argument.cloud.chiefComputer.op": {
+    "source": "Action",
+    "identityLocales": {
+      "fr": {
+        "reason": "Action is the standard French noun for an action.",
+        "values": [
+          "Action"
+        ]
+      }
+    }
   }
 }

@@ -6,7 +6,9 @@ public import Foundation
 /// One owner per computer kind. For a user Cloud machine attached to a Chief on this Mac, this store
 /// IS the lease: `cloud computer-control` (``effect(_:knows:)``, bound by the App's `CloudHandlers`), the
 /// profile's Computer tab and the Chief's `cloud_computer` tool all read and change it here, per
-/// machine id, in memory (a relaunch starts every machine at `chief`). For a Cloud Chief's own sandbox
+/// machine id, in memory (a relaunch starts every machine at `chief`), and a hold ends by itself
+/// ``leaseIdleMs`` after the person's last take-over or input, computed when it is read, as the Worker
+/// computes `LEASE_IDLE_MS` (no timer). For a Cloud Chief's own sandbox
 /// the Worker owns the lease; this store keeps the last answer of its routes
 /// (``ChiefComputerControlClient``) so every view of that Chief reads one value.
 ///
@@ -66,7 +68,13 @@ public final class ChiefComputerControlStore {
         /// The person holds it because the Chief asked (``Action/requestHuman``), and has not taken
         /// it over themselves since.
         var askedByChief = false
+        /// The person's last take-over or input, in ms since 1970; 0 while they did neither.
+        var lastHumanMs: Int64 = 0
     }
+
+    /// A person's hold on a machine with no take-over or input for this long returns to the Chief,
+    /// a Chief's ask nobody answered too (the Worker's `LEASE_IDLE_MS` for a sandbox).
+    public nonisolated static let leaseIdleMs: Int64 = 10 * 60_000
 
     private final class Observer {
         let onChange: @MainActor () -> Void
@@ -112,9 +120,22 @@ public final class ChiefComputerControlStore {
 
     /// The lease of `key`; nil while a sandbox's is not known yet. A machine nobody changed reads `chief`.
     public func state(_ key: Key) -> HomeChiefComputerControlState? {
-        if let lease = leases[key] { return lease.state }
+        if let lease = current(key) { return lease.state }
         if case .machine = key { return .chief }
         return nil
+    }
+
+    /// The lease of `key` now. The read that finds a machine's hold past its end gives it back: from
+    /// that end, as the Worker dates it, and an ask's notice goes away (``onAskEnded``).
+    private func current(_ key: Key) -> Lease? {
+        guard let lease = leases[key], case .machine(let machine) = key, lease.state.holder == .human else { return leases[key] }
+        let end = max(lease.state.sinceMs, lease.lastHumanMs) + Self.leaseIdleMs
+        guard now() >= end else { return lease }
+        let back = Lease(state: HomeChiefComputerControlState(holder: .chief, sinceMs: end))
+        leases[key] = back
+        if lease.askedByChief { onAskEnded?(machine) }
+        notify(key)
+        return back
     }
 
     /// Whether the account may have a computer for Chief `agent`; nil until the route said.
@@ -139,6 +160,19 @@ public final class ChiefComputerControlStore {
         throw .humanHasControl
     }
 
+    /// The person's input on machine `raw`'s desktop while they hold it: it stays theirs for
+    /// ``leaseIdleMs`` more. The viewer's address carries the id in lower case, so the case is not
+    /// compared. Runs per input event: only held machines compare.
+    public func noteInput(machine raw: String) {
+        let id = raw.lowercased()
+        let held = leases.first { key, lease in
+            guard case .machine(let machine) = key, lease.state.holder == .human else { return false }
+            return machine.lowercased() == id
+        }?.key
+        guard let held, current(held)?.state.holder == .human else { return }
+        leases[held]?.lastHumanMs = now()
+    }
+
     /// One `cloud computer-control` run from its raw arguments: the machine's key and its lease after.
     /// `fromAnotherClient`: a phone or another Mac asked (only `status` answers it, default deny).
     /// `knows`: whether this app lists the machine; an ask about one it does not posts nothing.
@@ -156,7 +190,7 @@ public final class ChiefComputerControlStore {
     @discardableResult
     public func perform(_ action: Action, machine: String, reason: String? = nil, byPerson: Bool) throws(Refusal) -> HomeChiefComputerControlState {
         let key = Key.machine(machine)
-        let before = leases[key] ?? Lease(state: .chief)
+        let before = current(key) ?? Lease(state: .chief)
         var lease = before
         switch action {
         case .status:
@@ -167,6 +201,7 @@ public final class ChiefComputerControlStore {
             if lease.state.holder != .human { lease.state = HomeChiefComputerControlState(holder: .human, sinceMs: now()) }
             lease.askedByChief = false
             lease.state.reason = nil
+            lease.lastHumanMs = now()
         case .handBack:
             guard lease.state.holder == .human else { return lease.state }
             guard byPerson || lease.askedByChief else { throw .userOriginRequired }

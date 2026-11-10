@@ -16,7 +16,10 @@ legacy-identity copies) on Linux.
    feed: GitHub-hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
    trusted signing runner each would hold the whole Mac (glaeda's exclusive class) for a long or
    wait-bound stretch while the next run builds and signs there. Every job in the push run, and every
-   short secret job, takes the trusted signing runner instead.
+   short secret job, takes the trusted signing runner instead. HOSTED_LOOP_JOBS is Leo's override for one
+   loop-run job, the GitHub release upload (2026-11-08: "no. if this is still a good idea, we can still do it."):
+   it holds the release App key, so it runs on an ephemeral hosted VM, as publish-release-notes does with the
+   same key, rather than holding the whole signing Mac; it never takes a mini or the whole-Mac claim.
 2. The Linux release-signer pool is gone: the jobs, the sign_pool input and the
    CI_NIGHTLY_NEXT_SIGN_POOL switch. The Mac signers sign every nightly.
 3. The fleet-Linux early admission is gone from decide: no step starts or reads it.
@@ -30,10 +33,12 @@ legacy-identity copies) on Linux.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -63,6 +68,15 @@ HOSTED_TAIL_JOBS = {
     "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
     "publish-nightly-reel": "an ffmpeg render of up to 90 min",
 }
+# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on GitHub-hosted
+# Ubuntu. job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
+# runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
+# 2-89 s in the same runs' tails. It holds the push group as before, so a hosted queue like 2026-11-08's 39 min would
+# hold it too: the stated cost.
+HOSTED_LOOP_JOBS = {
+    "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
+                                   "an ephemeral hosted VM; on the signer it held the whole Mac",
+}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
 # short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -70,18 +84,34 @@ NIGHTLY_NEXT_ONLY_OWNED = {
     "republish-nightly-deltas": "classic and RC release uploads wait out the rate limit (360 min timeout)",
 }
 TRACK_HOSTED = "github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' ||"
+# Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight" (the only signer had no power). An operator switch:
+# vars.CI_NIGHTLY_MINI_SIGNER set to exactly macos-26 sends the three signing jobs to a fresh GitHub-hosted macOS
+# VM, and vars.CI_NIGHTLY_MINI_PUBLISHER set to exactly ubuntu-24.04 sends the three Linux publishers to hosted
+# Ubuntu; any other value, or unset, leaves every route below as it was. Each variable is compared, never used as
+# the label. These tests check the owned route behind it.
+HOSTED_SIGNING_SWITCHES = {
+    "build-sign-notarize-nightly": "vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || ",
+    "recover-nightly-next-notarization": "vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || ",
+    "generate-nightly-deltas": "vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || ",
+    "publish-nightly": "vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || ",
+    "keep-published-dsyms": "vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || ",
+    "republish-nightly-deltas": "vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || ",
+}
 
 
 def manaflow_route(name: str) -> str:
-    """The manaflow-ai route of a nightly-next run: past the fork and the other-track short-circuits."""
+    """The manaflow-ai route of a nightly-next run: past the fork, the other-track short-circuits and the
+    operator's hosted signing switch."""
     route = fork_free_route(name)
+    if name in HOSTED_SIGNING_SWITCHES:
+        route = route.replace(HOSTED_SIGNING_SWITCHES[name], "", 1)
     return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
 
 
 # Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
 # GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
 # push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
-EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github",
+EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly",
                         "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked")
 # Of those, the ones that need no sign pick: promote-nightly-next and its retired (if: false) acked twin share a route.
 PROMOTE_ROUTE = ("promote-nightly-next", "promote-nightly-next-acked")
@@ -114,7 +144,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in HOSTED_TAIL_JOBS or job.get("uses"):
+            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
                 continue
             runs_on = str(job.get("runs-on", ""))
             if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
@@ -145,12 +175,40 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertTrue(fork_free_route(name).lstrip("${ ").startswith(TRACK_HOSTED),
                                 "a non-nightly-next track must not hold the signing Mac through its rate-limit waits")
 
+    def test_the_hosted_signing_switch_is_only_on_the_signing_jobs(self) -> None:
+        for name in JOBS:
+            with self.subTest(job=name):
+                route = str(JOBS[name].get("runs-on", ""))
+                switches = route.count("CI_NIGHTLY_MINI_SIGNER") + route.count("CI_NIGHTLY_MINI_PUBLISHER")
+                self.assertEqual(switches, 1 if name in HOSTED_SIGNING_SWITCHES else 0)
+                if name in HOSTED_SIGNING_SWITCHES:
+                    self.assertIn(HOSTED_SIGNING_SWITCHES[name], route)
+
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
-        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS), "a nightly job may not reach a GitHub-hosted runner")
-        for name in HOSTED_TAIL_JOBS:
+        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
+                         "a nightly job may not reach a GitHub-hosted runner")
+        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
                 self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
+
+    def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
+        # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
+        # the release App key on a mini without the whole-Mac claim, so its route is the literal hosted label.
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
+        for name in HOSTED_LOOP_JOBS:
+            job = JOBS[name]
+            with self.subTest(job=name):
+                self.assertEqual(str(job.get("runs-on")),
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+                self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                self.assertIn("release-next", str(job.get("environment")))
+                self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
+                # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
+                self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
+                ids = [step.get("id") for step in steps(name)]
+                self.assertNotIn(CLAIM_GATE_ID, ids)
+                self.assertFalse(any(CLAIM in str(step.get("run", "")) for step in steps(name)))
 
     def test_a_hosted_job_runs_only_in_the_tail(self) -> None:
         # The push run holds the push group until its last job ends: a hosted queue there delays the next build.
@@ -210,7 +268,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                              "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                              "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                              "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                             "'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
@@ -343,6 +401,64 @@ class ToolInstallersWorkOnAMac(unittest.TestCase):
         result, calls = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ("gh",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, "")
+
+    def run_pinned_gh(self, sha256: str | None) -> tuple[subprocess.CompletedProcess, str, str, Path]:
+        """ensure-gh.sh on a Linux x86_64 runner without gh: curl serves a local gh_<v>_linux_amd64.tar.gz.
+        Returns the result, the calls log, the GITHUB_PATH file's text and the RUNNER_TEMP dir (deleted after)."""
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, temp, True)
+        bin_dir, log, gh_path = temp / "bin", temp / "calls.log", temp / "github_path"
+        bin_dir.mkdir()
+        for tool in ("bash", "cat", "chmod", "dirname", "mkdir", "grep", "tr", "head", "cut", "rm", "mv", "cp",
+                     "tar", "gzip", "sha256sum", "shasum", "perl"):
+            real = shutil.which(tool)
+            if real:
+                os.symlink(real, bin_dir / tool)
+        stub(bin_dir, "uname", 'case "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac')
+        for tool in ("sudo", "apt-get", "dpkg", "brew"):
+            stub(bin_dir, tool, f'echo "{tool} $*" >> "{log}"; exit 1')
+        version = re.search(r"^GH_PIN_VERSION=(\S+)", (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text(), re.M)[1]
+        name = f"gh_{version}_linux_amd64"
+        (temp / "src" / name / "bin").mkdir(parents=True)
+        stub(temp / "src" / name / "bin", "gh", 'echo "gh version test"')
+        archive = temp / f"{name}.tar.gz"
+        subprocess.run(["tar", "-czf", str(archive), "-C", str(temp / "src"), name], check=True)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        stub(bin_dir, "curl", f'echo "curl $*" >> "{log}"\n'
+                              f'while [ $# -gt 0 ]; do [ "$1" = -o ] && cp "{archive}" "$2"; shift; done')
+        runner_temp = temp / "runner"
+        runner_temp.mkdir()
+        result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/nightly-steps/ensure-gh.sh")],
+                                capture_output=True, text=True,
+                                env={"PATH": str(bin_dir), "HOME": str(temp), "RUNNER_TEMP": str(runner_temp),
+                                     "GITHUB_PATH": str(gh_path), "GH_PIN_URL": f"https://example.invalid/{name}.tar.gz",
+                                     "GH_PIN_SHA256": sha256 if sha256 is not None else digest})
+        return (result, log.read_text() if log.exists() else "",
+                gh_path.read_text() if gh_path.exists() else "", runner_temp)
+
+    def test_ensure_gh_takes_the_pinned_checksummed_release_first(self) -> None:
+        result, calls, github_path, runner_temp = self.run_pinned_gh(None)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("from the pinned, sha256-checked release", result.stdout)
+        self.assertIn("curl ", calls)
+        self.assertNotRegex(calls, r"brew|sudo|apt-get")
+        added = github_path.strip()
+        self.assertTrue(added.startswith(str(runner_temp)), github_path)
+        self.assertTrue(os.access(Path(added) / "gh", os.X_OK))
+
+    def test_ensure_gh_refuses_a_release_with_the_wrong_sha256(self) -> None:
+        result, calls, github_path, _ = self.run_pinned_gh("0" * 64)
+        self.assertIn("not the pinned", result.stdout)
+        self.assertEqual(github_path, "")
+        # It falls back to the old route (apt here; every stub refuses), then fails loudly.
+        self.assertIn("apt-get", calls)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=No GitHub CLI::", result.stdout)
+
+    def test_ensure_gh_pins_every_runner_platform(self) -> None:
+        script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
+        for platform in ("Darwin/arm64", "Darwin/x86_64", "Linux/x86_64", "Linux/aarch64"):
+            self.assertRegex(script, re.escape(platform) + r"[^\n]*sum=[0-9a-f]{64}")
 
     def test_reel_ffmpeg_installs_with_brew(self) -> None:
         result, calls = self.run_script("scripts/ci/nightly-steps/reel-install-ffmpeg.sh", ())

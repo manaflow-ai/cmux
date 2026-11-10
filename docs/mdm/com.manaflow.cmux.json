@@ -167,6 +167,12 @@
       "title" : "Chat Presentation",
       "type" : "string"
     },
+    "agentPane.display.promptCoach" : {
+      "default" : true,
+      "description" : "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+      "title" : "Prompt Coach",
+      "type" : "boolean"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -263,6 +269,17 @@
       "description" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
       "title" : "Tuck Away Running Tray",
       "type" : "boolean"
+    },
+    "agentPane.display.unreadBanner" : {
+      "default" : "expanded",
+      "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+      "enum" : [
+        "expanded",
+        "collapsed",
+        "off"
+      ],
+      "title" : "Unread Banner",
+      "type" : "string"
     },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
@@ -417,6 +434,20 @@
       "maximum" : 95,
       "minimum" : 10,
       "title" : "Only Above Context Used (%)",
+      "type" : "number"
+    },
+    "agents.chats.coldArchive" : {
+      "default" : false,
+      "description" : "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+      "title" : "Compress Old Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldArchiveAfterDays" : {
+      "default" : 30,
+      "description" : "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+      "maximum" : 3650,
+      "minimum" : 1,
+      "title" : "Compress Chats Idle For",
       "type" : "number"
     },
     "agents.chats.discovery" : {
@@ -651,10 +682,10 @@
     },
     "app.uiScale" : {
       "default" : 1,
-      "description" : "app.uiScale",
+      "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
       "maximum" : 1.5,
       "minimum" : 0.85,
-      "title" : "Interface Scale",
+      "title" : "App Zoom",
       "type" : "number"
     },
     "app.warnBeforeClosingAgentSession" : {
@@ -1171,8 +1202,8 @@
       "type" : "string"
     },
     "appearance.density" : {
-      "default" : "compact",
-      "description" : "Row height, padding, corners, icons and text size together. Compact is the default.",
+      "default" : "cozy",
+      "description" : "Row height, padding, corners, icons and text size together.",
       "enum" : [
         "ultraCompact",
         "compact",
@@ -1286,10 +1317,10 @@
       "type" : "object"
     },
     "appearance.metrics.chromeFontSize" : {
-      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "description" : "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
       "maximum" : 16,
       "minimum" : 10,
-      "title" : "Interface Size",
+      "title" : "Text Size",
       "type" : "number"
     },
     "appearance.metrics.columnGap" : {
@@ -4204,6 +4235,12 @@
       "title" : "Detailed Status Icons",
       "type" : "boolean"
     },
+    "sidebar.floatOnHover" : {
+      "default" : true,
+      "description" : "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+      "title" : "Float Hidden Sidebar on Hover",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
@@ -4235,11 +4272,12 @@
     },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
-      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
       "enum" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "title" : "Group Background",
       "type" : "string"
@@ -5382,16 +5420,6 @@
       "title" : "Terminal Type (TERM)",
       "type" : "string"
     },
-    "ui.animations.bounce" : {
-      "default" : "none",
-      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-      "enum" : [
-        "none",
-        "subtle"
-      ],
-      "title" : "Animation Bounce",
-      "type" : "string"
-    },
     "ui.animations.cursor" : {
       "default" : true,
       "description" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -5494,7 +5522,7 @@
     },
     "ui.paneAnimations" : {
       "default" : true,
-      "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+      "description" : "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
     },
@@ -5577,8 +5605,8 @@
     },
     "updates.liveWebReload" : {
       "default" : true,
-      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
-      "title" : "Live Web Reload",
+      "description" : "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code).",
+      "title" : "cmux Live",
       "type" : "boolean"
     },
     "updates.meteredNetwork" : {

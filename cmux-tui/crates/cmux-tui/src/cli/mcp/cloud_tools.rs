@@ -10,9 +10,11 @@
 //! agent display (Xvfb `:99`, 1280x800; web/scripts/cmux-vm-image/agent-tools.ts) driven by its
 //! own `cmux-cua` (`cmux-agent-cua.service`, started on first use) through `cloud exec`.
 //!
-//! Take-over: before every input op `cloud_computer` reads the lease and refuses with
-//! `computer.human_has_control` while the person holds it; `screenshot` and `list_windows` still
-//! run. An app without the action (older, no take-over UI) has no lease, so input runs there.
+//! Take-over: before every op `cloud_computer` reads the lease and refuses with
+//! `computer.human_has_control` while the person holds it, `screenshot` and `list_windows` too:
+//! what they do there (a sign-in, a payment) is theirs, and `cloud exec`, which every op runs
+//! through, is refused then anyway. An app without the action (older, no take-over UI) has no
+//! lease, so the ops run there.
 
 use std::time::{Duration, Instant};
 
@@ -33,12 +35,18 @@ pub(super) const COMPUTER_CONTROL: &str = "cloud_computer_control";
 /// `ChiefComputerControlStore`; CLI name `cloud computer-control`).
 pub(super) const CONTROL_ACTION: &str = "cloud.computerControl";
 
+/// The app action that drives a Chief of this Mac's own computer (Set Up Computer in its
+/// profile; engine.json `computer` `chief:<id>`): the Worker's `…/computer/act` as the signed-in
+/// owner, which holds the lease and refuses every op while the person has control (the Mac app's
+/// `ChiefComputerControlClient+Act`; CLI name `cloud chief-computer`).
+pub(super) const OWN_ACTION: &str = "cloud.chiefComputer";
+
 /// The env that names the Chief's `engine.json` (optchat-chief `host::turn_preset`, passed to
 /// this server by acpmux `agent_tools::CHIEF_ENGINE_ENV`): its `computer` is `cloud_computer`'s
 /// default machine.
 pub(super) const CHIEF_ENGINE_ENV: &str = acpmux::agent_tools::CHIEF_ENGINE_ENV;
 
-/// The ops of `cloud_computer`, and whether each sends input (refused while a person drives).
+/// The ops of `cloud_computer`, and whether each sends input. All are refused while a person drives.
 const OPS: &[(&str, bool)] = &[
     ("screenshot", false),
     ("list_windows", false),
@@ -134,7 +142,7 @@ pub(super) fn descriptors() -> [Value; 6] {
         ),
         descriptor(
             COMPUTER,
-            "Use a Cloud machine's desktop (1280x800): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer. Input is refused while the person has control.",
+            "Use a Cloud machine's desktop (1280x800): screenshot (an image), list_windows, click, move, drag, scroll, type, key (ctrl+l, Return), open_url. machine defaults to this Chief's computer: a Cloud machine, or chief:<id>, its own computer. Every op is refused while the person has control.",
             json!({
                 "op":{"type":"string","enum":OPS.iter().map(|(op, _)| *op).collect::<Vec<_>>()},
                 "machine":machine,
@@ -154,7 +162,7 @@ pub(super) fn descriptors() -> [Value; 6] {
         ),
         descriptor(
             COMPUTER_CONTROL,
-            "Who drives a Cloud machine's desktop: status, request_human (ask the person to take over, with reason: a sign-in, a payment) or hand_back. While the person has control, cloud_computer input is refused.",
+            "Who drives a Cloud machine's desktop: status, request_human (ask the person to take over, with reason: a sign-in, a payment) or hand_back. While the person has control, every cloud_computer op is refused.",
             json!({
                 "action":{"type":"string","enum":["status","request_human","hand_back"]},
                 "machine":machine,
@@ -264,12 +272,32 @@ pub(in crate::cli) fn machine_id(value: &str) -> Option<String> {
     .then(|| id.to_owned())
 }
 
-/// The machine the Chief's `engine.json` (at [`CHIEF_ENGINE_ENV`]) attaches as its computer.
+/// The id of a Chief's own computer from `chief:<id>` (the Mac's id for the Chief: letters,
+/// digits, `-` and `_`, as the Worker's local-Chief route takes it); `None` for anything else.
+pub(in crate::cli) fn own_computer_id(value: &str) -> Option<String> {
+    let id = value.trim().strip_prefix("chief:")?;
+    (!id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
+    .then(|| id.to_owned())
+}
+
+/// The computer the Chief's `engine.json` (at [`CHIEF_ENGINE_ENV`]) attaches: a Cloud machine's
+/// id, or `chief:<id>` for its own computer.
 pub(super) fn chief_computer_from_env() -> Option<String> {
     let path = std::env::var_os(CHIEF_ENGINE_ENV)?;
     let text = std::fs::read_to_string(path).ok()?;
     let engine: Value = serde_json::from_str(&text).ok()?;
-    machine_id(engine.get("computer")?.as_str()?)
+    let computer = engine.get("computer")?.as_str()?;
+    own_computer_id(computer).map(|id| format!("chief:{id}")).or_else(|| machine_id(computer))
+}
+
+/// What a `cloud_computer` call drives.
+enum Computer {
+    /// A Cloud machine, through `cloud exec` and its lease in the app.
+    Machine(String),
+    /// The Chief's own computer, through [`OWN_ACTION`].
+    Own(String),
 }
 
 /// What a session id may be: it goes into a shell word on the machine, quoted.
@@ -432,7 +460,7 @@ impl<B: Backend> Calls<'_, B> {
             "machines": machines,
             "signed_in": listed.pointer("/account/signed_in").cloned().unwrap_or(Value::Null),
             "loaded": listed.get("loaded").cloned().unwrap_or(Value::Null),
-            "computer": self.backend.chief_computer().map(|id| format!("machine:{id}")),
+            "computer": self.backend.chief_computer().map(|id| if id.starts_with("chief:") { id } else { format!("machine:{id}") }),
         });
         if let Some(creating) = listed.get("creating").filter(|value| !value.is_null())
             && let Some(object) = answer.as_object_mut()
@@ -500,14 +528,28 @@ impl<B: Backend> Calls<'_, B> {
         Ok(outcome(chat::status(&mut self.runner(), &machine, &session, after, wait), false))
     }
 
-    /// The machine a `cloud_computer` call targets: its own, else this Chief's computer.
-    fn computer_machine(&self, arguments: &Map<String, Value>) -> Result<String, Value> {
-        match text(arguments, "machine")? {
-            Some(machine) => machine_id(machine).ok_or_else(|| invalid("machine must be machine:<id>")),
+    /// The computer a `cloud_computer` call targets: its own `machine`, else this Chief's computer.
+    fn computer_target(&self, arguments: &Map<String, Value>) -> Result<Computer, Value> {
+        let named = match text(arguments, "machine")? {
+            Some(machine) => machine.to_owned(),
             None => self.backend.chief_computer().ok_or_else(|| {
                 invalid("name the machine (machine:<id>): this Chief has no computer attached; cloud_machines lists them")
-            }),
+            })?,
+        };
+        if let Some(id) = own_computer_id(&named) {
+            return Ok(Computer::Own(id));
         }
+        machine_id(&named)
+            .map(Computer::Machine)
+            .ok_or_else(|| invalid("machine must be machine:<id> or chief:<id>"))
+    }
+
+    /// One verb on the Chief's own computer: the Worker's answer, or its refusal (the person's
+    /// hold is `computer.human_has_control`).
+    fn own(&self, id: &str, op: &str, fields: Map<String, Value>, mutation: bool) -> Answer {
+        let args = json!({"chief": format!("chief:{id}"), "op": op, "args": Value::Object(fields).to_string()});
+        self.action(OWN_ACTION, ActionName::Any, None, args, mutation)
+            .map_err(super::failure_result)
     }
 
     /// The control lease of `machine`: `Ok(None)` from an app without the action.
@@ -541,7 +583,22 @@ impl<B: Backend> Calls<'_, B> {
         if reason.is_some_and(|reason| reason.chars().count() > 200) {
             return Err(invalid("reason is at most 200 characters"));
         }
-        let machine = self.computer_machine(arguments)?;
+        let machine = match self.computer_target(arguments)? {
+            Computer::Machine(machine) => machine,
+            Computer::Own(id) => {
+                let op = if action == "status" { "control" } else { action };
+                let mut fields = Map::new();
+                if let Some(reason) = reason {
+                    fields.insert("reason".into(), json!(reason));
+                }
+                let answer = self.own(&id, op, fields, action != "status")?;
+                let control = answer.get("control").cloned().unwrap_or(answer);
+                return Ok(success(
+                    json!({"machine": format!("chief:{id}"), "control": control}),
+                    action != "status",
+                ));
+            }
+        };
         match self.lease(&machine, action, reason)? {
             Some(state) => Ok(success(state, action != "status")),
             None => Err(refused(
@@ -562,17 +619,20 @@ impl<B: Backend> Calls<'_, B> {
             )));
         };
         let step = desktop_step(op, arguments)?;
-        let machine = self.computer_machine(arguments)?;
+        let machine = match self.computer_target(arguments)? {
+            Computer::Machine(machine) => machine,
+            Computer::Own(id) => return self.own_computer(&id, op, input, arguments),
+        };
         let target = format!("machine:{machine}");
-        if input
-            && let Some(state) = self.lease(&machine, "status", None)?
+        if let Some(state) = self.lease(&machine, "status", None)?
             && state.get("holder").and_then(Value::as_str) == Some("human")
         {
             return Err(refused(
                 "computer.human_has_control",
                 format!(
-                    "the person has control of {target}'s desktop: input is refused until they \
-                     give it back (cloud_computer_control status); screenshots still work"
+                    "the person has control of {target}'s desktop: every op, screenshots and the \
+                     window list too, is refused until they give it back or stay idle for 10 \
+                     minutes (cloud_computer_control status)"
                 ),
                 json!({"machine": target, "control": state}),
                 "not_run",
@@ -604,6 +664,64 @@ impl<B: Backend> Calls<'_, B> {
             object.insert("note".into(), json!("take a screenshot to see what changed"));
         }
         Ok(success(answer, input))
+    }
+
+    /// One `cloud_computer` op on the Chief's own computer (arguments already checked by
+    /// `desktop_step`): the screenshot as an image block, else the op's answer.
+    fn own_computer(
+        &self,
+        id: &str,
+        op: &str,
+        input: bool,
+        arguments: &Map<String, Value>,
+    ) -> Answer {
+        let target = format!("chief:{id}");
+        let verb = match op {
+            "list_windows" => "windows",
+            "open_url" => "open",
+            other => other,
+        };
+        let mut fields: Map<String, Value> = arguments
+            .iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "op" | "machine"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        if input {
+            // Its own screenshot comes back only when asked for (the note says so).
+            fields.insert("shot".into(), json!(false));
+        }
+        let answer = self.own(id, verb, fields, input)?;
+        if op == "screenshot" {
+            let Some(data) =
+                answer.get("image").and_then(Value::as_str).filter(|data| !data.is_empty())
+            else {
+                return Err(refused(
+                    "computer.failed",
+                    format!("the screenshot on {target} could not be read"),
+                    json!({"machine": target, "op": "screenshot"}),
+                    "not_run",
+                ));
+            };
+            let screen = answer.get("screen").cloned().unwrap_or(Value::Null);
+            let text = json!({"machine": target, "op": "screenshot", "screen": screen}).to_string();
+            return Ok(json!({
+                "content": [
+                    {"type": "text", "text": text},
+                    {"type": "image", "data": data, "mimeType": "image/jpeg"},
+                ],
+                "isError": false,
+            }));
+        }
+        let result = if op == "list_windows" {
+            answer.get("windows").cloned().unwrap_or(Value::Null)
+        } else {
+            answer
+        };
+        let mut out = json!({"machine": target, "op": op, "result": result});
+        if input && let Some(object) = out.as_object_mut() {
+            object.insert("note".into(), json!("take a screenshot to see what changed"));
+        }
+        Ok(success(out, input))
     }
 
     /// The screenshot `desktop_step` saved, read back as an image block. No structured content,

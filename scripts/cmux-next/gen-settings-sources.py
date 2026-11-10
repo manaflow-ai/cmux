@@ -1340,6 +1340,34 @@ def row_fact_outputs():
 SECTIONS = load_generator_sections()
 
 
+EXPORT = "schemas/settings/settings-schema.json"
+
+
+def export_key_drift(loaded):
+    """What the committed export (settings-schema.json, written by the Swift export on a Mac) says
+    that the sources do not: a source row missing from its rows, a row no source has, or a retired
+    key back in it. The export is a generated file, but a PR can carry one made from an older base
+    (#40382 merged an export from before agents.chats.coldArchive and with the retired
+    ui.animations.bounce), and the Mac check that compares it with a fresh export does not run on
+    every event. Every row comes from a source, so the key sets are equal; this reads only JSON, so
+    it runs everywhere --check does."""
+    path = os.path.join(ROOT, EXPORT)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as handle:
+        exported = {row["key"] for row in json.load(handle)["rows"]}
+    sourced = {row["key"] for _, data in loaded for entry in data["lists"] for row in entry["rows"]}
+    retired = {entry["key"] for entry in load_retired()}
+    problems = []
+    if sourced - exported:
+        problems.append("source rows missing from the export: %s" % sorted(sourced - exported))
+    if exported - sourced - retired:
+        problems.append("export rows no source has: %s" % sorted(exported - sourced - retired))
+    if exported & retired:
+        problems.append("retired keys back in the export: %s" % sorted(exported & retired))
+    return problems
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -1382,6 +1410,12 @@ def main():
         else:
             os.remove(os.path.join(ROOT, path))
             print("removed " + path)
+    stale_export = export_key_drift(loaded)
+    if stale_export:
+        print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
+              "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
+              % (EXPORT, "\n  ".join(stale_export)), file=sys.stderr)
+        return 1
     if drifted:
         print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
               % "\n  ".join(drifted), file=sys.stderr)

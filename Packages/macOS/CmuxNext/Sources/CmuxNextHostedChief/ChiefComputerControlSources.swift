@@ -41,7 +41,8 @@ extension HomeChiefComputerControlSource {
     }
 
     /// A Cloud machine attached to a Chief on this Mac, whose lease `store` owns. The person's input
-    /// goes through the machine's interactive desktop (`openInteractive`), not `send`.
+    /// goes through the machine's interactive desktop (`openInteractive`), not `send`; that viewer
+    /// reports it through `noteInput`, which keeps their hold.
     @MainActor
     public static func machine(_ machine: String, store: ChiefComputerControlStore, openInteractive: @escaping () -> Void) -> HomeChiefComputerControlSource {
         let key = ChiefComputerControlStore.Key.machine(machine)
@@ -51,7 +52,8 @@ extension HomeChiefComputerControlSource {
             takeOver: { _ = try store.perform(.takeOver, machine: machine, byPerson: true) },
             handBack: { _ = try store.perform(.handBack, machine: machine, byPerson: true) },
             send: nil,
-            openInteractive: openInteractive
+            openInteractive: openInteractive,
+            noteInput: { store.noteInput(machine: machine) }
         )
     }
 }

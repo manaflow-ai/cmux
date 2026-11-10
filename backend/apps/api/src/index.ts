@@ -45,6 +45,7 @@ export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 export { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { LOCAL_CHIEF_COMPUTER_PATH, handleLocalChiefComputer } from "./chief-brain/local-computer-routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
@@ -226,6 +227,9 @@ export default {
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
     if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
+    // The computer of a Chief that runs on its owner's Mac (chief-brain/local-computer-routes.ts), keyed by the session's user.
+    const localComputer = url.pathname.match(LOCAL_CHIEF_COMPUTER_PATH)
+    if (localComputer) return handleLocalChiefComputer(request, env, localComputer[1]!, localComputer[2])
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.

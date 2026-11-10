@@ -24,8 +24,11 @@ import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
+import { UIPickChip } from "./UIPickChip";
+import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -65,12 +68,6 @@ export function useInlineAttachments(options: Options) {
   const placed = useRef(new Set<string>());
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
-  /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
-  /// `keepAsFile`): never placed in the text, so no undo there can take one out. Kept across a
-  /// change of scope, as the attachment itself is (a chat's kept chips come back with its draft):
-  /// cleared there, the next `ready()` would put the file in the prompt (review of #37516). An id
-  /// leaves when it is sent.
-  const stripOnly = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
@@ -79,11 +76,18 @@ export function useInlineAttachments(options: Options) {
   /// file among them still uploading holds the send (useSendWhenAttached) and is never cancelled by
   /// it. Only the person's own edit cancels one (review of #26667).
   const clearing = useRef(false);
+  /// Placeholders a paste or drop brought while the text could not take them yet (shell mode, the
+  /// editor not made): each goes into the text the moment it can, still loading, so what its read
+  /// makes takes that place (`ready`).
+  const deferred = useRef(new Set<string>());
+  /// The placeholders the last commit drew, by id: one that is an attachment now finished loading.
+  const loading = useRef<ReadonlySet<string>>(new Set());
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
     cancelled.current.clear();
     sentIds.current.clear();
+    deferred.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
 
@@ -140,29 +144,57 @@ export function useInlineAttachments(options: Options) {
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
 
   const [api] = useState(() => ({
-    /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
-    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`). `strip`:
-    /// they stay in the strip.
-    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined, strip = false) {
+    /// The person's paste or drop made `chips`: each goes in at the caret, images, videos, files,
+    /// screenshots and pasted text alike, so the prompt reads text, image, text, file as written
+    /// (attachmentIntake.tsx `place`). One placement rule for every kind: nothing here reads what a
+    /// chip is (test/composer-attachment-placement-one-rule.test.tsx guards it). Where the caret
+    /// cannot take them (a code block), or `start` (a chip with no caret of its own: a Pasted text
+    /// chip kept as a file where it had no node), they go at the start of the prompt instead, never
+    /// into the strip above the text.
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined, start = false) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
-      if (strip) {
-        for (const id of ids) stripOnly.current.add(id);
+      if (!ids.length) return;
+      if (!placing() || !field.current?.inlineIds()) {
+        for (const id of ids) deferred.current.add(id);
         return;
       }
-      if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
       // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
-      if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
+      const went =
+        (!start && field.current?.insertInline(ids, kind === "paste")) ||
+        field.current?.insertInline(ids, false, "start");
+      if (!went) for (const id of ids) placed.current.delete(id);
     },
     ready() {
-      const { attachments, field, placing } = live.current;
+      const { attachments, pending, field, placing } = live.current;
       if (!placing()) return;
       const marks = new Set(placedIn(field.current?.value() ?? seen.current));
-      const fresh = attachments.filter(
-        (chip) => !marks.has(chip.id) && !removed.current.has(chip.id) && !stripOnly.current.has(chip.id),
-      );
-      if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
+      const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
+      // A read that ended while its placeholder had no node (a value from outside took it away, as a
+      // chat's draft read or a carried prompt does while a slow read such as a video's runs) goes at
+      // the start of the prompt: never put in at the caret then, between the words typed while it
+      // loaded (Leo, 2026-11-09: "when it actually loads, it gets smashed in between text that you
+      // were typing"), and never left in the strip above the text, where it stayed for good before
+      // (Leo, 2026-11-09: "This one went above the whole thing. It's in, like, the special attachment
+      // zone. But we didn't say to do that.").
+      const orphans = fresh
+        .filter((chip) => loading.current.has(chip.id) && !deferred.current.has(chip.id))
+        .map((chip) => chip.id);
+      const added = fresh.map((chip) => chip.id).filter((id) => !orphans.includes(id));
+      // Placeholders that waited for the text to take them go in now, still loading.
+      const waiting = field.current?.inlineIds()
+        ? pending.filter((chip) => deferred.current.has(chip.id) && !marks.has(chip.id)).map((chip) => chip.id)
+        : [];
+      for (const id of deferred.current)
+        if (waiting.includes(id) || !pending.some((chip) => chip.id === id)) deferred.current.delete(id);
+      if (orphans.length) field.current?.insertInline(orphans, false, "start");
+      const ids = [...added, ...waiting];
+      if (!ids.length) return;
+      for (const id of waiting) placed.current.add(id);
+      // At the caret, or where it cannot take them (a code block) at the start of the prompt.
+      if (!field.current?.insertInline(ids) && !field.current?.insertInline(ids, false, "start"))
+        for (const id of waiting) placed.current.delete(id);
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
@@ -240,7 +272,6 @@ export function useInlineAttachments(options: Options) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
-        stripOnly.current.delete(id);
         sentIds.current.add(id);
       }
       clearing.current = true;
@@ -289,6 +320,10 @@ export function useInlineAttachments(options: Options) {
     for (const attachment of options.attachments) sentIds.current.delete(attachment.id);
     api.ready();
   }, [options.attachments, api]);
+  // After `ready`, which reads the placeholders the commit before drew.
+  useLayoutEffect(() => {
+    loading.current = new Set(options.pending.map((chip) => chip.id));
+  }, [options.pending]);
   // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
   // meanwhile goes into the text. Read after each commit, never during render: a consumer's
   // `placing` may read state it declares after this hook.
@@ -451,6 +486,17 @@ const InlineChip = memo(function InlineChip({
       </ContextMenu>
     );
   }
+  // An inspector pick: the element and a snippet of its text, opening its whole report in place
+  // (UIPickChip.tsx). Its right-click menu removes it, as the strip's does.
+  if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
+    return (
+      <ContextMenu
+        className="acpmux-attachment-menu"
+        items={[{ id: "remove", label: t("composer.removeAttachment", { name }), onSelect: () => onRemove(id) }]}
+      >
+        <UIPickChip host="inline" name={attachment.name} text={attachment.text} remove={remove} />
+      </ContextMenu>
+    );
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (
@@ -458,6 +504,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      ref={chipRef(id)}
       {...(loaded.current ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip

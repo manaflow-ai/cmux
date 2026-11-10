@@ -22,6 +22,8 @@ public struct RemoteDesktopPaneHandlers {
     public var selectMode: (RemoteControlMode) -> Void = { _ in }
     /// cmux shortcut matcher: true keeps the chord in the viewer.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// The person's input went to the host (control mode). Runs per event: keep it cheap.
+    public var personInput: () -> Void = {}
 
     public init() {}
 }
@@ -93,6 +95,7 @@ public final class RemoteDesktopPane {
         view.video.scaling = scaling
         view.capture.controller.sink = inputSink
         view.capture.controller.onReleaseKeyboard = { [weak view] in view?.capture.releaseKeyboard() }
+        view.capture.controller.onInput = { [weak self] in self?.handlers.personInput() }
         self.presenter.onFrameSize = { [weak self] size in
             self?.view.video.setFramePixels(size)
         }

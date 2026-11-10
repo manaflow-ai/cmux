@@ -9,28 +9,40 @@
 //!   question, the bypass-permissions warning, a login or API-key choice,
 //!   onboarding, Codex's trust or update prompt), or a fresh hook record
 //!   says the agent waits on the person. The dialog's id and a reason come
-//!   with it. cmux never answers the dialog.
-//! - `ready`: no dialog, and a fresh hook record says the agent is idle (the
-//!   `SessionStart` hook) or the screen shows the agent's input box.
+//!   with it, and the last screen, whose numbered options `agent start`
+//!   lists. cmux never answers the dialog on its own: the person decides.
+//! - `ready`: no dialog, and a fresh record the agent reported itself (its
+//!   hooks or the socket, never the screen-detection plugin) says it is idle
+//!   (the `SessionStart` hook), or the screen shows the agent's input box. A
+//!   resume waits for the agent's own report alone: its session id came
+//!   from the agent's hooks, and the input box of a resumed Claude Code is
+//!   drawn before it takes a message (W5-R, bench round 4 A6).
 //! - `starting`: neither yet.
 //! - `exited`: the terminal's process ended.
 //!
 //! `ready` and `blocked` count only once the screen stood still for the
 //! settle time (default 1 s), so a dialog that is still drawing or an input
 //! box that a dialog replaces a moment later is not taken.
+//!
+//! The CLI looks again when the daemon's `session.events` stream reports a
+//! change ([`wake_on_event`]), and at the latest [`DEFAULT_POLL`] after the
+//! last look: the settle time passes with no event to announce it.
 
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use super::super::command::RequestPlan;
+use super::super::mcp::{Backend, CallFailure};
 use super::super::terminal_talk::send::Daemon;
 use super::Failure;
 
 /// How long the screen must stand still before `ready` or `blocked` counts.
 pub(in crate::cli) const DEFAULT_SETTLE: Duration = Duration::from_secs(1);
-/// How often the wait looks.
-pub(in crate::cli) const DEFAULT_POLL: Duration = Duration::from_millis(250);
+/// The longest the wait goes without a look: a daemon event wakes it sooner
+/// ([`wake_on_event`]); this one sees the settle time pass, which no event announces.
+// timeout: not a deadline: the look with no event; the caller's timeout bounds the wait.
+pub(in crate::cli) const DEFAULT_POLL: Duration = Duration::from_secs(1);
 /// How long `agent start` waits by default.
 pub(in crate::cli) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -49,8 +61,10 @@ const DIALOGS: &[(Dialog, &[&str])] = &[
     (
         Dialog {
             id: "folder_trust",
-            reason: "the agent asks whether you trust this folder; answer it in the terminal \
-                     (cmux does not answer it for you)",
+            // agent_start.rs (add_dialog_options) replaces it with a
+            // localized reason that names the agent's terminal.
+            reason: "the agent asks whether you trust this folder; ask the person, then answer \
+                     it with cmux terminal keys (cmux never answers it on its own)",
         },
         &[
             "do you trust the files in this folder",
@@ -203,8 +217,15 @@ pub(in crate::cli) struct Look<'a> {
     pub hook_state: Option<&'a str>,
 }
 
-/// The readiness one look shows (see the module docs).
+/// The readiness one look shows for `agent start` (see the module docs).
+#[cfg(test)]
 pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
+    assess_for(look, false)
+}
+
+/// [`assess`], where `report_required` leaves only the agent's own idle
+/// report as ready (a resume), not its input box on the screen.
+pub(in crate::cli) fn assess_for(look: &Look<'_>, report_required: bool) -> Readiness {
     if look.exited {
         return Readiness::Exited;
     }
@@ -215,7 +236,7 @@ pub(in crate::cli) fn assess(look: &Look<'_>) -> Readiness {
         Some("blocked") => Readiness::Blocked(AGENT_QUESTION),
         Some("working") => Readiness::Starting,
         Some("idle") => Readiness::Ready,
-        _ if composer_visible(look.screen) => Readiness::Ready,
+        _ if !report_required && composer_visible(look.screen) => Readiness::Ready,
         _ => Readiness::Starting,
     }
 }
@@ -265,11 +286,19 @@ pub(in crate::cli) struct WaitOptions {
     pub poll: Duration,
     /// Agent records older than this (Unix ms) do not count.
     pub since_ms: u64,
+    /// Ready only on the agent's own idle report ([`assess_for`]).
+    pub report_required: bool,
 }
 
 impl WaitOptions {
     pub(in crate::cli) fn new(timeout: Duration, since_ms: u64) -> Self {
-        Self { timeout, settle: DEFAULT_SETTLE, poll: DEFAULT_POLL, since_ms }
+        Self {
+            timeout,
+            settle: DEFAULT_SETTLE,
+            poll: DEFAULT_POLL,
+            since_ms,
+            report_required: false,
+        }
     }
 }
 
@@ -280,6 +309,10 @@ pub(in crate::cli) struct Outcome {
     /// The last readiness seen (`starting` when nothing else was).
     pub last: Readiness,
     pub waited: Duration,
+    /// The last screen read (the dialog's options for a blocked start).
+    pub screen: String,
+    /// The wait took only the agent's own report as ready.
+    pub report_required: bool,
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -287,11 +320,13 @@ fn number(value: &Value) -> Option<u64> {
 }
 
 /// The state of the newest agent record of `records` written at or after
-/// `since_ms`.
+/// `since_ms` that the agent reported itself
+/// ([`reported_by_agent`](super::super::terminal_talk::roster::reported_by_agent)).
 pub(in crate::cli) fn fresh_hook_state(records: &Value, since_ms: u64) -> Option<&str> {
     records
         .as_array()?
         .iter()
+        .filter(|record| super::super::terminal_talk::roster::reported_by_agent(record))
         .filter(|record| number(&record["updated_at_ms"]).is_some_and(|ms| ms >= since_ms))
         .max_by_key(|record| number(&record["updated_at_ms"]).unwrap_or(0))
         .and_then(|record| record["state"].as_str())
@@ -305,7 +340,9 @@ pub(in crate::cli) struct Reads {
 }
 
 /// Looks at `terminal` until it is ready, blocked or exited, or the timeout
-/// passes. `now` and `sleep` are the clock (tests pass a fake one).
+/// passes. `now` is the clock; `sleep(d)` returns when the terminal may have
+/// changed, at most `d` later (the CLI passes [`wake_on_event`]; tests advance
+/// a fake clock).
 pub(in crate::cli) fn wait<D, N, S>(
     daemon: &D,
     reads: &Reads,
@@ -332,14 +369,103 @@ where
             exited: terminal.get("lifecycle").is_some_and(|lifecycle| lifecycle == "exited"),
             hook_state: fresh_hook_state(&records, options.since_ms),
         };
-        let last = assess(&look);
+        let last = assess_for(&look, options.report_required);
         let at = now();
         if let Some(done) = gate.observe(screen, last, at) {
-            return Ok(Outcome { readiness: Some(done), last, waited: at - started });
+            let screen = screen.to_owned();
+            let report_required = options.report_required;
+            return Ok(Outcome {
+                readiness: Some(done),
+                last,
+                waited: at - started,
+                screen,
+                report_required,
+            });
         }
         if at >= deadline {
-            return Ok(Outcome { readiness: None, last, waited: at - started });
+            let screen = screen.to_owned();
+            let report_required = options.report_required;
+            return Ok(Outcome {
+                readiness: None,
+                last,
+                waited: at - started,
+                screen,
+                report_required,
+            });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));
     }
+}
+
+/// A burst of events looks once: the earliest a woken wait looks again.
+const EVENT_GAP: Duration = Duration::from_millis(200);
+
+/// Returns when the daemon's `session.events` stream reports a change after
+/// `cursor` (a burst counts once, [`EVENT_GAP`]), or `at_most` after the
+/// call. `cursor` is the daemon's event position: the first call opens with
+/// none and takes the initial snapshot's (no change), each later one resumes
+/// from it, so a change made between two looks still wakes the next. With no
+/// stream (an older daemon, no socket) it waits out `at_most`; a stream that
+/// ends early still waits [`EVENT_GAP`] after a change, so a wait never spins.
+pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
+    backend: &B,
+    cursor: &mut Option<Value>,
+    at_most: Duration,
+) {
+    wake_after(
+        &mut |from, deadline, tick, on_wake| {
+            backend.session_events(None, from, deadline, tick, on_wake)
+        },
+        cursor,
+        at_most,
+        &Instant::now,
+        &mut std::thread::sleep,
+    );
+}
+
+/// The daemon's `session.events` stream from a cursor (`None`: from a snapshot), held open until
+/// a deadline and ticking with `None` ([`Backend::session_events`]).
+pub(super) type Events<'a> = dyn FnMut(
+        Option<&Value>,
+        Instant,
+        Duration,
+        &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure>
+    + 'a;
+
+/// [`wake_on_event`] with its seams: `events` opens the stream, `now` is the clock and `sleep`
+/// waits (tests pass a fake stream and advance a fake clock).
+pub(super) fn wake_after(
+    events: &mut Events<'_>,
+    cursor: &mut Option<Value>,
+    at_most: Duration,
+    now: &dyn Fn() -> Instant,
+    sleep: &mut dyn FnMut(Duration),
+) {
+    let started = now();
+    let deadline = started + at_most;
+    let from = cursor.clone();
+    let mut latest = None;
+    let mut changed = false;
+    let streamed = events(from.as_ref(), deadline, EVENT_GAP, &mut |item| {
+        if let Some(item) = item {
+            if let Some(at) = item.get("cursor") {
+                latest = Some(at.clone());
+            }
+            let field = |name: &str| item.get(name).and_then(Value::as_str);
+            changed |=
+                !(field("kind") == Some("snapshot") && field("reset_reason") == Some("initial"));
+        }
+        changed && now().saturating_duration_since(started) >= EVENT_GAP
+    });
+    if latest.is_some() {
+        *cursor = latest;
+    } else if let Err(failure) = &streamed
+        && failure.error.get("code").and_then(Value::as_str) == Some("cursor.invalid")
+    {
+        // A cursor ahead of the daemon (another daemon's journal): open from a snapshot next.
+        *cursor = None;
+    }
+    let until = if changed { (started + EVENT_GAP).min(deadline) } else { deadline };
+    sleep(until.saturating_duration_since(now()));
 }

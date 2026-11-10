@@ -1,10 +1,13 @@
 import { join } from "node:path"
+import { writeChiefVmSource } from "../../api/scripts/gen-chief-vm-source.ts"
 import { cloudflareShim } from "../src/shims/plugin.ts"
 
 /**
  * One executable per target: `bun build --compile` with `cloudflare:workers` resolved to the shim.
  * Usage: bun scripts/build.ts [--target bun-darwin-arm64|bun-darwin-x64|bun-linux-x64|bun-linux-arm64]... [--out DIR]
  */
+// The API's turn code imports chief-vm-source.ts, which is build output (scripts/ci/generated-files.json).
+writeChiefVmSource()
 const args = process.argv.slice(2)
 const targets = args.flatMap((a, i) => (a === "--target" ? [args[i + 1]!] : []))
 const out = args.includes("--out") ? args[args.indexOf("--out") + 1]! : join(import.meta.dir, "..", "dist")

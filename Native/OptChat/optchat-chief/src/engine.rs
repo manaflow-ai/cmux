@@ -524,14 +524,32 @@ pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// A `computer` value: a Cloud machine as `machine:<id>` or its bare id;
-/// `default`, `none` or empty clears it. The id is the Cloud machine id the
-/// app lists (`cmux cloud list-machines`): letters, digits, `-` and `_`, so
-/// the turn line that names it cannot carry anything else.
+/// A `computer` value: a Cloud machine as `machine:<id>` or its bare id, or
+/// the Chief's own Cloud computer as `chief:<id>` (Set Up Computer for a
+/// Chief on this Mac; `<id>` is its conversation id, 1 to 64 letters,
+/// digits, `-` and `_`, the id the app's `cloud.chiefComputer` and the
+/// backend's `/v1/local-chiefs/<id>/computer` take); `default`, `none` or
+/// empty clears it. The machine id is the Cloud machine id the app lists
+/// (`cmux cloud list-machines`): letters, digits, `-` and `_`, so the turn
+/// line that names it cannot carry anything else.
 pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
     let value = value.trim();
     if matches!(value, "" | "default" | "none") {
         return Ok(None);
+    }
+    if let Some(id) = value.strip_prefix("chief:") {
+        let ok = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        return if ok {
+            Ok(Some(format!("chief:{id}")))
+        } else {
+            Err(format!(
+                "computer chief:<id> takes 1 to 64 letters, digits, - and _, not {value:?}"
+            ))
+        };
     }
     let id = value.strip_prefix("machine:").unwrap_or(value);
     // Other machines' ids (`MachineRegistry`): `ssh-…` hosts, `server-…`
@@ -558,14 +576,19 @@ pub fn computer_line(choice: &EngineChoice) -> Option<String> {
     // A hand edit of engine.json skips the set's check: check it again here,
     // so the line can only ever carry a Cloud machine id.
     let target = parse_computer(choice.computer.as_deref()?).ok()??;
+    if target.starts_with("chief:") {
+        return Some(format!(
+            "Your computer: you have your own Cloud computer {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default computer; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
+        ));
+    }
     Some(format!(
-        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default machine; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input is refused until they hand it back."
+        "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the cloud_computer tool (its default machine; ToolSearch cloud_computer), not on this Mac, unless the owner asks for this Mac. When the owner takes over, input and screenshots are refused until they hand it back."
     ))
 }
 
 pub const USAGE: &str = "chief engine show
 chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--computer machine:<id>|none] [--mode bypassPermissions|auto|default|unset]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H] [--computer machine:<id>|chief:<id>|none] [--mode bypassPermissions|auto|default|unset]   (value `default` clears, except for --mode, where `default` is Claude Code's Manual mode and `unset` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto; --mode is the permission mode the Chief's own Claude turns run in, bypassPermissions unless set, never wider than Settings > Chief > Permission Mode)";
 
 /// `engine show`'s permission mode line: the mode, what chose it, and when
 /// it applies.

@@ -6,10 +6,12 @@ import QuartzCore
 /// two-finger horizontal scroll moves the workspace list 1:1 with the
 /// fingers with the real rows of the space beside it (`SidebarModel
 /// .spaceSections`), rubber-bands at the ends and snaps by distance or
-/// velocity (`SpacePager`). A switch by dot, key or a new space slides the
-/// old page out and the new one in from the side of its dot; with reduced
-/// motion the pages cross-fade. Pages move by layer translation only (no
-/// layout, no reload during the gesture).
+/// velocity (`SpacePager`). Only the fingers move pages: a switch by dot,
+/// key, wheel, palette or CLI shows the new space's rows at rest in its own
+/// frame, as a browser shows a tab (Lawrence 2026-11-10: a press on a space
+/// "instantly switches"; the old page slid out for 0.2 s and cost a second
+/// list per switch). Pages move by layer translation only (no layout, no
+/// reload during the gesture).
 @MainActor final class SidebarSpacePaging {
     private unowned let host: SidebarView
     private var pager: SpacePager?
@@ -18,15 +20,13 @@ import QuartzCore
     private var samples: [(time: TimeInterval, dx: CGFloat)] = []
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
-    private var snapshot: NSView?
-    var snapshotView: NSView? { snapshot }
-    /// The last page, kept off screen for the next switch or swipe: its list keeps its row views
+    /// The last page, kept off screen for the next swipe: its list keeps its row views
     /// (pool), so a page makes no new row views once warm (space-switch-fast: a new list per
-    /// switch built every row view, its buttons and their constraints, from scratch).
+    /// page built every row view, its buttons and their constraints, from scratch).
     private var sparePage: SpacePageView?
 
     /// The host as a weak reference: an animation completion runs after the host may be gone
-    /// (a window closed mid-slide), and reading the unowned `host` then traps.
+    /// (a window closed mid-swipe), and reading the unowned `host` then traps.
     private weak var liveHost: SidebarView?
 
     init(host: SidebarView) {
@@ -65,7 +65,6 @@ import QuartzCore
     }
 
     private func start() {
-        finishSlide()
         profiles = host.model.profiles.map(\.id)
         guard profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
               let index = profiles.firstIndex(of: active) else { return }
@@ -104,19 +103,14 @@ import QuartzCore
         }
     }
 
-    /// The model shows the space a release switched to: the real list takes
-    /// the page's place at once (no reload animation, no second slide).
-    func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget else { return false }
-        // A direct selection can supersede an in-flight swipe before its
-        // original switch callback arrives. Drop the old lock and transition
-        // state so later swipes and wheel paging remain available.
-        guard pendingTarget == profile else {
-            endPaging()
-            return false
-        }
+    /// The model shows another space: the real list takes the page's place
+    /// at once (no reload animation). The space is the one a release switched
+    /// to, or a direct selection that superseded an in-flight swipe before
+    /// its switch arrived; both drop the lock and the page, so later swipes
+    /// and wheel paging remain available.
+    func modelDidSwitch() {
+        guard pendingTarget != nil else { return }
         endPaging()
-        return true
     }
 
     private func endPaging() {
@@ -151,63 +145,54 @@ import QuartzCore
         CATransaction.commit()
     }
 
-    private static let slideKey = "spacePaging.translation"
+    private static let translationKey = "spacePaging.translation"
 
-    /// Moves a page to `x`, with `spring` from its current on-screen offset
-    /// (or `from`). The spring holds its end value until the page moves
+    /// Moves a page to `x`, with `spring` from its current on-screen offset.
+    /// The spring holds its end value until the page moves
     /// again or goes away (cx-5k3r, "spaces animation is jank"): AppKit may
     /// reset a view-backed layer's model transform during a layout pass, so
-    /// a finished slide would otherwise show the page back at 0 for the
+    /// a finished settle would otherwise show the page back at 0 for the
     /// frames before its completion removes it (the old rows drawn over the
     /// new list). A move without a spring holds its value the same way
     /// (cx-gq1k): AppKit's geometry pass for a page just inserted at a
     /// swipe's first event reset its transform, so the next space's rows drew
     /// at 0 over the live list until the next event. At 0 nothing is held.
-    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?, from: CGFloat? = nil) {
+    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?) {
         guard let layer = view.layer else { return }
         let keyPath = "transform.translation.x"
-        let shown = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
-        let start = from ?? shown
-        layer.removeAnimation(forKey: Self.slideKey)
+        let start = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+        layer.removeAnimation(forKey: Self.translationKey)
         Motion.sidebar.transaction(nil) {
             // A page's layer keeps its shift through AppKit's geometry writes.
             (layer as? SpacePageLayer)?.shiftX = x
             layer.setValue(x, forKeyPath: keyPath)
         }
-        guard let spring, Motion.sidebar.animatesMovement, start != x else {
-            if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.slideKey) }
+        guard let spring, Motion.sidebar.animatesMovement(in: view.window), start != x else {
+            if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.translationKey) }
             return
         }
         let animation = Motion.sidebar.springAnimation(spring, keyPath, from: start, to: x)
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
-        layer.add(animation, forKey: Self.slideKey)
+        layer.add(animation, forKey: Self.translationKey)
     }
 
     // MARK: Mouse wheel
 
-    /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
-    /// like a switch by dot. Past the first or last space nothing moves
+    /// One mouse wheel page (`SpaceWheelPager`): the space beside shows at
+    /// rest, like a switch by dot. Past the first or last space nothing moves
     /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
         guard pager == nil, pendingTarget == nil, step != 0 else { return }
         _ = host.model.stepProfile(by: step)
     }
 
-    // MARK: Switch by dot, key or a new space
+    // MARK: Pages
 
-    /// The old space's rows as a page for a slide (call before the reload):
-    /// real row views, so text and badges show as they were.
-    func prepareSlide(oldSections: [SidebarSection]) {
-        finishSlide()
-        guard pendingTarget == nil, pager == nil else { return }
-        snapshot = makePage(oldSections, offset: host.scrollView.contentView.bounds.minY)
-    }
-
-    /// A page of `sections` scrolled to `offset`, as the list showed them: it makes views for the
-    /// rows in the page's frame only (`SidebarListView.pageViewport`), so a switch or a swipe costs
-    /// the rows on screen, never every workspace of the space (space-switch-fast).
-    private func makePage(_ sections: [SidebarSection], offset: CGFloat = 0) -> SpacePageView {
+    /// A page of `sections` from their first row: it makes views for the rows in the page's
+    /// frame only (`SidebarListView.pageViewport`), so a swipe costs the rows on screen, never
+    /// every workspace of the space (space-switch-fast).
+    private func makePage(_ sections: [SidebarSection]) -> SpacePageView {
         let container = sparePage ?? SpacePageView(frame: page.frame)
         sparePage = nil
         let list = container.list ?? SidebarListView(model: SidebarModel())
@@ -226,66 +211,28 @@ import QuartzCore
         container.frame = page.frame
         container.wantsLayer = true
         container.layer?.masksToBounds = true
-        list.frame = NSRect(x: 0, y: -offset, width: container.bounds.width, height: container.bounds.height)
-        list.pageViewport = NSRect(x: 0, y: offset, width: container.bounds.width, height: container.bounds.height)
+        list.frame = container.bounds
+        list.pageViewport = container.bounds
         list.autoresizingMask = [.width]
         if list.superview !== container { container.addSubview(list) }
         container.list = list
         return container
     }
 
-    /// A page leaves the screen and waits as the spare, at rest (no shift, no fade).
+    /// A page leaves the screen and waits as the spare, at rest (no shift).
     private func retire(_ view: NSView) {
         view.removeFromSuperview()
         guard let page = view as? SpacePageView else { return }
         if let layer = page.layer {
             layer.removeAllAnimations()
-            Motion.sidebar.transaction(nil) {
-                (layer as? SpacePageLayer)?.shiftX = 0
-                layer.opacity = 1
-            }
+            Motion.sidebar.transaction(nil) { (layer as? SpacePageLayer)?.shiftX = 0 }
         }
         sparePage = page
     }
-
-    /// Slides the kept page out and the reloaded list in from `direction`
-    /// (+1: the trailing edge, a later dot); reduced motion cross-fades.
-    func slide(direction: Int) {
-        guard let snapshot, direction != 0 else { return finishSlide() }
-        (page.superview ?? host).addSubview(snapshot, positioned: .above, relativeTo: page)
-        (snapshot as? SpacePageView)?.list?.reload(animated: false)
-        host.clipsToBounds = true
-        page.wantsLayer = true
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        if Motion.sidebar.animatesMovement {
-            let d = CGFloat(direction) * width
-            translate(snapshot, -d, animated: .screen, from: 0)
-            translate(page, 0, animated: .screen, from: d)
-        } else if let layer = snapshot.layer {
-            Motion.sidebar.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
-        }
-        CATransaction.commit()
-    }
-
-    private func finishSlide() {
-        guard let snapshot else { return }
-        guard liveHost != nil else {
-            snapshot.removeFromSuperview()
-            self.snapshot = nil
-            return
-        }
-        retire(snapshot)
-        self.snapshot = nil
-        if pager == nil, pendingTarget == nil {
-            translate(page, 0, animated: nil)
-            host.clipsToBounds = false
-        }
-    }
 }
 
-/// A swipe page or the kept page of a slide: drawn only, never hit (the
-/// gesture and clicks stay on the list).
+/// A swipe's page: drawn only, never hit (the gesture and clicks stay on
+/// the list).
 final class SpacePageView: NSView {
     var list: SidebarListView?
     nonisolated override var isFlipped: Bool { true }

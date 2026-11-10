@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// (16:10, view only) with "<name>'s screen" under it (Lawrence's reference, 2026-11-04). While the
 /// computer runs and the tab shows, its screen refreshes, so the person watches the Chief work on
 /// it; asleep, the screen says so and is not woken. Hidden while ``HomeChiefComputer`` is nil (no
-/// paid plan, or the Chief never set up a computer), which also hides the tab.
+/// paid plan, or the Chief has no computer now).
 @MainActor
 public final class HomeChiefComputerSection: NSStackView {
     /// What the app gives the section; read only while the card is open.
@@ -76,6 +76,8 @@ public final class HomeChiefComputerSection: NSStackView {
     public private(set) var entitled = false
     /// The last status said a computer the owner asked for is being made.
     public private(set) var provisioning = false
+    /// The last status said the computer the owner asked for was not made.
+    public private(set) var provisionFailed = false
     /// Frames shown since the card opened (tests).
     private(set) var frames = 0
     public private(set) var isOpen = false
@@ -112,7 +114,7 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.translatesAutoresizingMaskIntoConstraints = false
         message.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         message.alignment = .center
-        message.textColor = NSColor(white: 0.86, alpha: 1)
+        message.textColor = NSColor(white: 0.86, alpha: 1)  // colour-allow: light ink on the screen card, dark in both themes like a monitor
         let note = NSStackView(views: [sleepFace, message])
         note.orientation = .vertical
         note.alignment = .centerX
@@ -151,6 +153,9 @@ public final class HomeChiefComputerSection: NSStackView {
         read(source, timer, sinceStatus: nil)
     }
 
+    /// The owner asks again: the last failure no longer stands, whatever the next status read says.
+    func forgetProvisionFailure() { provisionFailed = false }
+
     /// The card closed: the screen stops refreshing, so nothing reads the computer.
     public func close() {
         isOpen = false
@@ -178,7 +183,7 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.layer?.backgroundColor = (screen.image == nil ? Self.cardFill : NSColor.black).cgColor
     }
 
-    static let cardFill = NSColor(white: 0.12, alpha: 1)
+    static let cardFill = NSColor(white: 0.12, alpha: 1)  // colour-allow: an unlit monitor, dark in both themes
 
     private func stop() {
         watch?.cancel()
@@ -200,6 +205,7 @@ public final class HomeChiefComputerSection: NSStackView {
                 if let status {
                     self.entitled = status.entitled ?? self.entitled
                     self.provisioning = status.provisioning
+                    self.provisionFailed = status.provisionError != nil
                 }
                 self.show(self.section(for: status, source))
                 since = .zero

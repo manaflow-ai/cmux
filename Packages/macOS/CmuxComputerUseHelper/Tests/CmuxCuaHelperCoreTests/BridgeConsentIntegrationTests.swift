@@ -20,7 +20,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: directory) }
         let input = Pipe(), output = Pipe()
         let channel = HostConsentChannel(timeout: .seconds(5))
-        let tools = MachineConsentTests.GatedTools(gate: ConsentGate(authority: channel))
+        let tools = MachineConsentTests.GatedTools(gate: ConsentGate(authority: channel, screenLocked: { false }))
         let daemon = ProcessStamp(pid: 10, startSeconds: 1, startMicroseconds: 0)
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,

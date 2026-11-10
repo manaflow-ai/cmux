@@ -11,8 +11,7 @@ import Testing
 /// field and the bookmark editor's name were `.roundedBorder` fields (system bezel, text and gray
 /// placeholder), the folder choice a stock pop-up, and Accounts' refresh a gray `ProgressView`.
 /// Hosted in a purple room, each draws the scope's tokens: the field's ink and hint, the pop-up's
-/// theme bezel, the spinner's loading ink (Accounts' refresh and an app scene's indeterminate
-/// `ProgressView`).
+/// theme bezel, the spinner's loading ink (Accounts' refresh).
 @MainActor @Suite(.serialized, .closesItsWindows) struct ThemedSwiftUIControlsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 480)) throws -> (NSWindow, NSView) {
@@ -73,20 +72,6 @@ import Testing
                 "no AppKit spinner: it draws the appearance's gray")
         let spinner = try #require(Self.all(StatusIndicatorView.self, in: root).first { !$0.isHidden },
                                    "a visible themed spinner")
-        #expect(spinner.state == .busy)
-        spinner.updateLayer()
-        let loading = try #require(spinner.indicator.colors.flatMap { NSColor(cgColor: $0.loading) })
-        #expect(ThemedOverlayColorsTests.same(loading, scope.perform { Palette.textSecondary }), "\(loading)")
-    }
-
-    @Test func anAppSceneSpinnerDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = AppSceneModel()
-        model.apply([.create(id: "busy", type: "ProgressView", props: [:]), .root(id: "busy")])
-        let (window, root) = try Self.host(AppSceneNodeView(model: model, id: "busy"), scope, size: NSSize(width: 120, height: 60))
-        defer { window.contentView = nil; window.close() }
-        #expect(Self.all(NSProgressIndicator.self, in: root).isEmpty, "no AppKit spinner: it draws the appearance's gray")
-        let spinner = try #require(Self.all(StatusIndicatorView.self, in: root).first { !$0.isHidden }, "a visible themed spinner")
         #expect(spinner.state == .busy)
         spinner.updateLayer()
         let loading = try #require(spinner.indicator.colors.flatMap { NSColor(cgColor: $0.loading) })

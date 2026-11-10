@@ -1118,6 +1118,36 @@ fn an_owner_that_says_the_run_never_started_decides_the_state() {
     assert_eq!(failure_result(expired)["structuredContent"]["state"], "in_progress");
 }
 
+/// The app's `action.run` marks every refusal that changed nothing `not_run`, and says who
+/// refused in `data.state`. One the app decided (`rejected`: the agent chat cannot split) is the
+/// answer; a tool call that read `not_run` first told the agent to send it again.
+#[test]
+fn a_refusal_the_app_decided_is_rejected_for_a_tool_call() {
+    let refusal = |data: Value| CallFailure {
+        kind: FailureKind::Rejected,
+        error: json!({
+            "code": "unavailable",
+            "message": "splitDown unavailable: The agent chat can't be split.",
+            "data": data,
+        }),
+        idempotency_key: Some("k".into()),
+    };
+    let decided = failure_result(refusal(json!({
+        "action": "splitDown", "not_run": true, "state": "rejected",
+        "reason": "The agent chat can't be split.",
+    })));
+    assert_eq!(decided["structuredContent"]["state"], "rejected", "{decided}");
+    assert_eq!(decided["structuredContent"]["error"]["data"]["state"], "rejected");
+    assert_eq!(decided["structuredContent"]["idempotency_key"], "k");
+
+    // The app did not get to the request (the read barrier on a reconnecting daemon): send again.
+    let barrier = failure_result(refusal(json!({"not_run": true, "state": "not_run"})));
+    assert_eq!(barrier["structuredContent"]["state"], "not_run", "{barrier}");
+    // An app before it said who refused: `not_run` alone reads as it did.
+    let older = failure_result(refusal(json!({"not_run": true})));
+    assert_eq!(older["structuredContent"]["state"], "not_run", "{older}");
+}
+
 #[test]
 fn browser_repl_tools_come_from_the_browser_host_catalog() {
     let operations = browser_tools::catalog()["operations"].as_object().expect("operations");
@@ -1580,6 +1610,7 @@ mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
+mod terminal_wait_timeout;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
@@ -1588,7 +1619,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
+fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1597,12 +1628,12 @@ fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    // Scripts search the underlying catalog with cmux.docs; durable runs
-    // also have a direct lifecycle tool beside the code-mode entry point.
-    assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
-    // cmux_exec stays in Claude Code's prompt; the workflow tool stays behind tool search.
+    // Scripts search the underlying catalog with cmux.docs; the durable-run
+    // lifecycle tool is one of them (`cmux.cmux_workflow`), not a listing of its own.
+    assert_eq!(names, ["cmux_exec"]);
+    assert!(server.list().iter().any(|tool| tool["name"] == "cmux_workflow"));
+    // cmux_exec stays in Claude Code's prompt.
     assert_eq!(tools[0]["_meta"]["anthropic/alwaysLoad"], json!(true), "{}", tools[0]);
-    assert!(tools[1].get("_meta").is_none(), "{}", tools[1]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();

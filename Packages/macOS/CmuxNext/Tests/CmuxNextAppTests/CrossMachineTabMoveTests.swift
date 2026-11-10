@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -70,6 +70,25 @@ struct CrossMachineTabMoveTests {
             #expect(landed.remote?.terminalID == terminal, "the reference names another terminal")
             #expect(landed.name == "build", "the tab's name did not come along: \(String(describing: landed.name))")
             #expect(await world.macTabGone(tab.id), "this Mac's terminal tab stayed after the move")
+        }
+    }
+
+    /// A terminal whose keep fails does not move: closing this Mac's tab would leave the terminal
+    /// with no tab on a daemon that reaps tabless terminals, and it would end after the grace while
+    /// the other machine still shows it. The move fails and this Mac's tab stays. The keep fails
+    /// here because the tab names a terminal the daemon does not have (`terminal_not_found`).
+    @Test func aTerminalWhoseKeepFailsDoesNotMove() async throws {
+        try await Self.withMachines { world in
+            let created = try await world.macConnection.newTab(in: world.macPane.handle)
+            let tab = try await world.macTab { $0.surface == created.surface && $0.kind == .pty && $0.terminalID != nil }
+            tab.terminalID = TerminalID.generate()
+            let moved = await world.move(tab)
+            #expect(!moved, "the terminal moved although its keep failed")
+            // Read once the store applied every event before the move's last reply, so a close the
+            // daemon already committed shows.
+            #expect(await world.services.daemon.appliedThroughReply(on: world.macConnection, after: "move"))
+            #expect(world.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == tab.id },
+                    "this Mac's terminal tab closed although its keep failed")
         }
     }
 

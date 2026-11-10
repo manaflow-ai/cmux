@@ -51,6 +51,7 @@ on:
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
@@ -530,6 +531,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      checks: read
+      statuses: read
     concurrency:
       group: app-ffi-repin
       cancel-in-progress: false
@@ -563,6 +566,22 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: write
 
+      # The base autofix's push identity (manaflow-cmux-pr-autofix, the bypass
+      # actor of feat-cmux-next's required check): publish-app-ffi-repin.sh
+      # pins on the base with it (scripts/cmux-next/pin-app-ffi-on-base.sh).
+      # Without it the pin goes through the pull request, as before.
+      - name: Mint the base pin token
+        id: base-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       # Treeless with full history: the re-pin walks feat-cmux-next's commits
       # back to the current pin to find the newest published release.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -593,6 +612,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          BASE_TOKEN: ${{ steps.base-token.outputs.token }}
+          BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash

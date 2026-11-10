@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import enum CmuxNextLayout.NewChatPlacement
 
@@ -31,7 +32,7 @@ extension NewTabPage {
     /// `source` and `placed` gets its key to move it there, instead of a split on `edge`.
     @discardableResult
     static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false,
-                      placed: (@MainActor (String) -> Void)? = nil) -> Bool {
+                      insertion: DividerInsertion? = nil, placed: (@MainActor (String) -> Void)? = nil) -> Bool {
         let services = source.services
         let machineID = source.daemon.machineID
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
@@ -59,7 +60,7 @@ extension NewTabPage {
         let split: SplitDirection? = placed != nil || !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
-        let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
+        let sizing = split.flatMap { insertion?.sizing ?? source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
         // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
         let layoutModel = source.workspace?.layoutModel
         let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
@@ -69,7 +70,7 @@ extension NewTabPage {
             input?.endIncoming(keys, pageMade: false)
         }
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
-                                                 focuses: focusesPage) { [weak source] key in
+                                                 around: split == nil ? nil : insertion?.around, focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
             if let placed {

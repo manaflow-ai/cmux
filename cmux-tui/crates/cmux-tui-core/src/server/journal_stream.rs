@@ -50,6 +50,10 @@ pub(super) struct SessionJournalStreamStart {
     pub(super) reader: Option<crate::workspace_registry::SessionJournalReader>,
     pub(super) shared_fanout: bool,
     pub(super) remote_redacted: bool,
+    /// Held for the stream's life when it follows the journal and its kind
+    /// filter can match the rows of hook reports that change no durable
+    /// state: while it lives they are appended (`mux/agent_hooks_at_rest.rs`).
+    pub(super) _agent_rows: Option<crate::mux::JournalRowFollower>,
 }
 
 fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
@@ -140,7 +144,9 @@ pub(super) fn handle_journal_extension_request(
                     Some((terminal, previous))
                 });
             // A finished turn's last message rides the same way, for its banner's preview: the
-            // commit's notification event takes it, and whatever it did not take goes.
+            // commit's notification event takes it, and whatever it did not take goes. It is
+            // the terminal's last reply only after a new commit: a failed or replayed append
+            // puts the one before it back.
             let reply = request
                 .fields
                 .get("live_reply")
@@ -154,7 +160,8 @@ pub(super) fn handle_journal_extension_request(
                         .and_then(|subject| {
                             crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
                         })?;
-                    mux.note_agent_reply(&terminal, reply).then_some(terminal)
+                    let noted = mux.note_agent_reply(&terminal, reply)?;
+                    Some((terminal, noted))
                 });
             // A question hook's question rides the same way, for the phone's answer card.
             let question = request
@@ -179,8 +186,13 @@ pub(super) fn handle_journal_extension_request(
             {
                 mux.restore_agent_prompt(&terminal, previous);
             }
-            if let Some(terminal) = reply {
+            if let Some((terminal, noted)) = reply {
                 mux.forget_agent_reply(&terminal);
+                // A replayed append is a hook's retry of an older turn: its reply is not the
+                // terminal's last one.
+                if !appended.as_ref().is_ok_and(|commit| !commit.replayed) {
+                    mux.restore_agent_reply(&terminal, noted);
+                }
             }
             if let Some(terminal) = question {
                 mux.forget_noted_agent_question(&terminal);
@@ -511,6 +523,14 @@ pub(super) fn prepare_session_journal_stream(
         &outbound,
         "session.journal.subscribe",
     )?;
+    // A stream that follows gets every row from here on: a hook report that
+    // changes no durable state is appended while it lives. A bounded read
+    // ends at the head it found and follows nothing. Taken last, so a
+    // refused request leaves nothing behind.
+    let agent_rows = through_sequence
+        .is_none()
+        .then(|| mux.follow_journal_agent_rows(|kind| filter.may_match_kind(kind)))
+        .flatten();
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionJournalStreamStart {
@@ -528,6 +548,7 @@ pub(super) fn prepare_session_journal_stream(
             reader,
             shared_fanout,
             remote_redacted,
+            _agent_rows: agent_rows,
         },
     ))
 }

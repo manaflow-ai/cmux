@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.agentMessagePlayground.moved": {
+      "comment": "The Debug agent message playground's refusal: the native transcript it drew is gone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent message playground moved to the web gallery (Home Messages cards)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتقلت ساحة تجربة رسائل الوكيل إلى معرض الويب (بطاقات رسائل Home)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište za poruke agenta premješteno je u web galeriju (kartice Home Messages)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legepladsen for agentbeskeder er flyttet til webgalleriet (Home Messages-kort)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Spielplatz für Agentennachrichten ist in die Web-Galerie umgezogen (Home-Messages-Karten)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El banco de pruebas de mensajes del agente se trasladó a la galería web (tarjetas de Home Messages)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bac à sable des messages d’agent a été déplacé vers la galerie web (cartes Home Messages)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’area di prova dei messaggi dell’agente è stata spostata nella galleria web (schede Home Messages)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントメッセージのプレイグラウンドは Web ギャラリー（Home Messages カード）に移動しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងសាកល្បងសារភ្នាក់ងារបានផ្លាស់ទៅវិចិត្រសាលវេប (កាត Home Messages)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 메시지 플레이그라운드가 웹 갤러리(Home Messages 카드)로 이동했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplassen for agentmeldinger er flyttet til nettgalleriet (Home Messages-kort)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac testowy wiadomości agenta został przeniesiony do galerii webowej (karty Home Messages)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O playground de mensagens do agente foi movido para a galeria web (cartões do Home Messages)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница сообщений агента переехала в веб-галерею (карточки Home Messages)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทดลองข้อความเอเจนต์ย้ายไปที่แกลเลอรีเว็บแล้ว (การ์ด Home Messages)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan mesajı deneme alanı web galerisine taşındı (Home Messages kartları)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця повідомлень агента переїхала до вебгалереї (картки Home Messages)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khu thử nghiệm tin nhắn tác tử đã chuyển sang thư viện web (thẻ Home Messages)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体消息演练场已移至网页图库（Home Messages 卡片）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理訊息演練場已移至網頁圖庫（Home Messages 卡片）。"
+          }
+        }
+      }
+    },
     "home.teleport.notice.moving": {
       "comment": "Chat row: the Chief is moving to %@ (a place: cmux Cloud or a machine).",
       "extractionState": "manual",
@@ -28059,6 +28191,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@ 在 Cloud 機器上工作"
+          }
+        }
+      }
+    },
+    "home.engine.computer.notOnServer": {
+      "comment": "On the Chief's Computer tab when the server it talks to cannot make computers at all, so trying again would not help.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers aren’t available on this server yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة الكمبيوتر غير متاحة على هذا الخادم بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računari još nisu dostupni na ovom serveru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computere er endnu ikke tilgængelige på denne server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer sind auf diesem Server noch nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los ordenadores aún no están disponibles en este servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les ordinateurs ne sont pas encore disponibles sur ce serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I computer non sono ancora disponibili su questo server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーバーではまだコンピュータを利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រមិនទាន់មាននៅលើម៉ាស៊ីនមេនេះនៅឡើយទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 서버에서는 아직 컴퓨터를 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datamaskiner er ikke tilgjengelige på denne serveren ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputery nie są jeszcze dostępne na tym serwerze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computadores ainda não estão disponíveis neste servidor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютеры пока недоступны на этом сервере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่มีคอมพิวเตอร์ให้ใช้บนเซิร์ฟเวอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilgisayarlar bu sunucuda henüz kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютери ще недоступні на цьому сервері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy tính chưa khả dụng trên máy chủ này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此服务器尚不提供电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此伺服器尚未提供電腦"
+          }
+        }
+      }
+    },
+    "home.engine.computer.localLimit": {
+      "comment": "On the Chief's Computer tab when Set Up Computer is refused because the person's Chiefs on this Mac already hold the most computers allowed at once.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Chiefs on this Mac already have as many computers as they can. Try again when one ends."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لدى رؤسائك على هذا الـ Mac أقصى عدد ممكن من أجهزة الكمبيوتر. حاول مرة أخرى عند انتهاء أحدها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši Chiefovi na ovom Macu već imaju najviše računara koliko mogu. Pokušajte ponovo kada jedan završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine Chiefs på denne Mac har allerede så mange computere, som de kan. Prøv igen, når en slutter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Chiefs auf diesem Mac haben bereits so viele Computer wie möglich. Versuche es erneut, wenn einer endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus Chiefs en este Mac ya tienen todos los ordenadores que pueden. Vuelve a intentarlo cuando termine uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Chiefs sur ce Mac ont déjà autant d’ordinateurs que possible. Réessayez lorsqu’un ordinateur prendra fin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi Chief su questo Mac hanno già tutti i computer che possono avere. Riprova quando uno termina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Chief はすでに持てる上限までコンピュータを持っています。どれかが終了してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief របស់អ្នកនៅលើ Mac នេះមានកុំព្យូទ័រច្រើនតាមដែលអាចមានហើយ។ សូមព្យាយាមម្តងទៀតនៅពេលមួយបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 Chief들이 이미 가질 수 있는 최대 개수의 컴퓨터를 가지고 있습니다. 하나가 끝나면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefene dine på denne Macen har allerede så mange datamaskiner de kan ha. Prøv igjen når én avsluttes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoi Chiefowie na tym Macu mają już maksymalną liczbę komputerów. Spróbuj ponownie, gdy jeden się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus Chiefs neste Mac já têm o máximo de computadores possível. Tente novamente quando um terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У ваших Chief на этом Mac уже максимум компьютеров. Попробуйте снова, когда один из них завершится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ของคุณบน Mac นี้มีคอมพิวเตอร์ครบจำนวนสูงสุดแล้ว ลองอีกครั้งเมื่อมีเครื่องหนึ่งสิ้นสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’teki Chief’leriniz zaten olabilecek en fazla bilgisayara sahip. Biri sona erdiğinde tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші Chief на цьому Mac уже мають максимум комп’ютерів. Спробуйте ще раз, коли один завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các Chief của bạn trên máy Mac này đã có số máy tính tối đa. Hãy thử lại khi một máy kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在这台 Mac 上的 Chief 已拥有可用的最多电脑。请在其中一台结束后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在這台 Mac 上的 Chief 已擁有可用的最多電腦。請在其中一台結束後再試一次。"
+          }
+        }
+      }
+    },
+    "home.engine.computer.own": {
+      "comment": "Item in the Chief's Computer Use picker: the Chief's own computer that Set Up Computer made in its profile.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Own Cloud Computer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كمبيوتر Cloud خاص به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vlastiti Cloud računar"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egen Cloud-computer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigener Cloud-Computer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenador de Cloud propio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinateur Cloud dédié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Cloud dedicato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "専用の Cloud コンピュータ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំព្យូទ័រ Cloud ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전용 Cloud 컴퓨터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egen Cloud-datamaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własny komputer Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computador Cloud próprio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Собственный компьютер Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมพิวเตอร์ Cloud ของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi Cloud bilgisayarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власний комп’ютер Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy tính Cloud riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专属 Cloud 电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專屬 Cloud 電腦"
           }
         }
       }

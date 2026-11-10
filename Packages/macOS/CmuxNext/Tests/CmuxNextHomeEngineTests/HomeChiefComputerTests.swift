@@ -15,8 +15,16 @@ import Testing
         #expect(HomeChiefComputer(status: nil, paid: true, chief: "Ada") == nil)
         #expect(HomeChiefComputer(status: running, paid: true, chief: "Ada")
             == HomeChiefComputer(machineID: "vm-1", title: "Ada’s screen", state: .live))
-        // Used once, gone now: the section stays, unavailable.
-        #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada")?.state == .unavailable)
+        // Used once, gone now (the sandbox's TTL ended): no section, so the tab offers a new one.
+        #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada") == nil)
+    }
+
+    /// The app-server machine list carries no plan limits, so the Mac does not know the plan: the
+    /// section is then left to the server's status, and only a known unpaid plan shows the paywall.
+    @Test func anUnknownPlanLeavesTheSectionToTheServer() {
+        #expect(HomeChiefComputer.planAllows(paysForCloud: nil))
+        #expect(HomeChiefComputer.planAllows(paysForCloud: true))
+        #expect(!HomeChiefComputer.planAllows(paysForCloud: false))
     }
 
     @Test func freestyleStatesMapToTheSectionsStates() {
@@ -34,6 +42,9 @@ import Testing
         // The Cloud service's plan answer and a computer being made (Set Up Computer).
         let making = Data(#"{"ok":true,"value":{"used":false,"entitled":true,"provisioning":true,"computer":null}}"#.utf8)
         #expect(HomeChiefComputer.Status(json: making) == .init(used: false, computer: nil, entitled: true, provisioning: true))
+        // A background provision that failed.
+        let failed = Data(#"{"ok":true,"value":{"used":false,"entitled":true,"provision_error":"the desktop did not install","computer":null}}"#.utf8)
+        #expect(HomeChiefComputer.Status(json: failed) == .init(used: false, computer: nil, entitled: true, provisionError: "the desktop did not install"))
     }
 
     @Test func aRunningComputerRefreshesOnlyWhileTheCardIsOpen() async throws {
