@@ -1810,9 +1810,8 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
 /// `cloud.machine_cap` or `cloud.spend_cap`: the stop `found` refused, the account's machines in `listed`
 /// and the commands that free one; `app` is what the app answered, its own words included.
 fn cap_refusal(found: cap::Cap, listed: &Value, request: &Request, app: Value) -> Outcome {
-    let (text, mut details) = cap::at_cap(found, listed, |id| {
-        again_command(request, &Machine::Target(id.to_owned()))
-    });
+    let (text, mut details) =
+        cap::at_cap(found, listed, |id| again_command(request, &Machine::Target(id.to_owned())));
     if let Some(fields) = details.as_object_mut() {
         fields.insert("app".to_owned(), app);
     }

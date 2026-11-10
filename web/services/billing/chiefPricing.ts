@@ -30,8 +30,12 @@ export type ChiefPlan = {
   hardStop: boolean;
   /** Hosted frontier models (Claude, GPT) from credits. BYO subscriptions work on every plan. */
   frontierModels: boolean;
-  /** Sandboxes Chief may run at once (per seat when `perSeat`). */
-  parallelSandboxes: number;
+  /**
+   * Sandboxes Chief may run at once, or null for no count: paid sandboxes are
+   * metered beyond the included credits and the team's spending cap is the
+   * stop. Seats never multiply it.
+   */
+  parallelSandboxes: number | null;
   /** Largest sandbox Chief may start. */
   maxSandbox: SandboxSize;
 };
@@ -57,7 +61,7 @@ export const CHIEF_PLANS: readonly ChiefPlan[] = [
     includedCreditsUsd: 25,
     hardStop: false,
     frontierModels: true,
-    parallelSandboxes: 5,
+    parallelSandboxes: null,
     maxSandbox: { vcpu: 8, gib: 16 },
   },
   {
@@ -68,7 +72,7 @@ export const CHIEF_PLANS: readonly ChiefPlan[] = [
     includedCreditsUsd: 100,
     hardStop: false,
     frontierModels: true,
-    parallelSandboxes: 20,
+    parallelSandboxes: null,
     maxSandbox: { vcpu: 32, gib: 64 },
   },
   {
@@ -79,7 +83,7 @@ export const CHIEF_PLANS: readonly ChiefPlan[] = [
     includedCreditsUsd: 25,
     hardStop: false,
     frontierModels: true,
-    parallelSandboxes: 5,
+    parallelSandboxes: null,
     maxSandbox: { vcpu: 8, gib: 16 },
   },
   {
@@ -90,7 +94,7 @@ export const CHIEF_PLANS: readonly ChiefPlan[] = [
     includedCreditsUsd: 0,
     hardStop: false,
     frontierModels: true,
-    parallelSandboxes: 100,
+    parallelSandboxes: null,
     maxSandbox: { vcpu: 32, gib: 64 },
   },
 ];
@@ -238,7 +242,7 @@ export function estimateChiefBill(planId: ChiefPlanId, usage: ChiefUsage): Chief
 
   const fits =
     (plan.frontierModels || model.kind === "open") &&
-    usage.parallelSandboxes <= plan.parallelSandboxes * people &&
+    (plan.parallelSandboxes === null || usage.parallelSandboxes <= plan.parallelSandboxes) &&
     fitsSize(usage.sandboxSize, plan.maxSandbox) &&
     (!plan.hardStop || overageUsd === 0);
 

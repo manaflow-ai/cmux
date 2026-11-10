@@ -100,10 +100,12 @@ describe("cmux-next Chief pricing (proposal)", () => {
   test("recommends the cheapest self-serve plan for the usage", () => {
     expect(recommendChiefPlan({ ...DEFAULT_CHIEF_USAGE, turnsPerDay: 2, sandboxHoursPerDay: 0 })).toBe("free");
     expect(recommendChiefPlan(DEFAULT_CHIEF_USAGE)).toBe("pro");
-    // Ten sandboxes at once is above Pro's 5, so only Max fits.
-    expect(
-      recommendChiefPlan({ ...DEFAULT_CHIEF_USAGE, turnsPerDay: 200, modelId: "claude-opus-5-5", parallelSandboxes: 10 }),
-    ).toBe("max");
+    // Paid plans have no sandbox count: ten at once fits Pro, and only Free (one at a time) refuses it.
+    const tenAtOnce = { ...DEFAULT_CHIEF_USAGE, turnsPerDay: 200, modelId: "claude-opus-5-5", parallelSandboxes: 10 };
+    expect(recommendChiefPlan(tenAtOnce)).toBe("pro");
+    expect(estimateChiefBill("free", { ...DEFAULT_CHIEF_USAGE, parallelSandboxes: 2 }).fits).toBe(false);
+    // Size, not count, is what Max unlocks.
+    expect(recommendChiefPlan({ ...tenAtOnce, sandboxSize: { vcpu: 16, gib: 32 } })).toBe("max");
   });
 
   test("keeps at least 30% gross margin on every paid plan and billing interval when included credits are used up", () => {

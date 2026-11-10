@@ -46,7 +46,8 @@ pub(super) fn cap_of(code: &str, message: &str) -> Option<Cap> {
     if code.ends_with("spend_cap.reached") || code.ends_with("spend_cap_reached") {
         return Some(Cap::Spend);
     }
-    if message.contains("machines (paused ones count)") || message.contains("paused ones included") {
+    if message.contains("machines (paused ones count)") || message.contains("paused ones included")
+    {
         return Some(Cap::Held);
     }
     let quota = code.ends_with("quota_exceeded") || code.ends_with("quota.exceeded");
@@ -57,11 +58,7 @@ pub(super) fn cap_of(code: &str, message: &str) -> Option<Cap> {
 /// answer) with their status, and the commands for each; `chat` is this command again on one.
 /// The app's own words stay out of the lead (a guard's message names a count); callers keep them in
 /// `details.app`. At the spending cap only running machines are named: a paused one cannot start.
-pub(super) fn at_cap(
-    cap: Cap,
-    listed: &Value,
-    chat: impl Fn(&str) -> String,
-) -> (String, Value) {
+pub(super) fn at_cap(cap: Cap, listed: &Value, chat: impl Fn(&str) -> String) -> (String, Value) {
     let machines: Vec<Value> = at(listed, "machines")
         .as_array()
         .into_iter()
