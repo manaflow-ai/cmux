@@ -21,8 +21,11 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
   `withKnownIssue`. The baseline records the red honestly. When a fix makes the
   check pass, the test fails until the declaration is removed. Never raise a
   target or drop a check to make a run pass.
-- **Noise**: a god within 2 ms of small passes the ratio whatever the quotient
-  (timer and scheduler noise on a shared runner). A known-red mark must come
+- **Noise**: a god within 2 ms of small, or within a tenth of the metric's
+  target if that is more (15 ms for a 150 ms target), passes the ratio whatever
+  the quotient: a hosted simulator moved a 7 ms chat open by 5 to 30 ms between
+  runs of one job. The budget check still holds both cases to 3x the target, so
+  the allowance never hides a god that left the target. A known-red mark must come
   off only once its check passes at 75% of its limit; a check that only just
   passes on a quick runner stays marked and never fails the run.
 
@@ -42,7 +45,10 @@ on every PR that touches `cmux-next-ios/**`):
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
 working, one preview in ten a long Markdown reply, six months of dates; the chat
 has tool outputs up to 2 MB (logs and diffs), subagents nested 5 deep, 200 image
-parts and six months of timestamps, and its newest turns hold the last 2 MB log.
+parts and six months of timestamps. Its last 2 MB log sits about 60 records
+before the end: the open (capped at 128 KiB of whole records) stops short of it,
+so `chat_open_last_messages` shows the cap holding, and the first scroll-up page
+(`chat_older_page`) is the one that reads it.
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
 `maxBytes` of whole records, `beforeSeq` / `afterSeq`) with index arithmetic, so

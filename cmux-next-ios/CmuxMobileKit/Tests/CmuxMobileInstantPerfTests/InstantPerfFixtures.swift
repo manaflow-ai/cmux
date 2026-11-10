@@ -10,8 +10,9 @@ import Foundation
 // - Agent chat (acpmux records, the exact `{sessionId, seq, at, dir, kind, msg}` shape the fake
 //   hubs in CmuxMobileLiveTests use): ~40 records vs 50,000 records with tool outputs up to
 //   2 MB (logs and diffs), subagents nested 5 deep, 200 image parts and timestamps across six
-//   months. The newest turns of the god chat hold the last 2 MB log: a long session's last
-//   command is often the one that printed the most.
+//   months. The last 2 MB log sits about 60 records before the end (a long session's last
+//   command is often the one that printed the most): the open's byte cap stops short of it,
+//   and the first older page reads it.
 //
 // Run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
 
@@ -205,7 +206,8 @@ enum AgentChatFixture {
         /// Planned share of the images and big outputs reached by now (they spread through the log).
         func due(_ total: Int, left: Int) -> Bool {
             guard left > 0, total > 0 else { return false }
-            // The last one is kept for the newest turn, so the pages a chat opens on hold it.
+            // The last one is kept for the tail of the log (about 60 records before the end),
+            // so the first older page reads it; the open's byte cap stops short of it.
             if left == 1 { return records.count >= spec.records - 60 }
             let done = total - left
             return records.count >= spec.records * (done + 1) / (total + 1) || records.count >= spec.records - 60

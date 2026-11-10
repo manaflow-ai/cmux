@@ -362,7 +362,9 @@ jobs:
 
       - name: Instant list bench report
         if: ${{ !cancelled() }}
-        run: python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set -euo pipefail
+          python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # One `INSTANTPERF {json}` line per metric and platform in the job log, for readers of the log.
       - name: Instant perf lines
