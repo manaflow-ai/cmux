@@ -1372,8 +1372,7 @@ pub(super) fn request_by(
     // read barrier) can pass while both are healthy. A read changes nothing,
     // so it is asked once more; a mutation is never resent.
     if is_retryable_read(method) && timed_out(&response) && !passed(deadline) {
-        response =
-            exchange_by(stream, method, with_read_barrier(method, with), timeout, deadline)?;
+        response = exchange_by(stream, method, with_read_barrier(method, with), timeout, deadline)?;
     }
     if added && refused_caller(&response) && !passed(deadline) {
         return exchange_by(stream, method, with_read_barrier(method, params), timeout, deadline);
