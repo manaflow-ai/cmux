@@ -52,13 +52,15 @@ struct SpaceSwitchCostTests {
     /// "changing spaces in sidebar also feels kinda slow" (Lawrence 2026-11-10). What a switch paid for nothing:
     /// a second list for the space it left (the page that slid out: a layout of every row of that space and a
     /// view for each row on screen), and three main-actor turns before the list drew (the content swap, the
-    /// sidebar's rows, the list's render, each on its own observation). With 200 workspaces in each space, in a
-    /// window the app holds, a switch lays out the new space's rows once and shows them in its own turn.
-    @Test func aSwitchLaysOutTheNewSpaceOnceInItsOwnTurn() async throws {
-        let total = 400, perSpace = total / 2
+    /// sidebar's rows, the list's render, each on its own observation). In a window the app holds, with 10 and
+    /// with 200 workspaces in each space, a switch lays out the new space's rows once and shows them in its own
+    /// turn. The printed line is the measure: `wall_ms` is from the switch to the flushed frame, in process.
+    @Test(arguments: [20, 400])
+    func aSwitchLaysOutTheNewSpaceOnceInItsOwnTurn(_ total: Int) async throws {
+        let perSpace = total / 2
         let bench = try await SpaceSwitchBench(total: total, registered: true)
         defer { bench.close() }
-        let samples = try await bench.run(rounds: 6)
+        let samples = try await bench.run(rounds: 40)
         print(SpaceSwitchBench.summary(total, samples) + " | registered mounted=\(bench.mounted)")
         for (round, sample) in samples.enumerated() {
             let count = { (name: String) in sample.counters[name] ?? 0 }

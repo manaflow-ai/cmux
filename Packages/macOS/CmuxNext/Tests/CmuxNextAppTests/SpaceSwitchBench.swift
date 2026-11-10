@@ -228,10 +228,10 @@ final class SpaceSwitchBench {
         return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
     }
 
-    /// One line per field: p50 / p99 / max.
+    /// One line per field: p50 / p95 / p99 / max.
     static func summary(_ total: Int, _ samples: [Sample]) -> String {
         func row(_ name: String, _ values: [Double]) -> String {
-            String(format: "%@ p50 %.2f p99 %.2f max %.2f", name, percentile(values, 0.5), percentile(values, 0.99), values.max() ?? 0)
+            String(format: "%@ p50 %.2f p95 %.2f p99 %.2f max %.2f", name, percentile(values, 0.5), percentile(values, 0.95), percentile(values, 0.99), values.max() ?? 0)
         }
         var counterMeans: [String: Double] = [:]
         for sample in samples { for (key, value) in sample.counters { counterMeans[key, default: 0] += Double(value) / Double(samples.count) } }
