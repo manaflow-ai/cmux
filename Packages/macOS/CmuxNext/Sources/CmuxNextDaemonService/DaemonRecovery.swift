@@ -96,8 +96,8 @@ public final class DaemonRecovery {
     /// Whether an owner that stays unresponsive restarts without asking (default on). Read before
     /// each automatic restart, off the main actor; the App sets it to its Debug Settings toggle.
     public nonisolated var restartsUnresponsiveOwner: @Sendable () -> Bool {
-        get { restartsUnresponsive.withLock { $0 } }
-        set { restartsUnresponsive.withLock { $0 = newValue } }
+        get { restartsUnresponsive.load() }
+        set { restartsUnresponsive.store(newValue) }
     }
 
     /// Follows `launcher`'s ensure outcomes; `wake` is the service's retry wake.
