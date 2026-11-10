@@ -186,7 +186,13 @@ impl Mux {
         }
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
-        let notifications = self.tree_decorations();
+        // A workspace close serializes that workspace only.
+        let notifications = match &request.target {
+            BatchCloseTarget::Workspace(workspace) => {
+                self.tree_decorations_of_workspace(*workspace)
+            }
+            _ => self.tree_decorations(),
+        };
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
         if let BatchCloseTarget::Workspace(workspace) = &request.target {

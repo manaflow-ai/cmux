@@ -73,6 +73,39 @@ impl Mux {
         result
     }
 
+    /// [`Self::surface_notifications_in_state`] for `surfaces` only: the same marker each of them
+    /// gets there, with no walk of the other surfaces.
+    pub(super) fn surface_notifications_of(
+        &self,
+        state: &State,
+        surfaces: &[SurfaceId],
+    ) -> HashMap<SurfaceId, SurfaceNotification> {
+        let placement_notifications =
+            self.placement_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+        let terminal_notifications =
+            self.terminal_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut result = HashMap::new();
+        for surface_id in surfaces {
+            let notification = match state.surfaces.get(surface_id) {
+                Some(surface) => match surface.terminal_public_id() {
+                    Some(terminal_id) => terminal_notifications.get(terminal_id),
+                    None => placement_notifications.get(surface_id),
+                },
+                // A terminal tab with no runtime surface yet keeps its terminal's marker.
+                None => match state.resource_indexes.content_ids.get(surface_id) {
+                    Some(ContentPublicId::Terminal(terminal_id)) => {
+                        terminal_notifications.get(terminal_id)
+                    }
+                    _ => None,
+                },
+            };
+            if let Some(notification) = notification {
+                result.insert(*surface_id, *notification);
+            }
+        }
+        result
+    }
+
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.

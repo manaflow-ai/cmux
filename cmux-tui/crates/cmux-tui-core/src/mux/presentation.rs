@@ -267,6 +267,43 @@ impl Mux {
         }
     }
 
+    /// [`Self::tree_decorations`] for a delta that serializes `workspace` only (its close): the
+    /// notifications and directories of that workspace's surfaces, and git HEADs from the cache
+    /// only. The full form walked every surface of the session and read each directory's git
+    /// HEAD from disk for one closed workspace, so a close cost more in a bigger session.
+    #[track_caller]
+    pub(crate) fn tree_decorations_of_workspace(&self, workspace: WorkspaceId) -> TreeDecorations {
+        let presentation = self.presentation_snapshot();
+        let (notifications, directories) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let surfaces = state
+                .workspace_by_id(workspace)
+                .into_iter()
+                .flat_map(|workspace| &workspace.screens)
+                .flat_map(|screen| screen_tabs(&state, screen))
+                .collect::<Vec<_>>();
+            let directories = surfaces
+                .iter()
+                .filter_map(|surface| {
+                    let directory = state.surfaces.get(surface)?.presented_directory()?;
+                    Some((*surface, directory))
+                })
+                .collect::<Vec<_>>();
+            (self.surface_notifications_of(&state, &surfaces), directories)
+        };
+        let directories = self.resolve_tab_directories(directories, false);
+        let pending_terminals = self.pending_terminals_snapshot();
+        let terminal_ends = self.terminal_ends_snapshot();
+        TreeDecorations {
+            notifications,
+            presentation,
+            directories,
+            pending_terminals,
+            terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+        }
+    }
+
     /// [`Self::tree_decorations`] for a create that places `placing` in the
     /// delta it emits (`pane-added`, `tab-added`). The new terminal has no
     /// pane yet when the decorations are read, and the directory scan keeps
