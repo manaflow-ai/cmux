@@ -560,8 +560,13 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
     let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    // A start may also put the agent on cmux's gateway (acpmux `agent_login.rs`, `gateway:<agent>`).
+    let start_agent = || {
+        text(&params.agent)
+            .filter(|a| matches!(*a, "claude" | "codex" | "gateway:claude" | "gateway:codex"))
+    };
     let (body, timeout) = match params.op.as_str() {
-        "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
+        "start" => (json!({"agent": start_agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {
             let login_id = text(&params.login_id)?;
             let body = match &params.code {

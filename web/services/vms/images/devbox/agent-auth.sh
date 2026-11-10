@@ -17,6 +17,14 @@
 # Without one, an own sign-in to that agent on the machine counts as choosing
 # own; otherwise team when the team has an account for the agent, else own,
 # so the agent shows its normal sign-in instead of a CodeRouter refusal.
+#
+# The gateway fallback (CodeRouter's agent-access `gatewayFallback`, off until
+# the platform turns it on with CMUX_GATEWAY_FALLBACK; Leo, 2026-11-10: "until
+# the founders turn billing on"): an agent chosen `own` that has no credential
+# of any kind here then uses the team's gateway instead of stopping at "Not
+# logged in". The chat's sign-in card offers the same switch as a choice
+# (acpmux `_acpmux/agent_login/start {agent: "gateway:<agent>"}`, which asks
+# cmux_agent_gateway_available and records `team`).
 
 # The public placeholder every guest sends (VM_PLACEHOLDER_API_KEY in
 # services/coderouter/vmGuestEnv.ts); the machine's edge swaps in the real
@@ -69,6 +77,66 @@ sys.exit(0 if isinstance(token, str) and token.strip() else 1)
 ' "$cmux_aa_settings" 2>/dev/null
 }
 
+# 0 when <agent> has a credential of any kind here: its own sign-in
+# (cmux_agent_has_own_login), or for Claude a key or token in this launch's
+# env (never the public placeholder), in its settings.json env (the chat
+# card's Use an API key saves one there) or an apiKeyHelper, or the API key
+# /login saved in .claude.json. A settings file that cannot be read counts as
+# one: nothing then switches Claude to the gateway, where a key in it would
+# be sent along.
+cmux_agent_has_credential() {
+  cmux_agent_has_own_login "$1" && return 0
+  [ "$1" = claude ] || return 1
+  [ -n "${ANTHROPIC_AUTH_TOKEN-}" ] && return 0
+  [ -n "${ANTHROPIC_API_KEY-}" ] && [ "$ANTHROPIC_API_KEY" != "$cmux_aa_placeholder" ] && return 0
+  if [ -n "${CLAUDE_CONFIG_DIR-}" ]; then
+    cmux_aa_config="$CLAUDE_CONFIG_DIR/.claude.json"
+  else
+    cmux_aa_config="${HOME:-/root}/.claude.json"
+  fi
+  python3 -I -c '
+import json, os, sys
+def load(path):
+    if not os.path.lexists(path):
+        return {}
+    try:
+        value = json.load(open(path))
+    except Exception:
+        sys.exit(0)
+    if not isinstance(value, dict):
+        sys.exit(0)
+    return value
+def text(value):
+    return isinstance(value, str) and value.strip() != ""
+settings = load(sys.argv[1])
+env = settings.get("env")
+if env is not None and not isinstance(env, dict):
+    sys.exit(0)
+if any(text((env or {}).get(k)) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")):
+    sys.exit(0)
+if text(settings.get("apiKeyHelper")):
+    sys.exit(0)
+sys.exit(0 if text(load(sys.argv[2]).get("primaryApiKey")) else 1)
+' "${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/settings.json" "$cmux_aa_config" 2>/dev/null
+}
+
+# 0 when cmux's gateway can serve <agent> here and nothing outranks it: no
+# credential of the agent's own (cmux_agent_has_credential) and the team's
+# CodeRouter has an account for it (cmux_agent_team_access). What the chat's
+# sign-in card offers as "Use cmux's gateway" (acpmux agent_login.rs).
+cmux_agent_gateway_available() {
+  case "${CMUX_CODEROUTER_URL-}" in https://*) ;; *) return 1 ;; esac
+  cmux_agent_has_credential "$1" && return 1
+  cmux_agent_team_access "$1"
+}
+
+# 0 when the account check's answer (the one cmux_agent_team_access just
+# fetched or reused) says the platform turned the gateway fallback on. Off
+# for an answer without it, an older cache line, or no answer.
+cmux_agent_gateway_fallback() {
+  [ "$(printf '%s\n' "${cmux_aa_line-}" | cut -d ' ' -f 5)" = 1 ]
+}
+
 # 0 when <agent> has its own sign-in on this machine.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
@@ -116,7 +184,8 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
 # plane, an error or unreadable reply, a server without the endpoint),
 # 3 CodeRouter is unreachable from this machine (its address does not
 # resolve or connect), so team mode could not work either.
-# One GET /api/coderouter/agent-access answers every agent; the answer is
+# One GET /api/coderouter/agent-access answers every agent (and the gateway
+# fallback switch, cmux_agent_gateway_fallback); the answer is
 # reused for 60 s (~/.cache/cmux/agent-access) so back-to-back launches,
 # including headless runs, pay for the check at most once a minute. `cr use`
 # clears it, so its report and the next launch are current.
@@ -146,8 +215,8 @@ cmux_agent_team_access() {
   case "$cmux_aa_code" in 0|1|3) return "$cmux_aa_code" ;; *) return 2 ;; esac
 }
 
-# Prints "<claude> <codex> <opencode>" codes (0 account, 1 none, 2 unknown,
-# 3 unreachable).
+# Prints "<claude> <codex> <opencode> <fallback>" codes (0 account, 1 none,
+# 2 unknown, 3 unreachable; fallback 1 on, 0 off, absent on no answer).
 cmux_agent_team_access_fetch() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   case "$cmux_aa_origin" in https://*) ;; *) echo "2 2 2"; return 0 ;; esac
@@ -164,19 +233,23 @@ cmux_agent_team_access_fetch() {
   printf '%s' "$cmux_aa_body" | python3 -c '
 import json, sys
 try:
-    agents = json.load(sys.stdin)["agents"]
+    answer = json.load(sys.stdin)
+    agents = answer["agents"]
 except Exception:
-    agents = {}
+    answer, agents = {}, {}
 def code(name):
     value = agents.get(name) if isinstance(agents, dict) else None
     return "0" if value is True else "1" if value is False else "2"
-print(code("claude"), code("codex"), code("opencode"))
+fallback = "1" if isinstance(answer, dict) and answer.get("gatewayFallback") is True else "0"
+print(code("claude"), code("codex"), code("opencode"), fallback)
 ' 2>/dev/null || echo "2 2 2"
 }
 
 # Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason for <agent>:
 #   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
+#   gateway-fallback `own` was chosen, the agent has no credential here, and
+#                   the platform's gateway fallback is on (file header)
 #   login           no choice; the agent has its own sign-in here
 #                   (on a team machine: the creator's transferred Claude
 #                   login, cmux_agent_creator_login)
@@ -208,6 +281,12 @@ cmux_agent_auth_resolve() {
   cmux_agent_auth_mode=$(cmux_agent_auth_choice "$1")
   if [ -n "$cmux_agent_auth_mode" ]; then
     cmux_agent_auth_reason=chosen
+    # Chosen own with nothing to sign in with: the gateway, only when the
+    # platform turned the fallback on (file header).
+    if [ "$cmux_agent_auth_mode" = own ] && cmux_agent_gateway_available "$1" && cmux_agent_gateway_fallback; then
+      cmux_agent_auth_mode=team
+      cmux_agent_auth_reason=gateway-fallback
+    fi
     return 0
   fi
   if cmux_agent_has_own_login "$1"; then

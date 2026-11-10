@@ -15,6 +15,10 @@
 //! chat's agent restarts now when it is between turns (`restarted`), so its
 //! next prompt uses the new sign-in; in a turn it restarts when the turn ends
 //! (`restarted: false`), never cutting the turn.
+//!
+//! `start {agent: "gateway:<agent>"}` is the card's third way (`crate::agent_login`
+//! module docs): it runs no CLI, puts the agent on cmux's gateway here when
+//! the gateway serves it, and restarts the named chat the same way.
 
 use super::{Conn, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
@@ -38,6 +42,7 @@ pub const REMOTE_REFUSED: &str = "remote_refused";
 fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
+        | reason::NO_GATEWAY
         | reason::BAD_CODE
         | reason::UNKNOWN_LOGIN
         | reason::UNKNOWN_SESSION => -32602,
@@ -144,7 +149,7 @@ async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<Str
 }
 
 fn machine(hub: &Hub) -> Machine {
-    Machine { root: hub.vm_marker_root(), home: dirs::home_dir().unwrap_or_default() }
+    hub.login_machine()
 }
 
 /// After a sign-in: the machine's launcher picks the own sign-in, and the
@@ -184,6 +189,40 @@ async fn signed_in(
     Ok(done.now > 0)
 }
 
+/// `start {agent: "gateway:<agent>"}` (module docs): the image's own check, then `team` for the
+/// agent as `cr use team` records it, then the named chat's agent restarts on it.
+async fn use_gateway(hub: &Arc<Hub>, agent: Agent, params: &Value) -> Result<Value, RpcError> {
+    let machine = machine(hub);
+    if !machine.gateway(agent).await {
+        return Err(error(LoginError::new(
+            reason::NO_GATEWAY,
+            format!(
+                "cmux's gateway does not serve {} on this machine: it needs a cmux Cloud machine whose team has an account for it, and no {} credential here",
+                agent.name(),
+                agent.name()
+            ),
+        )));
+    }
+    if let Err(e) = machine.choose_team(agent) {
+        tracing::warn!(agent = agent.name(), error = %e, "agent login: record the gateway choice");
+        return Err(error(LoginError::new(
+            reason::FAILED,
+            "could not record the gateway choice here",
+        )));
+    }
+    let (cli, route) = cli(hub, agent, params).await?;
+    hub.login_changed(agent.name(), &cli.store(agent), route.as_deref()).await?;
+    let restarted = match text(params, "sessionId") {
+        Some(key) => {
+            let session = hub.resolve(key)?;
+            let ids = std::collections::BTreeSet::from([session.id.clone()]);
+            hub.restart_harnesses(None, Some(&ids)).await.now > 0
+        }
+        None => false,
+    };
+    Ok(json!({"gateway": true, "signedIn": true, "restarted": restarted}))
+}
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Conn,
@@ -212,6 +251,9 @@ pub(super) async fn handle(
     }
     match m {
         method::MUX_AGENT_LOGIN_START => {
+            if let Some(agent) = text(params, "agent").and_then(login::gateway_agent) {
+                return use_gateway(hub, agent, params).await;
+            }
             let agent = agent_of(params)?;
             let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;

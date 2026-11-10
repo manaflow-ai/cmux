@@ -69,7 +69,8 @@ afterAll(() => {
 });
 
 const PROMPT = "Run the sidebar tests and fix what fails";
-const failed = (error = "Not logged in · Please run /login") => ({
+const failed = (error = "Not logged in · Please run /login", gateway = false) => ({
+  ...(gateway ? { signInGateway: true as const } : {}),
   id: "summary-1",
   kind: "turnSummary" as const,
   version: 1,
@@ -157,11 +158,11 @@ function signInFor(
   return { signIn, intents };
 }
 
-async function render(actions: TurnActions, error?: string) {
+async function render(actions: TurnActions, error?: string, gateway = false) {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <TurnFooter row={failed(error)} />
+        <TurnFooter row={failed(error, gateway)} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -475,6 +476,48 @@ test("API key: a password field, saved on the machine, then Send again", async (
   await flush();
   expect(intents).toHaveLength(1);
   expect(sent).toHaveLength(1);
+});
+
+test("one card, three choices: Use cmux's gateway only where the machine's team has it", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  expect(labels().slice(0, 2)).toEqual(["Sign in to Claude", "Use an API key"]);
+  expect(button("Use cmux's gateway")).toBeUndefined();
+  await render({ route: cloudRoute, cloudSignIn: signIn }, undefined, true);
+  expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Use cmux's gateway"]);
+  expect(button("Sign in to Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Use cmux's gateway")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
+});
+
+test("Use cmux's gateway: one click starts gateway:claude, then the prompt goes again", async () => {
+  const { client, calls, sent } = mockClient({ start: () => ({ gateway: true, signedIn: true, restarted: true }) });
+  const { signIn, intents } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn }, undefined, true);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  await flush();
+  await flush();
+  expect(calls).toContainEqual(["start", "gateway:claude", "chat-1"]);
+  expect(intents).toHaveLength(1);
+  expect(sent).toHaveLength(1);
+  expect(host.textContent).toContain("Now using cmux's gateway.");
+});
+
+test("Use cmux's gateway refused on the machine says why, with no Retry", async () => {
+  const { client, sent } = mockClient({
+    start: () => {
+      throw Object.assign(new Error("no gateway"), { reason: "no_gateway" });
+    },
+  });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn }, undefined, true);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  await flush();
+  expect(host.textContent).toContain("cmux's gateway isn't available for this machine's team.");
+  expect(button("Retry")).toBeUndefined();
+  expect(sent).toEqual([]);
 });
 
 test("never sends without a gesture ticket", async () => {

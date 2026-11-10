@@ -222,12 +222,14 @@ describe("Claude Code sign-in precedence", () => {
   test("own mode starts claude with no CodeRouter env, so its /login is what it uses", async () => {
     const m = machine();
     choose(m, "own");
+    signIn(m);
     const env = await launch(m, "claude", { CMUX_WORKSPACE_ID: "ws-1", CMUX_SURFACE_ID: "sf-1" });
     expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
     expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
     expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe("<unset>");
     expect(env.args).toBe("--resume x");
-    // An explicit choice needs no account check.
+    // An explicit choice with a sign-in needs no account check (with none, the one check is for
+    // the gateway fallback switch).
     expect(existsSync(m.calls)).toBe(false);
   });
 
@@ -603,6 +605,7 @@ describe("OpenCode sign-in precedence", () => {
     // OPENAI_BASE_URL/ANTHROPIC_BASE_URL name.
     const m = machine();
     choose(m, "own", "opencode");
+    signIn(m, "opencode");
     const env = await launch(m, "opencode", {}, `export ANTHROPIC_BASE_URL=${ORIGIN} ANTHROPIC_API_KEY=${PLACEHOLDER};`);
     expect(env.OPENCODE_CONFIG).toBe("<unset>");
     expect(env.OPENAI_BASE_URL).toBe("<unset>");
@@ -624,6 +627,93 @@ describe("OpenCode sign-in precedence", () => {
     const m = machine();
     choose(m, "team", "opencode");
     expect((await launch(m, "opencode", { OPENCODE_CONFIG: "/tmp/mine.json" })).OPENCODE_CONFIG).toBe("/tmp/mine.json");
+  });
+});
+
+/** An agent-access answer with the platform's gateway fallback switch on. */
+const withFallback = (answer: string) => JSON.stringify({ ...JSON.parse(answer), gatewayFallback: true });
+
+/** `cmux_agent_gateway_available <agent>`'s exit code, from a machine shell. */
+async function gatewayAvailable(m: Machine, agent: Agent, extra: Record<string, string> = {}): Promise<number> {
+  const result = await runChild("/bin/bash", ["-c", `. ${m.config}; . ${m.auth}; cmux_agent_gateway_available ${agent}`], {
+    env: bootEnv(m, extra),
+  });
+  return result.status ?? -1;
+}
+
+describe("the gateway fallback (off until the platform turns it on)", () => {
+  test("an agent chosen own with no credential stays on its own sign-in while the fallback is off", async () => {
+    const m = machine();
+    choose(m, "own");
+    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+  });
+
+  test("with the fallback on, an agent chosen own with no credential uses the team's gateway", async () => {
+    const m = machine();
+    choose(m, "own");
+    const claude = await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) });
+    expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+  });
+
+  test("with the fallback on, a team without an account for the agent keeps its own sign-in", async () => {
+    const m = machine();
+    choose(m, "own");
+    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(NONE) })).ANTHROPIC_API_KEY).toBe("<unset>");
+  });
+
+  test("an own login, or a key the chat card saved in settings.json, is never moved to the gateway", async () => {
+    const m = machine();
+    choose(m, "own");
+    signIn(m);
+    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) })).ANTHROPIC_BASE_URL).toBe("<unset>");
+    const keyed = machine();
+    choose(keyed, "own");
+    // What acpmux's _acpmux/agent_login/api_key writes: Claude reads it from its own settings, so
+    // own mode leaves the launch env free of the CodeRouter pair and the key reaches Claude.
+    mkdirSync(path.join(keyed.home, ".claude"), { recursive: true });
+    writeFileSync(path.join(keyed.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "sk-ant-card" } }));
+    const claude = await launch(keyed, "claude", { FAKE_ACCESS: withFallback(ALL) });
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    // A credential here: no account check at all, so the key went nowhere.
+    expect(existsSync(keyed.calls)).toBe(false);
+  });
+
+  test("the card's gateway choice is offered only with no credential and a team account", async () => {
+    const m = machine();
+    expect(await gatewayAvailable(m, "claude", { FAKE_ACCESS: ALL })).toBe(0);
+    const none = machine();
+    expect(await gatewayAvailable(none, "claude", { FAKE_ACCESS: NONE })).toBe(1);
+    const unreachable = machine();
+    expect(await gatewayAvailable(unreachable, "claude", { FAKE_CURL_EXIT: "7" })).not.toBe(0);
+    const keyed = machine();
+    mkdirSync(path.join(keyed.home, ".claude"), { recursive: true });
+    writeFileSync(path.join(keyed.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "sk-ant-card" } }));
+    expect(await gatewayAvailable(keyed, "claude", { FAKE_ACCESS: ALL })).toBe(1);
+    // A settings file that does not parse may hold a key: never offered.
+    const broken = machine();
+    mkdirSync(path.join(broken.home, ".claude"), { recursive: true });
+    writeFileSync(path.join(broken.home, ".claude/settings.json"), "{not json");
+    expect(await gatewayAvailable(broken, "claude", { FAKE_ACCESS: ALL })).toBe(1);
+    const saved = machine();
+    writeFileSync(path.join(saved.home, ".claude.json"), JSON.stringify({ primaryApiKey: "sk-ant-login" }));
+    expect(await gatewayAvailable(saved, "claude", { FAKE_ACCESS: ALL })).toBe(1);
+    const exported = machine();
+    expect(await gatewayAvailable(exported, "claude", { FAKE_ACCESS: ALL, ANTHROPIC_API_KEY: "sk-ant-mine", ANTHROPIC_BASE_URL: "" })).toBe(1);
+    const signedIn = machine();
+    signIn(signedIn, "codex");
+    expect(await gatewayAvailable(signedIn, "codex", { FAKE_ACCESS: ALL })).toBe(1);
+  });
+
+  test("an account answer cached before the switch existed reads as off", async () => {
+    const m = machine();
+    choose(m, "own");
+    mkdirSync(path.join(m.home, ".cache/cmux"), { recursive: true });
+    writeFileSync(path.join(m.home, ".cache/cmux/agent-access"), `${Math.floor(Date.now() / 1000)} 0 0 0\n`);
+    expect((await launch(m, "claude", { FAKE_ACCESS: withFallback(ALL) })).ANTHROPIC_API_KEY).toBe("<unset>");
   });
 });
 

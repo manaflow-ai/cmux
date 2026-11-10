@@ -211,6 +211,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
     openOnMachine: () => NEVER,
     finish: () => NEVER,
     apiKey: inPlace(record, "save an API key on the machine"),
+    useGateway: inPlace(record, "put the agent on cmux's gateway"),
     cancel: () => {},
     reserve: () => Promise.resolve(undefined),
     resend: () => NEVER,

@@ -9,8 +9,10 @@
 // token). Where the host cannot open that tab (WebKit, a machine without remote localhost), and on
 // "Paste a code instead", Claude's other page gives a code to paste back. Codex's page asks for the
 // code the card shows, copied on the start. Use an API key, a link
-// beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
-// person's click.
+// beside it, saves one on the machine instead. Use cmux's gateway, a link after it only where the
+// failed turn says the machine's team has gateway access (`signInGateway`; Leo 2026-11-10: "the stuff
+// does of course go through our gateway"), puts the agent on the team's CodeRouter accounts there.
+// Once signed in, the failed prompt goes again on the person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
@@ -33,10 +35,11 @@ type Stage =
   | { at: "code"; login: LoginStart; busy?: boolean }
   | { at: "device"; login: LoginStart }
   | { at: "key"; busy?: boolean }
-  | { at: "signedIn" }
-  | { at: "sending" }
-  | { at: "sent" }
-  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
+  | { at: "gateway" }
+  | { at: "signedIn"; via?: "gateway" }
+  | { at: "sending"; via?: "gateway" }
+  | { at: "sent"; via?: "gateway" }
+  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true; gateway?: true };
 
 /// What the card's lead says: the agent's own name, as the person knows it.
 const SIGN_IN_LABEL = {
@@ -53,6 +56,7 @@ const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   busy: "turn.signIn.error.busy",
   remote_refused: "turn.signIn.error.remoteRefused",
   unknown_session: "turn.signIn.error.unknownSession",
+  no_gateway: "turn.signIn.error.noGateway",
   unsupported: "turn.signIn.error.failed",
   failed: "turn.signIn.error.failed",
 };
@@ -68,6 +72,7 @@ export function CloudSignIn({
   rowId,
   prompt,
   keyOnly = false,
+  gateway = false,
   actionsRef,
 }: {
   signIn: SignIn;
@@ -75,6 +80,9 @@ export function CloudSignIn({
   prompt: string | undefined;
   /// Only Use an API key: a team Cloud machine, where the agent's own sign-in is not offered.
   keyOnly?: boolean;
+  /// The failed turn says cmux's gateway serves this agent on the machine (acpmux `signInGateway`):
+  /// Use cmux's gateway is offered too.
+  gateway?: boolean;
   actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
@@ -127,26 +135,27 @@ export function CloudSignIn({
   );
   const resendable = rowId !== undefined && prompt !== undefined;
 
-  const signedIn = () => {
+  const signedIn = (via?: "gateway") => {
     open.current = undefined;
     setCode("");
     setKey("");
-    setStage({ at: "signedIn" });
+    setStage(via ? { at: "signedIn", via } : { at: "signedIn" });
   };
 
   /// Sends the failed prompt again under the ticket the click reserved (never without one).
-  const sendAgain = (ticket: ReturnType<SignIn["reserve"]>) => {
+  const sendAgain = (ticket: ReturnType<SignIn["reserve"]>, via?: "gateway") => {
     if (!resendable) return;
     const mine = generation.current;
-    setStage({ at: "sending" });
+    const how = via ? { via } : {};
+    setStage({ at: "sending", ...how });
     void ticket
       .then((held) => {
         if (!held || mine !== generation.current) throw new LoginStepError("failed");
         return signIn.resend(rowId, prompt, held, () => mine === generation.current);
       })
       .then(
-        () => mine === generation.current && setStage({ at: "sent" }),
-        () => mine === generation.current && setStage({ at: "signedIn" }),
+        () => mine === generation.current && setStage({ at: "sent", ...how }),
+        () => mine === generation.current && setStage({ at: "signedIn", ...how }),
       );
   };
 
@@ -268,6 +277,27 @@ export function CloudSignIn({
     );
   };
 
+  /// Use cmux's gateway: one click, no page and no key; the click is also the resend's gesture.
+  const useGateway = () => {
+    const mine = ++generation.current;
+    const ticket = resendable ? signIn.reserve() : undefined;
+    setStage({ at: "gateway" });
+    void signIn.useGateway().then(
+      (used) => {
+        if (mine !== generation.current) return;
+        if (!used) {
+          setStage({ at: "failed", failure: "failed", gateway: true });
+          return;
+        }
+        signedIn("gateway");
+        if (ticket) sendAgain(ticket, "gateway");
+      },
+      (error) => {
+        if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error), gateway: true });
+      },
+    );
+  };
+
   const cancel = () => {
     generation.current++;
     if (open.current) signIn.cancel(open.current);
@@ -281,6 +311,10 @@ export function CloudSignIn({
     // A key that was not saved asks for the key again, not for a sign-in.
     if (stage.at === "failed" && stage.key) {
       setStage({ at: "key" });
+      return;
+    }
+    if (stage.at === "failed" && stage.gateway) {
+      useGateway();
       return;
     }
     start();
@@ -308,16 +342,19 @@ export function CloudSignIn({
     </button>
   );
 
+  const offersGateway = gateway && (stage.at === "idle" || stage.at === "starting" || stage.at === "gateway");
+  const doneText = (via?: "gateway") => t(via === "gateway" ? "turn.signIn.gatewayDone" : "turn.signIn.done");
   switch (stage.at) {
     case "idle":
     case "starting":
+    case "gateway":
       return (
         <>
           {!keyOnly && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
-              disabled={stage.at === "starting"}
+              disabled={stage.at !== "idle"}
               onClick={start}
             >
               {t(SIGN_IN_LABEL[signIn.agent])}
@@ -328,10 +365,21 @@ export function CloudSignIn({
               type="button"
               // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
               className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
-              disabled={stage.at === "starting"}
+              disabled={stage.at !== "idle"}
               onClick={() => setStage({ at: "key" })}
             >
               {t("turn.signIn.apiKey")}
+            </button>
+          )}
+          {offersGateway && (
+            <button
+              type="button"
+              // A link, as Use an API key is: the card keeps one filled button.
+              className="cv-turn-error__offer-link"
+              disabled={stage.at !== "idle"}
+              onClick={useGateway}
+            >
+              {t("turn.signIn.gateway")}
             </button>
           )}
         </>
@@ -461,13 +509,13 @@ export function CloudSignIn({
     case "sending":
       return (
         <span className="cv-turn-signin cv-turn-signin__row">
-          <span className="cv-turn-signin__text">{t("turn.signIn.done")}</span>
+          <span className="cv-turn-signin__text">{doneText(stage.via)}</span>
           {resendable && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
               disabled={stage.at === "sending"}
-              onClick={() => sendAgain(signIn.reserve())}
+              onClick={() => sendAgain(signIn.reserve(), stage.via)}
             >
               {t("turn.signIn.sendAgain")}
             </button>
@@ -475,14 +523,14 @@ export function CloudSignIn({
         </span>
       );
     case "sent":
-      return <span className="cv-turn-signin cv-turn-signin__text">{t("turn.signIn.done")}</span>;
+      return <span className="cv-turn-signin cv-turn-signin__text">{doneText(stage.via)}</span>;
     case "failed":
       // An acpmux (or host) without the methods: the card stays as it was without the sign-in.
       if (stage.failure === "unsupported") return null;
       return (
         <span className="cv-turn-signin cv-turn-signin__row">
           <output className="cv-turn-signin__error">{t(FAILURE_COPY[stage.failure])}</output>
-          {stage.failure !== "shared_machine" && stage.failure !== "remote_refused" && (
+          {stage.failure !== "shared_machine" && stage.failure !== "remote_refused" && stage.failure !== "no_gateway" && (
             <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={retry}>
               {t("turn.retry")}
             </button>

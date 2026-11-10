@@ -57,6 +57,15 @@ impl Hub {
         self.vm_marker_root.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// The machine an agent's sign-in runs on (`agent_login.rs`): its `etc/cmux` under
+    /// [`Self::vm_marker_root`], and this daemon's user's home.
+    pub(crate) fn login_machine(&self) -> crate::agent_login::Machine {
+        crate::agent_login::Machine {
+            root: self.vm_marker_root(),
+            home: dirs::home_dir().unwrap_or_default(),
+        }
+    }
+
     /// Whether the creation marker says cmux created this machine as one
     /// owner's VM (module docs). Guest-writable: for display, never trust.
     pub fn cmux_vm(&self) -> bool {

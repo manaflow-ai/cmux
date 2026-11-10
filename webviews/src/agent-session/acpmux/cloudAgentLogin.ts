@@ -5,6 +5,13 @@ import type { AcpmuxDirectClient } from "./direct";
 // a turn that failed because the agent on the user's Cloud machine is not signed in runs that
 // agent's own login ON the machine (acpmux `_acpmux/agent_login/*`), never a copy of this Mac's
 // login. The card (CloudSignIn.tsx) drives it; this module is its wire and its rules.
+//
+// A Cloud chat with no credential never ends in a bare "Not logged in" (Leo 2026-11-10: "if someone
+// had a normal account or if someone had an API, presumably we have normal ways for people to just
+// do that ... the stuff does of course go through our gateway"): the card offers Sign in to Claude,
+// Use an API key, and, where the failed turn says the machine's team has gateway access
+// (`signInGateway`), Use cmux's gateway (`_acpmux/agent_login/start` with `gateway:<agent>`, which
+// puts the agent on the team's CodeRouter accounts as `cr use team` does).
 
 /// The harnesses whose login acpmux runs on the machine (Cursor's too, Leo 2026-11-10: "if somebody
 /// has a ChatGPT subscription or a Cursor subscription").
@@ -45,8 +52,12 @@ export type LoginFailure =
   | "busy"
   | "remote_refused"
   | "unknown_session"
+  | "no_gateway"
   | "unsupported"
   | "failed";
+
+/// `_acpmux/agent_login/start`'s `agent` for cmux's gateway (acpmux `agent_login::GATEWAY_PREFIX`).
+export const GATEWAY_PREFIX = "gateway:";
 
 /// The hosts a sign-in page may be on. The page the machine's CLI names is opened on this Mac, so
 /// only its provider's own sign-in hosts, over https.
@@ -102,6 +113,7 @@ export function loginFailure(error: unknown): LoginFailure {
     case "busy":
     case "remote_refused":
     case "unknown_session":
+    case "no_gateway":
       return reason;
     // The login the card holds is gone (acpmux restarted, or it lapsed): start again.
     case "unknown_login":
@@ -171,6 +183,9 @@ export type CloudSignIn = {
   finish(loginId: string, code?: string): Promise<boolean>;
   /// Saves an API key for the agent on the machine. True when saved.
   apiKey(key: string): Promise<boolean>;
+  /// Puts the agent on cmux's gateway on the machine (`start` with `gateway:<agent>`); acpmux
+  /// restarts the chat's agent on it. True when it did; throws `no_gateway` where it does not serve.
+  useGateway(): Promise<boolean>;
   /// Stops a login the card started.
   cancel(loginId: string): void;
   /// Reserves the current click's gesture for one resend of the failed prompt. Call it inside the
@@ -281,6 +296,13 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
       step(async () => {
         const reply = (await client().agentLoginApiKey(agent, sessionId, key)) as { saved?: unknown } | undefined;
         return reply?.saved === true;
+      }),
+    useGateway: () =>
+      step(async () => {
+        const reply = (await client().agentLoginStart(`${GATEWAY_PREFIX}${agent}`, sessionId)) as
+          | { gateway?: unknown }
+          | undefined;
+        return reply?.gateway === true;
       }),
     cancel: (loginId) => {
       void currentClient()
