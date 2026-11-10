@@ -95,6 +95,33 @@ final class Loader {
 }
 """
 
+ASYNC_PARAMETER = """import Foundation
+
+struct Runner {
+    static func spawn(_ process: Process, then: @escaping @Sendable () async -> Void) -> () async -> Void {
+        try? process.run()
+        return then
+    }
+}
+"""
+MAIN_TASK = """import Foundation
+
+@MainActor
+final class Starter {
+    func start(_ process: Process) async {
+        Task { try? process.run() }
+    }
+}
+"""
+MAIN_RUN = """import Foundation
+
+struct Starter {
+    @concurrent func start(_ process: Process) async {
+        await MainActor.run { try? process.run() }
+    }
+}
+"""
+
 
 def run(files, pending=None):
     with tempfile.TemporaryDirectory() as temporary:
@@ -152,6 +179,15 @@ class CallerIsolatedBlockingRule(unittest.TestCase):
 
     def test_an_unannotated_async_function_in_a_ui_target_is_main_actor(self):
         self.red({"FixtureUI/Loader.swift": UI}, 5)
+
+    def test_a_sync_function_taking_an_async_closure_is_green(self):
+        self.green({"FixtureCore/Runner.swift": ASYNC_PARAMETER})
+
+    def test_a_task_in_a_main_actor_function_stays_on_main(self):
+        self.red({"FixtureCore/Starter.swift": MAIN_TASK}, 6)
+
+    def test_main_actor_run_is_main(self):
+        self.red({"FixtureCore/Starter.swift": MAIN_RUN}, 5)
 
     def test_the_rule_escape_is_green(self):
         self.green({"FixtureCore/Runner.swift": ESCAPED})
