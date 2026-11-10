@@ -434,7 +434,7 @@ fn a_racing_writer_whose_text_fails_the_render_keeps_its_bytes() {
             }
         };
         let linking = link_json(&env, App::ClaudeDesktop);
-        let render = |text: &str| render_json(&path, text, &linking);
+        let render = |text: &str| render_json(&path, SERVERS_KEY, text, &linking);
         let e = write::edit_file_raced(&path, None, render, &mut claude).unwrap_err();
         assert!(format!("{e:#}").contains("is not JSON"), "{e:#}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), half, "by rename: {by_rename}");
