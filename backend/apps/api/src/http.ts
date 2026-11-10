@@ -39,7 +39,6 @@ import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } 
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
-import { CLOUD_UNBOUND, platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
@@ -92,8 +91,6 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)), entity: p.team!, stream: `usage:${p.team}` }
     case "cloud:TeamVmDO":
       return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)), entity: p.team!, stream: `team_vm:${p.team}` }
-    case "cloud:CloudDO":
-      return { stub: platformCloud(env.CLOUD_DO, p.team!) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)), entity: p.team!, stream: `connections:${p.team}` }
     default:
@@ -105,16 +102,13 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
   op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
-/** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
-const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
-const cloudNotLive = (owner: string, op: string) =>
-  owner !== "cloud:CloudDO"
-    ? undefined
-    : !CLOUD_LIVE_OPS.has(op)
-      ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true })
-      : !env.CLOUD_DO
-        ? new OwnerUnreachable({ code: "owner.unreachable", message: CLOUD_UNBOUND, retryable: true })
-        : undefined
+/**
+ * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
+ * them on /v1/ops and /v1/read to the platform's own POST /v1/ops and /v1/read before this handler runs. One that
+ * reaches here (no PLATFORM_SURFACES or no PLATFORM binding, the local env) answers a retryable owner.unreachable.
+ */
+const cloudNotHere = (owner: string) =>
+  owner === "cloud:CloudDO" ? new OwnerUnreachable({ code: "owner.unreachable", message: "NEXT Cloud is served by cmux-platform", retryable: true }) : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -220,20 +214,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
-        const notLive = cloudNotLive(def.owner, payload.op)
+        const notLive = cloudNotHere(def.owner)
         if (notLive) return yield* notLive
-        // LINK-TOKEN-OP: no client key and no replay; a fresh internal key names the request in the audit only.
-        if (def.idempotency === "none") {
-          if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
-          const p = yield* principalFor(def.owner, principal)
-          const request = crypto.randomUUID()
-          const stub = platformCloud(env.CLOUD_DO, p.team!)
-          // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
-          const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
-          const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
-          const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable", ...(r.details === undefined ? {} : { details: r.details }) } }
-          return { ok: r.ok, op: payload.op, ...outcome, transaction: request, idempotency_key: "", replayed: false, stream: "", sequence: 0 }
-        }
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })
         const frame = {
           op: payload.op,
@@ -416,7 +398,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
-        const notLive = cloudNotLive(def.owner, payload.op)
+        const notLive = cloudNotHere(def.owner)
         if (notLive) return yield* notLive
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })

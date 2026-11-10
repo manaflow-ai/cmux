@@ -6,6 +6,11 @@ import type { ReadResult, SubmitResult } from "./owner-do.ts"
  * The typed client of cmux-platform's CloudDO. NEXT Cloud's machine record lives in cmux-platform; this Worker's
  * CLOUD_DO binding names that class (`script_name: cmux-platform-<env>` in wrangler.jsonc), and these are the
  * only RPCs this Worker calls on it. The class, its drivers and its routes are not in this Worker.
+ *
+ * Callers left (no cmux-platform HTTP route answers them as a server-side caller without the person's bearer): the
+ * default Chief hand (chief-default-hand.ts), automation runs (automation-workflow.ts) and the operator clear
+ * (cloud-admin.ts). A caller that holds the person's or install's bearer uses the platform's HTTP API instead
+ * (platform-api.ts); NEXT Cloud's ops on /v1/ops and /v1/read are forwarded there whole (platform-forward.ts).
  */
 export type CloudReply = { ok: true; value: unknown } | { ok: false; code: string; message: string; details?: unknown }
 

@@ -8,12 +8,12 @@ import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
 import type { TokenAsk } from "./github-tokens.ts"
-import { platformCloud } from "../platform-cloud.ts"
+import { platformRead } from "../platform-api.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
  * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=. Callers:
- * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
+ * a `vm` install for its own live machine (vmGate's checks: cmux-platform's POST /v1/read cloud.vm.self.get as that install), a
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
  * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
  */
@@ -31,7 +31,8 @@ const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNEC
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
-  const token = await authenticate(env, /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1])
+  const authorization = request.headers.get("authorization") ?? ""
+  const token = await authenticate(env, /^Bearer (.+)$/.exec(authorization)?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
   if (token.agent !== undefined) return no(403, "auth.forbidden", "a chief token cannot get GitHub tokens")
   const vm = token.kind === "install" && token.install_kind === "vm"
@@ -52,10 +53,10 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.kind !== "session" && !(p.kind === "install" && TOKEN_INSTALL_KINDS.has(p.install_kind ?? ""))) return no(403, "auth.forbidden", `a ${p.install_kind ?? p.kind} install cannot get GitHub tokens`)
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
-  // This live-machine ownership check gates the VM's existing vm-self read and write access.
-  const cloud = platformCloud(env.CLOUD_DO, p.team!)
-  const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
-  return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
+  // This live-machine ownership check gates the VM's existing vm-self read and write access. The platform reads it
+  // as this same install's bearer, so it applies its own vm-self gate too.
+  const self = await platformRead(env.PLATFORM, request.url, authorization, "cloud.vm.self.get", { machine: p.bound_machine ?? "" })
+  return self.ok ? { p, team: p.team!, machine: p.bound_machine! } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
 
 const decode = <A>(schema: Schema.Codec<A, unknown>, body: unknown): A | Fail => {
