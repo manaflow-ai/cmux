@@ -87,11 +87,12 @@ import Testing
             print("SIDEBAR-ROW-CHANGE-ENTRY count case=\(which.rawValue) size=\(size) took=\(outcome.took) rows_walked=\(rows) viewport_rows=\(view)"
                 + " section_sets=\(count("section_sets")) row_changes=\(count("row_changes")) list_reloads=\(count("list_reloads"))"
                 + " layout_rows=\(count("layout_rows")) order_builds=\(count("order_builds")) row_index_builds=\(count("row_index_builds"))"
-                + " rebuilds=\(count("rebuilds"))")
+                + " row_listing_reads=\(count("row_listing_reads")) rebuilds=\(count("rebuilds"))")
             #expect(outcome.took, "\(which.rawValue) at \(size) rows: the entry refused a loose row listed once, with no filter")
             #expect(count("list_reloads") >= 1, "fixture: \(which.rawValue) at \(size) rows reloaded no list")
             #expect(outcome.faults.isEmpty, "\(which.rawValue) at \(size) rows: \(outcome.faults)")
             #expect(count("layout_rows") <= 2, "\(which.rawValue) at \(size) rows laid out \(count("layout_rows")) rows")
+            #expect(count("row_listing_reads") == 0, "\(which.rawValue) at \(size) rows counted the listings of \(count("row_listing_reads")) workspaces again")
             #expect(count("section_sets") == 0, "\(which.rawValue) at \(size) rows set the sections \(count("section_sets")) times")
             // A change of the selection reads the selected rows' places (`SidebarListView+SelectionPatch`), which builds
             // the model's row index again after any structural set: every row, once. Not in `rows_walked`; a close of

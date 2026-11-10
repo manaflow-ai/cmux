@@ -54,6 +54,7 @@ nonisolated struct SidebarRowChangeBase: Sendable {
                 }
             }
         }
+        SidebarPerfCounters.add(.rowListingReads, counts.count) // every listed workspace, once per structural full set
         listings = counts
         self.repeated = repeated
         self.structure = structure
