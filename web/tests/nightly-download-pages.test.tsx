@@ -47,6 +47,17 @@ describe("nightly download pages", () => {
     expect(html).not.toContain("cmux-nightly-macos.dmg");
   });
 
+  test("/next shows the cmux NEXT feature list and real light/dark captures", () => {
+    const html = render(NextNightlyPage, "en");
+    for (const key of Object.keys(enMessages.next.landing.features)) {
+      const feature = enMessages.next.landing.features[key as keyof typeof enMessages.next.landing.features];
+      expect(html).toContain(feature.title.replace(/'/g, "&#x27;"));
+    }
+    expect(html).toContain('src="/next/hero-light.webp"');
+    expect(html).toContain('src="/next/hero-dark.webp"');
+    expect(html).toContain('loading="eager"');
+  });
+
   test("/nightly keeps downloading the classic cmux NIGHTLY DMG", () => {
     const html = render(NightlyPage, "en");
     expect(html).toContain(
