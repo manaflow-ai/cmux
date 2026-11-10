@@ -101,14 +101,15 @@ struct MobileSSHTmuxControlParserTests {
 
     @Test func workspacesGroupPanesAndHideGroupedSessions() {
         let output = [
-            "work:1:1:%5:0:logs: tail",
-            "work:0:2:%2:1:zsh",
-            "work:0:2:%1:0:zsh",
-            "work-cmux-ios-abcd1234:0:2:%1:0:zsh",
-            "other:0:1:%9:0:vim",
+            "work:0:1:1:%5:0:logs: tail",
+            "work:0:0:2:%2:1:zsh",
+            "work:0:0:2:%1:0:zsh",
+            "work-cmux-ios-abcd1234:1:0:2:%1:0:zsh",
+            "build-cmux-ios-demo:0:0:1:%7:0:make",
+            "other:0:0:1:%9:0:vim",
         ].joined(separator: "\n")
         let workspaces = MobileSSHTmuxProvider.workspaces(from: MobileSSHTmuxProvider.parsePaneRows(output))
-        #expect(workspaces.map(\.id) == ["work", "other"])
+        #expect(workspaces.map(\.id) == ["work", "build-cmux-ios-demo", "other"])
         #expect(workspaces[0].terminals.map(\.id) == ["work/%1", "work/%2", "work/%5"])
         #expect(workspaces[0].terminals.map(\.name) == ["0:zsh · pane 1", "0:zsh · pane 2", "1:logs: tail"])
         #expect(MobileSSHTmuxProvider.parseTerminalID("a/b/%12")! == ("a/b", 12))
@@ -184,20 +185,37 @@ struct MobileSSHTmuxControlParserTests {
     @Test func startCommandNeverAsksTmuxToDestroyTheGroupedSession() {
         let command = MobileSSHTmuxControlClient.startCommand(tmux: "'/opt/homebrew/bin/tmux'", session: "vt-main", grouped: "vt-main-cmux-ios-abcd1234")
         #expect(command.hasPrefix("'/opt/homebrew/bin/tmux' -C new-session -t '=vt-main' -s 'vt-main-cmux-ios-abcd1234'"))
-        #expect(command.hasSuffix(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' destroy-unattached off"))
+        #expect(command.contains(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' destroy-unattached off"))
         #expect(!command.contains("destroy-unattached on"))
         #expect(!command.contains("switch-client"))
     }
 
+    @Test func startCommandRecordsThatThePhoneOwnsTheGroupedSession() {
+        let command = MobileSSHTmuxControlClient.startCommand(tmux: "'/opt/homebrew/bin/tmux'", session: "vt-main", grouped: "vt-main-cmux-ios-abcd1234")
+        #expect(command.hasSuffix(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' @cmux-ios-grouped 'vt-main-cmux-ios-abcd1234'"))
+    }
+
     @Test func staleGroupedSessionsAreUnattachedPhoneSessionsOnly() {
         let output = [
-            "0:vt-main-cmux-ios-dead0001",
-            "1:vt-main-cmux-ios-live0002",
-            "0:vt-main",
-            "2:work",
-            "0:odd:name-cmux-ios-dead0003",
+            "0:1:vt-main-cmux-ios-dead0001",
+            "1:1:vt-main-cmux-ios-live0002",
+            "0:0:vt-main",
+            "2:0:work",
+            "0:1:no marker in this name",
             "garbage",
         ].joined(separator: "\n")
-        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output) == ["vt-main-cmux-ios-dead0001", "odd:name-cmux-ios-dead0003"])
+        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output) == ["vt-main-cmux-ios-dead0001", "no marker in this name"])
+    }
+
+    /// The name never marks a session for collection: an unattached user
+    /// session that contains the marker, and rows without the ownership
+    /// field, are left alone.
+    @Test func staleGroupedSessionsIgnoreUserSessionsNamedLikeGroupedOnes() {
+        let output = [
+            "0:0:build-cmux-ios-demo",
+            "0::build-cmux-ios-demo",
+            "0:build-cmux-ios-demo",
+        ].joined(separator: "\n")
+        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output).isEmpty)
     }
 }

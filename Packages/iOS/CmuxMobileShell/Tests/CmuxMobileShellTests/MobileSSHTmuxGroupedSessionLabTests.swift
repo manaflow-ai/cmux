@@ -75,6 +75,8 @@ struct MobileSSHTmuxGroupedSessionLabTests {
         }
         try await Self.waitUntil { seeded.count == 1 }
         #expect(Self.groupedSessions(socket).count == 1)
+        // The phone's own session is not a workspace.
+        #expect(try await provider.listWorkspaces().map(\.id) == ["laptop"])
         // tmux does not destroy it on its own (no destroy-unattached).
         let grouped = try #require(Self.groupedSessions(socket).first).name
         #expect(Self.tmux(socket, "show-options", "-v", "-t", "=" + grouped + ":", "destroy-unattached") == "off")
