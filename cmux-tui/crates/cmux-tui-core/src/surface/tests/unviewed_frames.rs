@@ -22,7 +22,12 @@ fn unviewed_terminal_builds_no_frame_until_a_render_viewer_attaches() {
     surface.resize(61, 11).unwrap();
     assert_eq!(built(), before, "a resize built a frame no viewer reads");
     let background = Rgb { r: 0x12, g: 0x34, b: 0x56 };
-    surface.set_default_colors(DefaultColors { bg: Some(background), ..DefaultColors::default() });
+    let foreground = Rgb { r: 0xee, g: 0xdd, b: 0xcc };
+    surface.set_default_colors(DefaultColors {
+        fg: Some(foreground),
+        bg: Some(background),
+        ..DefaultColors::default()
+    });
     assert_eq!(built(), before, "new default colors built a frame no viewer reads");
     surface.clear_history().unwrap();
     assert_eq!(built(), before, "a history clear built a frame no viewer reads");
@@ -34,7 +39,7 @@ fn unviewed_terminal_builds_no_frame_until_a_render_viewer_attaches() {
     let attach = surface.attach_render_stream().unwrap();
     assert!(attach.initial.content_generation >= generation, "attach served an old frame");
     assert_eq!(attach.initial.frame.size, (61, 11));
-    assert_eq!(attach.initial.frame.default_colors.0, background);
+    assert_eq!(attach.initial.frame.default_colors, (background, foreground));
     assert!(
         matches!(attach.stream.try_recv(), Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom: false })
             if offset == scrolled.offset),
