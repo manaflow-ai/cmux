@@ -274,7 +274,7 @@ class SidebarItemRowView: NSView {
         // Runs after the activity mark (defers run last first): the controls take the trailing end.
         defer { layoutHoverActions(in: b) }
         defer { layoutActivity(in: b) }
-        let inset = SidebarStyle.horizontalInset
+        let inset = SidebarStyle.rowEdgeGap
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
@@ -384,7 +384,7 @@ class SidebarItemRowView: NSView {
     /// the status (a band workspace that needs you or works, `info.activity`), centered on the
     /// trailing column (the group header chevron's x, `SidebarStyle+TrailingColumn`); a chip puts
     /// the dot after its label. Returns where the room left of the mark starts, nil with no mark.
-    /// A workspace row's bounds are its fill; this row's fill is inset by `horizontalInset`, so the
+    /// A workspace row's bounds are its fill; this row's fill is inset by `rowEdgeGap`, so the
     /// column is measured from the fill's end. Lawrence msg 11914: the status drew after the title,
     /// 3.5 pt right of the column every other dot and spinner shares.
     private func layoutColumnMark(in b: NSRect) -> CGFloat? {
@@ -405,12 +405,12 @@ class SidebarItemRowView: NSView {
         return min(activity.frame.minX, column - SidebarStyle.trailingSlotSide / 2)
     }
 
-    /// The shared sidebar columns in this row's coordinates. A band row's bounds include the outer inset on
-    /// both sides (its pill runs from `horizontalInset` to `width - horizontalInset`), so the columns are the list
+    /// The shared sidebar columns in this row's coordinates. A band row's bounds include the outer gap on
+    /// both sides (its pill runs from `rowEdgeGap` to `width - rowEdgeGap`), so the columns are the list
     /// rows' measured from the pill: lead `horizontalInset` inside it, the trailing line `trailingCenterInset` before its end.
     /// `after` moves lead and text right (a pinned row's icon and title, one icon column after the pin).
     func bandColumns(in b: NSRect, after: CGFloat = 0) -> SidebarColumns {
-        let inset = SidebarStyle.horizontalInset
+        let inset = SidebarStyle.rowEdgeGap
         return SidebarStyle.columns(rowWidth: b.width - inset, depth: info.indent, leadingOffset: inset + after)
     }
 

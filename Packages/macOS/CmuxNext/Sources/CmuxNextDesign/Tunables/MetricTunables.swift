@@ -47,11 +47,14 @@ public nonisolated enum MetricTunables {
                                                         compact: 208, comfortable: 240, key: .sidebarWidth, range: 120...480)
     public static let titlebarHeight = MetricTunable.make("titlebarHeight", .sidebar, "Titlebar height", help: "Height of the unified titlebar area.",
                                                           compact: 32, comfortable: 40, key: .titlebarHeight)
-    public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A workspace row with one line.",
-                                                            compact: 24, comfortable: 32, key: .sidebarRowHeight)
+    /// A one-line workspace row: a tab's height at every density (Lawrence 2026-11-09: "we need densities to have
+    /// same sidebar workspace size and tabbar tab size"), so the defaults are ``tabHeight``'s, Compact tabs included.
+    public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A workspace row with one line, a tab's height.",
+                                                            compact: tabHeight.compact, comfortable: tabHeight.comfortable, tight: tabHeight.tight,
+                                                            key: .sidebarRowHeight)
     public static let sidebarRowHeightWithSubtitle = MetricTunable.make(
         "sidebarRowHeightWithSubtitle", .sidebar, "Sidebar row height (subtitle)", help: "A workspace row with a cwd, branch or agent line.",
-        compact: 36, comfortable: 46)
+        compact: 36, comfortable: 44)
     public static let sidebarHeaderHeight = MetricTunable.make("sidebarHeaderHeight", .sidebar, "Sidebar header height", help: "Group and machine headers.",
                                                                compact: 22, comfortable: 26)
     public static let roomDotDiameter = MetricTunable.make("roomDotDiameter", .sidebar, "Room dot size", help: "Drawn size of a room dot at the sidebar bottom.",

@@ -132,7 +132,7 @@ extension SidebarViewComponents {
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
             // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
-            // row's pill is inset `horizontalInset` in its frame, as the region metrics' inset is.
+            // row's pill is inset `rowEdgeGap` in its frame, as a list row's frame is.
             var listMetrics = metrics
             listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),

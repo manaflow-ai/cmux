@@ -6,7 +6,7 @@ Window-height list of workspaces with pinned sections (Home at the top; Settings
 
 ## Workspace row
 
-Row height `sidebarRowHeight` (24/32); `sidebarRowHeightWithSubtitle` (36/46) only when the row has live status. Rows are 2 pt apart (space1). Text starts at space3 (6) from the row edge, +space5 (12) when grouped; with an icon, the icon box is smallIconSize+space2 and the text starts space3 after it. Corner radius itemCornerRadius (6/7). A clipped title fades over space6 (16) at its trailing edge. Title body (12/13), bodyEmphasized when unread; subtitle caption (10.5/11).
+Row height `sidebarRowHeight` (24/30, a tab's height at every density); `sidebarRowHeightWithSubtitle` (36/44) only when the row has live status. Rows are 2 pt apart (space1). Text starts at space3 (6) from the row edge, +space5 (12) when grouped; with an icon, the icon box is smallIconSize+space2 and the text starts space3 after it. Corner radius itemCornerRadius (6/7). A clipped title fades over space6 (16) at its trailing edge. Title body (12/13), bodyEmphasized when unread; subtitle caption (10.5/11).
 
 | state | background | title | subtitle | other | source |
 |---|---|---|---|---|---|

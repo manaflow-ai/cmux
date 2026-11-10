@@ -160,8 +160,8 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | sidebarWidth (range 120-480; resize 160-360) | 208 | 240 | MetricTunables.swift:36 (`MetricTunables.sidebarWidth`) |
 | titlebarHeight | 32 | 40 | :38 |
 | trafficLightInset | 76 | 76 | ChromeTunables.swift:24 (`ChromeTunables.trafficLightInset`) |
-| sidebarRowHeight | 24 | 32 | :40 |
-| sidebarRowHeightWithSubtitle | 36 | 46 | :42 |
+| sidebarRowHeight | 24 | 30 | :40 |
+| sidebarRowHeightWithSubtitle | 36 | 44 | :42 |
 | sidebarHeaderHeight | 22 | 26 | :45 |
 | tabStripHeight | 28 | 36 | :54 |
 | tabHeight | 24 | 30 | :56 |

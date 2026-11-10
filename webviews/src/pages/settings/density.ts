@@ -32,10 +32,13 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
   { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 1.75, spacing: 1.25 },
 ];
 
+/** A tab's height, [compact, comfortable] in points: a one-line sidebar row is the same (Swift
+ * `MetricTunables.sidebarRowHeight` takes `tabHeight`'s values). */
+const TAB_HEIGHT = [24, 30] as const;
 /** The metrics a preview draws and the editor's exact sizes: [compact, comfortable] in points. */
 export const PAIRS = {
-  sidebarRowHeight: [24, 32],
-  tabHeight: [24, 30],
+  sidebarRowHeight: TAB_HEIGHT,
+  tabHeight: TAB_HEIGHT,
   tabStripHeight: [28, 36],
   itemCornerRadius: [6, 7],
   iconSize: [14, 16],

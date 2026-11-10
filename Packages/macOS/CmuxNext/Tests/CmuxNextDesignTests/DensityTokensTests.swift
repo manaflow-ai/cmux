@@ -85,7 +85,9 @@ import Testing
         }
         #expect(radii.allSatisfy { $0 >= 0 }, "corner radii are never negative: \(radii)")
         #expect(bodies == [11.5, 12, 12.5, 13, 14])
-        #expect(rows == [20, 24, 28, 32, 38])
+        #expect(rows == [21, 24, 27, 30, 35])
+        // Lawrence 2026-11-09: "we need densities to have same sidebar workspace size and tabbar tab size".
+        #expect(rows == tabs, "a one-line sidebar row is a tab's height at every density")
     }
 
     /// Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever

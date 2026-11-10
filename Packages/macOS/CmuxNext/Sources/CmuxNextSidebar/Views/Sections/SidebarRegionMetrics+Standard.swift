@@ -29,7 +29,8 @@ extension SidebarRegionMetrics {
             iconButtonWidth: row + Metrics.space2, lineWidth: Metrics.dividerThickness,
             favoriteHeight: row * 2 + Metrics.space2,
             // A row glyph's center from a line's leading edge (the line
-            // starts at the inset; the row glyph at twice the inset).
-            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconColumnBox / 2)
+            // starts at the inset; the row glyph at the rows' edge gap
+            // plus the inset, `SidebarStyle.rowEdgeGap`).
+            glyphColumn: SidebarStyle.rowEdgeGap + SidebarStyle.iconColumnBox / 2)
     }
 }

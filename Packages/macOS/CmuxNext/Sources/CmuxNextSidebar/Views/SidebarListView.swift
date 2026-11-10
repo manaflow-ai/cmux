@@ -342,7 +342,7 @@ final class SidebarListView: NSView {
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
-    var inset: CGFloat { SidebarStyle.horizontalInset }
+    var inset: CGFloat { SidebarStyle.rowEdgeGap }
     // MARK: - Hover
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

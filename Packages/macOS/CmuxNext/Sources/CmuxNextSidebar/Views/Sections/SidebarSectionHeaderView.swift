@@ -77,13 +77,13 @@ final class SidebarSectionHeaderView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let inset = SidebarStyle.horizontalInset * 2
+        let inset = SidebarStyle.rowEdgeGap + SidebarStyle.horizontalInset
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize
         // Its chevron centers on the trailing column its item rows' marks share (Leo 2026-10-28: "the alignment"): an
-        // item's fill is inset by `horizontalInset` in a frame `trailingTrim` wider than this header's.
-        let rowWidth = b.width - trailingTrim - SidebarStyle.horizontalInset
+        // item's fill is inset by `rowEdgeGap` in a frame `trailingTrim` wider than this header's.
+        let rowWidth = b.width - trailingTrim - SidebarStyle.rowEdgeGap
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: chevronSide)
         // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
         let nameX = inset - SidebarStyle.labelCellPadding

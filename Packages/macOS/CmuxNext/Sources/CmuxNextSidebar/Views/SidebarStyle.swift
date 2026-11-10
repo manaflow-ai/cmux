@@ -5,14 +5,18 @@ import CmuxNextIcons
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
+    /// A row's content inset inside its fill: its leading glyph or title starts this far after the fill's start,
+    /// and its trailing column ends as far before the fill's end (6 compact, 8 comfortable).
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// Every row highlight ends on the same outer inset.
-    static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
-    /// highlight sits inside the sidebar with an even gap on both sides, as ChatGPT's does (8 pt beside its
-    /// 30 pt row; ours is 6 compact, 8 comfortable). Leo 2026-11-02: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T".
-    /// Replaced Leo 2026-10-27's 1.5 pt ("one or two pixels, 1.5"). Content columns do not change the fill edge.
-    static var rowEdgeGap: CGFloat { horizontalInset }
+    /// How far a row frame ends past the list's trailing inset: none, since every row's fill starts and ends
+    /// `rowEdgeGap` from the sidebar's edges (`SidebarListView.inset` is `rowEdgeGap`).
+    static var rowTrailingTrim: CGFloat { 0 }
+    /// The gap between a row's fill and the sidebar's leading and trailing edges: the gap between two rows
+    /// (`Metrics.space1`), so a highlight has the same room on its sides as above it, as a tab pill's leading
+    /// inset is its top inset (Lawrence 2026-11-09: "left/right should have same padding as top"). Replaced
+    /// Leo 2026-11-02's `horizontalInset` (6 compact, 8 comfortable, ChatGPT's gap). The content keeps
+    /// `horizontalInset` inside the fill, so it moves out with the fill.
+    static var rowEdgeGap: CGFloat { Metrics.space1 }
     /// The plain sidebar background between a row's trailing edge and the curved main-pane card: the
     /// same gap as `rowEdgeGap`, so a selected row stops as far short of the card as of a flat
     /// sidebar's edge, with no resize line or chrome shade in the band.
@@ -245,7 +249,7 @@ enum SidebarStyle {
     /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at
     /// `horizontalInset - groupBarWidth` the rail sat flush against its members' fills (Lawrence 2026-10-30, "alignment
     /// here is bad").
-    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupRailReach) }
+    static var groupEdgePadding: CGFloat { max(0, rowEdgeGap - groupRailReach) }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }

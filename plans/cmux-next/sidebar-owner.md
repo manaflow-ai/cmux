@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a row is a tab's height, and its fill has the row gap on every side. Lawrence, verbatim: "left/right
+  should have same padding as top, and it should be same height as new tab, we need densities to have same sidebar
+  workspace size and tabbar tab size (applies to new screen feature as well)". `MetricTunables.sidebarRowHeight`
+  takes `tabHeight`'s values (24 compact, 30 comfortable, 22 under Compact tabs; was 24/32), so a one-line row and a
+  tab (pane strips and the screen bar, both `TabStripView`) match at every density. `SidebarStyle.rowEdgeGap`, the
+  fill's gap to the sidebar's leading and trailing edges, is the gap between rows (`Metrics.space1`) instead of
+  `horizontalInset` (6/8, Leo 2026-11-02's ChatGPT gap): the list inset, band pills, section headers and the footer's
+  glyph column take it, and content keeps `horizontalInset` inside the fill, so it moves out with the fill. A
+  top-level group's rail has no room left of its members' fills now (`groupEdgePadding` is 0). Sidebar Comfortable
+  still adds `space2` to a row. Regression: `DensityTokensTests/textAndRowsGrowWithDensity`, webviews `density.test.ts`.
 - 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
   and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
   auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band

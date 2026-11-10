@@ -7,10 +7,10 @@ import CmuxNextDesign
 /// sidebar resize band.
 extension SidebarStyle {
     /// The one column source every sidebar row kind reads, in its highlight's coordinates.
-    /// `lead` sits `horizontalInset` inside the highlight: the highlight keeps the base list inset
-    /// (6 compact, 8 comfortable), and an iconless title starts as far left as the row allows
-    /// (Lawrence 2026-10-23), so lead lands 12 / 16 from the sidebar edge. The trailing line is
-    /// `trailingCenterInset` inside the fill, mirroring that inset: 19 / 23 from the sidebar edge.
+    /// `lead` sits `horizontalInset` inside the highlight (6 compact, 8 comfortable), and the highlight
+    /// sits `rowEdgeGap` from the sidebar edge, so an iconless title starts as far left as the row allows
+    /// (Lawrence 2026-10-23): lead lands 8 / 10 from the sidebar edge. The trailing line is
+    /// `trailingCenterInset` inside the fill, mirroring that inset: 15 / 17 from the sidebar edge.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
@@ -75,7 +75,7 @@ extension SidebarStyle {
     /// edge (`sidebarWidth - rowTrailingTrim`, less the list inset), while the footer has the sidebar
     /// as its parent.
     static func trailingColumnCenterX(sidebarWidth: CGFloat) -> CGFloat {
-        trailingColumnCenterX(rowWidth: sidebarWidth - rowTrailingTrim - horizontalInset)
+        trailingColumnCenterX(rowWidth: sidebarWidth - rowTrailingTrim - rowEdgeGap)
     }
 
     /// The column slot's leading edge in a row of `rowWidth`: every other trailing control (a

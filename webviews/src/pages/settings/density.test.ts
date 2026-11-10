@@ -17,13 +17,17 @@ test("Compact draws today's sizes and Comfortable its own", () => {
     caption: 10.5,
     inset: 6,
   });
-  expect(resolve(PRESETS[3]!).sidebarRowHeight).toBe(32);
+  expect(resolve(PRESETS[3]!).sidebarRowHeight).toBe(30);
   expect(resolve(PRESETS[3]!).body).toBe(13);
 });
 
 test("rows and text grow from Ultra-compact to Spacious (as the app's)", () => {
-  expect(PRESETS.map((preset) => resolve(preset).sidebarRowHeight)).toEqual([20, 24, 28, 32, 38]);
+  expect(PRESETS.map((preset) => resolve(preset).sidebarRowHeight)).toEqual([21, 24, 27, 30, 35]);
   expect(PRESETS.map((preset) => resolve(preset).body)).toEqual([11.5, 12, 12.5, 13, 14]);
+});
+
+test("a sidebar row is a tab's height at every density (Lawrence 2026-11-09)", () => {
+  for (const preset of PRESETS) expect(resolve(preset).sidebarRowHeight).toBe(resolve(preset).tabHeight);
 });
 
 test("every density's icons sit on the icon scale (as the app's)", () => {
