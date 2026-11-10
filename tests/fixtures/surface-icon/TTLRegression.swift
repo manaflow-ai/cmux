@@ -38,9 +38,12 @@ struct SurfaceIconTTLRegression {
         }
         for raw in ["600.0", "6e2"] {
             check("JSON TTL \(raw)") {
-                let object = try JSONSerialization.jsonObject(with: Data("{\"ttl\":\(raw)}".utf8)) as! [String: Any]
+                guard let object = try JSONSerialization.jsonObject(with: Data("{\"ttl\":\(raw)}".utf8)) as? [String: Any],
+                      let rawValue = object["ttl"], let value = JSONValue(foundationObject: rawValue) else {
+                    return false
+                }
                 var params = base
-                params["ttl_seconds"] = JSONValue(foundationObject: object["ttl"]!)!
+                params["ttl_seconds"] = value
                 return try parser.parse(params, clear: false).ttlSeconds == 600
             }
         }
@@ -53,6 +56,27 @@ struct SurfaceIconTTLRegression {
                 params["ttl_seconds"] = value
                 do { _ = try parser.parse(params, clear: false); return false }
                 catch is ControlSurfaceIconParser.Invalid { return true }
+            }
+        }
+        for clear in [false, true] {
+            for credentials in [0, 1, 2] {
+                check("reject incomplete credentials clear=\(clear) shape=\(credentials)") {
+                    var params = base
+                    if clear { params.removeValue(forKey: "asset") }
+                    if credentials == 1 { params["lease_token"] = .string(UUID().uuidString) }
+                    if credentials == 2 { params["expected_revision"] = .int(1) }
+                    // A full set without credentials is the one valid empty shape.
+                    if !clear && credentials == 0 { return true }
+                    do { _ = try parser.parse(params, clear: clear); return false }
+                    catch is ControlSurfaceIconParser.Invalid { return true }
+                }
+            }
+            check("accept complete credentials clear=\(clear)") {
+                var params = base
+                params.removeValue(forKey: "asset")
+                params["lease_token"] = .string(UUID().uuidString)
+                params["expected_revision"] = .int(1)
+                return try parser.parse(params, clear: clear).expectedRevision == 1
             }
         }
         print("Executed \(executed) parser behavior checks; failures: \(failed)")
