@@ -25,7 +25,7 @@ extension ActionRegistry {
         // NSMenuItem holds its target weakly: the item keeps the handler alive.
         item.target = handler
         item.representedObject = handler
-        item.image = Self.menuIcon("slider.horizontal.3")
+        item.image = rowIcon("slider.horizontal.3")
         return item
     }
 
