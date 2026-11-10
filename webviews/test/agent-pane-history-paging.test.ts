@@ -321,8 +321,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect([...workedLabels]).toEqual(["Worked for 4s"]);
     // Older turns came in pages, each before the oldest record the pane held, and stopped at the start.
     expect(older.length).toBeGreaterThan(5);
-    expect(older.every((request) => Number(request.params.limit) <= 400)).toBe(true);
-    expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
+    expect(older.every((request) => Number(request.params.limit) <= 2000)).toBe(true);
+    expect(older.every((request) => Number(request.params.maxBytes) <= 1024 * 1024)).toBe(true);
     const cursors = older.map((request) => request.params.beforeSeq as number);
     expect(new Set(cursors).size).toBe(cursors.length);
     expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
@@ -749,7 +749,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           request.params.kinds?.includes("transcript"),
       );
       expect(older.length).toBeGreaterThan(3);
-      expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
+      expect(older.every((request) => Number(request.params.maxBytes) <= 1024 * 1024)).toBe(true);
       const cursors = older.map((request) => request.params.beforeSeq as number);
       expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
     } finally {
