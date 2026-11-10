@@ -441,8 +441,13 @@ runs at the timeout. `cmux agents wait` prints its receipt (`matched: false`,
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
 program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
-follow the session's event stream instead of polling and print the terminal
-record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+follow the session's event stream instead of polling. Every `terminal wait`
+prints one shape, `{terminal_id, until, state, waited_ms}`; idle and prompt add
+the terminal record as `terminal`. An idle wait whose agent waits on a dialog
+(the word `list --agents` shows is `blocked`) answers `state: "blocked"` with
+`dialog` (the shape `send` has) and `reason`, and exits 4. `terminal <t>
+status` puts the same `dialog` on each `blocked` record. A passed timeout
+exits 124 with `wait.timeout`, also when the daemon
 stops answering. Both read shell state from OSC 133 marks: in a shell without
 integration `--until idle` returns while a command still runs. After the daemon
 reattaches to a running terminal host, the prompt and command state come back
@@ -492,14 +497,24 @@ the screen), less the harness's input box and status footer; `--json` prints
 anchored, reply, reply_source, output}`. `reply` is the agent's own last
 message, whole, from its hooks when they reported it after the send and the
 wait ended idle (`reply_source: "hook"`); else it is `output`
-(`reply_source: "screen"`). `status` is the word `list --agents` says for the same
+(`reply_source: "screen"`). A wait that ended `blocked` has no reply: `reply`
+and `reply_source` are null, `dialog` is `{kind, msg, options, deny_keys}`
+(`kind` from the agent's OSC 7501 record, such as `permission`, else the
+startup dialog's id or `agent_question`; `msg` the record's message, else the
+question on the screen; `options` `[{number, label, selected, keys}]` read
+from the screen, numbered or not, `keys` picking that option from the cursor;
+`deny_keys` Escape when the dialog's footer says so, else the keys of its
+first "No" option, else null), `reason` says to ask the person and answer with
+`terminal <t> keys`, and the CLI exits 4, as a blocked `agent start` does.
+`status` is the word `list --agents` says for the same
 turn: `idle`, `done` (the turn finished and the terminal has an unread
 notification), `blocked`, `working` (the wait timed out) or `ended` (the
 program exited), from a session read after the wait (tried twice; when both
 reads fail, a finished turn says `unknown`, never an older read's word); `state`
 is the wait's own word (`idle`, `blocked`, `working`,
 `exited`). `--timeout` (default 5m) exits 124 with the output so far. A
-terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
+terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`,
+exit 4, the same `dialog` in `details`)
 unless `--force`, because the text would answer the dialog. The MCP tools
 `agents_terminal_list` and `agents_terminal_send` run the same code.
 

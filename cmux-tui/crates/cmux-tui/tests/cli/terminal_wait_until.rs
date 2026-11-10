@@ -251,7 +251,7 @@ fn w6bc_a_blocked_terminal_agent_gives_its_dialog_on_every_read() {
     // "approve Bash: touch /tmp/w6bc", base64 as OSC 7501 carries it.
     let msg = "YXBwcm92ZSBCYXNoOiB0b3VjaCAvdG1wL3c2YmM=";
     let script = format!(
-        "clear; {}printf ' Bash command\\n touch /tmp/w6bc\\n Do you want to proceed?\\n \
+        "printf '\\033[2J\\033[H'; {}printf ' Bash command\\n touch /tmp/w6bc\\n Do you want to proceed?\\n \
          > 1. Yes\\n   2. No\\n\\n Esc to cancel\\n'; read line; {}\n",
         claude_status(&format!("state=blocked:kind=permission:msg={msg}")),
         claude_status("state=idle"),

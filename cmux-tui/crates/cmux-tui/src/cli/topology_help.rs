@@ -278,13 +278,16 @@ status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
 STATE is the word list --agents shows (a finished turn somebody viewed is
 idle, one nobody viewed done); --json keeps the program's own word as state
-and adds that word as status.
+and adds that word as status. A blocked record has dialog: kind, msg,
+options (each with the keys that pick it) and deny_keys.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
-integration to see commands, and print the terminal record; a passed
+integration to see commands. Every wait prints terminal_id, until, state and
+waited_ms (idle and prompt add the terminal record as terminal); a passed
 --timeout exits 124. --until ready waits until the terminal's agent can take
 a message, as cmux agent start does: a startup dialog (Claude's folder-trust
 question, a login) ends it as blocked with the dialog and a reason (exit 4).
+--until idle on an agent that waits on a dialog is blocked too (exit 4).
 process wait prints outcome once the process ends; when the timeout passes
 first it prints state pending, timed_out: true and exits 124.
 list --agents lists the terminals that run a coding agent (Claude Code,
@@ -306,9 +309,11 @@ command's exit_status (absent when the shell reports none, never guessed).
 --pattern also ends the wait when output after the message's echo matches
 (the echo never does) and when the command finishes without a match (exit 1).
 --exit-with-status exits with the command's status (125: unknown). A passed
---timeout exits 124 with the output so far. An agent that waits on a dialog
-is refused unless --force. A send to an idle agent whose hooks report each
-prompt it takes fails with send.not_submitted (exit 1) when the agent starts
+--timeout exits 124 with the output so far. An agent that stops on a dialog
+ends the wait as blocked: reply is null and dialog has kind, msg, options
+(each with its keys) and deny_keys (exit 4). An agent that waits on a dialog
+is refused unless --force (exit 4, the same dialog). A send to an idle agent
+whose hooks report each prompt it takes fails with send.not_submitted (exit 1) when the agent starts
 no turn within 10 s of Enter, or the message is still in its input box; read
 the screen before you send again. A send to a working agent, /, ! and #
 input, --pattern and --wait none are not checked. --wait none returns once

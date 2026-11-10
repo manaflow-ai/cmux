@@ -1,7 +1,10 @@
 //! `cmux terminal <t> wait --until idle|prompt|ready [--timeout D]` (cx-6so.14,
 //! plans/cmux-next/status-indicators.md section 5): blocks until the
-//! terminal's shell facts (`terminal-activity-v1`) hold, then prints its
-//! record as `terminal <t> show` does.
+//! terminal's shell facts (`terminal-activity-v1`) hold, then prints one
+//! shape for every condition (W6-C): `{terminal_id, until, state,
+//! waited_ms}`, with the terminal's record as `terminal` for idle and
+//! prompt. An idle wait whose agent waits on a dialog answers `blocked`
+//! with `dialog` and `reason` and exits 4, as `--until ready` does.
 //!
 //! - `prompt`: the shell sits at its prompt (`extra.prompt`: OSC 133 A, until
 //!   the next command starts). A shell without shell integration never shows
@@ -32,13 +35,15 @@
 use std::io::BufReader;
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
+use super::super::agent_start::{BLOCKED_EXIT, dialog_options};
 use super::super::command::CommandPlan;
 use super::super::resolve::{self, Failure, SocketRoute};
-use super::super::{GlobalArgs, Surface, UsageError, wire};
+use super::super::{GlobalArgs, OutputMode, Surface, UsageError, wire};
 
 /// The exit code of a wait whose timeout passed, as timeout(1) has it.
 pub(super) const TIMEOUT_EXIT: i32 = 124;
@@ -192,7 +197,8 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
         Ok(resolved) => resolved,
         Err(code) => return code,
     };
-    let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+    let started = Instant::now();
+    let deadline = timeout.and_then(|timeout| started.checked_add(timeout));
     let held = cmux_tui_core::server::connect_session_socket(&socket, derived)
         .map_err(|error| Failure::Local {
             error: json!({
@@ -213,12 +219,92 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             let params = plan.params.as_object().cloned().ok_or_else(|| {
                 Failure::Transport("cmux: request params are not an object".into())
             })?;
-            hold(&mut reader, &route, &params, until, deadline, timeout)
+            let record = hold(&mut reader, &route, &params, until, deadline, timeout)?;
+            Ok(answer(&mut reader, &params, until, record, started))
         });
     match held {
-        Ok(record) => wire::print_result(global, &plan, record),
+        Ok((answer, exit)) => print_answer(global, &answer, exit),
         Err(failure) => failure.report(global.output),
     }
+}
+
+/// The one shape every `terminal wait` answers (W6-C, bench round 5
+/// orchestration row 4), as `--until ready` does: `{terminal_id, until,
+/// state, waited_ms, terminal}` with the terminal's record, and the exit
+/// code. An idle wait whose agent waits on a dialog is `blocked` (exit 4)
+/// with `dialog` (agent_start/dialog_options.rs `blocked_dialog`) and a
+/// localized `reason`; the screen is read only then.
+fn answer(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    params: &Map<String, Value>,
+    until: Until,
+    record: Value,
+    started: Instant,
+) -> (Value, i32) {
+    let id = record["id"].as_str().unwrap_or_default().to_owned();
+    let mut answer = json!({
+        "terminal_id": id,
+        "until": until.as_str(),
+        "state": until.as_str(),
+        "waited_ms": started.elapsed().as_millis().to_string(),
+    });
+    let dialog = (until == Until::Idle).then(|| blocked(reader, params, &id, &record)).flatten();
+    let exit = match dialog {
+        Some(dialog) => {
+            let messages = &crate::localization::catalog().pane_cli;
+            let reason = dialog_options::dialog_reason(messages, &id, &dialog);
+            answer.set("state", json!("blocked"));
+            answer.set("dialog", dialog);
+            answer.set("reason", json!(reason));
+            BLOCKED_EXIT
+        }
+        None => 0,
+    };
+    answer.set("terminal", record);
+    (answer, exit)
+}
+
+/// The dialog the terminal's agent waits on, from its agent records and
+/// (only when those or its program status say blocked) its screen; `None`
+/// when nothing says blocked or the agent records cannot be read.
+fn blocked(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    params: &Map<String, Value>,
+    id: &str,
+    record: &Value,
+) -> Option<Value> {
+    let mut agent_params = resolve::route(params);
+    agent_params.insert("terminal_id".into(), json!(id));
+    let agents = resolve::read(reader, ResourceOperation::AgentList, agent_params)
+        .ok()
+        .and_then(|agents| agents.as_array().cloned())
+        .unwrap_or_default();
+    dialog_options::blocked_dialog(record, &agents, "")?;
+    let mut screen_params = resolve::route(params);
+    screen_params.insert("terminal".into(), json!(id));
+    let screen = resolve::read(reader, ResourceOperation::TerminalScreenRead, screen_params)
+        .ok()
+        .and_then(|screen| screen.get("text").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default();
+    dialog_options::blocked_dialog(record, &agents, &screen)
+}
+
+/// Prints a wait's answer: JSON as it is, or for a person one line (`term_…
+/// idle`, `term_… blocked (permission)`) and the reason below it.
+fn print_answer(global: &GlobalArgs, answer: &Value, exit: i32) -> i32 {
+    if global.output != OutputMode::Human {
+        let code = wire::print_local_success(answer, global.output);
+        return if code == 0 { exit } else { code };
+    }
+    let field = |key: &str| answer[key].as_str().unwrap_or("-").to_owned();
+    match answer["dialog"]["kind"].as_str() {
+        Some(kind) => println!("{} {} ({kind})", field("terminal_id"), field("state")),
+        None => println!("{} {}", field("terminal_id"), field("state")),
+    }
+    if let Some(reason) = answer["reason"].as_str() {
+        println!("  {reason}");
+    }
+    exit
 }
 
 /// Reads the terminal until `until` holds, waking on each session event.

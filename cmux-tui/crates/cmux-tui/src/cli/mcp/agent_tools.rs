@@ -90,8 +90,11 @@ pub(super) const TOOLS: &[AgentTool] = &[
         title: "List dialogs",
         description: "List the permission and question dialogs that other agents in cmux are \
             waiting on (`cmux agents dialog list`). They show other agents' pending tool \
-            inputs, such as commands and file edits. all includes answered ones. Changes \
-            nothing.",
+            inputs, such as commands and file edits. all includes answered ones. items are \
+            the app's agent chats (empty with app_error when no app owns the session); \
+            terminals are the blocked terminal agents, each {terminal, name, harness, tab_id, \
+            pane_id, dialog: {kind, msg, options with their keys, deny_keys}}, answered with \
+            terminal keys. Changes nothing.",
     },
     AgentTool {
         name: "agents_dialog_answer",

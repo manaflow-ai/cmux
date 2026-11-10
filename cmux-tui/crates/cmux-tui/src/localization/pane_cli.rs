@@ -37,6 +37,12 @@ pub(crate) struct PaneCliMessages {
     pub folder_trust_no_approval: &'static str,
     /// Between the folder-trust reason and its warning.
     pub folder_trust_separator: &'static str,
+    /// The reason of a blocked `terminal send` or `terminal wait`: `{who}`
+    /// is the terminal, `{kind}` the dialog's kind.
+    pub dialog_waits: &'static str,
+    /// The same when the dialog shows how to turn it down: `{deny}` are
+    /// those keys.
+    pub dialog_waits_deny: &'static str,
     /// The warning row's label of `cmux identify`.
     pub warning: &'static str,
     /// `cmux identify` from a `cmux` of another build than the session
@@ -70,6 +76,8 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     folder_trust_keys: "the agent asks whether you trust this folder; ask the person, and when they agree to \"{label}\" run cmux terminal {who} keys {keys} (cmux never answers it on its own)",
     folder_trust_no_approval: "warning: \"{label}\" also lets the agent act without asking for approval; tell the person",
     folder_trust_separator: "; ",
+    dialog_waits: "the agent waits on a dialog ({kind}); ask the person, then answer it with cmux terminal {who} keys and the keys of the option they pick (cmux never answers it on its own)",
+    dialog_waits_deny: "the agent waits on a dialog ({kind}); ask the person, then answer it with cmux terminal {who} keys and the keys of the option they pick, or deny it with cmux terminal {who} keys {deny} (cmux never answers it on its own)",
     warning: "warning",
     build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
     agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
@@ -96,6 +104,8 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     folder_trust_keys: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認し、「{label}」に同意したら cmux terminal {who} keys {keys} を実行してください (cmux が自動で答えることはありません)",
     folder_trust_no_approval: "警告: 「{label}」を選ぶと、エージェントは承認を求めずに操作します。本人に伝えてください",
     folder_trust_separator: "。",
+    dialog_waits: "エージェントがダイアログ ({kind}) で待っています。本人に確認してから、選んだ選択肢のキーを cmux terminal {who} keys で送って答えてください (cmux が自動で答えることはありません)",
+    dialog_waits_deny: "エージェントがダイアログ ({kind}) で待っています。本人に確認してから、選んだ選択肢のキーを cmux terminal {who} keys で送って答えるか、cmux terminal {who} keys {deny} で拒否してください (cmux が自動で答えることはありません)",
     warning: "警告",
     build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
     agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",

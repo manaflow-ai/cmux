@@ -11,7 +11,8 @@
 //!   Enter, wait, and print only what the terminal printed after the
 //!   message (send.rs, reply.rs). `--pattern <regex>` also ends the wait
 //!   when output after the message's echo matches; `--exit-with-status`
-//!   exits with the typed command's status (OSC 133 `D`).
+//!   exits with the typed command's status (OSC 133 `D`). A send that stops
+//!   on a dialog, or is refused at one, exits 4 with `dialog`.
 //! - `cmux terminal <t> run [OPTIONS] -- <command...>`: `send --wait prompt
 //!   --exit-with-status`: type a command into the terminal's shell, wait
 //!   for it to finish, print its output and exit with its status.
@@ -263,7 +264,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     humantime(request.timeout)
                 );
             } else if receipt["state"] == roster::AgentState::Blocked.as_str() {
-                eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
+                eprintln!("cmux: {}", receipt["reason"].as_str().unwrap_or_default());
             } else if receipt.get("matched") == Some(&Value::Bool(false)) {
                 eprintln!("cmux: the command finished without output that matches --pattern");
             } else if request.exit_with_status && status.is_none() {
@@ -279,12 +280,16 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
     send_exit_code(&receipt, request.exit_with_status)
 }
 
-/// The CLI's exit code for a send receipt: 124 on a timeout, 1 for a
+/// The CLI's exit code for a send receipt: 124 on a timeout, 4 when the
+/// agent stopped on a dialog (as a blocked `agent start`), 1 for a
 /// `--pattern` that did not match, then with `exit_with_status` the
 /// command's own status (125 when the shell reported none), else 0.
 pub(in crate::cli) fn send_exit_code(receipt: &Value, exit_with_status: bool) -> i32 {
     if receipt.get("timed_out") == Some(&Value::Bool(true)) {
         return TIMEOUT_EXIT;
+    }
+    if receipt["state"] == roster::AgentState::Blocked.as_str() {
+        return super::agent_start::BLOCKED_EXIT;
     }
     if receipt.get("matched") == Some(&Value::Bool(false)) {
         return NO_MATCH_EXIT;

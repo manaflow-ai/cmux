@@ -27,12 +27,17 @@
 //! - `reply` (W5-Q) is the agent's own last message, whole, when the wait
 //!   ended idle and the daemon kept a reply after the send (a Stop hook's
 //!   `last_reply_text` on the one-terminal `agent.list`; `reply_source`
-//!   `hook`); else the output (`reply_source` `screen`).
+//!   `hook`); else the output (`reply_source` `screen`). A wait that ended
+//!   `blocked` has no reply (`reply` and `reply_source` null, W6-C): it has
+//!   `dialog` (`kind`, `msg`, `options` with their `keys`, `deny_keys`;
+//!   agent_start/dialog_options.rs) and a localized `reason`, and the CLI
+//!   exits 4, as a blocked `agent start`.
 //! - Reads join soft-wrapped rows into the lines the program printed
 //!   (`terminal-read-unwrap-v1`) when the daemon can; an older daemon gets
 //!   the plain row reads.
 //! - A terminal whose agent waits on a dialog is refused without `force`:
-//!   the typed text would answer the dialog.
+//!   the typed text would answer the dialog. The refusal exits 4 and its
+//!   details carry the same `dialog`.
 //! - `idle` checks that Enter submitted the message (W5-R, bench round 4
 //!   A6), and fails with `send.not_submitted` instead of an empty reply:
 //!   - `no_agent_report`: the terminal's agent reports through hooks (the
@@ -54,7 +59,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::Surface;
-use super::super::agent_start::Clock;
+use super::super::agent_start::dialog_options;
+use super::super::agent_start::readiness::AGENT_QUESTION;
+use super::super::agent_start::{BLOCKED_EXIT, Clock};
 use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::reply::{self, Reply};
@@ -614,12 +621,21 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
         && let Some(agent) = &agent
         && agent.state == AgentState::Blocked
     {
+        // The dialog it shows, as a blocked send answers it; a failed read
+        // leaves the options out.
+        let screen = plan(&["terminal", &id, "screen", "read"])
+            .ok()
+            .and_then(|read| backend.request(session, read).ok())
+            .and_then(|read| read.get("text").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_default();
+        let dialog = dialog_options::blocked_dialog(terminal, agents, &screen)
+            .unwrap_or_else(|| dialog_options::dialog_json(AGENT_QUESTION.id, None, &screen));
         return Err(SendFailure::local(
             "agent.waiting_for_input",
             format!(
-                "the {} agent in {id} waits on a dialog; typed text would answer it. Read it \
-                 (cmux terminal {id} screen read) and answer with keys (cmux terminal {id} keys \
-                 escape), or pass --force to type anyway",
+                "the {} agent in {id} waits on a dialog; typed text would answer it. Answer it \
+                 with keys (`dialog` names the keys of each option and `deny_keys`; cmux \
+                 terminal {id} keys escape usually denies it), or pass --force to type anyway",
                 agent.harness
             ),
             json!({
@@ -627,8 +643,9 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
                 "harness": agent.harness,
                 "state": agent.state.as_str(),
                 "status": "blocked",
+                "dialog": dialog,
             }),
-            1,
+            BLOCKED_EXIT,
         ));
     }
     let send_id = match request.idempotency_key.as_deref() {
@@ -770,6 +787,19 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
     receipt.set("timed_out", Value::Bool(timed_out));
     receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
     receipt.set("anchored", Value::Bool(anchored));
+    if waited.verdict == Verdict::Done(AgentState::Blocked) {
+        // A dialog is no reply: the receipt says what it asks instead.
+        let dialog = dialog_options::blocked_dialog(&waited.terminal, &waited.records, shown_text)
+            .unwrap_or_else(|| dialog_options::dialog_json(AGENT_QUESTION.id, None, shown_text));
+        let messages = &crate::localization::catalog().pane_cli;
+        let reason = dialog_options::dialog_reason(messages, &request.target, &dialog);
+        receipt.set("reason", json!(reason));
+        receipt.set("dialog", dialog);
+        receipt.set("reply", Value::Null);
+        receipt.set("reply_source", Value::Null);
+        receipt.set("output", Value::String(text));
+        return Ok(receipt);
+    }
     let hooked = (waited.verdict == Verdict::Done(AgentState::Idle))
         .then(|| hook_reply(&waited.records, sent_ms))
         .flatten();
@@ -797,6 +827,8 @@ struct Watch<'a> {
 /// How the wait ended.
 struct Waited {
     verdict: Verdict,
+    /// The last terminal record read (`terminal show`).
+    terminal: Value,
     /// The last screen read.
     screen: Value,
     /// The command the shell finished after the send, if it reported one.
@@ -921,6 +953,7 @@ fn wait<B: Daemon + ?Sized>(
             let agent_reported = settle.reported();
             return Ok(Waited {
                 verdict,
+                terminal,
                 screen: shown,
                 finished,
                 matched,

@@ -14,6 +14,9 @@
 
 use serde_json::{Value, json};
 
+use super::super::terminal_talk::roster;
+use super::readiness;
+
 /// How many of the screen's last non-blank rows hold the options at most.
 const OPTION_ROWS: usize = 16;
 /// Cursor marks a dialog draws before the selected option.
@@ -206,6 +209,124 @@ pub(in crate::cli) fn accept_label(options: &[DialogOption]) -> Option<&str> {
     options.iter().find(|option| accepts(option)).map(|option| option.label.as_str())
 }
 
+/// Footer hints (lower case) that say Escape cancels the dialog.
+const ESCAPE_HINTS: &[&str] = &["esc to cancel", "esc to deny", "esc to reject", "esc to exit"];
+
+/// Label starts (lower case) of an option that says no.
+const DENY_LABELS: &[&str] = &["no", "deny", "reject", "cancel", "don't", "do not"];
+
+/// The bottom [`OPTION_ROWS`] non-blank rows of `screen`.
+fn bottom_rows(screen: &str) -> Vec<&str> {
+    let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+    rows.get(rows.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default().to_vec()
+}
+
+/// The keys that turn the dialog down: Escape when its footer says Escape
+/// cancels it, else the keys that pick its first option that says no;
+/// `None` when neither shows.
+pub(in crate::cli) fn deny_keys(
+    screen: &str,
+    options: &[DialogOption],
+) -> Option<Vec<&'static str>> {
+    let footer = bottom_rows(screen).join(" ").to_lowercase();
+    if ESCAPE_HINTS.iter().any(|hint| footer.contains(hint)) {
+        return Some(vec!["escape"]);
+    }
+    let says_no = |option: &DialogOption| {
+        let label = option.label.to_lowercase();
+        DENY_LABELS.iter().any(|word| {
+            label.strip_prefix(word).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with(|next: char| !next.is_alphanumeric())
+            })
+        })
+    };
+    Some(keys_to(options, options.iter().position(says_no)?))
+}
+
+/// The question the dialog asks: the lowest of the bottom rows above its
+/// options that holds a `?`, up to its last `?` (`Do you want to proceed?`).
+fn question(screen: &str) -> Option<String> {
+    bottom_rows(screen).iter().rev().find_map(|row| {
+        if option(row).is_some() || cursor_row(row).is_some() {
+            return None;
+        }
+        let (_, text) = unboxed(row);
+        let asked = text.get(..=text.rfind('?')?)?.trim();
+        (asked.len() > 1).then(|| asked.to_owned())
+    })
+}
+
+/// The dialog a blocked agent shows, as every blocked result has it
+/// (`agent start`, `terminal send`, `terminal wait`, `terminal status`,
+/// `agents dialog list`): `kind`, `msg` (the given one, else the question on
+/// the screen), `options` (each with the `keys` that pick it), `deny_keys`,
+/// and for `folder_trust` the `accept_keys` and `accept_label`.
+pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -> Value {
+    let options = options(screen);
+    let msg =
+        msg.filter(|msg| !msg.trim().is_empty()).map(str::to_owned).or_else(|| question(screen));
+    let mut dialog = json!({
+        "kind": kind,
+        "msg": msg,
+        "options": options_json(&options),
+        "deny_keys": deny_keys(screen, &options),
+    });
+    if kind == "folder_trust"
+        && let (Some(keys), Some(label)) = (accept_keys(&options), accept_label(&options))
+        && let Some(object) = dialog.as_object_mut()
+    {
+        object.insert("accept_keys".into(), json!(keys));
+        object.insert("accept_label".into(), json!(label));
+    }
+    dialog
+}
+
+/// What blocks the agent in `terminal`, when the word every agent list
+/// shows for it is `blocked` (`roster::agent_of_terminal`): the kind and
+/// message of its newest blocked OSC 7501 record, else a startup dialog on
+/// `screen`, else a question its hooks reported (`agent_question`). `agents`
+/// are the daemon's agent records of that terminal.
+pub(in crate::cli) fn blocked_dialog(
+    terminal: &Value,
+    agents: &[Value],
+    screen: &str,
+) -> Option<Value> {
+    let row = roster::agent_of_terminal(terminal, agents, false)?;
+    if row.state != roster::AgentState::Blocked {
+        return None;
+    }
+    let number = |value: &Value| {
+        value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())).unwrap_or(0)
+    };
+    let record = terminal["extra"]["program_status"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|record| record["state"] == "blocked")
+        .max_by_key(|record| number(&record["updated_at_ms"]));
+    let kind = record
+        .and_then(|record| record["kind"].as_str())
+        .filter(|kind| !kind.is_empty())
+        .or_else(|| readiness::startup_dialog(screen).map(|dialog| dialog.id))
+        .unwrap_or(readiness::AGENT_QUESTION.id);
+    Some(dialog_json(kind, record.and_then(|record| record["msg"].as_str()), screen))
+}
+
+/// The localized reason of a blocked `terminal send` or `terminal wait`:
+/// ask the person, then answer `dialog` in the terminal `who` with keys,
+/// naming its `deny_keys` when it has them.
+pub(in crate::cli) fn dialog_reason(
+    messages: &crate::localization::PaneCliMessages,
+    who: &str,
+    dialog: &Value,
+) -> String {
+    let kind = dialog["kind"].as_str().unwrap_or(readiness::AGENT_QUESTION.id);
+    let deny: Vec<&str> =
+        dialog["deny_keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let template = if deny.is_empty() { messages.dialog_waits } else { messages.dialog_waits_deny };
+    template.replace("{kind}", kind).replace("{who}", who).replace("{deny}", &deny.join(" "))
+}
+
 /// Words of an option that also lets the agent act without approval (a
 /// Codex "... without asking for approval" choice), lower case.
 const NO_APPROVAL: &[&str] = &[
@@ -328,6 +449,34 @@ mod tests {
         assert!(options("› Ask Codex to do anything\n  ⏎ send   ctrl+j newline").is_empty());
         assert!(options(" ❯ Only one choice\n\n Enter to confirm").is_empty());
         assert!(options(" ❯ No, exit\n     deeper indent is no sibling").is_empty());
+    }
+
+    /// W6-C: the reason of a blocked send or wait is localized, names the
+    /// terminal and the dialog's kind, and names the deny keys when the
+    /// dialog has them.
+    #[test]
+    fn w6bc_the_blocked_dialog_reason_is_localized_and_names_the_deny_keys() {
+        let english = &crate::localization::catalog_for_locale("en_US.UTF-8").pane_cli;
+        let japanese = &crate::localization::catalog_for_locale("ja_JP.UTF-8").pane_cli;
+        let screen = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel";
+        let dialog = dialog_json("permission", Some("approve Bash: ls"), screen);
+        assert_eq!(dialog["deny_keys"], json!(["escape"]));
+        assert_eq!(dialog["msg"], "approve Bash: ls");
+        let bare = dialog_json("agent_question", None, " Pick a database?\n plain text");
+        assert_eq!(bare["msg"], "Pick a database?");
+        assert!(bare["deny_keys"].is_null(), "{bare}");
+        for messages in [english, japanese] {
+            let reason = dialog_reason(messages, "beta", &dialog);
+            assert!(reason.contains("cmux terminal beta keys escape"), "{reason}");
+            assert!(reason.contains("permission"), "{reason}");
+            let reason = dialog_reason(messages, "beta", &bare);
+            assert!(reason.contains("cmux terminal beta keys"), "{reason}");
+            assert!(!reason.contains("{deny}"), "{reason}");
+        }
+        assert_ne!(
+            dialog_reason(english, "beta", &dialog),
+            dialog_reason(japanese, "beta", &dialog)
+        );
     }
 
     /// W5-Q review (PR C): the folder-trust reason is localized, names the

@@ -1437,7 +1437,9 @@ eighth of it.
 `--json` prints `{name, state, reason, dialog, options, accept_keys,
 accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,
 pane_id, tab_id, terminal_id, waited_ms}` (`options`, `accept_keys` and
-`accept_label` only when blocked on a dialog that shows them).
+`accept_label` only when blocked on a dialog that shows them). `dialog` is the
+object "Blocked agents on the pane path" describes (`dialog.kind` is the id),
+null when not blocked.
 `state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
 `--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
 `harness` uses the one vocabulary of `terminal list --agents`.
@@ -1465,6 +1467,35 @@ first (`terminal <t> keep on`).
 records of any age count). `ready` and `blocked` print `{terminal_id, until,
 state, dialog, reason, waited_ms}` and exit 0 and 4; an exit is
 `terminal.exited` (exit 1) and a passed `--timeout` `wait.timeout` (exit 124).
+`--until idle` and `--until prompt` print the same shape, with the terminal
+record as `terminal`.
+
+### Blocked agents on the pane path
+
+Every result for an agent that waits on the person carries one `dialog`
+object: `agent start` and `--until ready` (`kind` is the startup dialog's id),
+`terminal <sel> send` that stopped on a dialog or was refused at one
+(`agent.waiting_for_input`, in `details`), `terminal <sel> wait --until idle`,
+each `blocked` record of `terminal <sel> status`, and each row of `agents
+dialog list`'s `terminals`. It is `{kind, msg, options, deny_keys}`: `kind`
+from the agent's newest blocked OSC 7501 record (`permission`, ...), else the
+startup dialog on the screen, else `agent_question`; `msg` the record's
+message, else the question on the screen; `options` `[{number, label,
+selected, keys}]`, where `keys` move the cursor to that option and press
+Enter; `deny_keys` `["escape"]` when the dialog's footer says Escape cancels
+it, else the keys of its first option that says no, else null. A folder-trust
+dialog adds `accept_keys` and `accept_label`. A blocked `send` has `reply` and
+`reply_source` null (the screen text stays in `output`) and a localized
+`reason`; it and the refused send exit 4, as `agent start` does. A blocked
+`wait --until idle` answers `state: "blocked"` and exits 4. cmux never
+answers a dialog: the caller asks the person and sends the keys with
+`terminal <sel> keys`.
+
+`agents dialog list` answers the app's pending dialogs as `items` and the
+session's blocked terminal agents as `terminals` (`{terminal, name, harness,
+tab_id, pane_id, dialog}`). In a session no app owns, `items` is empty and
+`app_error` names why; it fails only when neither the app nor the daemon
+answers.
 
 ## Agent messages
 

@@ -1555,7 +1555,9 @@ sr2 claude and codex work) in a new tab named NAME, split right of your pane
 unless --pane or --split say otherwise, and waits until the agent can take a
 message. It prints the ids and state: ready (exit 0), blocked with the dialog
 and a reason, such as Claude's folder-trust question (exit 4; cmux never
-answers it), timeout (exit 124) or exited (exit 1). NAME is a lowercase
+answers it), timeout (exit 124) or exited (exit 1). The dialog is an object:
+kind, msg, options (each with the keys that pick it), deny_keys, and for
+folder trust accept_keys and accept_label. NAME is a lowercase
 letter, then up to 31 lowercase letters, digits, - or _, unique among running
 tabs; it works wherever a terminal, tab or pane selector goes
 (cmux terminal NAME send --text ... --wait idle).
