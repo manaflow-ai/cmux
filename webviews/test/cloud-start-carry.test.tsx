@@ -12,24 +12,36 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { inlineToken } from "../src/agent-session/acpmux/attachments";
 import {
   cloudStartCarry,
   cloudStartCarrySource,
+  followCloudStartCarry,
   type CloudStartCarryStore,
 } from "../src/agent-session/acpmux/cloudStartCarry";
 
-function memoryStore(): CloudStartCarryStore & { full?: boolean } {
+function memoryStore(): CloudStartCarryStore & { full?: boolean; items: Map<string, string> } {
   const items = new Map<string, string>();
   const store = {
     full: false,
+    items,
     getItem: (name: string) => items.get(name) ?? null,
     setItem(name: string, value: string) {
       if (store.full && value.includes('"data"')) throw new Error("QuotaExceededError");
       items.set(name, value);
     },
+    removeItem: (name: string) => void items.delete(name),
+    get length() {
+      return items.size;
+    },
+    key: (index: number) => [...items.keys()][index] ?? null,
   };
   return store;
 }
+
+/// The draft part of a carry, for comparing.
+const draftOf = (carried: { text: string; attachments: ComposerAttachment[]; left: number } | undefined) =>
+  carried && { text: carried.text, attachments: carried.attachments, left: carried.left };
 
 const image: ComposerAttachment = {
   id: "img-1",
@@ -62,7 +74,7 @@ test("text typed after a stall goes to the chat the start opens, once", () => {
   // A late success: the host opened the chat and closes this tab.
   source.ended("k-1", true);
   const destination = cloudStartCarry(store);
-  expect(destination.take("k-1")).toEqual({ text: "also check the dock", attachments: [], left: 0 });
+  expect(draftOf(destination.take("k-1"))).toEqual({ text: "also check the dock", attachments: [], left: 0 });
   expect(destination.take("k-1")).toBeUndefined();
 });
 
@@ -70,14 +82,14 @@ test("attachments typed after a stall go with their text", () => {
   const store = memoryStore();
   const typed = { text: "see ￼", attachments: [{ ...image, inline: true }] };
   stallThenType(store, "k-1", typed).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual({ ...typed, left: 0 });
+  expect(draftOf(cloudStartCarry(store).take("k-1"))).toEqual({ ...typed, left: 0 });
 });
 
 test("an attachment-only draft carries", () => {
   const store = memoryStore();
   const typed = { text: "", attachments: [image] };
   stallThenType(store, "k-1", typed).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual({ ...typed, left: 0 });
+  expect(draftOf(cloudStartCarry(store).take("k-1"))).toEqual({ ...typed, left: 0 });
 });
 
 test("two starts with the same prompt keep their own drafts", () => {
@@ -112,24 +124,99 @@ test("a retry of a failed start under the same key carries what is typed after i
   expect(cloudStartCarry(store).take("k-1")?.text).toBe("after the retry stalled");
 });
 
-test("a chip that only names a file on this Mac stays, its place goes, and the opened chat is told", () => {
+test("a chip that only names a file on this Mac stays, its place goes, and a carried chip keeps its token", () => {
   const store = memoryStore();
   const local: ComposerAttachment = {
     id: "file-1",
     kind: "link",
-    inline: true,
     name: "notes.md",
     mimeType: "text/markdown",
     size: 10,
     path: "/Users/me/notes.md",
   };
-  const shot = { ...image, inline: true, originalPath: "/Users/me/Desktop/shot.png" };
-  stallThenType(store, "k-1", { text: "see \uFFFC and \uFFFC", attachments: [local, shot] }).ended("k-1", true);
+  const shot = { ...image, originalPath: "/Users/me/Desktop/shot.png" };
+  // The composer's own draft: each placed chip is its token, U+FFFC id U+FFFC.
+  const text = `see ${inlineToken("file-1")} and ${inlineToken("img-1")} please`;
+  stallThenType(store, "k-1", { text, attachments: [local, shot] }).ended("k-1", true);
   const carried = cloudStartCarry(store).take("k-1");
-  expect(carried?.text).toBe("see  and \uFFFC");
+  expect(carried?.text).toContain(inlineToken("img-1"));
+  expect(carried?.text).not.toContain("file-1");
+  expect(carried?.text.startsWith("see ")).toBe(true);
+  expect(carried?.text.endsWith(" please")).toBe(true);
   expect(carried?.attachments.map((chip) => chip.id)).toEqual(["img-1"]);
   expect(carried?.attachments[0]?.originalPath).toBeUndefined();
   expect(carried?.left).toBe(1);
+});
+
+test("two panes saving interleaved under one key both survive (separate processes, one store)", () => {
+  const store = memoryStore();
+  // Pane A read the store before pane B wrote; a read-modify-write of one shared item would then
+  // write A's view back over B's draft.
+  const snapshot = new Map(store.items);
+  const stale: CloudStartCarryStore = {
+    getItem: (name) => snapshot.get(name) ?? null,
+    setItem: (name, value) => store.setItem(name, value),
+    removeItem: (name) => store.removeItem(name),
+    get length() {
+      return snapshot.size;
+    },
+    key: (index) => [...snapshot.keys()][index] ?? null,
+  };
+  const paneB = cloudStartCarrySource(cloudStartCarry(store), "pane-b");
+  const paneA = cloudStartCarrySource(cloudStartCarry(stale), "pane-a");
+  stallThenType(store, "k-1", { text: "B's words", attachments: [] }, paneB);
+  stallThenType(stale, "k-1", { text: "A's words", attachments: [] }, paneA);
+  paneB.ended("k-1", true);
+  paneA.ended("k-1", true);
+  const text = cloudStartCarry(store).take("k-1")?.text ?? "";
+  expect(text).toContain("A's words");
+  expect(text).toContain("B's words");
+});
+
+test("an edit written after the opened chat read reaches it, and the source locks at the opening step", async () => {
+  const { cloudStartLocksComposer } = await import("../src/agent-session/acpmux/cloudStartProgress");
+  // The source composer takes no edit once the host opens the chat: its last write comes first.
+  expect(cloudStartLocksComposer({ key: "k-1", task: "t", state: "starting", stalled: true, step: "folder" })).toBe(
+    false,
+  );
+  expect(cloudStartLocksComposer({ key: "k-1", task: "t", state: "starting", stalled: true, step: "opening" })).toBe(
+    true,
+  );
+  const store = memoryStore();
+  let clock = 1_000;
+  const now = () => clock;
+  const source = stallThenType(
+    store,
+    "k-1",
+    { text: "first", attachments: [] },
+    cloudStartCarrySource(cloudStartCarry(store, now)),
+  );
+  const destination = cloudStartCarry(store, now);
+  const carried = destination.take("k-1")!;
+  expect(carried.text).toBe("first");
+  // The push was on its way while the person typed: a write after the read.
+  const listeners: ((event: Event) => void)[] = [];
+  const target = {
+    addEventListener: (_: string, listener: (event: Event) => void) => void listeners.push(listener),
+    removeEventListener: (_: string, listener: (event: Event) => void) =>
+      void listeners.splice(listeners.indexOf(listener), 1),
+  };
+  const fire = (key: string) => {
+    for (const listener of listeners.slice()) listener({ key } as unknown as Event);
+  };
+  const seen: string[] = [];
+  const stop = followCloudStartCarry(target as unknown as Window, destination, "k-1", carried, (next) =>
+    seen.push(next.text),
+  );
+  clock += 1;
+  source.edited(() => ({ text: "first and more", attachments: [] }));
+  const name = [...store.items.keys()].find((item) => item.includes("k-1"))!;
+  fire(name);
+  expect(seen).toEqual(["first and more"]);
+  // Taken: the same event again changes nothing.
+  fire(name);
+  expect(seen).toEqual(["first and more"]);
+  stop();
 });
 
 test("a failed start keeps its draft here and carries none", () => {
@@ -157,7 +244,7 @@ test("a store too full for the files' bytes still carries the text", () => {
   const store = memoryStore();
   store.full = true;
   stallThenType(store, "k-1", { text: "words", attachments: [image] }).ended("k-1", true);
-  expect(cloudStartCarry(store).take("k-1")).toEqual({ text: "words", attachments: [], left: 1 });
+  expect(draftOf(cloudStartCarry(store).take("k-1"))).toEqual({ text: "words", attachments: [], left: 1 });
 });
 
 // The opened chat's page: its handshake names the start's key, and its composer gets the carry.
