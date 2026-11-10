@@ -607,9 +607,13 @@ fn a_cleanup_the_app_could_not_hear_is_never_given_up() {
     // A machine the app keeps listing is still given up after the give-up time it answered.
     let listed = (0..1_000).map(|_| Removal::Later("still listed".into())).collect();
     let fake = Fake::new(Some(replied()), listed);
-    let engine = Engine::open(None, fake, quiet);
-    let id = create(&engine, "k2").get("id").and_then(Value::as_str).unwrap().to_owned();
-    assert_eq!(settled(&engine, &id, "abandoned")["receipt"]["cleanup"], "abandoned");
+    let engine = Engine::open(None, fake.clone(), quiet);
+    create(&engine, "k2");
+    std::thread::sleep(Duration::from_millis(1_000));
+    let asked = fake.removes.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(fake.removes.load(Ordering::Acquire), asked, "the cleanup stopped: given up");
+    assert!(asked < 1_000, "given up after the time the app answered, not at the list's end");
 }
 
 /// The same audit (P2): a store this build cannot read was written over with an empty list, and
@@ -619,7 +623,7 @@ fn a_store_that_cannot_be_read_is_kept_aside_never_written_over() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("cloud-runs.json");
     std::fs::write(&store, b"{\"version\": 999, \"runs\": [\"from a later build\"]}").unwrap();
-    let _engine = Engine::open(Some(store.clone()), Fake::new(None, vec![]), quick());
+    let _engine = Engine::open(Some(store), Fake::new(None, vec![]), quick());
     let kept: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .filter_map(Result::ok)

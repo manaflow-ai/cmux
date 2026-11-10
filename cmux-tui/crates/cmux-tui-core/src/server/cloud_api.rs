@@ -270,7 +270,7 @@ mod calls {
     /// `operation.failed` for `failure`, with neither credential in it.
     /// One library call on a runtime of its own (this is a worker thread).
     fn block_on(
-        future: impl std::future::Future<Output = Result<Value, Failure>>,
+        future: impl Future<Output = Result<Value, Failure>>,
     ) -> Result<Value, Failure> {
         match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime.block_on(future),
