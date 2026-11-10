@@ -179,8 +179,14 @@ pub(in crate::link) fn relay(
     target.mkdir_all(to_root)?;
     let mut target_now = BTreeMap::new();
     let mut listed = BTreeSet::new();
-    for relative in record.files.keys() {
+    // Folders on the target that are folders all the way down from `to_root`: one swapped for a
+    // symlink since would list (and delete) what it points at, outside the target folder.
+    let mut real = BTreeMap::new();
+    for relative in record.files.keys().chain(record.links.keys()) {
         let parent = parent_of(relative);
+        if !real_folder(&mut target, to_root, parent, &mut real)? {
+            continue;
+        }
         if listed.insert(parent.to_string()) {
             let folder = join(to_root, parent);
             if let Some(entries) = target.list(&folder)? {
@@ -218,7 +224,9 @@ pub(in crate::link) fn relay(
         if !matches!(items.get(&relative), Some(Item::Link { .. })) {
             // Only the link the last relay made: anything put there since is the target's.
             let path = join(to_root, &relative);
-            if link_is(&mut target, &path, &text) {
+            if (parent_of(&relative).is_empty() || real.get(parent_of(&relative)) == Some(&true))
+                && link_is(&mut target, &path, &text)
+            {
                 deletes.push(path);
             }
             record.links.remove(&relative);
@@ -339,6 +347,26 @@ pub(in crate::link) fn relay(
     summary.skipped_files = json!(skipped.named);
     summary.skipped_counts = json!(skipped.kinds);
     Ok(summary)
+}
+
+/// Whether `parent` (relative to `root`) and each folder above it are folders on `target`, not
+/// symlinks, by `fs.stat`, which does not follow them; `seen` keeps each answer.
+fn real_folder(
+    target: &mut Remote,
+    root: &str,
+    parent: &str,
+    seen: &mut BTreeMap<String, bool>,
+) -> anyhow::Result<bool> {
+    if parent.is_empty() {
+        return Ok(true);
+    }
+    if let Some(known) = seen.get(parent) {
+        return Ok(*known);
+    }
+    let above = real_folder(target, root, parent_of(parent), seen)?;
+    let real = above && target.kind(&join(root, parent))?.as_deref() == Some("dir");
+    seen.insert(parent.to_string(), real);
+    Ok(real)
 }
 
 /// Whether `path` on `target` is still the symlink `text`.
@@ -468,7 +496,8 @@ fn permissions(source: &mut Remote, root: &str, relative: &str) -> anyhow::Resul
     }
     let Some(stat) = source.stat(&join(root, relative))? else { return Ok(0o644) };
     let display = stat.get("mode_display").and_then(serde_json::Value::as_str).unwrap_or("");
-    Ok(mode_of(display).unwrap_or(0o644))
+    // The target takes four modes (0644, 0755, 0600, 0700); a 0664 or 0775 maps to its nearest.
+    Ok(mode_of(display).map_or(0o644, super::local::permissions_of))
 }
 
 /// `rwxr-xr-x` to its bits, owner write always kept.
