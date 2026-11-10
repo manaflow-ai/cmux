@@ -184,20 +184,20 @@ import Testing
                 "the switcher's accessibility elements do not show the new space as selected")
     }
 
-    /// A new sidebar width changes the switcher's size, so its slots move: the marks are drawn again, and the
-    /// tooltips and the accessibility elements are made for the new slots. (A guard for the fix: it holds before and after.)
-    @Test func aNewSidebarWidthMakesTheSwitcherSlotsAgain() throws {
+    /// A new size of the switcher moves its slots: the marks are drawn again, and the tooltips and the accessibility
+    /// elements are made for the new slots. (A guard for the fix: it holds before and after. The switcher's strip is
+    /// centered at its own width, so a narrower sidebar alone does not change its size: the test gives it the size
+    /// that its owner gives it when the strip is clamped.)
+    @Test func aNewSwitcherSizeMakesItsSlotsAgain() throws {
         let rig = Rig(.light)
         defer { rig.close() }
         let bar = rig.bar
         let size = bar.frame.size
         let tips = TooltipTracker.all(of: bar)
         rig.countDraws()
-        rig.root.sidebar.widthConstraint.constant -= 48
-        rig.root.needsLayout = true
-        rig.root.layoutSubtreeIfNeeded()
+        bar.setFrameSize(NSSize(width: size.width - 48, height: size.height))
+        try #require(bar.frame.size != size, "fixture: the switcher did not take the new size")
         rig.show()
-        try #require(bar.frame.size != size, "fixture: the narrower sidebar did not change the switcher's size")
         let tipsNow = TooltipTracker.all(of: bar)
         let elements = try #require(bar.accessibilityChildren() as? [NSAccessibilityElement])
         let slots = bar.slotRects()
