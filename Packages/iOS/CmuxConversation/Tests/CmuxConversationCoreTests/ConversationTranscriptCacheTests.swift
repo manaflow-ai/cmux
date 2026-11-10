@@ -190,28 +190,21 @@ import Testing
         #expect(store.messages.isEmpty)
     }
 
-    /// Two conversations never share a kept-transcript file (CMUX-281): every character but ASCII
-    /// letters, digits and `-` became `_`, so `mac:a.b`, `mac:a/b` and `mac_a_b` read one file.
-    @Test func distinctKeysKeepDistinctFiles() async throws {
+    /// Two conversations never share kept history (CMUX-281): the JSON files once mapped every
+    /// character but ASCII letters, digits and `-` to `_`, so `mac:a.b`, `mac:a/b` and `mac_a_b`
+    /// read one file. History is in SQLite now, keyed by the exact conversation key.
+    @Test func distinctKeysKeepDistinctHistory() async throws {
         let keys = ["mac:a.b", "mac:a/b", "mac_a_b", "mac:a_b", "mac:a b", "mac:é", "mac:è", "", "_", "default",
                     String(repeating: "x", count: 300), String(repeating: "x", count: 299) + "y"]
-        let names = keys.map(ConversationTranscriptCache.fileName(for:))
-        #expect(Set(names).count == keys.count, "two keys share a file: \(names)")
-        for name in names {
-            #expect(name.utf8.count <= 200)
-            #expect(name.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || "-_~".unicodeScalars.contains($0)) })
-        }
-        #expect(ConversationTranscriptCache.fileName(for: "mac:m1") == "mac_3Am1")
-
         let directory = Self.directory()
         let first = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
-        first.save("mac:a.b", info: nil, meID: "dot", messages: [])
-        first.save("mac:a/b", info: nil, meID: "slash", messages: [])
+        for (index, key) in keys.enumerated() { first.save(key, info: nil, meID: "me\(index)", messages: []) }
         first.flush()
         let relaunched = ConversationTranscriptCache(directory: directory)
         defer { relaunched.removeAll() }
-        #expect(await relaunched.load("mac:a.b")?.meID == "dot")
-        #expect(await relaunched.load("mac:a/b")?.meID == "slash")
+        for (index, key) in keys.enumerated() {
+            #expect(await relaunched.load(key)?.meID == "me\(index)", "key \(key)")
+        }
     }
 
     /// Kept conversations together stay under the byte limit: after a write, the ones written
