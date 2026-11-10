@@ -128,6 +128,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// The pick after the shown workspace closed, for a model alone (the mock, a test): by position among the drawn rows.
+    @ObservationIgnored public var closeSuccessor = SidebarCloseSuccessor()
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
     @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -638,7 +640,7 @@ public final class SidebarModel {
         selection.subtract(closed)
         if let oldActive, closed.contains(oldActive) {
             let surviving = allWorkspaces.map(\.id)
-            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
+            let next = closeSuccessor(shown: oldActive, old: oldOrder, surviving: surviving, drawn: drawnWorkspaceOrder())
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
         }
