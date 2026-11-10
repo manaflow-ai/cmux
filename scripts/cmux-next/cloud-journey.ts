@@ -870,7 +870,8 @@ export function swiftRawString(source: string, name: string): string {
  */
 export function sessionModels(stdout: string): { record: string | null; running: string | null } {
   let info: any = null;
-  try { info = JSON.parse(stdout); } catch { throw new Error(`session info is not JSON: ${stdout.slice(0, 300)}`); }
+  // From the first `{`: a notice the CLI printed before its JSON is not the record.
+  try { info = JSON.parse(stdout.slice(Math.max(0, stdout.indexOf("{")))); } catch { throw new Error(`session info is not JSON: ${stdout.slice(0, 300)}`); }
   const option = (Array.isArray(info?.configOptions) ? info.configOptions : []).find((o: any) => o?.id === "model" || o?.category === "model");
   const text = (v: unknown) => (typeof v === "string" && v ? v : null);
   return { record: text(info?.model), running: text(option?.currentValue) };
@@ -2285,7 +2286,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // words, which a model gets wrong about itself).
       if (askedModel && !modelStub) {
         await J.step("session model", async () => {
-          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000)).stdout);
+          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(session)}`, 45_000)).stdout);
           return { value: null, detail: modelVerdict(askedModel, ran) };
         });
         // Production 2026-11-10: a second chat on the same machine ran the model of the chat before it (acpmux served it
@@ -2295,7 +2296,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const second = `${session}-m2`;
           const r = await exec(`${GUEST}"$c" acp ensure ${shq(second)} -m ${shq(`${harness}/${other}`)} --json 2>&1; echo "@@exit $?"`, 120_000);
           if (!/@@exit 0\s*$/.test(r.stdout)) throw new Error(`acp ensure -m ${harness}/${other}: ${r.stdout.slice(-400)}`);
-          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(second)} 2>&1`, 45_000)).stdout);
+          const ran = sessionModels((await exec(`${GUEST}"$c" acp --json session info ${shq(second)}`, 45_000)).stdout);
           return { value: null, detail: modelVerdict(other, ran) };
         });
       }
