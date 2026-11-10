@@ -129,7 +129,7 @@ pub(super) struct Request {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
-    Run(Request),
+    Run(Box<Request>),
 }
 
 /// `Some(exit code)` when `args` is `cloud start-chat …`.
@@ -153,7 +153,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{}", super::cloud_help::START_CHAT_USAGE);
             return Some(0);
         }
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         Err(error) => {
             return Some(super::app::failure(
                 "usage.invalid",
@@ -437,7 +437,7 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request {
+    Ok(Parsed::Run(Box::new(Request {
         prompt,
         agent,
         cwd,
@@ -449,7 +449,7 @@ pub(super) fn parse(
         wait,
         timeout,
         make_room,
-    }))
+    })))
 }
 
 /// One run of this binary: its exit code and what it printed.

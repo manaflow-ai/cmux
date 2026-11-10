@@ -11,7 +11,7 @@ fn strings(words: &[&str]) -> Vec<String> {
 
 fn request(words: &[&str]) -> Request {
     match parse(&strings(words), || Ok("from stdin".to_owned())) {
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         other => panic!("{words:?}: {other:?}"),
     }
 }

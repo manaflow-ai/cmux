@@ -64,9 +64,8 @@ extension CloudHandlers {
     /// team's list) the store's list says nothing about which machines exist, so the answer has no machines: a caller never reads
     /// "not loaded yet" as "none" and creates a second one.
     ///
-    /// `account` holds only what the store knows (signed in, and the person and team the list is for): it keeps no plan limits
-    /// (`max_active_vms`), and a count of machines is no entitlement (0 is a
-    /// closed plan, null an uncapped one), so the answer leaves `limits` out.
+    /// `account` (``listAccount``) is the app's own sign-in, never the linked FFI's (a pin behind answers `signed_in` alone): the daemon's sandboxed Runs read their account from it.
+    /// It keeps no plan limits (`max_active_vms`): a machine count is no entitlement (0 is a closed plan, null an uncapped one), so the answer leaves `limits` out.
     static func machineListFields(_ context: AppActionContext, loaded: Bool) -> [String: ActionResultValue] {
         let cloud = context.services.cloud
         let machines: [[String: Any]] = context.services.machines.cloud.map { session in
@@ -82,10 +81,11 @@ extension CloudHandlers {
         }
         // The list is fetched for the account's team when it has one (the `X-Cmux-Team-Id` the API
         // client sends), else for the person alone.
-        let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn, "machines": machines,
-                                   "creating": creating, "userId": cloud.auth.user?.id as Any, "teamId": cloud.auth.teamID as Any].compacted
-        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list])
+        let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
+                                   "machines": machines, "creating": creating]
+        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID)]) { $1 }
     }
+    static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?) -> ActionResultValue { .object(["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]) }
 }
 
 extension CloudHandlers {

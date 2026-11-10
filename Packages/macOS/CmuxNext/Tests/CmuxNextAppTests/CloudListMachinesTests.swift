@@ -90,8 +90,16 @@ struct CloudListMachinesTests {
         // The team the list is for (none signed out): a sandboxed Run's cleanup trusts only its own team's list.
         #expect(account["team_id"] == .null)
         #expect(account["user_id"] == .null)
+        #expect(fields["account"] == CloudHandlers.listAccount(false, nil, nil), "the account is the app's own, whatever FFI is linked")
         // The store keeps no plan limits; a machine count is no entitlement.
         #expect(account["limits"] == nil)
+    }
+
+    /// A signed-in person's list names the person and team the daemon's sandboxed Run create checks (`account_scope`):
+    /// the pinned FFI's rules answer `account: {signed_in}` alone, and without these every Run was refused `run_not_signed_in`.
+    @Test func aSignedInListNamesThePersonAndTeamARunIsCheckedAgainst() {
+        #expect(CloudHandlers.listAccount(true, "u1", "team_1") == .object(["signed_in": .bool(true), "user_id": .string("u1"), "team_id": .string("team_1")]))
+        #expect(CloudHandlers.listAccount(true, "u1", nil) == .object(["signed_in": .bool(true), "user_id": .string("u1"), "team_id": .null]))
     }
 
     /// Before the store's first load (a relaunch, or signed out) its list says nothing about

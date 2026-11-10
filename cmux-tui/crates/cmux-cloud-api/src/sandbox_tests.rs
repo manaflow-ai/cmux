@@ -569,3 +569,17 @@ fn a_start_that_saw_another_account_is_never_destroyed_on_its_own_list_alone() {
     assert_eq!(snapshot["receipt"]["cleanup"], "pending");
     assert!(fake.removes.load(Ordering::Acquire) >= 4);
 }
+
+#[test]
+fn the_apps_list_answer_names_the_account_whatever_ffi_it_links() {
+    // The machine-list rules of the pinned FFI answer `account: {signed_in}` alone; the app's own
+    // `account` (`CloudHandlers.listAccount`) replaces it, so a signed-in person's list has a scope.
+    let pinned = json!({ "loaded": true, "count": 0, "machines": [], "creating": [],
+                         "account": { "signed_in": true } });
+    assert_eq!(account_scope(&pinned), None, "an answer with no person is no one's");
+    let mut app = pinned.clone();
+    app["account"] = json!({ "signed_in": true, "user_id": "u1", "team_id": "team_1" });
+    assert_eq!(account_scope(&app).as_deref(), Some("user:u1|team:team_1"));
+    app["account"]["team_id"] = Value::Null;
+    assert_eq!(account_scope(&app).as_deref(), Some("user:u1|personal"));
+}

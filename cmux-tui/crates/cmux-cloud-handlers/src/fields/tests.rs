@@ -294,19 +294,7 @@ fn a_list_not_loaded_has_no_machines_but_keeps_creations() {
         json!([{"creation_id": "c-1", "name": "lane-vm-1", "status": "creating"},
                {"creation_id": "c-2", "name": null, "status": "failed", "reason": "plan cap"}])
     );
-    assert_eq!(fields["account"], json!({"signed_in": true, "user_id": null, "team_id": null}));
-}
-
-#[test]
-fn the_lists_account_names_the_person_and_team_a_runs_account_is_read_from() {
-    let list: MachineList = serde_json::from_value(json!({
-        "loaded": true, "team": true, "signedIn": true, "userId": "u1", "teamId": "team_1",
-    }))
-    .unwrap();
-    assert_eq!(
-        machine_list(&list)["account"],
-        json!({"signed_in": true, "user_id": "u1", "team_id": "team_1"})
-    );
+    assert_eq!(fields["account"], json!({"signed_in": true}));
 }
 
 #[test]
