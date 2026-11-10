@@ -317,9 +317,9 @@ fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
         assert!(reopened.settle_agent_roster_for_test());
     }
     assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while reopened.agent_roster_rebuilding() {
-        assert!(std::time::Instant::now() < deadline, "the rebuild did not end");
+        assert!(Instant::now() < deadline, "the rebuild did not end");
         std::thread::sleep(Duration::from_millis(10));
     }
     // The reopened owner also folds what it journals itself after the
@@ -378,9 +378,9 @@ fn a_partial_premigration_seeds_the_rebuild_and_the_start_serves_the_saved_roste
 
     rebuild_faults::hold(store.session, false);
     mux.continue_agent_roster_rebuild_later();
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while mux.agent_roster_rebuilding() {
-        assert!(std::time::Instant::now() < deadline, "the rebuild did not end");
+        assert!(Instant::now() < deadline, "the rebuild did not end");
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!mux.agent_roster_replaying());
