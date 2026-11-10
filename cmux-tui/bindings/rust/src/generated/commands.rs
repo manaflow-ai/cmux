@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c.
+// cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3726,6 +3726,43 @@ pub type SetWorkspaceMetadataResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellReadRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub wait_ms: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ShellReadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellRunRequest {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub run: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ShellRunResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellStopRequest {
+    pub run: String,
+}
+
+#[rustfmt::skip]
+pub type ShellStopResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub end_terminals: Option<bool>,
@@ -5715,6 +5752,18 @@ impl CmuxClient {
             self.require_capability_field("set-workspace-metadata", "workspace-pin-v1")?;
         }
         self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
+    }
+
+    pub fn shell_read(&mut self, request: ShellReadRequest) -> Result<ShellReadResult> {
+        self.execute(&SHELL_READ_METADATA, &request)
+    }
+
+    pub fn shell_run(&mut self, request: ShellRunRequest) -> Result<ShellRunResult> {
+        self.execute(&SHELL_RUN_METADATA, &request)
+    }
+
+    pub fn shell_stop(&mut self, request: ShellStopRequest) -> Result<ShellStopResult> {
+        self.execute(&SHELL_STOP_METADATA, &request)
     }
 
     pub fn shutdown_daemon(&mut self, request: ShutdownDaemonRequest) -> Result<T::ShutdownDaemonResult> {

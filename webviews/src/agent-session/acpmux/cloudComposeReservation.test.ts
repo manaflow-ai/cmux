@@ -4,6 +4,7 @@ import {
   RESERVATION_IDLE_RELEASE_MS,
   RESERVATION_RENEW_MS,
   RESERVATION_RETRY_MS,
+  RESERVATION_SEND_WAIT_MS,
   reservedCloudCall,
 } from "./cloudComposeReservation";
 import { cloudStartKeys, oneCloudStart } from "./cloudRun";
@@ -24,6 +25,10 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
     {
       now: () => now,
       schedule(run, ms) {
+        // The cleared-prompt grace, the Send's wait, and the idle release (its first wait, or what is left of it).
+        expect(
+          [RELEASE_AFTER_MS, RESERVATION_SEND_WAIT_MS].includes(ms) || (ms > 0 && ms <= RESERVATION_IDLE_RELEASE_MS),
+        ).toBe(true);
         const timer = { run, live: true, at: now + ms, ms };
         timers.push(timer);
         return () => (timer.live = false);
@@ -35,10 +40,10 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
     reservation,
     calls,
     start: oneCloudStart(reservedCloudCall(call, reservation)),
-    /// Runs the cleared-prompt grace timers now.
-    expire() {
+    /// Runs the live timers of `ms` now (default: the cleared-prompt grace).
+    expire(ms: number = RELEASE_AFTER_MS) {
       for (const timer of timers) {
-        if (!timer.live || timer.ms !== RELEASE_AFTER_MS) continue;
+        if (!timer.live || timer.ms !== ms) continue;
         timer.live = false;
         timer.run();
       }
@@ -154,6 +159,51 @@ test("a reservation that settles after the live 30-second gesture still reaches 
     "cloud.startChat",
     { task: "slow warm", key: "send-slow", reservationKey: "compose-1", gestureTicket: "ticket-1" },
   ]);
+});
+
+test("Send waits for a slow reserve only briefly: the start goes without it, and the late reservation is released once", async () => {
+  // Leo, 2026-11-09: "it seems like it's not actually properly starting": a reserve the platform
+  // held for up to 125 s held the Send, with nothing in the log, the whole time.
+  let ready!: () => void;
+  const h = harness(() => new Promise<void>((resolve) => (ready = resolve)));
+  h.reservation.selected();
+  const sent = h.start({ task: "hello", home: true, reservationKey: h.reservation.handoff() }, "send-1");
+  await settle();
+  expect(h.calls.map(([method]) => method)).toEqual(["transport.gesture", "cloud.reserve"]);
+  h.expire(RESERVATION_SEND_WAIT_MS);
+  expect(await sent).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "hello", home: true, key: "send-1", gestureTicket: "ticket-1" },
+  ]);
+  // Nothing is released while the reserve is out: a DELETE before its create would leak the machine.
+  expect(h.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
+  ready();
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+  // The next compose reserves afresh; the late one is never handed off again.
+  h.reservation.selected();
+  await settle();
+  expect(h.reservation.handoff()).toBe("compose-2");
+});
+
+test("a reserve that answers within the wait is still used, and its wait timer is cleared", async () => {
+  let ready!: () => void;
+  const h = harness(() => new Promise<void>((resolve) => (ready = resolve)));
+  h.reservation.selected();
+  const sent = h.start({ task: "quick", reservationKey: h.reservation.handoff() }, "send-1");
+  await settle();
+  ready();
+  expect(await sent).toEqual({ ok: true });
+  h.expire(RESERVATION_SEND_WAIT_MS);
+  await settle();
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "quick", key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+  ]);
+  expect(h.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
 });
 
 test("abandon while reserve is in flight releases after allocation, only once", async () => {
@@ -310,4 +360,22 @@ test("a sent compose is never released by the idle timer nor renewed", async () 
   h.reservation.typed("after send");
   await settle();
   expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1" }]]);
+});
+
+test("a Send during a slow renewal waits at most RESERVATION_SEND_WAIT_MS; the idle timer never releases it", async () => {
+  let slow = false;
+  const h = harness(() => (slow ? new Promise(() => undefined) : Promise.resolve({})));
+  h.reservation.typed("x");
+  await settle();
+  h.advance(RESERVATION_RENEW_MS);
+  slow = true;
+  h.reservation.typed("xy");
+  const sent = h.start({ task: "xy", reservationKey: h.reservation.handoff() }, "send-1");
+  await settle();
+  h.expire(RESERVATION_SEND_WAIT_MS);
+  expect(await sent).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual(["cloud.startChat", { task: "xy", key: "send-1", gestureTicket: "ticket-1" }]);
+  h.advance(RESERVATION_IDLE_RELEASE_MS * 2);
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([]);
 });

@@ -54,6 +54,10 @@
 //!   `true` (default off; the server reads its other `agents.memory.*` keys
 //!   itself). It gets the session as [`AGENT_SESSION_ENV`], the provenance
 //!   of the notes it saves.
+//! - Hosted MCP (`cmux-hosted`, `hosted_mcp.rs`): cmux's hosted MCP server with the signed-in
+//!   person's GitHub connectors and their own remote MCP servers, only while the daemon's
+//!   `CMUX_HOSTED_MCP` is `1` (default off) and not on a cmux Cloud VM. Its env holds only the
+//!   `cmux` CLI's path; the person's token never enters a config, an env or argv.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
@@ -309,6 +313,9 @@ pub struct Inputs {
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
+    /// Sessions get cmux's hosted MCP server with the signed-in person's tools
+    /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
+    pub hosted: bool,
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
@@ -349,6 +356,7 @@ impl Inputs {
             subsessions: crate::hub::subsessions::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
+            hosted: crate::hosted_mcp::enabled(),
         }
     }
 }
@@ -674,6 +682,21 @@ fn resolve_with_cua_helper(
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["acpmux-mcp"]),
             env: vec![],
+        });
+    }
+    if inputs.hosted
+        && let (Some(acpmux), Some(cmux)) = (&inputs.acpmux, executable("cmux"))
+    {
+        // cmux's hosted MCP (`hosted_mcp.rs`): only the `cmux` CLI's path goes in its env; the
+        // server asks the app for the person's token itself and keeps it in memory.
+        servers.push(McpServer {
+            name: crate::hosted_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["hosted-mcp"]),
+            env: vec![(
+                crate::hosted_mcp::CMUX_BIN_ENV.into(),
+                cmux.to_string_lossy().into_owned(),
+            )],
         });
     }
     if let Some(cmux) = executable("cmux")
