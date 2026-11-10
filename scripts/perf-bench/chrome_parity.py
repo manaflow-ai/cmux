@@ -1161,12 +1161,13 @@ def run(args):
 
 def cell_of(runs):
     """One arm's cell of a table row from its measured runs: the samples' distribution, the missed refreshes, the
-    inputs sent and the inputs that got no frame (`lost`)."""
+    inputs sent, the inputs that got no frame (`lost`) and the inputs the capture could not see (`blind`: the
+    app-clock method's honesty rule 5; they are no sample and not lost)."""
     samples = [s for e in runs for s in e.get("samples", [])]
     p95s = [stats(e.get("samples", [])).get("p95") for e in runs if e.get("samples")]
     return {**stats(samples), "missed": sum(e.get("missed", 0) for e in runs),
-            "lost": sum(e.get("lost", 0) for e in runs), "inputs": sum(e.get("inputs", 0) for e in runs),
-            "runs": len(runs), "p95_spread": [min(p95s), max(p95s)] if p95s else None}
+            "lost": sum(e.get("lost", 0) for e in runs), "blind": sum(e.get("blind", 0) for e in runs),
+            "inputs": sum(e.get("inputs", 0) for e in runs), "runs": len(runs), "p95_spread": [min(p95s), max(p95s)] if p95s else None}
 
 
 def verdict_of(c, g):

@@ -250,8 +250,18 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
   `--hz` one is `invalid` and gives the table no number. No frame from the recorder is `not run`, never a number.
 - Not possible by this method (9 rows stay "not run", each with its reason): native field key, Cmd-T to
   interactive, split resize, the 2 hover rows, the 2 drag rows, the 2 launch rows. They need the HID method.
+- Blind inputs (cmux latency rows). The recorder's ScreenCaptureKit stream sometimes stops right after a change:
+  no callback of any kind until the next change, and no frame for that change. The key is on the display (a film by
+  another process shows it in its own frame) but the recorder has no frame of it. An input is `blind` when the
+  stream called back after it, inside 4 refreshes, and then gave no callback for more than 50 ms up to the response
+  frame or the end of the input's span. A blind input is no sample and is not `lost`; each result and the report's
+  run list give the count (`n / lost / blind / inputs`). A window that shows nothing new keeps its idle callbacks, so
+  it stays `lost`. More than 10% blind inputs in a run (and more than 2) is `not run`. Limit: a frame that the app
+  shows with no change in it, right before the stream stops, reads the same; watch the blind count (measured: 40
+  of 1360 keys).
 - `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
-  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
+  delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`, and
+  the blind rule on made-up callback lists.
 
 ## Files
 
