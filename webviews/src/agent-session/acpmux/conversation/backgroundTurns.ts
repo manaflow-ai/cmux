@@ -8,9 +8,9 @@
 // acpmux also weighs the task whose end started the turn, from the task's own event (Leo,
 // 2026-11-03: "there's like... background tasks worth responding to and not worth responding
 // to"; acpmux hub/background_cause.rs): a step, an interim stop or a monitor tick (`silent`) draws
-// no line whatever its reply, which goes onto the call that started the task; a final result
-// (`result`) goes onto that call too, marked new, and its reply draws as today when it has
-// something to say; a failure always draws. backgroundReaction.experiment.ts holds the looks.
+// no line; a final result (`result`) goes onto the call that started the task, marked new; a
+// failure always draws. Whatever the turn said is the agent's own message, never the call's
+// (direct.ts `settleReaction`). backgroundReaction.experiment.ts holds the looks.
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundTurn, AcpmuxBackgroundWeight, AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
@@ -67,26 +67,20 @@ export function backgroundWeight(turn: AcpmuxBackgroundTurn): AcpmuxBackgroundWe
 /// Whether a background turn's line stands for its rows: while it runs, and once it ended quiet.
 /// One that ended with something to say draws its rows as they came, with no line.
 /// A silent one always folds: whatever it said goes with its task's call.
-/// One that ended with more to say than a note (`ownTurn`) never folds, whatever its weight: its
-/// rows are the agent's own turn.
+/// One whose call took its task's end and that said something (`ownTurn`) never folds, whatever its
+/// weight: its rows are the agent's own turn.
 export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.kind === BACKGROUND_TURN &&
   row.background !== undefined &&
   row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
 
-/// The longest reply that still goes onto the call as a note (ReactionMark.tsx `ReactionReply`), as
-/// turns.ts `SHORT_NOTE_CHARS` (this module stays clear of turns.ts, which imports it).
-export const REACTION_NOTE_CHARS = 160;
-
-/// Whether a background turn's reply is a short quiet note that may sit under the call that started
-/// its task, as the call's own muted continuation: one short line, one paragraph. Anything longer is
-/// the main agent speaking, so it draws as its own turn (`ownTurn`). Leo, 2026-11-08, on three later
-/// turns of the chat's own replies drawn as one block under "Subagent finished": "the text in this
-/// situation isn't from the subagent?".
-export function isReactionNote(reply: string): boolean {
-  const text = reply.trim();
-  return text.length > 0 && text.length <= REACTION_NOTE_CHARS && !text.includes("\n");
+/// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
+/// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
+/// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
+/// folds as quiet (direct.ts `settleReaction`).
+export function saysNothing(reply: string): boolean {
+  return /^[\s.·•…]*$/u.test(reply);
 }
 
 /// Whether a background turn draws its line: one that folds, while it runs or once it has a row of

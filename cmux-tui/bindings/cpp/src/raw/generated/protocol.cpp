@@ -12729,6 +12729,16 @@ Result<Json> Codec<Tab>::encode(const Tab& value) {
     auto encoded_title = encode_value(value.title);
     if (!encoded_title) return std::move(encoded_title).error();
     object.emplace("title", std::move(encoded_title).value());
+    if (!value.title_activity.is_absent()) {
+        auto encoded = encode_value(value.title_activity);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("title_activity", std::move(encoded).value());
+    }
+    if (value.title_text) {
+        auto encoded = encode_value(*value.title_text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("title_text", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -12912,6 +12922,22 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_title);
         if (!decoded) return std::move(decoded).error();
         result.title = std::move(decoded).value();
+    }
+    const Json* field_title_activity = value.find("title_activity");
+    if (field_title_activity) {
+        if (field_title_activity->is_null()) {
+            result.title_activity = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_title_activity);
+            if (!decoded) return std::move(decoded).error();
+            result.title_activity = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_title_text = value.find("title_text");
+    if (field_title_text) {
+        auto decoded = decode_value<std::string>(*field_title_text);
+        if (!decoded) return std::move(decoded).error();
+        result.title_text = std::move(decoded).value();
     }
     return result;
 }
@@ -38897,6 +38923,88 @@ Result<EmptyEvent> Codec<EmptyEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<FeedReportsChangedEvent>::encode(const FeedReportsChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("feed-reports-changed")));
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    return Json(std::move(object));
+}
+
+Result<FeedReportsChangedEvent> Codec<FeedReportsChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    FeedReportsChangedEvent result{};
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("feed-reports-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<FeedViewChangedEvent>::encode(const FeedViewChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("feed-view-changed")));
+    auto encoded_changed = encode_value(value.changed);
+    if (!encoded_changed) return std::move(encoded_changed).error();
+    object.emplace("changed", std::move(encoded_changed).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    return Json(std::move(object));
+}
+
+Result<FeedViewChangedEvent> Codec<FeedViewChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    FeedViewChangedEvent result{};
+    const Json* field_changed = value.find("changed");
+    if (!field_changed) {
+        return make_error(ErrorCode::decode, "missing required field 'changed'");
+    }
+    if (field_changed) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_changed);
+        if (!decoded) return std::move(decoded).error();
+        result.changed = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("feed-view-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<FrameEvent>::encode(const FrameEvent& value) {
     (void)value;
     Json::Object object;
@@ -42010,9 +42118,19 @@ Result<Json> Codec<TitleChangedEvent>::encode(const TitleChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("title-changed")));
+    if (!value.activity.is_absent()) {
+        auto encoded = encode_value(value.activity);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("activity", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
+    if (value.text) {
+        auto encoded = encode_value(*value.text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("text", std::move(encoded).value());
+    }
     if (value.title) {
         auto encoded = encode_value(*value.title);
         if (!encoded) return std::move(encoded).error();
@@ -42025,6 +42143,16 @@ Result<TitleChangedEvent> Codec<TitleChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TitleChangedEvent result{};
+    const Json* field_activity = value.find("activity");
+    if (field_activity) {
+        if (field_activity->is_null()) {
+            result.activity = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_activity);
+            if (!decoded) return std::move(decoded).error();
+            result.activity = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
@@ -42033,6 +42161,12 @@ Result<TitleChangedEvent> Codec<TitleChangedEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
+    }
+    const Json* field_text = value.find("text");
+    if (field_text) {
+        auto decoded = decode_value<std::string>(*field_text);
+        if (!decoded) return std::move(decoded).error();
+        result.text = std::move(decoded).value();
     }
     const Json* field_title = value.find("title");
     if (field_title) {
@@ -44666,6 +44800,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "feed-reports-changed") {
+        auto decoded = decode_value<FeedReportsChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "feed-view-changed") {
+        auto decoded = decode_value<FeedViewChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "frame") {
         auto decoded = decode_value<FrameEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -45483,7 +45627,7 @@ constexpr std::array<CommandMetadata, 300> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 91> kEvents{{
+constexpr std::array<EventMetadata, 93> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -45521,6 +45665,8 @@ constexpr std::array<EventMetadata, 91> kEvents{{
     {"daemon-shutdown", 12U, "", "control", "emitted"},
     {"detached", 5U, "", "attach-byte,attach-render,attach-browser", "emitted"},
     {"empty", 5U, "", "subscribe", "emitted"},
+    {"feed-reports-changed", 12U, "feed-client-v1", "subscribe", "emitted"},
+    {"feed-view-changed", 12U, "feed-client-v1", "subscribe", "emitted"},
     {"frame", 6U, "", "attach-browser", "emitted"},
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},

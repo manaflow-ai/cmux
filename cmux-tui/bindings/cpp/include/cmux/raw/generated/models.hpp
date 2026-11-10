@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a099cd27e88a3f8a471562bbe9c29deb7a580553ed7732dd3a75b5be8fe27e98";
+inline constexpr std::string_view kProtocolIrSha256 = "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -643,6 +643,8 @@ struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
+struct FeedReportsChangedEvent;
+struct FeedViewChangedEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
@@ -2949,6 +2951,17 @@ struct FeedLocalReadRequest {
     friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
 };
 
+struct FeedReportsChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const FeedReportsChangedEvent&, const FeedReportsChangedEvent&) = default;
+};
+
+struct FeedViewChangedEvent {
+    std::vector<std::string> changed{};
+    std::uint64_t revision{};
+    friend bool operator==(const FeedViewChangedEvent&, const FeedViewChangedEvent&) = default;
+};
+
 enum class PaneDirection {
     left,
     right,
@@ -3752,6 +3765,8 @@ struct Tab {
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
     std::string title{};
+    Field<std::string> title_activity{};
+    std::optional<std::string> title_text{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
 
@@ -6082,7 +6097,9 @@ struct TerminalResumeCommandResult {
 };
 
 struct TitleChangedEvent {
+    Field<std::string> activity{};
     Id surface{};
+    std::optional<std::string> text{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
@@ -10191,6 +10208,18 @@ template <>
 struct Codec<EmptyEvent> {
     static Result<Json> encode(const EmptyEvent& value);
     static Result<EmptyEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedReportsChangedEvent> {
+    static Result<Json> encode(const FeedReportsChangedEvent& value);
+    static Result<FeedReportsChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedViewChangedEvent> {
+    static Result<Json> encode(const FeedViewChangedEvent& value);
+    static Result<FeedViewChangedEvent> decode(const Json& value);
 };
 
 template <>

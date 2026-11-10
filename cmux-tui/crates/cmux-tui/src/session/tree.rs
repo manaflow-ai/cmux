@@ -659,7 +659,11 @@ pub fn tree_from_state_with_notifications(
                         }),
                     short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
-                    title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
+                    title: state
+                        .surfaces
+                        .get(sid)
+                        .map(|s| s.shown_title().text.to_string())
+                        .unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                     browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
                     browser_frames_stalled: state
@@ -818,11 +822,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            title: tab
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
+                            title: cmux_tui_core::TabTitle::of_tree_tab(tab).text.to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
                                 Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,

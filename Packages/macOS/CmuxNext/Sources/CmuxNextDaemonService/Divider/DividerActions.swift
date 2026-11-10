@@ -40,7 +40,7 @@ public protocol DividerActionHost: AnyObject {
     func dividerWorkspace(_ invocation: ActionInvocation) -> (any DividerWorkspace)?
 }
 
-/// A split's divider (its right-click menu, ``DividerActionCatalog`` in CmuxNextActions): Insert New opens a pane at
+/// A split's divider (its right-click menu, `DividerActionCatalog` in cmux-action-catalog): Insert New opens a pane at
 /// the divider, between the two sides it separates (``DividerInsertPlan``), with the divider's sizing shown in the
 /// same layout as the new pane; Hide Divider and Show Divider set the split's line in the daemon's layout
 /// (`set-divider-visible`), shown in this turn through a store intent.

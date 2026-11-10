@@ -45,6 +45,10 @@ enum IntentUndo: Equatable {
     /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
     /// hidden once the records hold it.
     indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
+    /// The pane the screen showed zoomed before the apply (nil: none).
+    case screenZoom(screen: ScreenID, pane: PaneID?)
+    /// The two panes a swap exchanged in the screen's tree; the same exchange again is its inverse.
+    case swappedPanes(screen: ScreenID, first: PaneID, second: PaneID)
 }
 
 struct PendingIntent {

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1390,
+    "entries": 1391,
     "shortcuts": 188
   },
   "sections": [
@@ -6490,12 +6490,6 @@
           "command": null
         },
         {
-          "id": "agentPane.togglePointerInspector",
-          "title": "Inspect UI Element",
-          "shortcut": null,
-          "command": "cmux agent toggle-ui-pointer"
-        },
-        {
           "id": "palette.addHarness",
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
@@ -6608,6 +6602,12 @@
           "title": "Open Voice Room",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.togglePointerInspector",
+          "title": "Point at Element",
+          "shortcut": null,
+          "command": "cmux agent toggle-ui-pointer"
         },
         {
           "id": "agentPane.previousBookmarkedPrompt",
@@ -7118,6 +7118,12 @@
           "title": "List Forwarded Machine Ports",
           "shortcut": null,
           "command": "cmux cloud port-list"
+        },
+        {
+          "id": "cloudMoveToMachine",
+          "title": "Move to Another Machine",
+          "shortcut": null,
+          "command": "cmux cloud move-to-machine"
         },
         {
           "id": "cloudMove",

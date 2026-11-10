@@ -19,6 +19,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+mod prompt_coach;
+pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -135,6 +137,8 @@ mod log_deferral;
 mod log_load;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+mod cold_archive;
+pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
 mod retention;
@@ -233,6 +237,7 @@ mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
+pub(crate) mod register;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
 mod history_timing;
@@ -269,6 +274,9 @@ pub mod mac_approvers;
 pub mod no_session;
 mod own_host;
 mod peer_cache;
+pub(crate) mod peer_cache_disk;
+#[cfg(test)]
+mod peer_cache_disk_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
@@ -691,6 +699,9 @@ pub struct Hub {
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
     /// close clients normally so they do not immediately reconnect to a dead daemon.
     pub(crate) restart_requested: std::sync::atomic::AtomicBool,
+    /// Raised when a supervised task cannot go on: the daemon stops for a restart
+    /// (`crate::supervise`).
+    pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -704,13 +715,18 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
-    /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
-    /// an older snapshot landing on disk. Entries are removed with the peer.
-    pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Per-peer cache writers; held through the write so removal cannot be followed by an older
+    /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
+    /// a save writes only what changed. Entries are removed with the peer.
+    pub(super) peer_cache_writers:
+        StdMutex<HashMap<String, Arc<StdMutex<peer_cache_disk::OnDisk>>>>,
     /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
+    #[cfg(test)]
+    pub(super) cache_test_bytes: AtomicU64,
     #[cfg(test)]
     pub(super) cache_test_write_delay_ms: AtomicU64,
     #[cfg(test)]
@@ -781,6 +797,10 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
+    /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
+    pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -857,6 +877,8 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
+    /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
+    pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1122,6 +1144,7 @@ impl Hub {
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1133,6 +1156,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_write_delay_ms: AtomicU64::new(0),
             #[cfg(test)]
@@ -1166,6 +1191,8 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            cold_rehydrated: Default::default(),
+            cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
@@ -1205,6 +1232,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
+            coach_rewriter: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -1286,6 +1314,7 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
+        hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
@@ -1300,8 +1329,9 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
-            let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            // It takes the notices' receiver: it cannot run twice.
+            crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
+            hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
                 hub.bg_notify_resume();
@@ -1587,6 +1617,7 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            log_skipped: AtomicBool::new(false),
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
@@ -1598,6 +1629,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
@@ -2633,6 +2665,7 @@ impl Hub {
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.warm_chat_id(id);
         self.store.events(id, after, limit)
     }
 
@@ -2651,6 +2684,8 @@ impl Hub {
         let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // A cold-archived chat's log comes back first, and its preview goes (`cold_archive.rs`).
+        self.warm_chat(&session);
         // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
         // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
         // counted first, so the cap below leaves out only a line whose record is not appended

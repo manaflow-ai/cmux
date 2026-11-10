@@ -1608,6 +1608,24 @@
      "presence": "required",
      "nullable": false
     },
+    "title_text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "title_activity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "size": {
      "type": {
       "kind": "ref",
@@ -30486,6 +30504,24 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "activity": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12
      }
     },
     "additional_properties": false
@@ -31520,6 +31556,77 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-view-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-view-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-reports-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-reports-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

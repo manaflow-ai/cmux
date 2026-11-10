@@ -27676,6 +27676,86 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "item",
+          "required" : false
+        }
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "action feed-open-item",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "feed.openItem",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Feed Item",
+      "title_key" : "action.feed.openItem",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "item",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "action",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "comment",
+          "required" : false
+        }
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "action feed-github-action",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "feed.githubAction",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run a Feed Item's GitHub Action",
+      "title_key" : "action.feed.githubAction",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "guiOnly",
@@ -29336,7 +29416,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "title_key" : null,
       "title_table" : null
     },
@@ -33474,6 +33554,42 @@
       "palette_suggested" : null,
       "title" : "Bring Back Local",
       "title_key" : "action.cloudBringBack",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "machine",
+          "required" : false,
+          "target_kind" : "machine"
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud move-to-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudMoveToMachine",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move to Another Machine",
+      "title_key" : "action.cloudMoveToMachine",
       "title_table" : "ActionCatalog"
     },
     {
@@ -50712,15 +50828,28 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "cloudMoveToMachine",
+          "kind" : "action",
+          "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "cloud",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 11
+          "order" : 12
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 12,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50734,7 +50863,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 13,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50748,7 +50877,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 14,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50759,14 +50888,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 15
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 16,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50777,13 +50906,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 17
+          "order" : 18
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 18,
+          "order" : 19,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -50811,7 +50940,7 @@
               "enabled_when" : "can_perform",
               "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
-              "label" : "Inspect Element",
+              "label" : "Point at Element…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
@@ -50824,7 +50953,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 19,
+          "order" : 20,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
@@ -61740,7 +61869,7 @@
     },
     {
       "name" : "bookmarkFolder",
-      "source" : "CmuxNextBookmarks\/UI\/BookmarkFolderMenu.swift"
+      "source" : "CmuxNextBookmarks\/Page\/BookmarksBarPage.swift"
     },
     {
       "name" : "titlebarHistory",

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a099cd27e88a3f8a471562bbe9c29deb7a580553ed7732dd3a75b5be8fe27e98. */
+/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a099cd27e88a3f8a471562bbe9c29deb7a580553ed7732dd3a75b5be8fe27e98" as const;
+export const SDK_IR_SHA256 = "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4106,6 +4106,22 @@ export const EVENT_METADATA = {
   "empty": {
     "since": 5,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-reports-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-view-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
     "streams": [
       "subscribe"
     ],
@@ -13262,6 +13278,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "title": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -31630,6 +31664,61 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "feed-reports-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-reports-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "feed-view-changed": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-view-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "frame": {
     "additional_properties": false,
     "fields": {
@@ -33691,6 +33780,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "title-changed": {
     "additional_properties": false,
     "fields": {
+      "activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33705,6 +33803,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "title": {

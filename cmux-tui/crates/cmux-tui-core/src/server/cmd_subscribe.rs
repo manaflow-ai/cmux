@@ -215,6 +215,13 @@ pub(super) fn subscribe_command(
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
+                // The person's feed only to their own clients, as for the
+                // cloud conversations.
+                MuxEvent::FeedViewChanged { .. } | MuxEvent::FeedReportsChanged { .. }
+                    if !conversation_client =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(event)
                     if !host_replica_needed(event)
                         && !super::cloud_conversations::delivers(&event_mux, client) =>
@@ -392,9 +399,15 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }
-        MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
-        }
+        // `text` and `activity` are what the tab shows (D2); `title` stays raw
+        // for clients from before them, which split the glyphs themselves.
+        MuxEvent::TitleChanged { surface, title, shown } => json!({
+            "event": "title-changed",
+            "surface": surface,
+            "title": title.as_ref(),
+            "text": shown.text.as_ref(),
+            "activity": shown.activity.map(crate::TitleActivity::as_str),
+        }),
         MuxEvent::AgentChanged {
             surface,
             state,
@@ -536,6 +549,15 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "history-changed",
             "revision": revision,
             "kinds": kinds,
+        }),
+        MuxEvent::FeedViewChanged { revision, changed } => json!({
+            "event": "feed-view-changed",
+            "revision": revision,
+            "changed": changed.as_ref(),
+        }),
+        MuxEvent::FeedReportsChanged { revision } => json!({
+            "event": "feed-reports-changed",
+            "revision": revision,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
