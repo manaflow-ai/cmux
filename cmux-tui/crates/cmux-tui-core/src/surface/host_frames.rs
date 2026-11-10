@@ -189,6 +189,27 @@ impl HostFrames {
         }
     }
 
+    /// The next frame when one is already queued and `admit` accepts it;
+    /// never blocks. The surface's reader takes the Output frames queued
+    /// behind the one it applies with this.
+    pub(super) fn try_recv_if(&self, admit: impl FnOnce(&Frame) -> bool) -> Option<Frame> {
+        let mut state = self.queue.state.lock().unwrap();
+        let HostFrame::Frame(front) = state.frames.front()? else { return None };
+        if !admit(front) {
+            return None;
+        }
+        let HostFrame::Frame(frame) = state.frames.pop_front()? else { return None };
+        state.queued_bytes = state.queued_bytes.saturating_sub(queued_cost(&frame));
+        self.queue.changed.notify_all();
+        Some(frame)
+    }
+
+    /// Tests: how many frames are queued for the surface's reader.
+    #[cfg(test)]
+    pub(super) fn queued_frames_for_test(&self) -> usize {
+        self.queue.state.lock().unwrap().frames.len()
+    }
+
     /// The surface's reader stops reading this stream (for example at
     /// `ResyncRequired`) but the connection may stay open while it
     /// reconnects. Ordered waiters fail now, except clear-history ones. The
