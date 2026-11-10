@@ -84,7 +84,8 @@ struct HiddenWorkspaceButtonLayoutTests {
     }
 
     /// A view with a button moves from a hidden workspace into one that shows (a tab moved between workspaces): the
-    /// layout the button was asked for while hidden runs one time there.
+    /// layout the button was asked for while hidden runs there. This test passes without the fix too: it keeps the
+    /// fix from losing that layout.
     @Test
     func aButtonMovedOutOfAHiddenWorkspaceLaysOutWhereItShows() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
@@ -113,14 +114,77 @@ struct HiddenWorkspaceButtonLayoutTests {
         #expect(button.layouts <= hidden + 2, "the button laid out \(button.layouts - hidden) times for one move")
     }
 
+    /// The button itself moves from a hidden workspace into one that shows: the layout it owes runs there.
+    @Test
+    func aButtonMovedByItselfOutOfAHiddenWorkspaceLaysOut() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let hiddenWorkspace = NSView(frame: content.bounds)
+        let shownWorkspace = NSView(frame: content.bounds)
+        let button = CountingButton(frame: NSRect(x: 10, y: 10, width: 28, height: 28))
+        button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        hiddenWorkspace.addSubview(button)
+        content.addSubview(hiddenWorkspace)
+        content.addSubview(shownWorkspace)
+        content.layoutSubtreeIfNeeded()
+        hiddenWorkspace.isHidden = true
+        content.layoutSubtreeIfNeeded()
+
+        let hidden = button.layouts
+        button.needsLayout = true
+        content.layoutSubtreeIfNeeded()
+        #expect(button.layouts == hidden, "a hidden button laid out \(button.layouts - hidden) times")
+        shownWorkspace.addSubview(button)
+        content.layoutSubtreeIfNeeded()
+        #expect(button.layouts >= hidden + 1, "the button did not lay out after it moved into the workspace that shows")
+    }
+
+    /// A view with a button moves from a hidden workspace into another window (a tab dragged to a new window): the
+    /// layout the button owes runs in that window.
+    @Test
+    func aButtonMovedToAnotherWindowLaysOutThere() throws {
+        let first = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        let second = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        first.isReleasedWhenClosed = false
+        second.isReleasedWhenClosed = false
+        defer {
+            first.close()
+            second.close()
+        }
+        let content = try #require(first.contentView)
+        let other = try #require(second.contentView)
+        let hiddenWorkspace = NSView(frame: content.bounds)
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        let button = CountingButton(frame: NSRect(x: 10, y: 10, width: 28, height: 28))
+        button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        pane.addSubview(button)
+        hiddenWorkspace.addSubview(pane)
+        content.addSubview(hiddenWorkspace)
+        content.layoutSubtreeIfNeeded()
+        hiddenWorkspace.isHidden = true
+        content.layoutSubtreeIfNeeded()
+
+        let hidden = button.layouts
+        button.needsLayout = true
+        content.layoutSubtreeIfNeeded()
+        #expect(button.layouts == hidden, "a hidden button laid out \(button.layouts - hidden) times")
+        other.addSubview(pane)
+        other.layoutSubtreeIfNeeded()
+        #expect(button.layouts >= hidden + 1, "the button did not lay out in the window its pane moved to")
+    }
+
     /// A whole window of a session of `size` with ``kept`` more workspaces shown one after the other (each stays mounted,
     /// hidden): one key window change lays out only the buttons that show. The count does not grow with the kept
     /// workspaces or with the session.
-    @Test(arguments: SessionFixtureSize.arms)
+    @Test(.timeLimit(.minutes(2)), arguments: SessionFixtureSize.arms)
     func aKeyWindowChangeLaysOutNoButtonOfAKeptWorkspace(size: SessionFixtureSize) async throws {
         try await LargeSessionWindowFixture.withController(size) { store, controller in
             LayoutPassGuard.shared.install()
             let root = try #require(controller.window?.contentView)
+            root.layoutSubtreeIfNeeded()
+            let hiddenAtStart = Self.buttons(under: root).filter(\.isHiddenOrHasHiddenAncestor).count
             for number in 1...Self.kept {
                 let key = WorkspaceKey(rawValue: LargeSessionWindowFixture.key(number))
                 let id = try #require(store.workspaces.first { $0.key == key }, "fixture: no workspace \(number)").id
@@ -134,7 +198,7 @@ struct HiddenWorkspaceButtonLayoutTests {
 
             let buttons = Self.buttons(under: root)
             let hidden = buttons.filter(\.isHiddenOrHasHiddenAncestor).count
-            try #require(hidden > 0, "fixture: no button in the \(controller.parked.count) kept workspaces")
+            try #require(hidden > hiddenAtStart, "fixture: the \(controller.parked.count) kept workspaces added no hidden button (\(hiddenAtStart) before, \(hidden) now)")
             let classes = Set(buttons.map { String(describing: type(of: $0)) })
 
             let before = Self.layouts(of: classes)
@@ -143,6 +207,7 @@ struct HiddenWorkspaceButtonLayoutTests {
             let laidOut = Self.layouts(of: classes) - before
             let shown = buttons.count - hidden
             print("HIDDEN-BUTTON-LAYOUT size=\(size.rawValue) kept=\(controller.parked.count) buttons=\(buttons.count) hidden=\(hidden) shown=\(shown) laid_out=\(laidOut)")
+            #expect(laidOut >= 1, "the count read no layout: the buttons that show lay out at a key window change")
             #expect(laidOut <= shown, "one key window change laid out \(laidOut) buttons; \(shown) show and \(hidden) are in the \(controller.parked.count) kept workspaces")
         }
     }

@@ -49,9 +49,15 @@ open class ClickableButton: NSButton {
         layOutIfOwed()
     }
 
-    /// Moved out of a hidden view into one that shows: no unhide tells it.
+    /// The button itself moved out of a hidden view into one that shows.
     override open func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        layOutIfOwed()
+    }
+
+    /// A view above the button moved to another window (a tab dragged to a new window), where it shows.
+    override open func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
         layOutIfOwed()
     }
 
