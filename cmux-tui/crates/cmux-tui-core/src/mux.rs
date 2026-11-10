@@ -4,6 +4,7 @@
 mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
+mod agent_hooks_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -27,6 +28,7 @@ use terminal_host_records::{
     terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
+pub(crate) use agent_hooks_at_rest::JournalRowFollower;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
@@ -671,6 +673,8 @@ pub struct Mux {
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Orders durable hook catch-up and live projection as one operation.
     agent_hook_projection: Mutex<()>,
+    /// Which hook reports change nothing the journal holds (`agent_hooks_at_rest.rs`).
+    agent_hooks_at_rest: agent_hooks_at_rest::AgentHooksAtRest,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).

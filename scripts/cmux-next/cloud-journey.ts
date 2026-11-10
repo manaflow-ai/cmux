@@ -46,12 +46,12 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
- * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
- * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
- * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
- * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
- * token the step is skipped and the reply fails "Not logged in".
+ * Pass Claude login gives the journey's machine a login of its own (cmux-platform#587): a `claude setup-token`
+ * login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials; a made-up one with --model stub) goes
+ * from the client straight to the machine over the machine routes, never kept by the platform. The app itself
+ * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
+ * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
+ * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
  *
  * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
  * the machine's loopback
@@ -966,19 +966,21 @@ export const JOURNEY_STUB_SCRIPT = {
   turns: [countingTurnScript()],
 };
 
-/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
-export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
-
-/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
 /**
- * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
- * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
+ * reach models through the Cloud service's model route), so these programs are the journey's, not the app's.
+ */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("./cloud-journey-login-installer.txt", import.meta.url));
+
+/**
+ * The journey's login programs: the guest check and the installer. `creatorTeamGuest` also allows a team guest, for a
+ * run on a team machine the journey itself created.
  */
 export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   return loginPrograms(installerSwift, "claude", creatorTeamGuest);
 }
 
-/** The same programs for either provider CloudCredentialTransfer copies (claude or codex). */
+/** The same programs for either provider (claude or codex). */
 export function loginPrograms(installerSwift: string, provider: "claude" | "codex", creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
@@ -1013,7 +1015,7 @@ export async function waitPreflight(exec: Exec, program: string, kinds: string, 
   }
 }
 
-/** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
+/** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
   if (provider === "claude") return /^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(value);
@@ -2133,7 +2135,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
       // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");

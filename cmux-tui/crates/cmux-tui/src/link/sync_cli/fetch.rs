@@ -123,7 +123,7 @@ pub(in crate::link) fn too_broad(path: &str) -> bool {
     let parts: Vec<&str> =
         path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
     parts.len() <= 1
-        || (parts.len() == 2 && matches!(parts[0], "home" | "Users"))
+        || (parts.len() == 2 && matches!(parts.first(), Some(&("home" | "Users"))))
         || parts.contains(&"..")
 }
 

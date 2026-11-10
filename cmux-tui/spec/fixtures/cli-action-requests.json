@@ -2373,6 +2373,17 @@
     },
     {
       "params": {
+        "action": "cloud move-to-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move-to-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
@@ -2899,6 +2910,125 @@
     },
     {
       "params": {
+        "action": "cloud team-sessions",
+        "args": {
+          "archived": true,
+          "by": "/tmp/contract",
+          "cursor": "/tmp/contract",
+          "limit": "1",
+          "scope": "mine"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud team-sessions --scope mine --by /tmp/contract --archived --cursor /tmp/contract --limit 1"
+    },
+    {
+      "params": {
+        "action": "cloud team-session",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud team-session --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud copy-session-link",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud copy-session-link --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud follow",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud follow --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud unfollow",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud unfollow --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud reassign",
+        "args": {
+          "session": "/tmp/contract",
+          "to": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud reassign --arg session=/tmp/contract --to /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud archive-session",
+        "args": {
+          "archived": true,
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud archive-session --arg session=/tmp/contract --archived"
+    },
+    {
+      "params": {
+        "action": "cloud group-members",
+        "args": {
+          "group": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-members --group /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud group-member-set",
+        "args": {
+          "group": "/tmp/contract",
+          "role": "owner",
+          "user": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-member-set --group /tmp/contract --user /tmp/contract --role owner"
+    },
+    {
+      "params": {
+        "action": "cloud group-member-remove",
+        "args": {
+          "group": "/tmp/contract",
+          "user": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-member-remove --group /tmp/contract --user /tmp/contract"
+    },
+    {
+      "params": {
         "action": "machine set-icon",
         "args": {
           "icon": "/tmp/contract"
@@ -3057,6 +3187,40 @@
         "wait": true
       },
       "source": "cmux appearance reset --scope window --property theme"
+    },
+    {
+      "params": {
+        "action": "divider insert",
+        "args": {
+          "kind": "terminal",
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider insert --kind terminal --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider hide",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider hide --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider show",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider show --split /tmp/contract"
     },
     {
       "params": {

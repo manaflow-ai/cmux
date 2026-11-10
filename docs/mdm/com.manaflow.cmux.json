@@ -2261,16 +2261,10 @@
       "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
-    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
+    "cloud.turnCheckpoints" : {
       "default" : false,
-      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
-      "title" : "Use My Claude Login on My Own Cloud Machines",
-      "type" : "boolean"
-    },
-    "cloud.useMyCodexLoginOnMyCloudMachines" : {
-      "default" : false,
-      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
-      "title" : "Use My Codex Login on My Own Cloud Machines",
+      "description" : "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+      "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
     "computerUse.driver" : {
