@@ -168,7 +168,7 @@ fn an_older_files_copy_keeps_ids_order_and_last_use_with_stable_keys() {
     };
     let mut used = node(2, &id(1), "url", "A", Some("https://a.example/"));
     used.last_used_ms = Some(3);
-    let nodes = vec![
+    let nodes = [
         at(node(1, "bar", "folder", "Work", None), 0),
         at(used, 0),
         at(node(3, &id(1), "url", "B", Some("https://b.example/")), 1),

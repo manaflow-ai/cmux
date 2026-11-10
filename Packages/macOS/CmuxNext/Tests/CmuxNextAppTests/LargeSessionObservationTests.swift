@@ -1,8 +1,8 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
-import CmuxNextBookmarks
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextDesign
@@ -218,7 +218,7 @@ struct LargeSessionObservationTests {
         let openTabs = OpenTabFavicons()
         openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
         let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
-        SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
+        SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: PageInfoSite.origin(of:))
         await LargeSessionFixture.drainMain()
 
         // The probe: each workspace's Chromium page gets its favicon (what the follower reads of a tab).
@@ -239,7 +239,7 @@ struct LargeSessionObservationTests {
     /// The fixture's open tab favicon: a browser tab's site origin and favicon address (the app also skips incognito tabs).
     static func favicon(_ tab: TabModel) -> OpenTabFavicons.Favicon? {
         guard tab.kind == .browser, let address = tab.faviconURL,
-              let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
+              let origin = tab.url.flatMap(URL.init(string:)).flatMap(PageInfoSite.origin(of:)) else { return nil }
         return OpenTabFavicons.Favicon(origin: origin, address: address)
     }
 
