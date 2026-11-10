@@ -1262,7 +1262,11 @@ class ClassificationTests(unittest.TestCase):
                 self.assertEqual(found, ["nightly.yml bracket-fixture: holds a signing secret on a route to an owned "
                                          "Mac but is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's "
                                          "SIGNING_JOBS) or EXCLUSIVE_EXEMPT with a reason"])
-        # The owned pick read by index (needs['x'].outputs['y']) is the same read, so the cap list names it too.
+
+    def test_an_unlisted_job_reading_the_owned_pick_and_its_secrets_by_index_is_named(self) -> None:
+        """signing_runner.SIGNING_JOBS' fixture: the owned pick read by index (needs['x'].outputs['y']) is the same
+        read, and its secrets by bracket are the same secrets, so the cap list names the job too."""
+        documents = workflows()
         base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
         base = keychain_guard.bracketed(base)
         base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", str(base["runs-on"]))

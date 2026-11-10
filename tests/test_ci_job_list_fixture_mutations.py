@@ -135,7 +135,9 @@ class KeychainListFixtures(unittest.TestCase):
 
 
 HERE = __name__
-# (list, module, class, the fixture that must name an unlisted job, its listed-and-green twin or None)
+# (list, module, class, the fixture that must name an unlisted job, its listed-and-green twin or None). Where a list
+# has a dot-form fixture too (test_a_new_job_with_the_trait_and_no_entry_is_named), the one here is its bracket,
+# case or index twin: the dot form is caught by both readers, so it cannot tell them apart.
 FIXTURES = (
     ("HOSTED_SECRET_JOBS", "test_nightly_trusted_routing", "NightlyTrustedRouting",
      "test_a_new_secret_job_is_named_until_classified", "test_a_new_secret_job_named_owned_stays_green"),
@@ -150,9 +152,10 @@ FIXTURES = (
     ("SIGNING_NIGHTLY_JOBS", "test_seed_derived_data", "Wiring",
      "test_secret_nightly_jobs_are_derived_and_checked_on_the_owned_lane", None),
     ("GLAEDA_EXCLUSIVE_JOBS", "test_ci_signing_owned_mac", "ClassificationTests",
-     "test_a_new_job_with_the_trait_and_no_entry_is_named", "test_a_listed_job_added_to_the_whole_tree_stays_green"),
+     "test_an_unlisted_job_reading_its_secret_by_index_or_in_lowercase_is_named",
+     "test_a_listed_job_added_to_the_whole_tree_stays_green"),
     ("SIGNING_JOBS (signing_runner)", "test_ci_signing_owned_mac", "ClassificationTests",
-     "test_an_unlisted_job_reading_its_secret_by_index_or_in_lowercase_is_named", None),
+     "test_an_unlisted_job_reading_the_owned_pick_and_its_secrets_by_index_is_named", None),
     ("GATED_SECRET_JOBS", HERE, "KeychainListFixtures", "test_gated_secret_jobs", None),
     ("TRUSTED_RUNNER_JOBS", "test_ci_fork_runner_routing", "ForkRunnerRoutingTests",
      "test_a_merge_gating_job_whose_header_carries_a_comment_is_checked",
