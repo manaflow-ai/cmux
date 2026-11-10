@@ -394,6 +394,7 @@ class Notify(unittest.TestCase):
 
         class Response(io.BytesIO):
             status = 200
+            headers: dict[str, str] = {}  # urlopen_within reads them as urlopen's answer has them
 
             def __enter__(self):
                 return self
@@ -694,6 +695,38 @@ class SupersededSameTreeRuns(unittest.TestCase):
                     api = FakeApi([marker], runs=[dict(item) for item in runs], pr=pr)
                     run(api)
                     self.assertEqual(api.cancelled, [])
+
+    def test_fork_markers_do_not_fill_the_marker_slots(self):
+        """Review of #39634 (comment 6745208604): fork markers are skipped, so they must be dropped before the
+        MAX_MARKERS cut. Otherwise 50 newer fork markers (GitHub lists the newest first) hide a same-repository
+        marker: its run is neither dispatched nor swept."""
+        markers = [pr_marker(**self.FORGED, run_id=1000 + index) for index in range(notify.MAX_MARKERS + 5)]
+        markers.append(pr_marker())
+        api = FakeApi(markers, runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)],
+                      artifact_runs=[FORK_RUN] * (len(markers) - 1) + [None])
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["lane/x"])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_an_artifact_without_a_run_is_skipped_and_the_rest_is_swept(self):
+        """Older artifacts list `workflow_run: null`; reading its id must not end the notify."""
+        api = FakeApi([pr_marker(run_id=13), pr_marker()],
+                      runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)])
+        api.artifacts[0]["workflow_run"] = None
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_a_marker_naming_another_head_branch_than_its_run_starts_nothing(self):
+        """dispatch_refs reads the marker's head_ref; GitHub records the run's branch (workflow_run.head_branch).
+        A pull request marker whose head_ref is not that branch starts no run on another branch."""
+        for head_branch in ("lane/x", None):
+            with self.subTest(head_branch=head_branch):
+                api = FakeApi([pr_marker(head_ref="lane/victim")], artifact_runs=[{"head_branch": head_branch}],
+                              runs=[open_run(501, 1, branch="lane/victim"), open_run(502, 2, branch="lane/victim"),
+                                    open_run(503, 3, branch="lane/victim")])
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+                self.assertEqual(api.cancelled, [])
 
     def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
         class ListDown(FakeApi):

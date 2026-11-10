@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
-import { githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
+import { githubCovers, githubInstallationOf, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
 import { forgetInstallationToken, github, installationToken, InstallationTokenRefused, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
@@ -130,11 +130,10 @@ const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: C
     return fail(409, "needs_reauth", "the selected GitHub connection needs to be linked again")
   const active = all.filter((c) => c.status === "active")
   if (active.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
-  const owner = repo.split("/")[0]!.toLowerCase()
-  // `repositories` names repositories inside the installation's own account: the owner must be that account.
-  const c = active.find((x) => (ask.connection === undefined || x.id === ask.connection) && x.account?.name.toLowerCase() === owner && githubRepoAllowed(x, policy, repo))
-  const installation = Number(/^github:installation:(\d+)$/.exec(c?.account?.key ?? "")?.[1])
-  if (!c || !Number.isSafeInteger(installation)) return fail(403, "policy.denied", `the team's GitHub connection may not act on ${repo} (team policy or the linking user's access)`)
+  // `repositories` names repositories inside the installation's own account: the owner must be that account (githubCovers, shared with Connect's reuse).
+  const c = active.find((x) => (ask.connection === undefined || x.id === ask.connection) && githubCovers(x, policy, repo))
+  const installation = c ? githubInstallationOf(c) : undefined
+  if (!c || installation === undefined) return fail(403, "policy.denied", `the team's GitHub connection may not act on ${repo} (team policy or the linking user's access)`)
   if (ask.permissions.workflows === "write" && policy.github.allow_workflows !== true) return fail(403, "policy.denied", "workflows: write needs the team policy github.allowWorkflows")
   return { c, installation }
 }

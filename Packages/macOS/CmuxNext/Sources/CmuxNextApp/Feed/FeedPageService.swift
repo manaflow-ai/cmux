@@ -1,58 +1,42 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
-import CmuxNextFeed
 import CmuxNextIcons
+import CmuxNextPages
 import Foundation
 
 extension InternalPageID {
-    /// The wide inbox view of the one feed model.
+    /// The wide inbox view of the Feed page.
     static let inbox = InternalPageID(rawValue: "inbox")
 }
 
-/// Owns the wide Inbox page. It is a view on `FeedService.model`, not a
-/// second store, and therefore shares owner events, triage intents and the
-/// menu-bar feed panel.
+/// Owns the wide Inbox page: the Feed page (`cmux.feed`) on `#/inbox`. It is a view of the
+/// daemon's feed client, as the Feed panel and the right sidebar's Feed are, so they share owner
+/// events and triage.
 @MainActor
 final class FeedPageService: InternalPageProvider {
     private unowned let services: AppServices
-    /// Sends report replies off the main thread.
-    private let replies: AcpmuxReplySender
 
-    init(services: AppServices, replies: AcpmuxReplySender = AcpmuxReplySender()) {
+    init(services: AppServices) {
         self.services = services
-        self.replies = replies
     }
 
-    /// Opens the Inbox in the active window without activating it for agent
-    /// or socket callers when `focus` is false.
-    func open(focus: Bool) throws {
-        guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        services.feed.startIfSignedIn()
-        guard services.pages.show(.inbox, in: window, focus: focus) != nil else {
+    /// Opens the Inbox in the active window (unfocused when `focus` is false), on an item's `route`.
+    func open(focus: Bool, route: String? = nil) throws {
+        guard let window = services.windows.active, let view = services.pages.show(.inbox, in: window, focus: focus) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
+        if let route { (view.content as? PageWebView)?.open(route: route) }
     }
 
     var page: InternalPageID { .inbox }
-    var title: String { FeedHostView.paneTitle }
+    var title: String { Self.title }
     var symbol: String { "tray" }
     var icon: IconName? { .inbox }
 
+    /// The Inbox tab's title.
+    static var title: String { String(localized: "feed.inboxTitle", defaultValue: "Inbox", table: "Feed", bundle: .module) }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let feed = services.feed
-        FeedGitHubActions.install(on: feed.model, services: services)
-        feed.model.place = FeedPlace.lookup(services.daemon.store.place)
-        let replies = replies
-        // Resolved once at startup: a reply runs no executable lookup or signature check.
-        let environment = feed.acpmuxEnvironment
-        return FeedHostView(model: feed.model, layoutOverride: .inbox) { reply in
-            // A report poster's authenticated identity is its ACP session. A
-            // human reply intentionally wakes that session, unlike delivery
-            // into the reports basket. The feed owner remains the source of
-            // report rows; the command is a bounded local adapter.
-            // The process runs off the main thread, to its exit or deadline (AcpmuxReplySender).
-            await replies.send(session: reply.session, text: reply.text, promptID: reply.promptID, environment: environment)
-        }
+        PageFactory(services: services).feedWebPage(route: "#/inbox?surface=page") ?? NSView()
     }
 }

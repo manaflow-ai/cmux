@@ -473,6 +473,10 @@ pub enum Command {
     /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
+    /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own
+    /// remote MCP servers): an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    HostedMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
@@ -529,7 +533,11 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    ResumeQueue { session: String },
+    ResumeQueue {
+        session: String,
+        #[arg(long)]
+        open: bool,
+    },
     #[command(hide = true)]
     InboxDigest {
         session: String,
@@ -538,6 +546,26 @@ pub enum Command {
     },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
+    /// Give the session this shell runs in a stable name every machine that peers this one sends
+    /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
+    /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
+    /// into the session's inbox, and the session finishes with `acpmux register NAME --code CODE`
+    /// (macOS: the daemon checks the process is Claude Code by its signature). A Codex desktop
+    /// thread does not register (nothing ties a shell to its thread); start Codex with acpmux. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
+    /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
+    /// Run it again after the session restarts (a new process gets a new token). A brand-new
+    /// session registers after its first turn, once it has a transcript
+    #[command(
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+    )]
+    Register {
+        /// The name, e.g. desktop-zoe.
+        name: String,
+        /// The one-time code acpmux delivered into this session's inbox after a first
+        /// `acpmux register NAME`: the second step, run by the session that received it.
+        #[arg(long)]
+        code: Option<String>,
+    },
     #[command(hide = true)]
     DetachParent { session: String },
     #[command(hide = true)]
@@ -947,9 +975,15 @@ pub enum SessionCmd {
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app. On a machine a
     /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
-    /// auto` does; when none takes it, it resumes here and says why.
+    /// auto` does; when none takes it, it resumes here and says why. A queue a daemon start
+    /// holds for a person (its folder is guarded: `hub/protected_hold.rs`) is named, with how to
+    /// release it; `--open` releases it as opening the chat in cmux does.
     Resume {
         session: String,
+        /// Open the chat as the cmux app does when a person clicks it, then resume: what a
+        /// daemon start held for a person (a guarded folder) runs now.
+        #[arg(long)]
+        open: bool,
         #[command(flatten)]
         mesh: crate::cli::mesh_control::RouteArgs,
     },
@@ -1412,7 +1446,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Detach { session } => Command::DetachParent { session },
-            SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
+                Command::ResumeQueue { session, open }
+            }
             SessionCmd::Inbox { session, opts } if opts.digest || opts.dry_run => {
                 Command::InboxDigest { session, dry_run: opts.dry_run || !opts.digest }
             }

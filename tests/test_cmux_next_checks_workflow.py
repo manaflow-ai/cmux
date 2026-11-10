@@ -443,6 +443,15 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.assert_own_stale_pin(self.run_step(path_prefix=bin_dir))
 
 
+def line_of(path: str, text: str) -> int:
+    """The 1-based line of the first line of path that contains text (0 when none does), so a
+    failure names the line to edit."""
+    for number, line in enumerate((ROOT / path).read_text(encoding="utf-8").splitlines(), start=1):
+        if text in line:
+            return number
+    return 0
+
+
 class WebviewsWarnSplitCoversCheck(unittest.TestCase):
     """Under CMUX_NEXT_STYLE_GUARDS=warn, ci-web runs `bun run check` as separate commands.
 
@@ -473,18 +482,26 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
             gated = set(fast_gate_webviews_checks.CHECKS)
         gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
+        ci_web = ".github/workflows/ci-web.yml"
+        loop_line = line_of(ci_web, "for check in ")
+        script_key = "check:pieces" if "check:pieces" in scripts else "check"
+        script_line = line_of("webviews/package.json", '"%s":' % script_key)
+        missing = []
         for part in parts:
             if part.startswith("vp "):
-                self.assertTrue(
-                    part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch,
-                    f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-                )
+                if not (part in gated_commands or f"./node_modules/.bin/{part} ||" in warn_branch):
+                    missing.append(
+                        f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                        f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; run "
+                        f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            self.assertTrue(
-                name in looped or name in gated or f"bun run {name} || status=1" in warn_branch,
-                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
-            )
+            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+                missing.append(
+                    f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
+                    f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
+                    f"`for check in ...` list (warn-only) or to scripts/ci/fast_gate_webviews_checks.py CHECKS (gating)")
+        self.assertEqual(missing, [], "\n" + "\n".join(missing))
 
 
 class ReferencedFilesExist(unittest.TestCase):
@@ -2852,6 +2869,61 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
 
+    def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
+        """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
+        the blocking read writes `reply` (or fails when None)."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = next(step["run"] for step in jobs["release-compile-fast"]["steps"] if step.get("id") == "compile")
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            (Path(temp) / "codes").write_text("\n".join(codes) + "\n")
+            (Path(temp) / "reply.json").write_text(json.dumps(reply) if reply is not None else "")
+            curl = bin_dir / "curl"
+            curl.write_text(f"""#!/bin/bash
+echo "$*" >> "{temp}/calls"
+if [[ " $* " == *" -w "* ]]; then
+  code=$(head -1 "{temp}/codes"); sed -i.bak 1d "{temp}/codes"; printf '%s' "${{code:-404}}"
+  [[ "${{code:-404}}" == 000 ]] && exit 7; exit 0
+fi
+[[ -s "{temp}/reply.json" ]] || exit 22
+while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift; done
+""")
+            curl.chmod(0o755)
+            output = Path(temp) / "out"
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": temp,
+                   "GITHUB_OUTPUT": str(output), "GATEWAY": "", "REF": "a" * 40, "REPO": "manaflow-ai/cmux",
+                   "RESULTS": "https://results.invalid/compile-checks/v1", "PROBE_GAP": "0", "WAIT_SECONDS": "90"}
+            started = time.monotonic()
+            # GitHub runs a `run:` step as `bash -e {0}`.
+            result = subprocess.run(["bash", "-e", "-c", run], env=env, capture_output=True, text=True, timeout=60)
+            elapsed = time.monotonic() - started
+            calls = (Path(temp) / "calls").read_text() if (Path(temp) / "calls").exists() else ""
+            return output.read_text() if output.exists() else "", result.stdout + calls, elapsed
+
+    def test_fast_check_hands_off_at_once_when_the_results_service_is_down(self):
+        # Two edge 530s (the controller's origin is down): no blocking read, the Mac fallback runs now.
+        # WAIT_SECONDS is 90 and the step runs under a 60 s timeout, so a step that waited on the
+        # service would time out here; the hand-off itself is the causal check, not its wall time.
+        out, log, _ = self.run_fast_linux_read(["530", "530"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 530)", log)
+        self.assertNotIn("--retry-all-errors", log)
+        out, log, _ = self.run_fast_linux_read(["000", "000"], None)
+        self.assertIn("verdict=unavailable", out)
+        self.assertIn("results service down (HTTP 000)", log)
+
+    def test_fast_check_still_waits_for_a_live_results_service(self):
+        verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
+                   "configuration": "release-onone", "state": "pass"}
+        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read.
+        for codes in (["404"], ["530", "404"]):
+            with self.subTest(codes=codes):
+                out, log, _ = self.run_fast_linux_read(codes, verdict)
+                self.assertIn("verdict=pass", out)
+                self.assertIn("--retry-all-errors", log)
+                self.assertNotIn("results service down", log)
+
     def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
         # push attribution and the nightly feed watch read the first job with the gate name, so a
         # red admission beside a green fallback would report a failure the fallback cleared.
@@ -4083,16 +4155,18 @@ esac
 
     def test_the_report_exits_with_the_clients_result(self):
         report = self.jobs()["fast-tier"]["steps"][0]
+        # scripts/ci/needs_verdict.py's rule: a failed fleet job is a red whatever its verdict output says, and one
+        # that judged nothing (cancelled, abandoned, skipped, empty) is no verdict, exit 3, never a pass (cmux#39857).
         for verdict, result, code in (("pass", "success", 0), ("fail", "failure", 1), ("unavailable", "failure", 1),
-                                      ("", "cancelled", 1), ("", "failure", 1), ("pass", "failure", 1)):
+                                      ("", "cancelled", 3), ("", "failure", 1), ("pass", "failure", 1),
+                                      ("", "abandoned", 3), ("", "", 3), ("pass", "cancelled", 3)):
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
                                       env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
                                            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
-                if code and verdict != "fail":
-                    self.assertIn("no verdict", done.stdout)
+                self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 
 
 if __name__ == "__main__":

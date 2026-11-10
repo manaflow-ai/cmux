@@ -135,6 +135,8 @@ export type Sample = {
   eventAt: number;
   /// When the reader's scripted wheel landed, once it has (`run`'s `wheel`), ms.
   wheeledAt?: number;
+  /// When the reader scrolled back down to the latest row, once they have (`wheel.backMs`), ms.
+  backAt?: number;
   /// Finite animations running this frame, anywhere in the transcript (a looping shimmer is no motion).
   animations: number;
   /// Animations started since the run began (CSS animations and Web Animations), cumulative.
@@ -230,6 +232,8 @@ let phase: Phase = "idle";
 let eventAt = 0;
 /// When the reader's scripted wheel landed (`run`'s `wheel`), on the page's clock.
 let wheeledAt: number | undefined;
+/// When the reader scrolled back down to the latest row (`run`'s `wheel.backMs`).
+let backAt: number | undefined;
 let sampling = false;
 
 // The frame callback resizes a sentinel; its ResizeObserver runs after this frame's layout, after
@@ -276,6 +280,7 @@ const sampleFrame = () => {
     length,
     eventAt,
     ...(wheeledAt !== undefined && { wheeledAt }),
+    ...(backAt !== undefined && { backAt }),
     animations: document.getAnimations().filter((animation) => animation.playState === "running" && finite(animation))
       .length,
     started,
@@ -349,8 +354,9 @@ async function run({
   settleMs?: number;
   /// The reader wheels up `px` px, `afterMs` after the step `at` begins (row-arrival-settle.test.ts:
   /// their input holds every motion where it is drawn): a wheel event on the transcript, then the
-  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls.
-  wheel?: { at: string; afterMs: number; px: number };
+  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls. With `backMs`, the
+  /// reader wheels back down to the latest row that long after (chat-scroll-back-still.test.ts).
+  wheel?: { at: string; afterMs: number; px: number; backMs?: number };
 }) {
   await loadHighlightedCode();
   // fixed-wait: the history's rows measure over the first frames
@@ -358,6 +364,7 @@ async function run({
   samples.length = 0;
   started = 0;
   wheeledAt = undefined;
+  backAt = undefined;
   if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   // fixed-wait: the frames before the turn are sampled as its rest
@@ -378,6 +385,21 @@ async function run({
           );
           scroller.scrollTop -= wheel.px;
           wheeledAt = performance.now();
+          if (wheel.backMs !== undefined)
+            // fixed-wait: the reader reads where they wheeled to, then wheels back down
+            setTimeout(() => {
+              const end = scroller.scrollHeight - scroller.clientHeight;
+              scroller.dispatchEvent(
+                new WheelEvent("wheel", {
+                  deltaY: end - scroller.scrollTop,
+                  deltaMode: 0,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+              scroller.scrollTop = end;
+              backAt = performance.now();
+            }, wheel.backMs);
         }, wheel.afterMs);
     },
     chars,

@@ -518,6 +518,10 @@ pub struct SubRecord {
     /// The stuck note of this run was sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stuck_noted: bool,
+    /// Who made it, its lifetime and its expiry (action_lifetime.rs): what the one reaper
+    /// reads. None on a record from before lifetimes, which the reaper leaves alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made: Option<crate::action_lifetime::Made>,
     /// Its task as spawned (the start, for `control status`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub task: String,

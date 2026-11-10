@@ -223,8 +223,8 @@ function doneLine(
     agent.stopReason ?? "",
     retryKey(agent),
     inBackground ?? "",
-    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes, its reply grows.
-    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}:${agent.reaction.text?.length ?? 0}` : "",
+    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes.
+    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}` : "",
   ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);

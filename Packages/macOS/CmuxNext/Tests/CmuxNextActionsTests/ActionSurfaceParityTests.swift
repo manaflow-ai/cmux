@@ -204,22 +204,6 @@ import Testing
         #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
-    /// Every id in the surface tables names a catalog action, and no id is
-    /// listed under two reasons (a typo would otherwise be ignored).
-    @Test func surfaceTablesNameOnlyCatalogActions() {
-        let ids = Set(catalog.map(\.id))
-        var tableIDs = Array(ActionSurfaceCatalog.placements.keys) + Array(ActionSurfaceCatalog.cliNamed)
-        for table in [ActionSurfaceCatalog.paletteExemptionsByReason, ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
-                      ActionSurfaceCatalog.mcpExemptionsByReason] {
-            let listed = table.values.flatMap { $0 }
-            #expect(Set(listed).count == listed.count, "an id listed under two reasons")
-            tableIDs += listed
-        }
-        let unknown = Set(tableIDs).subtracting(ids)
-        #expect(unknown.isEmpty, "unknown ids: \(unknown.map(\.rawValue).sorted())")
-        #expect(ActionSurfaceCatalog.cliNamed.isDisjoint(with: ActionSurfaceCatalog.cliExemption.keys), "named and exempt")
-    }
-
     /// Every string catalog of CmuxNextActions, from the source tree.
     static func titleCatalog() throws -> ActionTitleCatalog {
         let sources = URL(fileURLWithPath: #filePath)

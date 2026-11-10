@@ -127,7 +127,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       return {
         top: node.getBoundingClientRect().top,
         marker: Boolean(node.sendScrollMarker),
-        jump: document.querySelector(".acpmux-jump-latest")?.hasAttribute("data-shown") ?? false,
+        jump: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
         state: (window as unknown as { __sendState(): { following: boolean; sends: number } }).__sendState(),
       };
     });

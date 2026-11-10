@@ -16,7 +16,7 @@ struct AgentPaneConnectActionTests {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
         var arguments: [[String: String]] = []
-        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return true }
+        model.onRunAction = { id, args in ran.append(id); arguments.append(args); return .ran }
         #expect(await model.respond(to: .runAction("palette.openCloudPane"))["ok"] as? Bool != true)
         #expect(ran.isEmpty, "no gesture, no page")
         model.transport.gestures.record()
@@ -28,7 +28,7 @@ struct AgentPaneConnectActionTests {
     @Test func otherConnectActionsRunWithoutArguments() async {
         let model = AgentPaneModel(host: NoHost())
         var arguments: [[String: String]] = []
-        model.onRunAction = { _, args in arguments.append(args); return true }
+        model.onRunAction = { _, args in arguments.append(args); return .ran }
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(arguments == [[:]])
@@ -39,7 +39,7 @@ struct AgentPaneConnectActionTests {
     @Test func machineReconnectRunsOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return .ran }
         #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool != true)
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool == true)
@@ -49,7 +49,7 @@ struct AgentPaneConnectActionTests {
     @Test func refusedCloudCreationDoesNotLoseIntentToStandaloneSignIn() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, _ in ran.append(id); return false }
+        model.onRunAction = { id, _ in ran.append(id); return .notRun }
         model.transport.gestures.record()
         let reply = await model.respond(to: .runAction("newCloudMachine"))
         #expect(reply["ok"] as? Bool != true)
@@ -61,7 +61,7 @@ struct AgentPaneConnectActionTests {
     @Test func cloudSignInRunsSignInOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return .ran }
         #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool != true)
         #expect(ran.isEmpty, "no gesture, no sign-in")
         model.transport.gestures.record()
@@ -73,7 +73,7 @@ struct AgentPaneConnectActionTests {
     @Test func connectPhoneOpensMobilePairingOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return .ran }
         #expect(await model.respond(to: .runAction("palette.mobileConnect"))["ok"] as? Bool != true)
         #expect(ran.isEmpty, "no gesture, no page")
         model.transport.gestures.record()
@@ -86,7 +86,7 @@ struct AgentPaneConnectActionTests {
     @Test func moveAndBringBackRunOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return .ran }
         #expect(await model.respond(to: .runAction("cloudMove"))["ok"] as? Bool != true)
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("cloudMove"))["ok"] as? Bool == true)
@@ -100,7 +100,7 @@ struct AgentPaneConnectActionTests {
     @Test func paletteSearchPagesRunWithoutAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return .ran }
         #expect(await model.respond(to: .runAction("agentPane.searchChats"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("history.search"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("searchFiles"))["ok"] as? Bool != true)
@@ -111,11 +111,26 @@ struct AgentPaneConnectActionTests {
     /// the page can say so instead of nothing happening.
     @Test func anActionTheAppDidNotRunIsAFailure() async {
         let model = AgentPaneModel(host: NoHost())
-        model.onRunAction = { _, _ in false }
+        model.onRunAction = { _, _ in .notRun }
         model.transport.gestures.record()
         let reply = await model.respond(to: .runAction("cloudBringBack"))
         #expect(reply["ok"] as? Bool != true)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
+
+    /// A move the app refused carries its reason to the page, whose toast says it: Move to Cloud on a
+    /// chat with no first message read as nothing happening when the reply said only "did not run".
+    @Test func aRefusedMoveCarriesItsReasonToThePage() async {
+        let model = AgentPaneModel(host: NoHost())
+        let reason = "Send a first message, then move this chat."
+        model.onRunAction = { _, _ in .refused(reason) }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: .runAction("cloudMove"))
+        let error = reply["error"] as? [String: Any]
+        #expect(reply["ok"] as? Bool != true)
+        #expect(error?["code"] as? String == "unavailable")
+        #expect(error?["userMessage"] as? String == reason)
+        #expect((error?["details"] as? [String: Any])?["reason"] as? String == reason)
     }
 
     /// Which move a started chat's picker offers is the app's call: `pane.tabState` reports the moves
@@ -150,12 +165,17 @@ struct AgentPaneConnectActionTests {
         model.header = AgentPaneHeaderHooks(
             run: { _, _ in },
             tabState: { AgentPaneHeaderState() },
-            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running")] },
+            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running"),
+                            AgentPaneMoveTarget(id: AgentPaneMoveTarget.localID, label: "", kind: "local", reason: "Not now")] },
             moveToMachine: { id, session in moved = (id, session); return true },
         )
         let state = await model.respond(to: .tabState(refresh: false))["value"] as? [String: Any]
         let targets = state?["moveTargets"] as? [[String: Any]]
         #expect(targets?.first?["id"] as? String == "vm-build")
+        // Move to…'s rows: each target's kind, and why one would refuse now.
+        #expect(targets?.first?["kind"] as? String == "cloud")
+        #expect(targets?.last?["kind"] as? String == "local")
+        #expect(targets?.last?["reason"] as? String == "Not now")
         #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool != true)
         model.transport.gestures.record()
         #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool == true)
@@ -202,7 +222,7 @@ struct AgentPaneConnectActionTests {
         let model = AgentPaneModel(host: NoHost())
         var shown = "chat-a"
         var ran: [String] = []
-        model.onRunAction = { id, _ in ran.append(id); return true }
+        model.onRunAction = { id, _ in ran.append(id); return .ran }
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             showsChat: { $0 == shown })
         model.transport.gestures.record()
@@ -239,7 +259,7 @@ struct AgentPaneConnectActionTests {
             == .unsupported("action.run"))
         let model = AgentPaneModel(host: NoHost())
         var arguments: [[String: String]] = []
-        model.onRunAction = { _, args in arguments.append(args); return true }
+        model.onRunAction = { _, args in arguments.append(args); return .ran }
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("newCloudMachine", environment: "env_abc123"))["ok"] as? Bool == true)
         #expect(arguments == [["environment": "env_abc123"]])
