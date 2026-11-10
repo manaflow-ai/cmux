@@ -191,13 +191,13 @@ fn stage_registry_until_stopped(
     // The memo is of one registry: another one at this path (restored,
     // rehomed) is not covered by it.
     let identity = meta_value(&source, "registry_id")?;
-    if let Some(reason) = refusal_memo(db_path, identity.as_deref(), journal_head(&source)?) {
-        return Ok(StageOutcome::Skipped(reason));
-    }
     // The rule for a rebuild at a floor: the sealed segments at or below
     // it cover at least as many sequences as the session puts bound.
     let (cut, below) = floor_cut(&source, floor)?;
     let cut = if below >= put_records_worth_a_cleanup() { cut } else { 0 };
+    if let Some(reason) = refusal_memo(db_path, identity.as_deref(), journal_head(&source)?, cut) {
+        return Ok(StageOutcome::Skipped(reason));
+    }
     if cut == 0 && !output_present(&source)? && !session_puts_present(&source)? {
         // A staging file of an earlier start was built for a floor that
         // this start does not have: the next open must not swap it in.
@@ -260,7 +260,7 @@ fn stage_registry_until_stopped(
     if let Some(reason) = abandoned {
         drop(staging);
         remove_staging(db_path)?;
-        write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+        write_refusal_memo(db_path, &registry_id, journal_head(&source)?, cut, &reason);
         return Ok(StageOutcome::Skipped(reason));
     }
     // Until the owner stops: the records it appends go into the built
@@ -272,7 +272,7 @@ fn stage_registry_until_stopped(
             CaughtUp::Abandoned(reason) => {
                 drop(staging);
                 remove_staging(db_path)?;
-                write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+                write_refusal_memo(db_path, &registry_id, journal_head(&source)?, cut, &reason);
                 return Ok(StageOutcome::Skipped(reason));
             }
         }
@@ -409,11 +409,15 @@ fn journal_head(source: &Connection) -> anyhow::Result<u64> {
 }
 
 /// Records that staging of registry `registry_id` finished and was refused
-/// at journal head `head`, so later starts do not stage the same journal
-/// again (each would copy it all and be refused the same way). Best effort:
-/// without the memo the next start stages again.
-fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str) {
-    let memo = format!("format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\n");
+/// at journal head `head` with the sealed segments through `cut` left out,
+/// so later starts do not stage the same journal again (each would copy it
+/// all and be refused the same way). Best effort: without the memo the next
+/// start stages again.
+fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, cut: u64, reason: &str) {
+    let reason = reason.replace('\n', " ");
+    let memo = format!(
+        "format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\ncut {cut}\n"
+    );
     if let Err(error) = std::fs::write(refused_path(db_path), memo) {
         eprintln!("cmux-tui: output cleanup: could not record the refusal: {error}");
     }
@@ -424,7 +428,14 @@ fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str
 /// one written before memos named it, covers nothing), and the journal head
 /// below twice the head it was refused at. A memo past that (or unreadable)
 /// is removed and the cleanup runs again.
-fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<String> {
+///
+/// The memo is of a pass that left out the sealed segments through its cut
+/// (no `cut` line: 0, a pass without a floor). A pass at a higher `cut`
+/// leaves out more, so it is another question: the memo neither covers it
+/// nor is removed by it. A registry of agent and progress records is refused
+/// without a floor (it would keep most of its journal) and is the one a
+/// rebuild at a retention floor is for.
+fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64, cut: u64) -> Option<String> {
     let path = refused_path(db_path);
     let text = std::fs::read_to_string(&path).ok()?;
     let mut lines = text.lines();
@@ -435,6 +446,14 @@ fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<
         .and_then(|line| line.strip_prefix("head "))
         .and_then(|n| n.parse::<u64>().ok());
     let reason = lines.next().unwrap_or_default();
+    let refused_cut = lines
+        .next()
+        .and_then(|line| line.strip_prefix("cut "))
+        .and_then(|n| n.parse::<u64>().ok())
+        .unwrap_or(0);
+    if cut > refused_cut {
+        return None;
+    }
     if let Some(refused_at) = refused_at
         && format == Some(STAGING_FORMAT)
         && registry.is_some()
