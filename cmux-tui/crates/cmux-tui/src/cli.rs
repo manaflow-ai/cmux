@@ -93,6 +93,8 @@ pub(crate) use completion::refuse_in_help_reader;
 mod dev;
 mod docs;
 mod event_match;
+#[cfg(unix)]
+mod ext;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -807,6 +809,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| ext::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
