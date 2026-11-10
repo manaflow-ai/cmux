@@ -32,8 +32,11 @@ import Foundation
 ///   frame, at 30 rows as at 3,000 (SIDEBAR-STICKY).
 /// - `rows_walked`: listed rows a structural stage read to show a change: the nodes handed to `SidebarModel.setSections`
 ///   (it arranges and compares each), the nodes a list splice compared (`spliceInsertion`, `spliceRemoval`) and the
-///   rows a list viewport was built from (`SidebarLayout.viewport`). One closed or new row must walk the rows that
-///   changed, at 60 workspaces as at 826 (WORKSPACE LIST 800).
+///   rows the scroll rule read (`viewport_rows`). One closed or new row must walk the rows that changed, at 60
+///   workspaces as at 826 (WORKSPACE LIST 800).
+/// - `viewport_rows`: rows the list's scroll rule read to keep what the user sees (`ListViewportChange` over the shown
+///   and the new `SidebarLayout`): the rows in view and the rows that left or came beside them, never every listed
+///   row (SIDEBAR ROW CHANGE stage 1). Counted in `rows_walked` too.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -61,6 +64,8 @@ nonisolated enum SidebarPerfCounters {
         case stuckHeaderUpdates = "stuck_header_updates"
         /// Listed rows a structural stage read (model set, list splice compare, list viewport) to show a change.
         case rowsWalked = "rows_walked"
+        /// Rows the list's scroll rule read (the anchor, the settle): the rows in view, at any list length.
+        case viewportRows = "viewport_rows"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
@@ -71,6 +76,15 @@ nonisolated enum SidebarPerfCounters {
     static func add(_ counter: Counter, _ amount: Int = 1) {
         guard amount != 0 else { return }
         counts.withLock { $0[counter, default: 0] += amount }
+    }
+
+    /// Rows the list's scroll rule read: `viewport_rows`, and `rows_walked` (a structural stage's rows).
+    static func addViewportRows(_ amount: Int) {
+        guard amount != 0 else { return }
+        counts.withLock {
+            $0[.viewportRows, default: 0] += amount
+            $0[.rowsWalked, default: 0] += amount
+        }
     }
 
     /// The current count of `counter`.
