@@ -134,6 +134,22 @@ fn w6d_text_only_key_reports_resolve_bindings_by_the_typed_character() {
     );
 }
 
+/// A typed capital that has no binding of its own never runs its lower-case
+/// key's action through the PC-101 fallback: `Z` is not `z` (zoom).
+#[test]
+fn w6d_a_typed_capital_without_a_binding_is_not_its_lower_case_key() {
+    let keys = Config::default().keys;
+    let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+        key_event: KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
+        shifted_key: None,
+        base_layout_key: Some('z'),
+        text: "Z".to_string(),
+    });
+    let (key, fallback) = input.shortcut_keys();
+    assert_eq!(key.code, KeyCode::Char('Z'));
+    assert_eq!(crate::app::action_for_binding(&keys, &key, fallback.as_ref()), None);
+}
+
 /// W5-Q (bench r4 #5): the TUI's queue puts a finished agent turn nobody
 /// viewed (an idle agent with an unread notification) before an older bell,
 /// as `cmux attention list` does.

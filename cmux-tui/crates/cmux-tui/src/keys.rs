@@ -91,8 +91,28 @@ impl KeyboardInput {
             && let Some(shifted_key) = self.shifted_key
         {
             key.code = KeyCode::Char(shifted_key);
+        } else if let Some(typed) = self.typed_character() {
+            key.code = KeyCode::Char(typed);
         }
         key
+    }
+
+    /// The one character an unmodified key typed when the host reports it
+    /// only as associated text: the cmux app sends `A` as `CSI 97;;65u`
+    /// (key `a`, no Shift, text `A`), and a Caps Lock press reports the same.
+    /// The person typed `A`, so bindings and overlays see `A`. `None` when a
+    /// modifier is held (a chord keeps its key) or the text is not one
+    /// printable character that differs from the key.
+    fn typed_character(&self) -> Option<char> {
+        if !self.enhanced
+            || self.key_event.modifiers.intersects(SHORTCUT_MODIFIERS | KeyModifiers::SHIFT)
+        {
+            return None;
+        }
+        let KeyCode::Char(key) = self.key_event.code else { return None };
+        let mut characters = self.associated_text.chars();
+        let typed = characters.next()?;
+        (characters.next().is_none() && typed != key && !typed.is_control()).then_some(typed)
     }
 
     /// Complete generated text that is safe to insert atomically. Shift is
@@ -141,7 +161,8 @@ impl KeyboardInput {
 
     /// Active-layout logical identity first, then the PC-101 physical
     /// fallback. A reported shifted ASCII identity has already consumed
-    /// Shift; other layouts retain it as an explicit shortcut modifier.
+    /// Shift; other layouts retain it as an explicit shortcut modifier. An
+    /// unmodified key reported only by its text is that typed character.
     pub fn shortcut_keys(&self) -> (KeyEvent, Option<KeyEvent>) {
         let mut logical = self.key_event;
         if self.enhanced
@@ -152,19 +173,26 @@ impl KeyboardInput {
         {
             logical.code = KeyCode::Char(shifted_key);
             logical.modifiers.remove(KeyModifiers::SHIFT);
+        } else if let Some(typed) = self.typed_character() {
+            logical.code = KeyCode::Char(typed);
         }
         if self.suppress_alt_shortcut {
             logical.modifiers.remove(KeyModifiers::ALT);
         }
 
-        let fallback = self.base_layout_key.and_then(|base_layout_key| {
-            let mut base = self.key_event;
-            base.code = KeyCode::Char(base_layout_key);
-            if self.suppress_alt_shortcut {
-                base.modifiers.remove(KeyModifiers::ALT);
-            }
-            (base != logical).then_some(base)
-        });
+        // A typed character on the PC-101 layout is its own key: the
+        // unshifted key is no fallback for it (`A` never runs `a`'s action).
+        let typed_on_base_layout = self.typed_character().is_some()
+            && self.base_layout_key.map(KeyCode::Char) == Some(self.key_event.code);
+        let fallback =
+            self.base_layout_key.filter(|_| !typed_on_base_layout).and_then(|base_layout_key| {
+                let mut base = self.key_event;
+                base.code = KeyCode::Char(base_layout_key);
+                if self.suppress_alt_shortcut {
+                    base.modifiers.remove(KeyModifiers::ALT);
+                }
+                (base != logical).then_some(base)
+            });
         (logical, fallback)
     }
 
