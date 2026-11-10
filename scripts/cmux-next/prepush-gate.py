@@ -518,7 +518,13 @@ def release_download():
             return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError:
+            # The helper imports deadline_http.py from beside itself. A hook installed before that has an older
+            # refresh_checks.py, which rewrites the helper from feat-cmux-next but not deadline_http.py: download
+            # directly, as with no helper, until scripts/install-git-hooks.sh runs again.
+            return None
         sys.modules[name] = module
     return sys.modules[name]
 

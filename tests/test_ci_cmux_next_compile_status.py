@@ -429,7 +429,20 @@ class ResultsServiceDown(unittest.TestCase):
                     self.assertIn("re-run all jobs", post["description"])
                     self.assertTrue(base_red_excuse().COMPILE_STATUS_NO_VERDICT.match(post["description"]))
 
-    def test_a_pull_request_with_no_fallback_says_no_verdict(self):
+    def test_a_pull_request_with_no_fallback_hands_off_to_the_overflow_compile(self):
+        """2026-11-10 19:51Z: this failed the job on every pull request while the controller was down. The overflow
+        compile posts the head's verdict; until then cmux-next/compile is pending (never a pass) and the job is green."""
+        code, stdout, output = self.compile_status(FALLBACK="false", PR="40742")
+        self.assertEqual((code, output), (0, ""))
+        self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
+        said = self.server.posts[-1]["description"]
+        self.assertTrue(said.startswith("[overflow] Results service down (HTTP 530); "), said)
+        self.assertLessEqual(len(said), 140)
+        self.assertFalse(base_red_excuse().COMPILE_STATUS_NO_VERDICT.match(said))
+        self.assertIn("the overflow compile posts cmux-next/compile", stdout)
+
+    def test_a_push_with_no_fallback_says_no_verdict(self):
+        """The overflow compile takes only pull request heads: a superseded push still says no verdict."""
         code, stdout, output = self.compile_status(FALLBACK="false")
         self.assertEqual((code, output), (1, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "error"])

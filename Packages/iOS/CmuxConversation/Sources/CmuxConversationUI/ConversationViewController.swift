@@ -105,7 +105,7 @@ public final class ConversationViewController: UIViewController {
     let backdropView = ConversationBackdropView()
     weak var detailsController: ConversationDetailsViewController?
     let composer = ConversationComposerView()
-    let composerContainer = UIView()
+    let composerContainer = ComposerHostView()
     var composerHeightConstraint: NSLayoutConstraint?
     /// Set while `composerDidTapSend` inserts the optimistic row.
     var pendingFlight: SendFlight?
