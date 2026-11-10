@@ -80,13 +80,13 @@ struct AgentTabContent {
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.showsLoadingState = false
+        view.standOverPicture()
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.
         paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
         paneView.onLaunchImageCleared = { [weak view] in
-            if let view, view.model.newTab == nil { view.showsLoadingState = true }
+            view?.pictureBelowWent()
         }
         // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
         view.loadingView.whenRevealed { [weak paneView, weak imageView] in
@@ -117,7 +117,7 @@ struct AgentTabContent {
             paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
         }
         let imageView = image == nil ? nil : paneView.launchImageView
-        view.hideMovedPage { [weak paneView, weak imageView] in
+        view.hideMovedPage(overPicture: image != nil) { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")
             if let imageView { paneView?.clearLaunchImage(ifShowing: imageView) }
         }

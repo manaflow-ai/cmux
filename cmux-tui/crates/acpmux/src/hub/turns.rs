@@ -110,6 +110,24 @@ pub(super) fn acp_prompt_blocks(
     Ok(out)
 }
 
+/// The turn a pending run of `prompt_id` was given on `session`, and whether it still waits in
+/// the queue: the queued prompt's, or the running turn's. None while that run has not been
+/// accepted (its agent still starts, a check still runs, also one after its turn shows: a
+/// Cloud turn's claim can still refuse it), or between its leaving the queue and its turn's
+/// start.
+fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
+    let queued = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| (q.turn_id.clone(), true))
+    };
+    queued.or_else(|| {
+        let turn = session.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        turn.as_ref()
+            .filter(|t| t.prompt_id == prompt_id && t.accepted)
+            .map(|t| (t.turn_id.clone(), false))
+    })
+}
+
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
 /// spaces or non-ASCII letters still names a valid link (and a Windows path
 /// gets its drive form).
@@ -157,7 +175,7 @@ impl Hub {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
-        if let Some(answer) = self.bridged_prompt(session, &blocks, &mut opts).await {
+        if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
         }
         // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
@@ -192,6 +210,9 @@ impl Hub {
             // entry (the ledger is only for client-supplied idempotency keys).
             let generated_id = uuid::Uuid::now_v7().to_string();
             opts.prompt_id = Some(generated_id.clone());
+            if let Some(text) = opts.coach.take() {
+                self.coach_prompt(session, &generated_id, &text);
+            }
             ensure_message_provenance(&mut opts, &session.id);
             let message = message_context(self, session, &blocks, &opts, &generated_id);
             embed_message_context(&mut opts, message.as_ref(), &session.id);
@@ -228,7 +249,15 @@ impl Hub {
         let outcome = match seen {
             Err(mut first) => {
                 if let Some(f) = opts.on_accepted.take() {
-                    f(duplicate(Value::Null));
+                    // The first run's turn, once it has one (queued or running): the sender of
+                    // this copy then knows the prompt was taken. With none yet, the first run
+                    // may still be held or refused, and only its answer says.
+                    let (turn, queued) = pending_turn(session, &prompt_id).unzip();
+                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    if queued == Some(true) {
+                        notice.set("queued", json!(true));
+                    }
+                    f(notice);
                 }
                 let result = first
                     .wait_for(Option::is_some)
@@ -243,6 +272,10 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A client's resend of this id was answered above: the coach counts the prompt once.
+        if let Some(text) = opts.coach.take() {
+            self.coach_prompt(session, &prompt_id, &text);
+        }
         // A resent inbox message answers as its notice did, a failure as the same error.
         if opts.resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
@@ -748,6 +781,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // A queued prompt was accepted when it was queued; any other is, once its checks pass.
+        turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
         *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((turn_id.to_string(), false));
@@ -829,6 +864,14 @@ impl Hub {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
+        }
+        #[cfg(test)]
+        {
+            let seam = self.turn_shown_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
         }
         // Claim only after every dispatch fence that can refuse the prompt has passed. The
         // capability is one-use; every successful claim is finished below or on each early exit.
@@ -938,6 +981,12 @@ impl Hub {
             if let Some(key) = supersede.as_deref() {
                 let _ =
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
+            // From here a second copy of the prompt hears this turn (`pending_turn`).
+            if let Some(turn) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+                && turn.turn_id == turn_id
+            {
+                turn.accepted = true;
             }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
@@ -1755,6 +1804,9 @@ impl Hub {
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
                     }
+                    // A chat that took several corrections, kept now (`prompt_coach.rs`): settled
+                    // by this turn's own prompt only.
+                    self.coach_turn_ended(session, prompt_id, status == "completed");
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);

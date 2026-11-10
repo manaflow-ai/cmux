@@ -1350,3 +1350,44 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
     var(--acpmux-composer-shadow, var(--elevation-1));
 }
+/* App widgets (cmux.newtab.widget/1, ExtensionWidgets.tsx) sit in the widget row in its own inks and
+   type: a scene's default text is the row's muted caption, so an app's clock reads as the built-in one
+   does; a wide widget takes the row's whole width, as the greeting and the quote do. */
+.nt-ext-widget {
+  --acpmux-session-info-row-radius: var(--ds-radius-md);
+  min-width: 0;
+  color: inherit;
+}
+.nt-ext-widget[data-size="wide"],
+.nt-grid-cell-wide {
+  flex: 1 0 100%;
+}
+.nt-ext-widget .cmux-app-scene-root {
+  color: inherit;
+}
+/* A widget that failed or drew past its limits: its name and why, in the row's quiet ink. */
+.nt-ext-widget-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+/* A cell of the widget row in edit mode moves along the row: it keeps its own width. */
+.nt-extras[data-editing] {
+  align-items: center;
+  row-gap: var(--ds-space-3);
+}
+.nt-grid-frame {
+  width: auto;
+  align-items: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+}
+/* The drop mark is the focus ring's stroke, on the side the widget lands. */
+.nt-grid-frame[data-drop="before"] {
+  box-shadow: calc(-1 * var(--cmux-focus-ring-width, 1.5px)) 0 0 var(--agent-accent, var(--agent-text));
+}
+.nt-grid-frame[data-drop="after"] {
+  box-shadow: var(--cmux-focus-ring-width, 1.5px) 0 0 var(--agent-accent, var(--agent-text));
+}

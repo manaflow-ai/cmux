@@ -87,6 +87,8 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let native = |p: &&HarnessProfile| match agent {
         Agent::Claude => p.kind == HarnessKind::ClaudeStdio && p.argv.len() == 1,
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
+        // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
+        Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -101,19 +103,26 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         .collect();
     let argv: Vec<String> = match profile {
         Some(p) => p.argv.iter().map(|a| expand(a)).collect(),
-        None => vec![crate::config::which(agent.name())?],
+        None => vec![crate::config::which(agent.program())?],
     };
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude => None,
+        Agent::Claude | Agent::Cursor => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude => Vec::new(),
+        Agent::Claude | Agent::Cursor => Vec::new(),
     };
     Some(Cli { program, globals, env })
+}
+
+/// Whether `argv` runs Cursor's CLI: `cursor-agent` (or `agent`), then `acp`.
+fn cursor_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
+        && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
@@ -160,6 +169,7 @@ async fn signed_in(
     let canonical = machine.home.join(match agent {
         Agent::Claude => ".claude",
         Agent::Codex => ".codex",
+        Agent::Cursor => ".config/cursor",
     });
     if current.store(agent) == canonical
         && let Err(e) = machine.choose_own(agent)

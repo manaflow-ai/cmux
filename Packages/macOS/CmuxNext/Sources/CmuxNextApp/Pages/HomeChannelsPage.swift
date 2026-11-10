@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
+import CmuxNextCLIInstall
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -53,8 +54,11 @@ extension PageFactory {
     /// The React Messages page (``PageDescriptor/homeMessages``): the docked Home's Messages view
     /// (``HomeMessagesPage``). Its route serves the row and compose menus (``HomeConversationMenu``,
     /// ``HomePageMenus``), the runs, the unread colour and the traffic lights; ``HomeMessagesHostProvider``
-    /// serves its sheets, cards, colours and the conversation it shows.
-    func homeMessagesWebPage(dock: HomeDockView? = nil, widthKey: String) -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
+    /// serves its sheets, cards, colours and the conversation it shows. With `conversation` it is a
+    /// conversation tab's or the Chief panel's page (``HomeConversationPage``): that conversation
+    /// only, no list (`#/conversation/<id>`). `widthKey` keys the list column's width.
+    func homeMessagesWebPage(dock: HomeDockView? = nil, conversation: ConversationID? = nil, widthKey: String = "conversation")
+        -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
         let (home, registry, app) = (services.home, services.registry, services)
         let route = HomeMessagesPageRoute(menu: { id in
             let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
@@ -68,14 +72,22 @@ extension PageFactory {
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
         let host = HomeMessagesHostProvider(services: services, widthKey: widthKey)
-        let firstRun = HomeMessagesFirstRunProvider(sources: Self.firstRunSources(services), shown: { [weak host] in host?.shown })
+        let sources = Self.firstRunSources(services), firstRun = HomeMessagesFirstRunProvider(sources: sources, shown: { [weak host] in host?.shown })
+        let setup = SetupCardRoute(setup: app.onboarding.setup, agents: { [weak app] in app?.onboarding.signInHarnesses }, environment: SetupCardEnvironment( // HomeHostView+SetupCard.swift's
+            account: { [weak app] in (app?.cloud.auth.isSignedIn ?? false, app?.cloud.auth.user?.primaryEmail) }, signInAccount: { sources.perform("palette.auth.signIn") },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) }, installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak app] in app?.onboarding.show(step: .agents) }, historySources: { await sources.memoryOffer() != nil },
+            importHistory: { [weak app] in app.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false }))
         host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
-            + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)] + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
-            + [PageRoute(prefix: SetupCardRoute.prefix, provider: SetupCardRoute(setup: app.onboarding.setup, agents: { [weak app] in app?.onboarding.signInHarnesses }, environment: .app(app)))]
-        guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
+            + (HomeMessagesHostProvider.prefixes + [HomeMessagesHostProvider.feedPrefix]).map { PageRoute(prefix: $0, provider: host) }
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: SetupCardPageProvider.prefix, provider: setup),
+               PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
+               PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
+            + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
+        let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }
+        guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra, route: single) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)
         return (page, route, host)
@@ -102,7 +114,7 @@ extension PageFactory {
     /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
-    func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
+    func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = [], route: String? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief, page: descriptor.resource)
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
@@ -110,7 +122,7 @@ extension PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       editRoute] + extra
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        guard let page = PageWebView(descriptor: descriptor, routes: routes,
+        guard let page = PageWebView(descriptor: descriptor, routes: routes, route: route,
                                      options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in

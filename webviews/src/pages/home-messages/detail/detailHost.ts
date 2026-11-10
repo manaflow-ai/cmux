@@ -8,15 +8,29 @@
 //   linkPreview {url, kind, details} -> HomeLinkPreview
 //   openLink {url}: an app link or a path a chip opened (the host opens it, never the system)
 //   firstRun (stream) {introKind?, memoryOffer?, petShown?, shortcuts?, agents?, switchKeys?,
-//                      starters?}: the empty Chief chat's host facts (HomeHostView's setFirstRun*)
+//                      starters?}: the empty Chief chat's host facts (HomeMessagesFirstRun.swift)
+//   chief.settings {conversation, anchor: {x, y, width, height}}: the Chief's settings popover under
+//                      the name pill (a click only)
+//   chiefFace (stream) {conversation, picture?, text?}: the shown Chief's header avatar as the app reads it
+//   chiefPlace (stream) {conversation, chip: {tone, text, glyph, label, help}} | null: its location chip;
+//                      chief.place {conversation, anchor}: the Teleport menu under the chip (a click only)
+//   needsYou (stream) {route} | null: the shown Chief chat's pinned Needs you, the Feed page's own view
+//                      on `route` (cards/needsYou); while it shows, its cmux.feed.* calls go on the Feed's
+//                      relay and needsYou.action runs its cmux.app.action.run (a click only)
 //   bubble.facts {conversation} -> {linkScheme?, forward, share, retryReply, files}: what a bubble's
 //                      menu may offer in this conversation (bubbleMenu.ts)
 //   bubble.retryReply {conversation, message}, bubble.forward {text}, bubble.share {text | url},
 //   bubble.file {action, path | attachment {conversation, message, partIndex, part}}: its rows' runs
+//   toastAvoidance {rects: [{left, top, right, bottom}] | []}: the compose bar's box (viewport CSS
+//                      pixels), which the app's toasts rest above (HomePageToastAvoidance.swift)
+//   attachment.drag {conversation, message, partIndex, attachment}: the host drags the attachment out as
+//                      a Finder file promise while the press is held -> {started}
+// Stop, Stop all agents, Continue, Restart and Start now are transcript/chiefTurn.ts's.
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
-import type { HomeConversation } from "../../home-channels/types";
+import { toastAvoidanceReports, type ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
+import type { HomeAttachment, HomeConversation } from "../../home-channels/types";
 import { isPageError, type PageClient } from "../../shared/pageClient";
 import type { HeaderPanelState } from "../cards/header/HeaderPanelBar";
 import { HEADER_PANEL_STATE_EVENT, HEADER_PANEL_TOGGLE_OP } from "../cards/header/HeaderPanelBar";
@@ -41,12 +55,30 @@ export const DetailOps = {
   linkPreview: LINK_PREVIEW_OP,
   openLink: "cmux.home.messages.openLink",
   firstRun: "cmux.home.messages.firstRun",
+  chiefSettings: "cmux.home.messages.chief.settings",
+  chiefFace: "cmux.home.messages.chiefFace",
+  chiefPlace: "cmux.home.messages.chiefPlace",
+  chiefPlaceOpen: "cmux.home.messages.chief.place",
+  needsYou: "cmux.home.messages.needsYou",
+  needsYouAction: "cmux.home.messages.needsYou.action",
   bubbleFacts: "cmux.home.messages.bubble.facts",
   bubbleRetryReply: "cmux.home.messages.bubble.retryReply",
   bubbleForward: "cmux.home.messages.bubble.forward",
   bubbleShare: "cmux.home.messages.bubble.share",
   bubbleFile: "cmux.home.messages.bubble.file",
+  toastAvoidance: "cmux.home.messages.toastAvoidance",
+  attachmentDrag: "cmux.home.messages.attachment.drag",
 } as const;
+
+/** The `attachment.drag` params of `part`, the `partIndex`th part of `message` (its wire shape). */
+export function attachmentDragParams(
+  message: { id: string; conversation: string },
+  part: HomeAttachment,
+  partIndex: number,
+) {
+  const { type: _type, ...attachment } = part;
+  return { conversation: message.conversation, message: message.id, partIndex, attachment };
+}
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json | undefined =>
@@ -363,4 +395,12 @@ export function bubbleHostActions(host: PageClient | null) {
             },
       ),
   };
+}
+
+// ---------- Toast avoidance ----------
+
+/** The compose bars' reports to `host` (toastAvoidance.ts's stack, over this page's own op): the
+ * app's toasts rest above the newest mounted bar, and none once every bar is gone. */
+export function homeToastAvoidance(host: PageClient): ToastAvoidanceReports {
+  return toastAvoidanceReports((rects) => host.call(DetailOps.toastAvoidance, { rects }));
 }
