@@ -50,9 +50,10 @@ content's leading edge, has no leading fillet: the content's side continues stra
 tab's. The gray pill is gone.
 
 This is `chrome.cornerFlush` = `flush-goo`, now the default at every density
-(`CornerFlush.swift`). The default applies where the user's layout keeps the card it joins: a
-chrome style without the curved main pane (flat, bare, panes) or a set `layout.panePadding` keeps
-that layout and its gray selection (the folder tab puts each strip's first tab on the card's edge).
+(`CornerFlush.swift`). The default window (`appearance.chromeStyle` unset, which reads as `flat`)
+and every style with the card take it, with the card. A style the user picked without the card
+(bare, panes, flat-sidebar-line) or a set `layout.panePadding` keeps that layout and its gray
+selection (the folder tab puts each strip's first tab on the card's edge).
 A Debug Settings value applies as set. `off`, `flush` and `flush-tight` stay as Debug tunables. Tabs at the bottom
 of a pane get no folder.
 

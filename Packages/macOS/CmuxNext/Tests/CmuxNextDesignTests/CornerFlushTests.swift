@@ -1,5 +1,6 @@
 import CoreGraphics
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import Testing
 
 /// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): the folder tab (`flush-goo`) by default
@@ -12,17 +13,23 @@ import Testing
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
     }
 
-    /// The default folder tab keeps the layout the user chose: a chrome style without the curved main
-    /// pane keeps it off (and its gray selection); one with the card takes it.
-    @Test func theDefaultKeepsAFlatChromeStyle() {
-        guard CornerFlush.tunable.override == nil, DesignSettings.shared.paneChrome.padding == nil else { return }
+    /// The default folder tab applies to the default window (`appearance.chromeStyle` unset reads as
+    /// `flat`) and to every style with the card; a style the user picked without the card keeps its
+    /// layout and its gray selection.
+    @Test func theDefaultKeepsAPickedLayoutWithoutTheCard() {
+        guard CornerFlush.tunable.override == nil, ChromeTunables.mainPaneCurved.override == nil,
+              DesignSettings.shared.paneChrome.padding == nil else { return }
         let design = DesignSettings.shared
         let before = design.chromeStyle
         defer { design.chromeStyle = before }
-        design.chromeStyle = .flat
-        #expect(CornerFlush.current == .off, "a flat window keeps its layout")
-        design.chromeStyle = .card
-        #expect(CornerFlush.current == .goo, "the card takes the folder tab")
+        for style in [ChromeStyle.default, .flat, .card, .floating] {
+            design.chromeStyle = style
+            #expect(CornerFlush.current == .goo, "\(style) takes the folder tab")
+        }
+        for style in [ChromeStyle.bare, .panes, .flatSidebarLine] {
+            design.chromeStyle = style
+            #expect(CornerFlush.current == .off, "\(style) keeps its layout")
+        }
     }
 
     @Test func tightHasNoGapOnTheSidebarSide() {

@@ -47,17 +47,20 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     /// Debug opt-in; the folder tab is the selected state now (design/selected-is-foreground.md), and
     /// Compact is the default density, so it applies there too.
     ///
-    /// The default joins the selected tab to the card only where the user's own layout keeps that card:
-    /// a chrome style without the curved main pane (`appearance.chromeStyle` flat, bare, panes), a
-    /// Debug override that turns the curved pane off, or a set `layout.panePadding` keeps the
-    /// layout the user chose and its gray selection, since the folder tab needs the card and puts
-    /// each strip's first tab on the card's edge. A Debug Settings value for `chrome.cornerFlush`
-    /// applies as set.
+    /// The default joins the selected tab to the card (Leo, 2026-11-10: "We can go under that paradigm
+    /// instead of the current stuff that we have"), and the card with it, in the default window:
+    /// `appearance.chromeStyle` unset reads as `flat` (`ChromeStyleSetting.fallback`, never written to
+    /// the file), so `flat` takes the folder tab. A style the user picked that has no card (bare, panes,
+    /// flat-sidebar-line), a Debug override that turns the curved pane off, or a set
+    /// `layout.panePadding` keeps the layout chosen and its gray selection, since the folder tab
+    /// needs the card and puts each strip's first tab on the card's edge. A Debug Settings value for
+    /// `chrome.cornerFlush` applies as set.
     @MainActor public static var current: CornerFlush {
         if let set = tunable.override { return set }
         let design = DesignSettings.shared
-        let curved = ChromeTunables.mainPaneCurved.override ?? design.chromeStyle.curvedMainPane ?? ChromeTunables.mainPaneCurved.defaultValue
-        guard curved, design.paneChrome.padding == nil else { return .off }
+        guard ChromeTunables.mainPaneCurved.override != false, design.paneChrome.padding == nil else { return .off }
+        let style = design.chromeStyle
+        guard style == .default || style == .flat || style.curvedMainPane == true else { return .off }
         return tunable.defaultValue
     }
 
