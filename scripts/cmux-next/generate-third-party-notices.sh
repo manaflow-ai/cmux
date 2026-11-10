@@ -79,8 +79,9 @@ if [[ "$TUI_SOURCE" == tree && "$CHECK" == 1 ]]; then
   exit 2
 fi
 
-# Before any download: the tools below need Python 3.11 (tomllib). An older python3 ends the run
-# here with one line that names the needed version and the interpreter.
+# Before any git or curl call: the tools below need Python 3.11.4 (tomllib, and tarfile's extraction
+# filter). An older python3 ends the run here with one line that names the needed version and the
+# interpreter.
 python3 "$NOTICES/python_floor.py"
 
 iroh_rev="$(python3 -c 'import json, sys
