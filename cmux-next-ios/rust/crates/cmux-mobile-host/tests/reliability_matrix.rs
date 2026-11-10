@@ -12,7 +12,8 @@
 //! "toxic" pipe that adds one-way latency, random stalls (what loss does to an
 //! ordered stream: a retransmit holds everything behind it) and can go
 //! offline (pause) and come back without losing bytes, like a TCP or tunnel
-//! stream across a short outage.
+//! stream across a short outage. It holds about 4 MB in flight, as a socket
+//! buffer does; past that the sender waits.
 //!
 //! Degenerate axis: every cell runs a small variant and a god variant (a
 //! session list of thousands, MB-sized tool output, a backlog of tens of
@@ -106,7 +107,10 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let (tx, mut rx) = mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
+    // What the network holds in flight while it is down or slow: a sender's
+    // socket buffer and the path, about 4 MB (128 reads of up to 32 KB).
+    // Past it the writer waits, as a real socket's does.
+    let (tx, mut rx) = mpsc::channel::<(Instant, Vec<u8>)>(128);
     let reader = tokio::spawn(async move {
         let mut rng = seed | 1;
         let mut buffer = vec![0u8; 32 * 1024];
@@ -124,7 +128,7 @@ where
             if roll < toxics.stall_chance {
                 due += toxics.stall;
             }
-            if tx.send((due, buffer[..n].to_vec())).is_err() {
+            if tx.send((due, buffer[..n].to_vec())).await.is_err() {
                 return;
             }
         }
@@ -573,8 +577,17 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
         tokio::time::sleep(Duration::from_secs(3)).await;
         rig.toxic.come_back();
         let back = Instant::now();
-        let fresh = tokio::time::timeout(Duration::from_secs(30), time_list(&rig, 100)).await;
-        let fresh_ms = fresh.map(ms).unwrap_or(30_000.0);
+        // The link's own ping while the backlog drains: the phone's probe
+        // (2 s budget) redials a link whose pong is this late.
+        let ping_began = Instant::now();
+        let ping = tokio::time::timeout(Duration::from_secs(10), rig.phone.ping()).await;
+        let ping_ms = match ping {
+            Ok(Ok(_)) => ms(ping_began.elapsed()),
+            _ => 10_000.0,
+        };
+        // Under time_list's own 30 s bound, so a stuck list is reported, not a panic.
+        let fresh = tokio::time::timeout(Duration::from_secs(25), time_list(&rig, 100)).await;
+        let fresh_ms = fresh.map(ms).unwrap_or(25_000.0);
         let (drained, seqs) = drain.await.expect("drain task");
         let drained_ms = ms(back.elapsed());
         let link_up = rig.phone.closed_state().borrow().is_none();
@@ -583,12 +596,13 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
             cell,
             variant,
             json!({
-                "deltas": deltas, "received": seqs.len(), "fresh_list_ms": fresh_ms,
+                "deltas": deltas, "received": seqs.len(), "fresh_list_ms": fresh_ms, "ping_ms": ping_ms,
                 "backlog_drained_ms": drained_ms, "feed": format!("{drained:?}"), "link_up": link_up,
             }),
         );
         rig.finish().await;
         assert!(link_up, "{cell} {variant}: the link closed during a 3 s outage");
+        assert!(ping_ms < 2000.0, "{cell} {variant}: a ping took {ping_ms:.0} ms behind the backlog (the phone's probe gives up at 2 s and redials)");
         assert!(
             matches!(drained, Ok(Ok(()))),
             "{cell} {variant}: the feed ended before its backlog: {drained:?} after {} of {deltas} deltas",
