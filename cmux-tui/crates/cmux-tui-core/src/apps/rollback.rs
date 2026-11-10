@@ -420,11 +420,11 @@ mod tests {
 
     #[test]
     fn rollback_folder_names_are_unambiguous() {
-        let names: Vec<String> =
-            ["local/a~b", "local~a/b", "local/a%2Fb", "local/a/b", "x/é"].map(encode).into();
+        let apps = ["local/a~b", "local~a/b", "local/a%2Fb", "local/a/b", "x/é"];
+        let names: Vec<String> = apps.map(encode).into();
         let unique: BTreeSet<&String> = names.iter().collect();
         assert_eq!(unique.len(), names.len(), "{names:?}");
-        for (app, name) in ["local/a~b", "local~a/b", "local/a%2Fb", "x/é"].iter().zip(&names) {
+        for (app, name) in apps.iter().zip(&names) {
             assert_eq!(decode(name).as_deref(), Some(*app), "{name}");
         }
         assert_eq!(encode("local/spy"), "local%2Fspy");
