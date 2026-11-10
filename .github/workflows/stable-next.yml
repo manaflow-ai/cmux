@@ -246,8 +246,9 @@ jobs:
           # moved its feed again (NEXT_FEED_BASE), and every night re-tests the same build.
           age_h=""
           if [ -n "$PUBLISHED_AT" ]; then
-            age_h=$(( ($(date -u +%s) - $(date -u -d "$PUBLISHED_AT" +%s)) / 3600 ))
-            if [ "$age_h" -ge 48 ]; then
+            published_s="$(date -u -d "$PUBLISHED_AT" +%s 2>/dev/null || true)"
+            [ -z "$published_s" ] || age_h=$(( ($(date -u +%s) - published_s) / 3600 ))
+            if [ -n "$age_h" ] && [ "$age_h" -ge 48 ]; then
               echo "::warning title=cmux NEXT Stable::the newest nightly on $NEXT_FEED_BASE is ${age_h} h old (published $PUBLISHED_AT); check that nightly-next still publishes there"
             fi
           fi
@@ -313,8 +314,12 @@ jobs:
             echo "::notice title=cmux NEXT Stable::no stable build yet; the crash-class delta has no base"
             exit 0
           fi
-          base="$(curl -fsS --retry 3 -A cmux-stable-next/1 "$NEXT_FEED_BASE/notes/$served.json" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
+          # Notes of builds from before the feed move (2026-11-05) may sit only in the retired folder.
+          notes="$RUNNER_TEMP/served-notes.json"
+          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_FEED_BASE/notes/$served.json" \
+            || curl -fsS --retry 3 -A cmux-stable-next/1 -o "$notes" "$NEXT_VERDICTS_BASE/notes/$served.json" \
+            || { echo "::error title=cmux NEXT Stable::no notes/$served.json in $NEXT_FEED_BASE or $NEXT_VERDICTS_BASE"; exit 1; }
+          base="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$notes")"
           [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$served.json names no commit" >&2; exit 1; }
           git fetch --no-tags --depth=1 origin "$base" "$COMMIT"
           mkdir -p "$RUNNER_TEMP/base-tree" "$RUNNER_TEMP/head-tree"
@@ -645,9 +650,13 @@ jobs:
         run: |
           os="$(sw_vers -productVersion)"; echo "runner $RUNNER_NAME: $(sysctl -n machdep.cpu.brand_string), macOS $os"
           [ "${os%%.*}" = 26 ] || { echo "::error::smoke-26 needs macOS 26, $RUNNER_NAME has $os"; exit 1; }
+      # MACOS_RUNNER_26 can name an owned runner: a clone of its own, as smoke-27.
+      - name: Start a clean clone of the smoke scripts
+        run: rm -rf "$GITHUB_WORKSPACE/.stable-next-smoke"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          path: .stable-next-smoke
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/stable_next_ui_journey.py
@@ -659,9 +668,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: stable-next-signed
-          path: stable-signed
+          path: .stable-next-smoke/stable-signed
       - name: UI tests of cmux NEXT Stable (macOS 26)
         id: smoke
+        working-directory: .stable-next-smoke
         env:
           DMG: stable-signed/${{ needs.sign.outputs.dmg_name }}
           EXPECT_SHA256: ${{ needs.sign.outputs.dmg_sha256 }}
