@@ -75,6 +75,37 @@ where
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
 }
 
+/// The credentials and provider switches team mode must not keep, as the image's launcher clears
+/// them for a shared machine (`agent-auth.sh`): a personal token next to the pair would be sent to
+/// the team's endpoint (`ANTHROPIC_AUTH_TOKEN` outranks `ANTHROPIC_API_KEY`), and a provider switch
+/// would route the launch away from it.
+pub(crate) const TEAM_CLEARS: [&str; 6] = [
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+];
+
+/// Put team mode in a Claude launch's profile env: the pair, without [`TEAM_CLEARS`] in the
+/// profile, and with them on the list the launch removes from the inherited env
+/// (`routes::UNSET_KEY`, read by `agent/command.rs`), so none reaches the child.
+pub(crate) fn apply_team(env: &mut BTreeMap<String, String>, pair: [(String, String); 2]) {
+    let mut unset: Vec<String> = env
+        .get(crate::routes::UNSET_KEY)
+        .map(|list| list.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
+    for key in TEAM_CLEARS {
+        env.remove(key);
+        if !unset.iter().any(|k| k == key) {
+            unset.push(key.to_owned());
+        }
+    }
+    env.insert(crate::routes::UNSET_KEY.to_owned(), unset.join(","));
+    env.extend(pair);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +203,27 @@ mod tests {
         std::fs::remove_file(m.home.join(".claude/settings.json")).unwrap();
         std::fs::write(m.home.join(".claude.json"), r#"{"primaryApiKey":"sk-own"}"#).unwrap();
         assert_eq!(pair(&m, &[], true).await, None);
+    }
+
+    #[test]
+    fn team_mode_clears_personal_credentials_and_keeps_a_routes_list() {
+        let mut env = BTreeMap::from([
+            ("ANTHROPIC_AUTH_TOKEN".to_owned(), "personal".to_owned()),
+            ("CLAUDE_CODE_OAUTH_TOKEN".to_owned(), "personal".to_owned()),
+            (crate::routes::UNSET_KEY.to_owned(), "OPENAI_API_KEY".to_owned()),
+        ]);
+        let pair = [
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned()),
+            ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
+        ];
+        apply_team(&mut env, pair);
+        for key in TEAM_CLEARS {
+            assert!(!env.contains_key(key));
+        }
+        let unset: Vec<&str> = env[crate::routes::UNSET_KEY].split(',').collect();
+        assert_eq!(unset[0], "OPENAI_API_KEY");
+        assert!(TEAM_CLEARS.iter().all(|k| unset.contains(k)));
+        assert_eq!(env["ANTHROPIC_API_KEY"], PLACEHOLDER_KEY);
     }
 
     #[tokio::test]
