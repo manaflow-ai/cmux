@@ -64,6 +64,9 @@ ALLOWED_LISTENERS = {
     "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/newtab/ExtensionWidgets.tsx", "visibilitychange"): "stops the placed app widgets' "
+    "client while the page is hidden and starts it again when shown (#40270), so a hidden New Tab "
+    "runs no app code; off-screen work dropped, not a re-read of the page's data",
     (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
     "clock while the page is hidden (trayLinger.ts); reads no data",
     (f"{ACPMUX}/subagents/traySeen.ts", "focus"): "pauses the composer hat's linger clock while "
