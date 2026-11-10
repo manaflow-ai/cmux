@@ -284,6 +284,8 @@ const PREFERENCE_WORDS: &[&str] = &[
     "spawn",
     "subagent",
     "subagents",
+    "agent",
+    "agents",
     "without",
     "instead",
     "learned",
@@ -655,6 +657,20 @@ mod tests {
             assert_eq!(r.visibility, want, "{r:?}");
             assert!(!r.why.contains("you told me"), "{r:?}");
         }
+    }
+
+    #[test]
+    fn a_routing_word_is_never_a_topic_word() {
+        // Re-review of #40148: "agents" in a routing line matched every task about agents.
+        let learned = vec![
+            "- Don't spawn agents for quick lookups, do it yourself (learned 2026-11-10)"
+                .to_owned(),
+        ];
+        let go = |t: &str| route(t, Requested::Auto, &learned, &Rules::default());
+        let r = go("Title: Agent chat scroll\nFix the agent chat scroll bug");
+        assert_ne!(r.lifetime, Lifetime::Direct, "{r:?}");
+        let r = go("a quick lookup of the release date");
+        assert_eq!(r.lifetime, Lifetime::Direct, "{r:?}");
     }
 
     #[test]
