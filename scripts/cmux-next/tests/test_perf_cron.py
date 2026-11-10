@@ -152,6 +152,18 @@ class RegressionTests(unittest.TestCase):
         self.assertIsNone(cron.target_of("workspace_scaling.type.1000", row(99.0), 16.67),
                           "workspace scaling is advisory ratio-only")
 
+    def test_tab_churn_rows_have_a_part_and_their_targets(self):
+        """ask-8a0837950b: the tabs part measures every tabs.* row; key-to-visible rows keep the 10 ms latency target,
+        the socket-read close row and the burst's growth ratio their own budgets."""
+        self.assertEqual(cron.PART_BY_NAME["tabs"]["args"][-1], "--only=tabs")
+        self.assertEqual(cron.part_for_row("tabs.open.31.key_to_visible"), "tabs")
+        self.assertEqual(cron.part_for_row("tabs.new_terminal.growth@cmux20-bench"), "tabs")
+        self.assertTrue(cron.over_target("tabs.close.1.key_to_visible", row(12.0), 8.33))
+        self.assertFalse(cron.over_target("tabs.close_terminal.key_to_state", row(20.0, budget=33.3), 8.33))
+        self.assertTrue(cron.over_target("tabs.close_terminal.key_to_state", row(40.0, budget=33.3), 8.33))
+        self.assertTrue(cron.over_target("tabs.new_terminal.growth", row(1.6, "x", 0.1, 1.25), 8.33))
+        self.assertFalse(cron.over_target("tabs.new_terminal.growth", row(1.1, "x", 0.1, 1.25), 8.33))
+
     def test_a_new_perf_gate_failure_regresses(self):
         regs = cron.find_regressions({"perf_gate.tabs.failed_checks": row(1, "checks", 0.5)},
                                      {"perf_gate.tabs.failed_checks": row(0, "checks", 0.5)}, None, None, budgets_mod)
