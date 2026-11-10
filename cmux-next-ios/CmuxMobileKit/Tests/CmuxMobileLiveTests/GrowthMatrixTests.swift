@@ -4,9 +4,6 @@ import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
-#if canImport(UIKit)
-import UIKit
-#endif
 
 // iOS reliability matrix: memory and disk growth per operation, and a memory
 // warning in the middle of a reconnect (cmux-next-ios/reliability-matrix/cells.json,
@@ -44,6 +41,18 @@ enum GrowthProbe {
     /// ... and each operation between N=10 and N=200 at most this much.
     static let memoryPerOperation: Int64 = 4 << 10
     static let diskPerOperation: Int64 = 64
+
+    /// The median of three footprint reads, yielding between them: one read can land on a
+    /// fresh allocator region (1 or 8 MiB) that holds no leak.
+    @MainActor
+    static func settledFootprint() async -> Int64 {
+        var reads: [Int64] = []
+        for _ in 0 ..< 3 {
+            for _ in 0 ..< 20 { await Task.yield() }
+            reads.append(footprint())
+        }
+        return reads.sorted()[1]
+    }
 
     /// The process's footprint in bytes, after the allocator gives back what it can.
     static func footprint() -> Int64 {
@@ -128,11 +137,11 @@ enum GrowthProbe {
             for _ in 0 ..< 50 { await Task.yield() }
         }
         try await run(to: warmUp)
-        let memory0 = footprint(), disk0 = diskBytes(roots)
+        let memory0 = await settledFootprint(), disk0 = diskBytes(roots)
         try await run(to: warmUp + small)
-        let memory1 = footprint(), disk1 = diskBytes(roots)
+        let memory1 = await settledFootprint(), disk1 = diskBytes(roots)
         try await run(to: warmUp + large)
-        let memory2 = footprint(), disk2 = diskBytes(roots)
+        let memory2 = await settledFootprint(), disk2 = diskBytes(roots)
         let sample = Sample(memorySmall: memory1 - memory0, memoryLarge: memory2 - memory0,
                             diskSmall: disk1 - disk0, diskLarge: disk2 - disk0)
         report(cell, "n10-vs-n200", [
@@ -455,15 +464,13 @@ struct GrowthMatrixTests {
             return
         }
 
-        let pressure = MemoryPressure(observesSystem: true)
+        // A pressure of its own, relieved directly (as cellAppMemoryWarning does): the system
+        // notification would also relieve MemoryPressure.shared under other suites' stores.
+        let pressure = MemoryPressure(observesSystem: false)
         let owner = NSObject()
         var relieved = 0
         pressure.register(owner) { relieved += 1 }
-        #if canImport(UIKit)
-        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
-        #else
         pressure.relieve()
-        #endif
         try await until("memory warning handled") { relieved == 1 }
         if case .connecting = controller.phase {} else {
             Issue.record("the memory warning moved the reconnect to \(controller.phase)")

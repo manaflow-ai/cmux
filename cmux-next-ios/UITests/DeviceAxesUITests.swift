@@ -52,7 +52,7 @@ final class DeviceAxesUITests: XCTestCase {
         assertInsideWindow(row, app, "the AX5 row")
         attach(app, "ax5-list")
         row.tap()
-        XCTAssertTrue(app.collectionViews["workspaces.list"].waitForNonExistence(timeout: 10) || !row.isHittable,
+        XCTAssertTrue(app.collectionViews["workspaces.list"].waitForNonExistence(timeout: 10) || !(row.exists && row.isHittable),
                       "the tap did not open the workspace at AX5")
         attach(app, "ax5-workspace")
     }
@@ -88,10 +88,10 @@ final class DeviceAxesUITests: XCTestCase {
 
         row.tap()
         let list = app.collectionViews["workspaces.list"]
-        XCTAssertTrue(list.waitForNonExistence(timeout: 10) || !row.isHittable, "the tap did not open the workspace")
+        XCTAssertTrue(list.waitForNonExistence(timeout: 10) || !(row.exists && row.isHittable), "the tap did not open the workspace")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertFalse(row.isHittable, "a rotation closed the open workspace")
+        XCTAssertFalse(row.exists && row.isHittable, "a rotation closed the open workspace")
         attach(app, "rotation-workspace")
     }
 

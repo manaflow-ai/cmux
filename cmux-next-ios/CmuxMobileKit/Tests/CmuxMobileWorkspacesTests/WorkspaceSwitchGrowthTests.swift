@@ -63,12 +63,21 @@ struct WorkspaceSwitchGrowthTests {
             }
             for _ in 0 ..< 50 { await Task.yield() }
         }
+        // The median of three reads: one can land on a fresh allocator region with no leak in it.
+        func memory() async -> Int64 {
+            var reads: [Int64] = []
+            for _ in 0 ..< 3 {
+                for _ in 0 ..< 20 { await Task.yield() }
+                reads.append(SwitchGrowth.footprint())
+            }
+            return reads.sorted()[1]
+        }
         await run(to: 10)
-        let memory0 = SwitchGrowth.footprint(), disk0 = SwitchGrowth.diskBytes()
+        let memory0 = await memory(), disk0 = SwitchGrowth.diskBytes()
         await run(to: 20)
-        let memory1 = SwitchGrowth.footprint(), disk1 = SwitchGrowth.diskBytes()
+        let memory1 = await memory(), disk1 = SwitchGrowth.diskBytes()
         await run(to: 210)
-        let memory2 = SwitchGrowth.footprint(), disk2 = SwitchGrowth.diskBytes()
+        let memory2 = await memory(), disk2 = SwitchGrowth.diskBytes()
         let memorySmall = memory1 - memory0, memoryLarge = memory2 - memory0
         let diskSmall = disk1 - disk0, diskLarge = disk2 - disk0
         let memoryPerOperation = (memoryLarge - memorySmall) / 190
