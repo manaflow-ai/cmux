@@ -79,6 +79,11 @@ pub struct Route {
 }
 
 impl Route {
+    /// This route as a shown Workspace (`why`), for a subagent only its own tab can serve.
+    pub fn shown(self, why: &str) -> Route {
+        Route::workspace(Visibility::Shown, why.to_owned())
+    }
+
     fn direct(why: String) -> Route {
         Route {
             lifetime: Lifetime::Direct,
@@ -635,6 +640,15 @@ mod tests {
             wire,
             json!({"creator": "chief", "lifetime": "workspace", "visibility": "tucked", "expires_ms": 1000})
         );
+    }
+
+    #[test]
+    fn a_subagent_that_asks_before_it_acts_is_shown_never_tucked_or_reaped() {
+        let r = auto("open a terminal and tail the log").shown("it asks before it acts");
+        let mut made = Made::of(&r);
+        assert_eq!(made.visibility, Some(Visibility::Shown));
+        made.ended(1_000);
+        assert!(!reap_due(Some(&made), true, u64::MAX));
     }
 
     #[test]

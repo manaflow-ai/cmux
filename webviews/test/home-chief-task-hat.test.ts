@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chiefTasks, HAT_TTL_MS, nextExpiry } from "../src/pages/home-channels/chiefTasks";
+import { chiefTasks, HAT_TTL_MS, nextExpiry, TASK_GONE_MS, TASK_STALL_MS } from "../src/pages/home-channels/chiefTasks";
 import { HAT_NOW, hatRuns, noteRun, spawnRun } from "../src/pages/home-channels/chiefTasksFixtures";
 import { RunBook } from "../src/pages/home-channels/runs";
 import type { HomeRunChange } from "../src/pages/home-channels/types";
@@ -41,5 +41,29 @@ test("a stall marks a task once and its report still ends it", () => {
   ];
   expect(tasksOf(runs)).toEqual([
     { id: "a9", title: "count tests", state: "done", startedAt: HAT_NOW - 60_000, endedAt: HAT_NOW - 40_000, result: "Counted 12 flaky tests." },
+  ]);
+});
+
+test("a cancel the Chief sends ends the row; one never heard of stalls, then leaves", () => {
+  const start = HAT_NOW - 60_000;
+  const spawn = spawnRun("s", start, [["a7", "count tests", "hidden: a background task with no sidebar workspace (auto)"]]);
+  const cancel = spawnRun("c", HAT_NOW - 30_000, []);
+  cancel.steps.push({
+    id: "c-control", seq: 1, at: HAT_NOW - 30_000, rev: 1, kind: "tool", attachments: [], links: [],
+    tool: { name: "mcp__optchat__control", input: { action: "cancel", id: "a7" }, files: [] },
+  });
+  expect(tasksOf([spawn, cancel]).map((t) => t.state)).toEqual(["stopped"]);
+  expect(tasksOf([spawn], start + TASK_STALL_MS).map((t) => t.state)).toEqual(["stalled"]);
+  expect(tasksOf([spawn], start + TASK_GONE_MS)).toEqual([]);
+});
+
+test("each Chief's a1 is its own task", () => {
+  const mine = spawnRun("m", HAT_NOW - 60_000, [["a1", "Title: Mine\nx", "hidden: a background task"]]);
+  const theirs = spawnRun("t", HAT_NOW - 50_000, [["a1", "Title: Theirs\ny", "hidden: a background task"]]);
+  theirs.run = { ...theirs.run, author: "chief-2" };
+  const report = noteRun("r", HAT_NOW - 10_000, "a1", "done");
+  expect(tasksOf([mine, theirs, report]).map((t) => [t.title, t.state])).toEqual([
+    ["Theirs", "running"],
+    ["Mine", "done"],
   ]);
 });

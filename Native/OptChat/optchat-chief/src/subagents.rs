@@ -1128,7 +1128,12 @@ impl Spawner {
         // folder missing here fails, so the subagent got no workspace (a511).
         // Its lifetime (action_lifetime.rs): a background Task has no workspace, a tucked
         // Workspace joins the collapsed Chief group and closes when its work ends.
-        let route = self.lifetime(task);
+        // One that runs with policy ask always shows: only its tab can allow its prompts, so it
+        // is never tucked or reaped.
+        let mut route = self.lifetime(task);
+        if spec.policy == crate::approval::ASK {
+            route = route.shown("it asks before it acts");
+        }
         let made = crate::action_lifetime::Made::of(&route);
         let slot_place = (
             if made.tucked() {

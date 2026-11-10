@@ -10,6 +10,14 @@ import type { HomeRunStep } from "./types";
 
 /** How long a finished task stays in the hat (action_lifetime.rs `HAT_TTL`). */
 export const HAT_TTL_MS = 10 * 60_000;
+/** A Task is short by its routing (a long one gets a workspace): one with no end after this shows
+ * as stalled, once, and is never prodded. */
+export const TASK_STALL_MS = 30 * 60_000;
+/** A task with no end after this leaves the hat: a stop the page never heard of (a cancel from
+ * the agent's own chat) ended it. */
+export const TASK_GONE_MS = 3 * 3600_000;
+const CONTROL_TOOLS = new Set(["control", "optchat.control", "mcp__optchat__control"]);
+const ENDING_ACTIONS = new Set(["cancel", "stop", "interrupt"]);
 /** The newest runs of a conversation read for tasks. */
 export const MAX_RUNS = 40;
 /** Characters of a result line. */
@@ -69,6 +77,16 @@ function spawned(step: HomeRunStep): ChiefTask[] {
   return out;
 }
 
+/** The task a `control cancel` step of the Chief stopped. */
+function cancelled(step: HomeRunStep): string | undefined {
+  const tool = step.tool;
+  if (step.kind !== "tool" || !tool || !CONTROL_TOOLS.has(tool.name)) return undefined;
+  const input = tool.input as { action?: unknown; id?: unknown } | undefined;
+  return typeof input?.action === "string" && ENDING_ACTIONS.has(input.action) && typeof input.id === "string"
+    ? input.id
+    : undefined;
+}
+
 /** What a note says of a task: `[aN] text` ends it; `[aN] is stuck: …` marks it stalled once. */
 function noted(step: HomeRunStep): { id: string; text: string } | undefined {
   if (step.kind !== "note") return undefined;
@@ -80,12 +98,20 @@ function noted(step: HomeRunStep): { id: string; text: string } | undefined {
  * finished ones not yet expired (latest first). */
 export function chiefTasks(entries: readonly RunEntry[], now: number): ChiefTask[] {
   const runs = [...entries].sort((a, b) => a.run.startedAt - b.run.startedAt).slice(-MAX_RUNS);
+  // Subagent ids are each Chief's own: a task is keyed by its Chief (the run's author) too.
   const tasks = new Map<string, ChiefTask>();
-  for (const { steps } of runs) {
+  for (const { run, steps } of runs) {
+    const key = (id: string) => `${run.author}\0${id}`;
     for (const step of steps) {
-      for (const task of spawned(step)) tasks.set(task.id, task);
+      for (const task of spawned(step)) tasks.set(key(task.id), task);
+      const stop = cancelled(step);
+      const stopping = stop ? tasks.get(key(stop)) : undefined;
+      if (stopping && (stopping.state === "running" || stopping.state === "stalled")) {
+        stopping.state = "stopped";
+        stopping.endedAt = step.at;
+      }
       const note = noted(step);
-      const task = note && tasks.get(note.id);
+      const task = note && tasks.get(key(note.id));
       if (!note || !task || task.state === "done" || task.state === "stopped") continue;
       if (note.text.startsWith("is stuck")) {
         task.state = "stalled";
@@ -97,7 +123,8 @@ export function chiefTasks(entries: readonly RunEntry[], now: number): ChiefTask
       task.result = clip(stopped ? note.text.replace(/^\(|\)$/g, "") : note.text);
     }
   }
-  const all = [...tasks.values()];
+  const all = [...tasks.values()].filter((t) => t.endedAt !== undefined || now - t.startedAt < TASK_GONE_MS);
+  for (const t of all) if (t.state === "running" && now - t.startedAt >= TASK_STALL_MS) t.state = "stalled";
   const live = all.filter((t) => t.state === "running" || t.state === "stalled");
   const ended = all
     .filter((t) => t.endedAt !== undefined && now - t.endedAt < HAT_TTL_MS)

@@ -1795,7 +1795,9 @@ impl Brain {
         // The close setting closes every finished one and forgets it; a short
         // task closes only while none of its terminals runs a command, and its
         // key is forgotten once that close succeeds (a kept one stays).
-        let explicit = self.sub_close_on_finish || reap;
+        // The reaper closes a tucked workspace like a short task's: only while none of its
+        // terminals runs a command, so a shell the person started there is never ended.
+        let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.workspace = None;
