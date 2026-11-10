@@ -2193,9 +2193,9 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
-mod prompt_coach;
 mod plan_build;
 mod project_new;
+mod prompt_coach;
 mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
