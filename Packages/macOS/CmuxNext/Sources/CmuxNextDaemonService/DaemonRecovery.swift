@@ -68,7 +68,7 @@ public final class DaemonRecovery {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// App health holds replacements (``AppHealth/holdsReplace``: the owner is restoring and still
     /// makes progress): the watch's automatic restart waits; a person's Restart still runs.
-    @ObservationIgnored public var holdsReplace: () -> Bool = { false }
+    @ObservationIgnored public var holdsReplace: @Sendable () -> Bool = { false }
 
     /// When failed starts count as cmux-tui being down (``startFailurePersists``): a full disk at once, because only
     /// the person can free space; any other failure once at least ``failedStarts`` starts in a row failed over at
@@ -252,9 +252,12 @@ public final class DaemonRecovery {
         let source = automatic ? "automatic" : "requested"
         var replaced = false
         do {
-            let result = try await launcher.replaceUnresponsive()
+            // The automatic restart asks app health again just before the replace starts; a person's Restart runs regardless.
+            let result = try await launcher.replaceUnresponsive(unlessHeld: automatic ? holdsReplace : nil)
             replaced = true
             logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
+        } catch let refusal as DaemonLauncher.ReplaceRefusal where refusal.code == DaemonLauncher.ReplaceRefusal.heldCode {
+            logger.notice("cmux-tui automatic restart held at its start: the owner is restoring and still makes progress")
         } catch {
             restartFailure = String(describing: error)
             requestedRestartFailed = !automatic

@@ -46,7 +46,13 @@ jobs:
       - name: Shared iOS packages match their upstream branches
         run: |
           set -euo pipefail
-          if cmux-next-ios/scripts/check-tabskit-sync.sh --ref HEAD | tee "$RUNNER_TEMP/sync.txt"; then
+          # The upstream tips alone, like the checkout: the check compares
+          # tree ids, and a plain fetch from a shallow clone would pull each
+          # upstream branch's whole history.
+          for branch in feat-imsg-parity-gui feat-cmux-next-tabs-kit; do
+            git fetch --quiet --depth 1 --filter blob:none origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+          done
+          if cmux-next-ios/scripts/check-tabskit-sync.sh --ref HEAD --no-fetch | tee "$RUNNER_TEMP/sync.txt"; then
             exit 0
           fi
           {
