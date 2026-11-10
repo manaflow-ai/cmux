@@ -7,7 +7,7 @@ import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
 import { CONNECT_RETURN_TO } from "@cmux/protocol"
-import { CONFIGURE_URL_PATTERN, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
+import { CONFIGURE_URL_PATTERN, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -466,6 +466,11 @@ describe("connections end to end (workerd)", () => {
   it("the dashboard callback checks the same return and configure grammars as the API", () => {
     expect(RETURN_TO_PATTERN.source).toBe(CONNECT_RETURN_TO.source)
     expect(CONFIGURE_URL_PATTERN.source).toBe(GITHUB_CONFIGURE_URL.source)
+    // What the callback page follows: only these, from the completion's answer.
+    expect(integrationReturnLink({ return_to: "cmux-nightly://session/ses-01#turn-turn_7" })).toBe("cmux-nightly://session/ses-01#turn-turn_7")
+    for (const bad of ["https://evil.example/x", "javascript:alert(1)", "//evil.example", "cmux://evil.example/session/a", "cmux://auth-callback/x", `cmux://session/${"a".repeat(600)}`, 42]) expect(integrationReturnLink({ return_to: bad })).toBeUndefined()
+    expect(integrationConfigureLink({ configure_url: "https://github.com/organizations/acme/settings/installations/42" })).toBe("https://github.com/organizations/acme/settings/installations/42")
+    for (const bad of ["https://github.com.evil.example/settings/installations/42", "https://evil.example/settings/installations/42", "javascript:alert(1)"]) expect(integrationConfigureLink({ configure_url: bad })).toBeUndefined()
   })
 
   it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {
