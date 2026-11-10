@@ -5,6 +5,7 @@ mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
 mod agent_hooks_at_rest;
+mod agent_reports_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
