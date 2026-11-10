@@ -91,5 +91,27 @@ class LaunchTests(unittest.TestCase):
         self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
 
 
+class GrantTests(unittest.TestCase):
+    def test_grant_only_for_the_launched_app(self):
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--grant-claude-login"])
+        args = matrix.parse_args(["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
+                                  "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x",
+                                  "--grant-claude-login"])
+        self.assertTrue(args.grant_claude_login)
+
+    def test_grant_is_reset_on_quit(self):
+        args = matrix.parse_args(["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
+                                  "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x",
+                                  "--grant-claude-login"])
+        m = matrix.Matrix(args)
+        calls = []
+        m.cmux = lambda *words, timeout=120: (calls.append(words), (0, "true", ""))[1]
+        self.assertEqual(m.grant_claude_login(), "")
+        m.quit()
+        self.assertEqual(calls[0], ("settings", "set", matrix.CLAUDE_LOGIN_SETTING, "true", "--yes"))
+        self.assertIn(("settings", "reset", matrix.CLAUDE_LOGIN_SETTING, "--yes"), calls)
+
+
 if __name__ == "__main__":
     unittest.main()

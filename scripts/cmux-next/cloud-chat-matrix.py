@@ -77,6 +77,9 @@ def parse_args(argv=None):
     parser.add_argument("--cloud-backend", choices=("staging", "prod"), help="with --app")
     parser.add_argument("--expected-api-origin", help="with --app")
     parser.add_argument("--credentials-file", help="with --app: a 0600 Stack credentials file the app reads")
+    parser.add_argument("--grant-claude-login", action="store_true",
+                        help="with --app: turn on Use My Claude Login on My Own Cloud Machines in the launched app "
+                             "for the run, then reset it (a claude chat waits for that consent otherwise)")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -93,6 +96,9 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.app and not (args.cloud_backend and args.expected_api_origin):
         parser.error("--app needs --cloud-backend and --expected-api-origin")
+    if args.grant_claude_login and not args.app:
+        # Never on --cli: that is a person's own app, and their consent is theirs to give.
+        parser.error("--grant-claude-login works only with --app, the app this run launches")
     # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
     # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
     args.parallel = max(1, min(args.parallel, 2))
@@ -371,6 +377,9 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     return argv + [str(Path(app).resolve()), "--args", "--cloud-backend", backend]
 
 
+CLAUDE_LOGIN_SETTING = "cloud.useMyClaudeLoginOnMyCloudMachines"
+
+
 class Matrix:
     def __init__(self, args):
         self.args = args
@@ -380,6 +389,7 @@ class Matrix:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
             self.env.update(CMUX_SOCKET_PATH=socket, CMUX_NEXT_SOCKET_PATH=socket)
         self.launcher = None
+        self.granted = False
         self.lock = threading.Lock()
         self.machines: set[str] = set()
 
@@ -442,9 +452,27 @@ class Matrix:
                 if time.monotonic() >= deadline:
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
+        if args.grant_claude_login:
+            return self.grant_claude_login()
+        return ""
+
+    def grant_claude_login(self) -> str:
+        """The one-time consent a claude chat on the person's own machine waits for (CloudStartSession
+        consentFirst), given in the app this run launched and reset in quit(). Run 42864046223 failed
+        all 20 cells on it: the CI app starts with the setting off, its default."""
+        code, out, err = self.cmux("settings", "set", CLAUDE_LOGIN_SETTING, "true", "--yes", timeout=60)
+        if code != 0:
+            return f"could not turn on {CLAUDE_LOGIN_SETTING}: {clean(err or out, 300)}"
+        self.granted = True
+        code, out, err = self.cmux("settings", "get", CLAUDE_LOGIN_SETTING, timeout=60)
+        if code != 0 or "true" not in (out or "").lower():
+            return f"{CLAUDE_LOGIN_SETTING} did not read back as on: {clean(err or out, 300)}"
         return ""
 
     def quit(self) -> None:
+        if self.granted:
+            self.cmux("settings", "reset", CLAUDE_LOGIN_SETTING, "--yes", timeout=60)
+            self.granted = False
         if self.launcher is not None:
             self.cmux("app", "quit", "--json", timeout=30)
             try:
