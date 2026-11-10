@@ -89,7 +89,7 @@ jobs:
   app:
     name: chief thread structure (app, newest Nightly)
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
     # It checks the feed's build, which this pull request did not make: its verdict is evidence here
     # (the job summary), the nightly's own step is the gate.
@@ -100,8 +100,11 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci
+            scripts/select-ci-xcode.sh
             tests/ui-structure
           sparse-checkout-cone-mode: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Download the newest Nightly build
         run: |
           set -euo pipefail
