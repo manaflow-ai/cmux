@@ -95,7 +95,7 @@ struct PaneCloseCameraGroundTests {
 
     /// The time between two closes, in frames at 120 Hz, from 50 ms to past the first close's landing (about 160 ms; the
     /// loop then closes the second pane at rest).
-    static let gaps = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22]
+    nonisolated static let gaps = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22]
 
     /// MOTION TOKENS CLEANUP, the ground rule for any time between two last-column closes (the layout of
     /// `twoLastColumnClosesInARowLeaveNoGroundPastTheStrip`, which closes six frames apart only). The second close finds its
