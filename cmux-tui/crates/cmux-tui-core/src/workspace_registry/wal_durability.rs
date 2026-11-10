@@ -409,12 +409,18 @@ fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
 /// syncer for one PASSIVE checkpoint and wait for its end, at most
 /// [`RESTART_WAIT`]. This thread owns the writing connection, so the
 /// checkpoint sees no new commit and the next commit restarts the WAL.
+///
+/// A thread that holds the mux state lock makes no try: its wait would hold
+/// every reader of the state behind the disk (`registry_intent`: "No request
+/// waits for the disk while it holds the mux state lock"). The point of the
+/// next try stays, so the next commit of a thread without that lock makes it.
 fn wait_for_restart_checkpoint(shared: &Shared, state: MutexGuard<'_, SyncState>, frames: u64) {
     if frames.saturating_mul(shared.frame_bytes) <= WAL_SIZE_LIMIT_BYTES
         || frames < state.restart_try_frames
         || state.leftover_owed
         || state.leftover_running
         || state.stopping
+        || super::registry_connection::current_thread_holds_state()
     {
         return;
     }
