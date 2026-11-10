@@ -18,6 +18,9 @@
 // that handshake. Measures navigation and tail-request origins separately; neither is a Mac click.
 // REVEAL=1 also opens an offscreen message after the chat settles, then records scroll drift
 // from its first visible frame, delayed scrollIntoView calls and transcript-wide row scans.
+// FIXTURE=god opens the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
+// subagents, images, months of history) instead of the TURNS-turn chat, and names every row chat_open.god.*: a row
+// pairs with its ordinary twin by dropping `.god` (chat_open.god.compact.latest, chat_open.compact.latest).
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -27,10 +30,13 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { perfRow, TARGET_MS } from "./perfRow";
+import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
+import { perfRow as printRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
+const FIXTURE = benchFixture();
+const perfRow = scaledPerfRow(printRow, FIXTURE);
 /// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
 /// the open's serial round trips before its newest message show as multiples of it.
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -43,17 +49,19 @@ if (REMOTE_TAIL !== undefined && REMOTE_TAIL !== "present" && REMOTE_TAIL !== "a
 const PEER_CONNECT_MS = REMOTE_TAIL ? Number(process.env.PEER_CONNECT_MS ?? 2000) : 0;
 if (!Number.isFinite(PEER_CONNECT_MS) || PEER_CONNECT_MS < 0) throw new Error("PEER_CONNECT_MS must be non-negative");
 const REVEAL = process.env.REVEAL === "1";
+if (REVEAL && FIXTURE === "god")
+  throw new Error("REVEAL=1 reveals a row of the TURNS-turn chat; run it without FIXTURE=god");
 const REVEAL_MESSAGE = "bench-reveal";
 const REVEAL_TURN = Math.max(1, TURNS - 40);
 const REVEAL_ROW = `assistant-${(REVEAL_TURN - 1) * 4 + 3}`;
 const webviews = path.resolve(import.meta.dir, "..");
-const LATEST = `Answer ${TURNS}:`;
+const LATEST = FIXTURE === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
 
-const { events, session } = papercutEvents({
-  turns: TURNS,
-  running: false,
-  ...(REMOTE_TAIL ? { session: { peer: "bench-vm", createdAt: 100 } } : {}),
-});
+const remoteFields = REMOTE_TAIL ? { peer: "bench-vm", createdAt: 100 } : {};
+const { events, session } =
+  FIXTURE === "god"
+    ? godChat(PAPERCUT_CHAT, remoteFields)
+    : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
 if (REVEAL) {
   const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
   const update = (event.msg.params as { update: Record<string, unknown> }).update;
@@ -781,7 +789,7 @@ try {
     const median = (pick: (r: Round) => number) =>
       rounds.map(pick).sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
     console.log(
-      `chat-open [rail ${arm}]: ${TURNS} turns, answers delayed ${LATENCY} ms (host ${HOST_LATENCY} ms), ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
+      `chat-open [rail ${arm}]: ${FIXTURE === "god" ? "the god session" : `${TURNS} turns`}, answers delayed ${LATENCY} ms (host ${HOST_LATENCY} ms), ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
     );
     console.log(
       "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",

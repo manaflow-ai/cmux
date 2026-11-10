@@ -421,8 +421,8 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
 /// cmux-action-catalog's tests both check against the catalog the app reads.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let dump = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../plans/cmux-next/action-catalog.json");
+    let dump =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plans/cmux-next/action-catalog.json");
     let Ok(text) = std::fs::read_to_string(&dump) else { return };
     let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
