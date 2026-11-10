@@ -171,6 +171,32 @@ pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
     !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
 }
 
+/// The state word of the newest report the agent in `terminal` gave of
+/// itself: its own daemon agent records ([`reported_by_agent`]: hooks or
+/// the socket, not the screen-detection plugin) and its program status
+/// records (OSC 7501 with an `app`), compared by `updated_at_ms`. `None`
+/// when it gave none, as an agent without hooks does.
+pub(in crate::cli) fn own_report_state<'a>(
+    terminal: &'a Value,
+    agents: &'a [Value],
+) -> Option<&'a str> {
+    let id = terminal.get("id").and_then(Value::as_str)?;
+    let records = agents
+        .iter()
+        .filter(|record| record.get("terminal_id").and_then(Value::as_str) == Some(id))
+        .filter(|record| reported_by_agent(record));
+    let statuses = terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| record.get("app").and_then(text).is_some());
+    records
+        .chain(statuses)
+        .max_by_key(|record| record.get("updated_at_ms").and_then(number).unwrap_or(0))
+        .and_then(|record| record.get("state").and_then(Value::as_str))
+}
+
 /// Whether the hooks cmux installs for `harness` (any alias,
 /// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
 /// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook

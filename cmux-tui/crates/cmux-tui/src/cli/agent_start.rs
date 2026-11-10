@@ -340,8 +340,10 @@ fn print_report(output: OutputMode, report: &Value, exit: i32) -> i32 {
 pub(in crate::cli) fn human(report: &Value) -> String {
     let field = |key: &str| report[key].as_str().unwrap_or("-").to_owned();
     let who = report["name"].as_str().map_or_else(|| field("terminal_id"), str::to_owned);
-    let state = match report["dialog"]["kind"].as_str().or_else(|| report["dialog"].as_str()) {
-        Some(dialog) => format!("{} ({dialog})", field("state")),
+    let dialog = report.get("dialog");
+    let kind = dialog.and_then(|dialog| dialog.get("kind")).and_then(Value::as_str);
+    let state = match kind.or_else(|| dialog.and_then(Value::as_str)) {
+        Some(word) => format!("{} ({word})", field("state")),
         None => field("state"),
     };
     let mut line = format!(
@@ -423,8 +425,11 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
 /// how to answer.
 fn add_dialog_options(report: &mut Value, dialog: &str, screen: &str, who: &str) {
     let object = dialog_options::dialog_json(dialog, None, screen);
-    if object["options"].as_array().is_some_and(|options| !options.is_empty()) {
-        report.set("options", object["options"].clone());
+    if let Some(options) = object
+        .get("options")
+        .filter(|options| options.as_array().is_some_and(|options| !options.is_empty()))
+    {
+        report.set("options", options.clone());
     }
     report.set("dialog", object);
     if dialog != "folder_trust" {

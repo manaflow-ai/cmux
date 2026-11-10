@@ -241,7 +241,7 @@ fn answer(
     record: Value,
     started: Instant,
 ) -> (Value, i32) {
-    let id = record["id"].as_str().unwrap_or_default().to_owned();
+    let id = record.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let mut answer = json!({
         "terminal_id": id,
         "until": until.as_str(),
@@ -297,7 +297,7 @@ fn print_answer(global: &GlobalArgs, answer: &Value, exit: i32) -> i32 {
         return if code == 0 { exit } else { code };
     }
     let field = |key: &str| answer[key].as_str().unwrap_or("-").to_owned();
-    match answer["dialog"]["kind"].as_str() {
+    match answer.pointer("/dialog/kind").and_then(Value::as_str) {
         Some(kind) => println!("{} {} ({kind})", field("terminal_id"), field("state")),
         None => println!("{} {}", field("terminal_id"), field("state")),
     }

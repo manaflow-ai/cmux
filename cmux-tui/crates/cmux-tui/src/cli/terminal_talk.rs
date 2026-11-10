@@ -264,7 +264,10 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     humantime(request.timeout)
                 );
             } else if receipt["state"] == roster::AgentState::Blocked.as_str() {
-                eprintln!("cmux: {}", receipt["reason"].as_str().unwrap_or_default());
+                eprintln!(
+                    "cmux: {}",
+                    receipt.get("reason").and_then(Value::as_str).unwrap_or_default()
+                );
             } else if receipt.get("matched") == Some(&Value::Bool(false)) {
                 eprintln!("cmux: the command finished without output that matches --pattern");
             } else if request.exit_with_status && status.is_none() {

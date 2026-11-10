@@ -21,6 +21,9 @@ use super::readiness;
 const OPTION_ROWS: usize = 16;
 /// Cursor marks a dialog draws before the selected option.
 const CURSORS: [char; 3] = ['❯', '>', '›'];
+/// Radio marks a numbered option row may start with (Gemini-family CLIs
+/// draw `● 1. Yes, allow once`): the filled one is the selected option.
+const RADIOS: [(char, bool); 2] = [('●', true), ('○', false)];
 
 /// One option of a dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,9 +64,13 @@ pub(in crate::cli) fn keys_to(options: &[DialogOption], target: usize) -> Vec<&'
 fn option(row: &str) -> Option<DialogOption> {
     let row =
         row.trim_start_matches(|character: char| character.is_whitespace() || character == '│');
-    let (selected, rest) = match row.strip_prefix(CURSORS) {
-        Some(rest) => (true, rest.trim_start()),
-        None => (false, row),
+    let radio = RADIOS.iter().find_map(|(mark, selected)| {
+        row.strip_prefix(*mark).map(|rest| (*selected, rest.trim_start()))
+    });
+    let (selected, rest) = match (row.strip_prefix(CURSORS), radio) {
+        (Some(rest), _) => (true, rest.trim_start()),
+        (None, Some(radio)) => radio,
+        (None, None) => (false, row),
     };
     let digits = rest.find(|character: char| !character.is_ascii_digit())?;
     let number = rest.get(..digits)?.parse().ok()?;
@@ -124,7 +131,7 @@ fn unboxed(row: &str) -> (usize, &str) {
 fn cursor_row(row: &str) -> Option<(usize, &str)> {
     let (column, text) = unboxed(row);
     let mark = text.chars().next().filter(|mark| CURSORS.contains(mark))?;
-    let rest = &text[mark.len_utf8()..];
+    let rest = text.get(mark.len_utf8()..)?;
     let label = rest.trim_start();
     let gap = rest.chars().count() - label.chars().count();
     (gap > 0 && !label.is_empty()).then_some((column + 1 + gap, label))
@@ -151,7 +158,7 @@ fn unnumbered(screen: &str) -> Vec<DialogOption> {
         .collect();
     let bottom = non_blank.get(non_blank.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
     let Some((at, (column, label))) =
-        bottom.iter().rev().find_map(|at| Some((*at, cursor_row(rows[*at])?)))
+        bottom.iter().rev().find_map(|at| Some((*at, cursor_row(rows.get(*at)?)?)))
     else {
         return Vec::new();
     };
@@ -170,8 +177,9 @@ fn unnumbered(screen: &str) -> Vec<DialogOption> {
         let plain = cursor_row(row).is_none() && option(row).is_none() && !rule(row);
         (start == column && !text.is_empty() && plain).then(|| text.to_owned())
     };
-    let above: Vec<String> = rows[..at].iter().rev().map_while(|row| sibling(row)).collect();
-    let below = rows[at + 1..].iter().map_while(|row| sibling(row));
+    let above: Vec<String> =
+        rows.get(..at).unwrap_or_default().iter().rev().map_while(|row| sibling(row)).collect();
+    let below = rows.get(at + 1..).unwrap_or_default().iter().map_while(|row| sibling(row));
     let labels: Vec<(String, bool)> = above
         .into_iter()
         .rev()
@@ -244,8 +252,9 @@ pub(in crate::cli) fn deny_keys(
 }
 
 /// The question the dialog asks: the lowest of the bottom rows above its
-/// options that holds a `?` at the end of a word, up to the last such `?`
-/// (`Do you want to proceed?`). A lone `?` is a key in a footer hint
+/// options that holds a `?` other than a lone one, up to the last such `?`
+/// (`Do you want to proceed?`, `Allow execution of: 'touch'?`). A `?` with
+/// a space or the row's edge on both sides is a key in a footer hint
 /// (`? for shortcuts`), not a question.
 fn question(screen: &str) -> Option<String> {
     bottom_rows(screen).iter().rev().find_map(|row| {
@@ -253,11 +262,14 @@ fn question(screen: &str) -> Option<String> {
             return None;
         }
         let (_, text) = unboxed(row);
-        let (end, _) = text.char_indices().rfind(|(index, character)| {
-            *character == '?'
-                && text[..*index].chars().next_back().is_some_and(char::is_alphanumeric)
+        let characters: Vec<(usize, char)> = text.char_indices().collect();
+        let spaced = |at: Option<&(usize, char)>| at.is_none_or(|(_, next)| next.is_whitespace());
+        let end = characters.iter().enumerate().rev().find_map(|(at, (index, character))| {
+            let lone = spaced(at.checked_sub(1).and_then(|before| characters.get(before)))
+                && spaced(characters.get(at.saturating_add(1)));
+            (*character == '?' && !lone).then_some(*index)
         })?;
-        let asked = text[..=end].trim();
+        let asked = text.get(..=end)?.trim();
         (asked.len() > 1).then(|| asked.to_owned())
     })
 }
@@ -294,9 +306,12 @@ pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -
 /// are the daemon's agent records of that terminal.
 ///
 /// A `blocked` that only a screen guess gives (the screen-detection plugin)
-/// is `None` once `screen` shows the agent's input box with no dialog on
-/// it: the plugin can read a screen just before the agent redraws it and
-/// then not read it again. The agent's own report of blocked always holds.
+/// is `None` when the agent's own newest report
+/// (`roster::own_report_state`) says it is no longer blocked and the
+/// bottom rows of `screen` show its input box with no dialog options and no
+/// startup dialog: the plugin can read a screen just before the agent
+/// redraws it and then not read it again. Without an own report (an agent
+/// with no hooks), or when that report says blocked, the block holds.
 pub(in crate::cli) fn blocked_dialog(
     terminal: &Value,
     agents: &[Value],
@@ -307,8 +322,12 @@ pub(in crate::cli) fn blocked_dialog(
         return None;
     }
     let screen_guess = matches!(row.source.as_str(), "plugin" | "detected");
+    let own_report_ended = roster::own_report_state(terminal, agents)
+        .and_then(roster::AgentState::from_record)
+        .is_some_and(|state| state != roster::AgentState::Blocked);
     if screen_guess
-        && readiness::composer_visible(screen)
+        && own_report_ended
+        && readiness::composer_visible(&bottom_rows(screen).join("\n"))
         && options(screen).is_empty()
         && readiness::startup_dialog(screen).is_none()
     {
@@ -317,18 +336,20 @@ pub(in crate::cli) fn blocked_dialog(
     let number = |value: &Value| {
         value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())).unwrap_or(0)
     };
-    let record = terminal["extra"]["program_status"]
-        .as_array()
+    let record = terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|record| record["state"] == "blocked")
-        .max_by_key(|record| number(&record["updated_at_ms"]));
+        .filter(|record| record.get("state").and_then(Value::as_str) == Some("blocked"))
+        .max_by_key(|record| record.get("updated_at_ms").map_or(0, number));
     let kind = record
-        .and_then(|record| record["kind"].as_str())
+        .and_then(|record| record.get("kind").and_then(Value::as_str))
         .filter(|kind| !kind.is_empty())
         .or_else(|| readiness::startup_dialog(screen).map(|dialog| dialog.id))
         .unwrap_or(readiness::AGENT_QUESTION.id);
-    Some(dialog_json(kind, record.and_then(|record| record["msg"].as_str()), screen))
+    let msg = record.and_then(|record| record.get("msg").and_then(Value::as_str));
+    Some(dialog_json(kind, msg, screen))
 }
 
 /// The localized reason of a blocked `terminal send` or `terminal wait`:
