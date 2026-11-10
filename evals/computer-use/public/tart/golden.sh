@@ -14,7 +14,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 TART=${TART:-$HOME/cu-bench/bin/tart}
 PACKER=${PACKER:-$HOME/cu-bench/bin/packer}
 export PATH=$(dirname "$TART"):/opt/homebrew/bin:$PATH
-ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 -o PubkeyAuthentication=no -o PreferredAuthentications=password)
 
 stage=${golden}-build
 "$TART" delete "$stage" 2>/dev/null || true

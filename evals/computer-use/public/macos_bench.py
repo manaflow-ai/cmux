@@ -157,7 +157,7 @@ class VM:
 
     def ssh_args(self) -> list[str]:
         return ["sshpass", "-p", GUEST_PASS, "ssh", "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password",
                 "-o", "ConnectTimeout=5", f"{GUEST_USER}@{self.ip}"]
 
     def ssh(self, command: str, timeout: float = 600, check: bool = False) -> subprocess.CompletedProcess:
@@ -181,12 +181,12 @@ class VM:
 
     def put(self, local: str, remote: str):
         subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-r", local,
+                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password", "-r", local,
                         f"{GUEST_USER}@{self.ip}:{remote}"], check=True, timeout=300)
 
     def get(self, remote: str, local: str):
         subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-r",
+                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password", "-r",
                         f"{GUEST_USER}@{self.ip}:{remote}", local], timeout=300)
 
 
