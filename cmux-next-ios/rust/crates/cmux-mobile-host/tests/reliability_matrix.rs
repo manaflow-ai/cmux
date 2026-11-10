@@ -5,7 +5,10 @@
 //! `.github/workflows/ios-reliability-matrix.yml` runs it with the Swift cells
 //! (CmuxMobileLiveTests/ConnectivityMatrixTests.swift) and the existing link
 //! suites, and `scripts/ci/ios_reliability_matrix.py` turns the results into
-//! one table.
+//! one table. The cells are `#[ignore]`d so a plain `cargo test` (the rust
+//! workspaces job, in debug and in parallel) skips them: they time
+//! themselves, so they run alone, in release, with `--ignored`:
+//! `cargo test --release -p cmux-mobile-host --test reliability_matrix -- --ignored --nocapture --test-threads=1`.
 //!
 //! The rig is the real phone `Link`, the real `cmux-mobile-host` services and
 //! a fake cmux-tui daemon on a Unix socket. Between phone and Mac sits a
@@ -423,6 +426,7 @@ async fn list_median(rig: &Rig, expect: usize, rounds: usize) -> f64 {
 /// on a clean link. The list reaches the phone whole and correct each time,
 /// and 1,000+ is within 1.2x of 1.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_scale_session_list() {
     let mut results = Vec::new();
     for (variant, count) in [("1", 1usize), ("100", 100), ("1000", 1000), ("god-5000", 5000)] {
@@ -444,6 +448,7 @@ async fn cell_scale_session_list() {
 /// Scale on a far network: 80 ms each way, 3% of chunks stall 250 ms.
 /// The list arrives within 5 s, and 1,000 within 1.2x of 1.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_network_high_latency_and_loss() {
     let toxics = Toxics { latency: Duration::from_millis(80), stall_chance: 0.03, stall: Duration::from_millis(250) };
     let mut results = Vec::new();
@@ -467,6 +472,7 @@ async fn cell_network_high_latency_and_loss() {
 /// another channel: 1 KB (small) vs 8 MB (god). Keystrokes must not wait
 /// behind the output.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_degenerate_keystroke_behind_mb_tool_output() {
     head_of_line("degenerate_keystroke_behind_mb_tool_output", Lane::Input).await;
 }
@@ -474,6 +480,7 @@ async fn cell_degenerate_keystroke_behind_mb_tool_output() {
 /// Opening another session (a new bulk channel's first reply) while a tool's
 /// output streams: 1 KB vs 8 MB. Switching sessions must not wait behind it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_degenerate_open_session_behind_mb_tool_output() {
     head_of_line("degenerate_open_session_behind_mb_tool_output", Lane::Bulk).await;
 }
@@ -531,6 +538,7 @@ async fn head_of_line(cell: &str, lane: Lane) {
 /// after the network is back (the session list) answers within 1.2x of the
 /// small backlog.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_network_offline_then_back_with_backlog() {
     backlog_after_outage("network_offline_then_back_with_backlog", Duration::ZERO).await;
 }
@@ -539,6 +547,7 @@ async fn cell_network_offline_then_back_with_backlog() {
 /// arrive (a busy main actor applying a god session's deltas: 1 ms each).
 /// One slow channel must not hold the session list, or lose its own deltas.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_degenerate_slow_consumer_after_outage() {
     backlog_after_outage("degenerate_slow_consumer_after_outage", Duration::from_millis(1)).await;
 }
@@ -625,6 +634,7 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
 /// down gets a clear refusal; once it is back a new channel answers within
 /// 1 s. Small: 1 workspace; god: 5,000.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_daemon_restart() {
     let mut results = Vec::new();
     for (variant, count) in [("small-1", 1usize), ("god-5000", 5000usize)] {
@@ -671,6 +681,7 @@ async fn cell_host_daemon_restart() {
 /// silent). The phone's link must notice and say so: closed within the
 /// keepalive bound, so the app redials instead of showing a frozen session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_mac_asleep_link_notices() {
     let rig = Rig::start(1, Toxics::default()).await;
     let _ = time_list(&rig, 1).await;

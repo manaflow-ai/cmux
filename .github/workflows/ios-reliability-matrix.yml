@@ -84,8 +84,8 @@ jobs:
           # Every suite, no early stop: the report decides what gates. The
           # matrix cells time themselves, so they run one at a time, in
           # release (the app's host and the phone's FFI ship optimized).
-          { cargo test --locked --workspace --no-fail-fast -- --skip cell_ ;
-            cargo test --release --locked -p cmux-mobile-host --test reliability_matrix --no-fail-fast -- --nocapture --test-threads=1 ; } \
+          { cargo test --locked --workspace --no-fail-fast ;
+            cargo test --release --locked -p cmux-mobile-host --test reliability_matrix --no-fail-fast -- --ignored --nocapture --test-threads=1 ; } \
             2>&1 | tee "$RUNNER_TEMP/matrix/rust.log" || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
