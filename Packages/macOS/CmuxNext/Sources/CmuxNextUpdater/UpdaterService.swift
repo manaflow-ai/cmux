@@ -164,6 +164,10 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// The person's update clicks (Update on the found step, Restart to Update) since the flow was
+    /// last idle; the relaunch records them (``UpdateInstallCheck/clicks``) and the next launch
+    /// flags more than one (``UpdateInstallCheck/extraClicksLine(_:)``).
+    @ObservationIgnored var updateClicks = 0
     /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
     var newestFetch: NewestFetch?
     /// Pulled staged builds already dropped once (``followPulled()``).

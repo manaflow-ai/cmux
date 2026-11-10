@@ -65,6 +65,66 @@ import Testing
         #expect(updater.readyCard != nil, "\(identity.track): the staged update did not ask before the relaunch")
         updater.installClicked()
         #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
+        #expect(updater.updateClicks == 1, "\(identity.track): the update took \(updater.updateClicks) clicks")
+    }
+
+    /// Leo 2026-11-09, on a NIGHTLY update: "that update, it wasn't just the one-click automatic
+    /// thing". A NIGHTLY's update is one click: a found update (the release push, the fast check)
+    /// downloads and stages with no click, Restart to Update installs and relaunches, and the
+    /// relaunch records one click, which the next launch logs without a flag.
+    @Test func aNightlyUpdateIsOneClickFromFoundToRelaunch() async throws {
+        let (updater, effects) = Self.make(Self.nightly)
+        updater.frontmost = { UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: Self.nightly.bundleIdentifier) }
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        updater.syncFlowPhase()
+        #expect(effects.downloads == 0 && updater.availableButton == nil, "the found update waited for a click before downloading")
+        #expect(updater.updateClicks == 0)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(effects.installs == 0, "the staged update relaunched without Restart to Update")
+
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "Restart to Update did not install the staged update")
+        updater.installingBuild = "200"
+        updater.updaterWillRelaunchApplication()
+        let record = try #require(updater.defaults.data(forKey: UpdateInstallCheck.key)
+            .flatMap { try? JSONDecoder().decode(UpdateInstallCheck.self, from: $0) })
+        #expect(record.clicks == 1, "the update took \(record.clicks ?? -1) clicks")
+        #expect(UpdateInstallCheck.extraClicksLine(record) == nil)
+
+        let relaunched = Self.relaunch(after: updater)
+        #expect(relaunched.log.recent.contains("installed 200 over 100 after 1 click"))
+        #expect(!relaunched.log.recent.contains { $0.hasPrefix("update needed") })
+    }
+
+    /// The detector: an update that took more than one click (downloads off: Update, then Restart
+    /// to Update) is flagged at the next launch, `update needed 2 clicks`.
+    @Test func anUpdateThatTookTwoClicksIsFlagged() async throws {
+        let (updater, effects) = Self.make(Self.nightly, optIn: false)
+        updater.frontmost = { UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: Self.nightly.bundleIdentifier) }
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .available(version: "2.0.0")
+        updater.downloadClicked()
+        #expect(effects.downloads == 1)
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 })
+        updater.installingBuild = "200"
+        updater.updaterWillRelaunchApplication()
+
+        let relaunched = Self.relaunch(after: updater)
+        #expect(relaunched.log.recent.contains("installed 200 over 100 after 2 clicks"))
+        #expect(relaunched.log.recent.contains("update needed 2 clicks: 200 over 100 (one, Restart to Update, is the contract)"))
+    }
+
+    /// The app after the relaunch: build 200, reading the record `before` wrote.
+    private static func relaunch(after before: UpdaterService) -> UpdaterService {
+        let identity = UpdateBuildIdentity(bundleIdentifier: nightly.bundleIdentifier, shortVersion: nightly.shortVersion, build: "200",
+                                           minimumSystemVersion: nil, infoFeedURL: nightly.infoFeedURL, hasPublicKey: true)
+        return UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: before.defaults,
+                              enableSparkle: false, recordsUpdates: false)
     }
 
     /// Found, nobody asked (a scheduled check, the fast check, a release push): the titlebar's
