@@ -13,9 +13,10 @@
 //!
 //! Committed rows can be behind the live session (a commit in flight) and
 //! the item can close after its selector resolved. So a row the workspace
-//! does not hold is not an answer: the read then takes the session
-//! snapshot, which waits for the writer, and the caller gets the answer
-//! and the errors it got before.
+//! does not hold is not an answer, and neither is a scoped read that
+//! fails (a row in flight that does not join, a busy read connection): the
+//! read then takes the session snapshot, which waits for the writer, and
+//! the caller gets the answer and the errors it got before.
 
 use rusqlite::OptionalExtension as _;
 use serde_json::{Value, json};
@@ -39,9 +40,13 @@ pub(crate) fn snapshot_holding(
     id: &str,
 ) -> Result<Value, ResourceError> {
     let scoped = match (&path.workspace, collection) {
-        (Some(workspace), "workspaces") => json!({"workspaces": workspace_rows(mux, workspace)?}),
-        (Some(workspace), "screens") => json!({"screens": screen_rows(mux, workspace)?}),
-        (Some(workspace), "panes" | "tabs") => public_workspace_topology(mux, workspace)?,
+        (Some(workspace), "workspaces") => {
+            workspace_rows(mux, workspace).map(|rows| json!({"workspaces": rows}))
+        }
+        (Some(workspace), "screens") => {
+            screen_rows(mux, workspace).map(|rows| json!({"screens": rows}))
+        }
+        (Some(workspace), "panes" | "tabs") => public_workspace_topology(mux, workspace),
         _ => return public_session_snapshot(mux),
     };
     holding(mux, scoped, collection, id)
@@ -70,16 +75,29 @@ pub(crate) fn snapshot_holding_pane(
             .transpose()
             .map_err(anyhow::Error::new)
     })
-    .map_err(operation_failed)?;
-    let Some(workspace) = workspace else { return public_session_snapshot(mux) };
-    holding(mux, public_workspace_topology(mux, &workspace)?, "panes", pane.as_str())
+    .map_err(operation_failed);
+    let Ok(Some(workspace)) = workspace else { return public_session_snapshot(mux) };
+    holding(mux, public_workspace_topology(mux, &workspace), "panes", pane.as_str())
 }
 
-/// `scoped` when its `collection` lists `id`, else the session snapshot.
-fn holding(mux: &Mux, scoped: Value, collection: &str, id: &str) -> Result<Value, ResourceError> {
-    let holds =
-        scoped[collection].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == id));
-    if holds { Ok(scoped) } else { public_session_snapshot(mux) }
+/// `scoped` when the read gave it and its `collection` lists `id`, else the
+/// session snapshot (a scoped read that fails is a miss, not the answer).
+fn holding(
+    mux: &Mux,
+    scoped: Result<Value, ResourceError>,
+    collection: &str,
+    id: &str,
+) -> Result<Value, ResourceError> {
+    match scoped {
+        Ok(scoped)
+            if scoped[collection]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row["id"] == id)) =>
+        {
+            Ok(scoped)
+        }
+        _ => public_session_snapshot(mux),
+    }
 }
 
 /// The session snapshot's `workspaces` row of `workspace` (none when it has

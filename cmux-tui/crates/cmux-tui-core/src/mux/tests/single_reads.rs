@@ -18,7 +18,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::mpsc::sync_channel;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::*;
 use crate::resource_api::{public_session_snapshot, set_snapshot_before_projection_hook};
@@ -60,7 +60,7 @@ fn topology(mux: &Mux) -> Value {
     COLLECTIONS
         .iter()
         .map(|collection| (collection.to_string(), snapshot[*collection].clone()))
-        .collect::<serde_json::Map<_, _>>()
+        .collect::<Map<_, _>>()
         .into()
 }
 
