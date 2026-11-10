@@ -75,14 +75,16 @@ pub fn read_mint(status: u16, body: &Value, team: &str, now: i64) -> Option<Held
 /// `cc1.<payload>.<signature>`, base64url parts, at most [`MAX_TOKEN_CHARS`]: the only shape a
 /// header ever carries (it is never logged, and nothing else is sent in its place).
 fn well_formed(token: &str) -> bool {
-    let parts: Vec<&str> = token.split('.').collect();
+    let base64url = |part: &str| {
+        !part.is_empty()
+            && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    };
+    let mut parts = token.split('.');
     token.len() <= MAX_TOKEN_CHARS
-        && parts.len() == 3
-        && parts[0] == "cc1"
-        && parts[1..].iter().all(|part| {
-            !part.is_empty()
-                && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        })
+        && parts.next() == Some("cc1")
+        && parts.next().is_some_and(base64url)
+        && parts.next().is_some_and(base64url)
+        && parts.next().is_none()
 }
 
 /// Why the app asks: a relayed call wants its header, the refresh timer fired, or sign-in, a team
