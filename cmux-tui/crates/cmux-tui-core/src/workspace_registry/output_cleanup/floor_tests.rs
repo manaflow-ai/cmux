@@ -360,6 +360,73 @@ fn a_rebuild_killed_while_it_stages_leaves_the_registry_and_resumes() {
     assert_rebuilt(&fixture);
 }
 
+/// A registry that an earlier swap made (a long-lived one is of this kind):
+/// its first segment spans the removed run, it has a pruned range, the done
+/// mark and the backup of that swap. A second rebuild at a higher floor reads
+/// those packed segments and swaps again.
+#[test]
+fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
+    let fixture = fixture("second", 1_100);
+    let Fixture { root, db_path, terminal, floor, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert_rebuilt(&fixture);
+
+    // A full start on the first rebuilt registry, and a newer run on it.
+    let mux = open(&root.0);
+    for index in 0..1_200 {
+        hook(&mux, terminal, ["UserPromptSubmit", "Stop"][index % 2]);
+    }
+    seal_all(&mux, "second-below");
+    let second_floor = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
+    for _ in 0..10 {
+        hook(&mux, terminal, "UserPromptSubmit");
+        hook(&mux, terminal, "Stop");
+    }
+    seal_all(&mux, "second-above");
+    hook(&mux, terminal, "UserPromptSubmit");
+    assert!(mux.settle_agent_roster_for_test());
+    mux.shutdown();
+    drop(mux);
+    let mux = open(&root.0);
+    let roster = roster_state(&mux, terminal);
+    mux.shutdown();
+    drop(mux);
+    assert!(second_floor > *floor);
+    let head = journal_head(db_path);
+    let kept = records_after(db_path, second_floor, head);
+    assert!(kept.len() >= 21, "the records above the second floor: {}", kept.len());
+    let first_swap_bytes = file_len(db_path);
+
+    START_FLOOR_FOR_TEST.with(|start| start.set(Some(second_floor)));
+    assert_eq!(
+        stage(db_path, second_floor, &|| true),
+        StageOutcome::Built,
+        "no second rebuild ran at the floor {second_floor}"
+    );
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(!staging_path(db_path).exists(), "the staging file stays");
+    assert!(previous_path(db_path).is_file(), "the first rebuilt file is not kept as the backup");
+    assert_eq!(
+        file_len(&previous_path(db_path)),
+        first_swap_bytes,
+        "the backup is not the registry of the first swap"
+    );
+    assert_eq!(
+        records_after(db_path, 0, head),
+        kept,
+        "a read from sequence 0 returns the records above the second floor"
+    );
+    assert_eq!(pruned_ranges(db_path), vec![(1, i64::try_from(second_floor).unwrap())]);
+    assert_eq!(
+        super::super::journal_retention::journal_pruned_through(&read_only(db_path)).unwrap(),
+        second_floor
+    );
+    let mux = open(&root.0);
+    assert_eq!(roster_state(&mux, terminal), roster, "the roster after the second rebuild");
+    mux.shutdown();
+}
+
 /// The file states a kill leaves after the swap's transaction committed.
 #[derive(Clone, Copy, Debug)]
 enum KilledSwap {
