@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileArtifacts
@@ -93,6 +94,9 @@ public struct RootView: View {
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
+    /// App Store plans (Settings → Plan), built once for the process so its
+    /// `Transaction.updates` listener outlives every screen; nil hides Plan.
+    @State private var billing: BillingModel?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -105,6 +109,7 @@ public struct RootView: View {
             store.workspaces = []
         }
         _store = State(initialValue: store)
+        _billing = State(initialValue: auth.makeBillingModel(bundleIdentifier: Bundle.main.bundleIdentifier))
         self.options = options
     }
 
@@ -168,6 +173,13 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        .environment(billing)
+        // Plans follow the account: a purchase StoreKit still holds is delivered
+        // for whoever signs in; sign-out forgets the old account's plan.
+        .onChange(of: auth.isResolved ? auth.isSignedIn : nil, initial: true) { _, signedIn in
+            guard let billing, let signedIn else { return }
+            if signedIn { billing.start() } else { billing.resetForSignOut() }
+        }
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task {
