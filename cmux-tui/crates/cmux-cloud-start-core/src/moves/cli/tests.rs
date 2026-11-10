@@ -38,6 +38,32 @@ fn an_answer_is_the_last_json_line_and_anything_else_is_a_bad_answer() {
     assert_eq!((seed.seed_started_at, seed.seed_finished_at), (Some(3.0), Some(4.5)));
 }
 
+/// A start's refused line keeps how the platform's refusal is handled (cmux-platform#1192): a busy
+/// machine or a rate limit is retryable (the card offers Retry; a rate limit after its wait), a
+/// cap is final. The app reads these from the answer as Rust re-encodes it.
+#[test]
+fn a_refused_start_keeps_whether_it_may_be_retried() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 1)).0).unwrap();
+    let limited = encoded(
+        r#"{"ok":false,"error_code":"cloud.rate_limited","error":"e","handling":"retry_after","retryable":true,"retry_after_s":42}"#,
+    );
+    assert_eq!(
+        (limited["retryable"].clone(), limited["retryAfterS"].clone()),
+        (json!(true), json!(42)),
+        "{limited}"
+    );
+    let busy = encoded(
+        r#"{"ok":false,"error_code":"cloud.machine.busy","error":"e","handling":"retry","retryable":true}"#,
+    );
+    assert_eq!((busy["retryable"].clone(), busy["retryAfterS"].clone()), (json!(true), Value::Null));
+    let capped = encoded(
+        r#"{"ok":false,"error_code":"cloud.quota.vm_limit","error":"e","handling":"final","retryable":false}"#,
+    );
+    assert_eq!(capped["retryable"], json!(false), "{capped}");
+    // A line that says nothing of it (every other verb) is not retryable.
+    assert_eq!(encoded(r#"{"ok":false,"error_code":"x"}"#)["retryable"], json!(false));
+}
+
 /// A `link machine update` success line must carry its outcome and exit 0; `{"ok":true}` alone,
 /// or a success with a failing exit, is no answer, never "the machine needed nothing".
 #[test]

@@ -1878,5 +1878,12 @@ mod turn_checkpoints {
         );
         assert_eq!(turns::wait(&limited, fast()), Duration::from_secs(3));
         assert_eq!(turns::wait(&Failure::http(503, None, None), fast()), fast().pause);
+        // A 429 whose window is only in its Retry-After header waits that window, not the default.
+        let header_only = turns::refusal_with(
+            429,
+            Some(&json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true })),
+            Some("120"),
+        );
+        assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));
     }
 }
