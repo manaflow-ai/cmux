@@ -105,15 +105,18 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at `from` to the machine daemon at `to`,
     /// in `cwd`; a running turn stops for the move and goes on where the chat lands. `sync` copies the folder's last
-    /// changes once the chat is frozen; `askFirst` narrows it to an asking policy first; `vmKind` is the Cloud API's
-    /// answer for this app on the link in use.
-    public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
-                          vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+    /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
+    /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
+    /// Cloud API's answer for this app on the link in use.
+    public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
-            var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPid: Int32?
+            var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
+            var toPid: Int32?
         }
-        return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, askFirst: askFirst, vmKind: vmKind, toPid: toPID)).answer
+        return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
+                                  vmKind: vmKind, toPid: toPID)).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
@@ -184,8 +187,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public static let copyLoginOnClaimKey = "cmux.cloud.copyLoginOnClaim"
 
     /// Whether a reserve's or a claim's machine starts the login copy onto that machine (cmux-platform#1084, item (a)).
-    /// Off unless `cmux.cloud.copyLoginOnClaim` is YES: until then only the warm on intent copies, as before.
-    public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.bool(forKey: copyLoginOnClaimKey) }
+    /// On unless `cmux.cloud.copyLoginOnClaim` is NO (Leo, 2026-11-09: "at least frontload the stuff that we can check earlier").
+    public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.object(forKey: copyLoginOnClaimKey) as? Bool ?? true }
 
     /// The machine a reservation answer (``startChatReservation(release:request:access:install:)``, read as an object) reserved; nil for a refusal.
     public static func reservedMachine(_ reply: [String: Any]) -> String? {

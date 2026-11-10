@@ -84,6 +84,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
+        // The guarded end `worktree close` sends (#39092).
+        (vec!["terminal", TERMINAL, "close", "--if-unplaced"], "terminal.close"),
         (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
         (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
         (vec!["screen", "create", "--shell", "make watch"], "screen.create"),

@@ -411,7 +411,7 @@
   -webkit-user-select: text;
 }
 
-.ve-picker-field:focus {
+.ve-picker-field:focus-visible {
   border-color: color-mix(in srgb, var(--ve-fg) 30%, transparent);
 }
 

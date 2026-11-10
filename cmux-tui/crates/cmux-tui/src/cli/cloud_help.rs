@@ -383,6 +383,12 @@ const GROUPS: &[Group] = &[
                 "Bring a moved chat back to this Mac",
                 "移したチャットをこの Mac に戻す",
             ),
+            verb(
+                "move-to-machine",
+                "[--machine machine:MACHINE_ID]",
+                "Move a moved chat on to another Cloud machine",
+                "移したチャットを別の Cloud マシンに移す",
+            ),
         ],
     },
     Group {
@@ -528,11 +534,12 @@ older name; both run the same start.
                      with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
-  --from-folder PATH A folder on this Mac (absolute), copied to the machine as
-                     the composer's Cloud start copies one; the chat starts
-                     in the copy. Never home, the disk's root or a credential
-                     folder; not with --cwd. The same command again on the
-                     same machine reuses the finished copy.
+  --from-folder PATH A folder on this Mac (relative: of this shell's folder),
+                     copied to the machine as the composer's Cloud start
+                     copies one; the chat starts in the copy. Never home,
+                     the disk's root or a credential folder; not with
+                     --cwd. The same command again on the same machine
+                     reuses the finished copy.
   --login pass|machine|none
                      The agent's login there: yours from this Mac, the
                      machine's own, or none (default: the machine's login or

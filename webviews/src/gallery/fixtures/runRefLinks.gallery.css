@@ -1,0 +1,21 @@
+/* Gallery-only looks for a nightly build or an Actions run in a reply; the app draws `chip`. */
+.run-ref-preview {
+  padding: 16px;
+  color: var(--cv-text);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+/* Before: a build or a run number was plain text. */
+.run-ref-preview.is-before .cv-chip.is-ref[href*="/actions/runs/"] {
+  color: inherit;
+  pointer-events: none;
+}
+.run-ref-preview.is-before .cv-chip.is-ref[href*="/actions/runs/"] .cv-chip__label {
+  text-decoration: none;
+}
+.run-ref-preview.is-before .cv-chip.is-ref[href*="/actions/runs/"] .cv-chip__icon--gh,
+/* A plain link: no GitHub mark. */
+.run-ref-preview.is-plain-link .cv-chip.is-ref[href*="/actions/runs/"] .cv-chip__icon--gh {
+  display: none;
+}
