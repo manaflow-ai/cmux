@@ -113,10 +113,10 @@ public struct LaunchSnapshot: Sendable {
     static func readAtLaunch(work: BackgroundWork, location: LaunchSnapshotLocation = LaunchSnapshotLocation(),
                              names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshot?, Never> {
         let (results, result) = AsyncStream<LaunchSnapshot?>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        // `.blockShutdown`: the launch awaits the result, so the item runs also when quit comes first.
+        // `.blockShutdown`: the launch awaits the result, so a shutdown of `work` must not skip the item.
         work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
-            let names = names()
-            result.yield(Self.saved(session: names.session, stateDirectory: names.stateDirectory, location: location))
+            let daemon = names()
+            result.yield(Self.saved(session: daemon.session, stateDirectory: daemon.stateDirectory, location: location))
             result.finish()
             DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
         }
