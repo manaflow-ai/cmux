@@ -18,7 +18,12 @@ function notes(build: string): ReleaseNotes {
 function list(builds: string[], current = builds[0]): ListResult {
   return {
     current,
-    builds: builds.map((build) => ({ build, shortVersion: `1.0.0-nightly.${build}`, date: "2026-11-10", highlights: 0 })),
+    builds: builds.map((build) => ({
+      build,
+      shortVersion: `1.0.0-nightly.${build}`,
+      date: "2026-11-10",
+      highlights: 0,
+    })),
   };
 }
 
