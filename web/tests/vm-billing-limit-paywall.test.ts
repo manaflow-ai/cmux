@@ -209,7 +209,10 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toContain("10 Cloud VMs in total, including paused machines");
+    // The paid stop is the abuse guard: the message names a safety limit, never a plan count.
+    expect(payload.message).toContain("a safety limit, not your plan");
+    expect(payload.message).not.toContain("10");
+    expect((payload.details as Record<string, unknown>).limit).toBe(10);
     expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(payload.upgradeRequired).toBeUndefined();
   });
