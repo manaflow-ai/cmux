@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42788489867",
+  "recorded_at": "2026-11-10T09:14:27Z",
+  "reason": "cmux-tui 32f5ff1e833a changes the image's cmux-tui (pinned ef0756a57759)",
+  "dry_run": false,
+  "cmux_tui": "32f5ff1e833ada43c3825b5cc2d30bc609cccd6c",
+  "fixes": [
+    {
+      "sha": "32f5ff1e833ada43c3825b5cc2d30bc609cccd6c",
+      "mergedAt": "2026-11-10T00:55:08-08:00",
+      "subject": "cmux-action-catalog: the Feed page's Open Feed Item and GitHub action (port of #37378) (#40262)"
+    },
+    {
+      "sha": "0ab2109db08959f28efd982047292ec2ad4c9634",
+      "mergedAt": "2026-11-10T08:42:16Z",
+      "subject": "chore(next): base autofix at ef0756a57759"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T09:14:27Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
