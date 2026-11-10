@@ -122,6 +122,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_ready;
+#[cfg(unix)]
 mod vm_short;
 mod vm_words;
 #[cfg(unix)]
