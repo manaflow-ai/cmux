@@ -483,10 +483,13 @@
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
-/* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
+/* Every icon or mark sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
    and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
    project with neither draws a muted folder. No corner dot on any row (Leo 2026-10-21). */
 .acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--acpmux-project-badge-size,20px);height:var(--acpmux-project-badge-size,20px);border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-muted);line-height:1}
+/* The plain folder is a glyph, not an icon: it draws bare in the tile's box, so it keeps its column without the
+   square (Leo 2026-11-06: "This folder shouldn't have that circle. It's unnecessary. In the new tab page."). */
+.acpmux-project-badge[data-project-folder]{background:none}
 /* A brand color is pulled a quarter toward the text color: darker on a light tile, lighter on a dark
    one, so a pale mark (React's cyan) and a deep one (Flutter's blue) both read in either theme. */
 .acpmux-project-badge[data-project-glyph]{color:color-mix(in srgb,var(--acpmux-project-badge) 72%,var(--agent-text))}
