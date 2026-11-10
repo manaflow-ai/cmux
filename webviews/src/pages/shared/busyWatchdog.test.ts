@@ -33,7 +33,10 @@ const rerender = [
 describe("BusyWatchdog", () => {
   test("names the hot script once a page stays busy for 30 s", () => {
     const reports: string[] = [];
-    const dog = new BusyWatchdog((message) => reports.push(message), () => "page hidden, 900 elements");
+    const dog = new BusyWatchdog(
+      (message) => reports.push(message),
+      () => "page hidden, 900 elements",
+    );
     // 80 ms long frames every 100 ms: 80% busy, the shape of the renderer stuck at 115% CPU.
     dog.add(frames(0, 2 * BUSY_WINDOW_MS, 80, 100, rerender));
     expect(reports).toHaveLength(0);
