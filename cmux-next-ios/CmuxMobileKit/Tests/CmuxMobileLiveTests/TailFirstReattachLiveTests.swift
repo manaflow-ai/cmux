@@ -28,6 +28,8 @@ import Testing
         private var eventsCalls = 0
         private var gapPages = 0
         private var sent = 0
+        private var growTurn: Int?
+        private var failNextForward = false
 
         init(turns: Range<Int>, skipping: Set<Int> = [], visibleThrough: Int, forwardOnly: Bool = false) {
             log = turns.filter { !skipping.contains($0) }.flatMap { n in
@@ -46,6 +48,9 @@ import Testing
                 liveWithFirstGapPage = turns.flatMap { n in Chat.turnRecords(n).enumerated().map { (seq: n * 5 + 1 + $0.offset, json: $0.element) } }
             }
         }
+        /// The Mac writes through turn `turn` while the first forward read (no `maxBytes`) is served:
+        /// that read is one record long (`hasMore`), and the next forward read fails once.
+        func growAndFailForwardOnce(through turn: Int) { lock.withLock { growTurn = turn } }
         var attaches: [[String: Any]] { lock.withLock { attachParams } }
         var gapPageCount: Int { lock.withLock { gapPages } }
         var eventsCallCount: Int { lock.withLock { eventsCalls } }
@@ -53,8 +58,8 @@ import Testing
         var recordsSent: Int { lock.withLock { sent } }
         func resetCounts() { lock.withLock { (sent, eventsCalls, gapPages) = (0, 0, 0) } }
 
-        private func page(_ params: [String: Any]) -> (String, Bool) {
-            let limit = max((params["limit"] as? NSNumber)?.intValue ?? 400, 1)
+        private func page(_ params: [String: Any], limit limitOverride: Int? = nil) -> (String, Bool) {
+            let limit = max(limitOverride ?? (params["limit"] as? NSNumber)?.intValue ?? 400, 1)
             let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? 1_048_576
             let after = (params["afterSeq"] as? NSNumber)?.intValue
             let before = (params["beforeSeq"] as? NSNumber)?.intValue
@@ -109,7 +114,19 @@ import Testing
                                 return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"page timed out"}}"#.utf8)]
                             }
                         }
-                        let (records, more) = page(params)
+                        var limitOverride: Int?
+                        if !gapPage {
+                            if let turn = growTurn {
+                                growTurn = nil
+                                failNextForward = true
+                                end = turn * 5 + 5
+                                limitOverride = 1
+                            } else if failNextForward {
+                                failNextForward = false
+                                return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"page timed out"}}"#.utf8)]
+                            }
+                        }
+                        let (records, more) = page(params, limit: limitOverride)
                         var frames = [reply(#"{"hasMore":\#(more),"events":[\#(records)]}"#)]
                         if gapPage, !liveWithFirstGapPage.isEmpty {
                             let live = liveWithFirstGapPage
@@ -258,5 +275,30 @@ import Testing
         #expect(!store.isFillingGap)
         #expect(source.gapFill == nil)
         #expect(fake.gapPageCount == 0)
+    }
+
+    /// Two turns are written after the attach reply's `lastSeq`, and the forward read after the
+    /// newest page returns one of them with `hasMore`; the next forward read fails. Nothing of
+    /// that read is applied (`lastSeq` stays), and the retry reads tail-first again: the chat
+    /// ends with every turn once, in order.
+    @Test func aForwardPageThatFailsAppliesNothingAndTheRetryReadsTailFirst() async throws {
+        let missed = Chat.turns + 299
+        let last = missed + 2
+        let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
+        fake.growAndFailForwardOnce(through: last)
+        let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: missed)
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Chat.waitUntil { Self.shows(store, last) && !store.isFillingGap && store.turns.count == last + 1 }
+
+        #expect(store.turns.map(\.id) == Self.ids(0...last))
+        #expect(!store.isFillingGap)
+        #expect(source.gapFill == nil)
+        // The failed attach and the retry: both read tail-first from the same `lastSeq`.
+        let attaches = fake.attaches
+        #expect(attaches.count >= 2)
+        for attach in attaches.suffix(2) {
+            #expect((attach["afterSeq"] as? NSNumber)?.intValue == Chat.turns * 5)
+            #expect(attach["beforeSeq"] != nil)
+        }
     }
 }
