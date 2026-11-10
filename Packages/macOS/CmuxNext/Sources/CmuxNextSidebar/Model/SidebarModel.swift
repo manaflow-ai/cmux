@@ -463,6 +463,7 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
+        SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]

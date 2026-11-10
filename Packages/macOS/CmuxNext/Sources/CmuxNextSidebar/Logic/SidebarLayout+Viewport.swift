@@ -7,6 +7,7 @@ extension SidebarLayout {
 
     /// The rows as `ListViewport` sees them in a viewport `height` tall.
     func viewport(height: CGFloat) -> ListViewport<SidebarRowKey> {
+        SidebarPerfCounters.add(.rowsWalked, rows.count)
         ListViewport(items: rows.map { .init(id: $0.key, start: $0.y, length: $0.height) },
                      viewport: height, content: max(totalHeight, height))
     }

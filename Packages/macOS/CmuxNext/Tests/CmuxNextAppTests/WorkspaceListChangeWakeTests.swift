@@ -56,7 +56,14 @@ import Testing
     struct Counts: Sendable {
         var added = Change()
         var closed = Change()
+        /// The close at the press (`InstantClose.begin`): the row leaves in the key's own turn, before the daemon answers.
+        var pressed = Change()
     }
+
+    /// The most listed rows the sidebar's structural stages may read for ONE closed or new row (`rows_walked`: the
+    /// model set, the list's splice compare, the list's viewports), at any session size. A window of 60 workspaces
+    /// reads each row some 4 times today (about 240); the bound is above that and far below a walk of 826 rows.
+    static let rowWalkBound = 400
 
     /// One measured window per size, for the whole suite: a window of 826 workspaces takes seconds to open.
     private static var measured: [SessionFixtureSize: Counts] = [:]
@@ -72,7 +79,8 @@ import Testing
     /// A whole window of a session of `size`, as `LargeSessionWindowFixture.withWindow` opens it, with the link places
     /// followed as the app follows them (`AppServices.startNonPaintServices`). `body` gets the store once every workspace
     /// has its link-place observation: a rename of one hidden workspace must wake exactly that one.
-    private static func window<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore) async throws -> T) async throws -> T {
+    private static func window<T>(_ size: SessionFixtureSize,
+                                  _ body: @MainActor (DaemonStore, AppServices, WindowController) async throws -> T) async throws -> T {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -103,7 +111,7 @@ import Testing
         }
         try #require(followed == 1, "fixture: a rename of one workspace woke \(followed) link-place observations, not 1 (the link places are not followed)")
         try #require(store.workspaces.count == size.workspaces, "fixture: \(store.workspaces.count) workspaces, not \(size.workspaces)")
-        return try await body(store)
+        return try await body(store, services, controller)
     }
 
     /// Applies `change` to `store` and returns what it woke in its own turn and what the sidebar did until the main
@@ -122,7 +130,7 @@ import Testing
     /// One workspace added at the end of the list, then one hidden workspace (the fifth) closed, in a session of `size`.
     static func counts(_ size: SessionFixtureSize) async throws -> Counts {
         if let counts = measured[size] { return counts }
-        let counts = try await window(size) { store -> Counts in
+        let counts = try await window(size) { store, services, controller -> Counts in
             let entity = newWorkspace()
             let added = await measure(store) {
                 _ = store.apply(.workspaceAdded(WorkspaceDelta(workspace: entity.id, index: size.workspaces, entity: entity,
@@ -136,12 +144,20 @@ import Testing
             }
             try #require(store.workspaces.count == size.workspaces, "fixture: the event closed no workspace")
             try #require(!store.workspaces.contains { $0.key == hidden.key }, "fixture: the closed workspace is still listed")
-            return Counts(added: added, closed: closed)
+            // The close at the press: another hidden workspace (the seventh) leaves the window's rows in this turn.
+            let leaving = try #require(store.workspaces.first { $0.key?.rawValue == Fixture.key(7) }, "fixture: no seventh workspace")
+            let listed = controller.sidebar.model.sections.reduce(0) { $0 + $1.workspaces.count }
+            var left: [String] = []
+            let pressed = await measure(store) { left = InstantClose.begin([leaving.id], in: controller.state.id, windows: services.windows) }
+            ClosingWorkspaces.shared.end(leaving.id, refused: false, in: nil)
+            try #require(left == [leaving.id], "fixture: the press closed \(left), not the seventh workspace")
+            try #require(listed >= size.workspaces - 2, "fixture: the sidebar listed \(listed) workspaces of \(size.workspaces) before the press")
+            return Counts(added: added, closed: closed, pressed: pressed)
         }
         measured[size] = counts
         // Every count, also when the test passes: which observers one list change wakes, at each size.
-        let rows = ["section_sets", "rebuilds", "row_maps", "row_invalidations", "order_builds", "layout_rows", "list_reloads", "ffi_calls"]
-        for (name, change) in [("added", counts.added), ("closed", counts.closed)] {
+        let rows = ["rows_walked", "section_sets", "rebuilds", "row_maps", "row_invalidations", "order_builds", "layout_rows", "list_reloads", "ffi_calls"]
+        for (name, change) in [("added", counts.added), ("closed", counts.closed), ("pressed", counts.pressed)] {
             for site in change.wakes.keys.sorted() { print("WorkspaceListChange \(size.rawValue) \(name) wakes \(site): \(change.wakes[site] ?? 0)") }
             print("WorkspaceListChange \(size.rawValue) \(name) wakes total: \(change.total); sidebar: "
                 + rows.map { "\($0) \(change.sidebar[$0] ?? 0)" }.joined(separator: ", "))
@@ -195,6 +211,28 @@ import Testing
                         "one workspace \(name) in a session of \(size.workspaces) named the link places of \(woken) workspaces again (bound \(Self.linkPlaceBound))")
                 #expect(woken <= atLarge.wakes(of: Self.linkPlaces),
                         "one workspace \(name) names the link places of \(woken) workspaces again at \(size.rawValue), \(atLarge.wakes(of: Self.linkPlaces)) at large")
+            }
+        }
+    }
+
+    /// ONE row changed (a workspace closed by the daemon's event, a workspace closed at the press): the
+    /// sidebar's structural stages read the rows that changed, never every listed row. Today each stage walks the
+    /// whole list: the model set arranges and compares every row, the list compares the section and builds two
+    /// viewports of every row.
+    @Test(.timeLimit(.minutes(10)))
+    func oneChangedRowWalksNoOtherRowOfTheSidebar() async throws {
+        let small = try await Self.counts(.large)
+        for size in Self.sizes {
+            let counts = try await Self.counts(size)
+            // Not the added workspace: the daemon's event places it in no window here, so no window lists a new row
+            // for it (the placement path has its own tests).
+            for (name, change, atLarge) in [("closed", counts.closed, small.closed), ("closed at the press", counts.pressed, small.pressed)] {
+                let walked = change.sidebar["rows_walked"] ?? 0, sets = change.sidebar["section_sets"] ?? 0
+                #expect(sets > 0, "fixture: one workspace \(name) at \(size.rawValue) set no sidebar sections (the pass did not run)")
+                #expect(walked <= Self.rowWalkBound,
+                        "one workspace \(name) in a session of \(size.workspaces) made the sidebar read \(walked) rows (bound \(Self.rowWalkBound))")
+                #expect(walked <= max(atLarge.sidebar["rows_walked"] ?? 0, 16),
+                        "one workspace \(name) makes the sidebar read \(walked) rows at \(size.rawValue), \(atLarge.sidebar["rows_walked"] ?? 0) at large")
             }
         }
     }
