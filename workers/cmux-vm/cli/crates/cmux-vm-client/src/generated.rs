@@ -3357,7 +3357,7 @@ pub mod types {
         )]
         pub display_name: ::std::option::Option<CreateSnapshotRequestDisplayName>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        pub labels: ::std::option::Option<SnapshotLabels>,
+        pub labels: ::std::option::Option<WritableSnapshotLabels>,
         #[serde(
             rename = "ttlSeconds",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -3444,7 +3444,7 @@ pub mod types {
         )]
         pub initial_network: ::std::option::Option<InitialVmNetwork>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        pub labels: ::std::option::Option<Labels>,
+        pub labels: ::std::option::Option<WritableLabels>,
         #[serde(
             rename = "maxRunSeconds",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -6324,11 +6324,8 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub idle_timeout_seconds: ::std::option::Option<i64>,
-        #[serde(
-            default,
-            skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
-        )]
-        pub labels: ::std::collections::HashMap<::std::string::String, ForkVmRequestLabelsValue>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub labels: ::std::option::Option<Labels>,
         #[serde(
             rename = "maxRunSeconds",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -6377,60 +6374,6 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for ForkVmRequestDisplayName {
-        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-        where
-            D: ::serde::Deserializer<'de>,
-        {
-            ::std::string::String::deserialize(deserializer)?
-                .parse()
-                .map_err(|e: self::error::ConversionError| {
-                    <D::Error as ::serde::de::Error>::custom(e.to_string())
-                })
-        }
-    }
-    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
-    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    #[serde(transparent)]
-    pub struct ForkVmRequestLabelsValue(::std::string::String);
-    impl ::std::ops::Deref for ForkVmRequestLabelsValue {
-        type Target = ::std::string::String;
-        fn deref(&self) -> &::std::string::String {
-            &self.0
-        }
-    }
-    impl ::std::convert::From<ForkVmRequestLabelsValue> for ::std::string::String {
-        fn from(value: ForkVmRequestLabelsValue) -> Self {
-            value.0
-        }
-    }
-    impl ::std::str::FromStr for ForkVmRequestLabelsValue {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-                ::std::sync::LazyLock::new(|| {
-                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
-                });
-            if PATTERN.find(value).is_none() {
-                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
-            }
-            Ok(Self(value.to_string()))
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for ForkVmRequestLabelsValue {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for ForkVmRequestLabelsValue {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl<'de> ::serde::Deserialize<'de> for ForkVmRequestLabelsValue {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -17251,6 +17194,180 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for VmsStopVmXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`WritableLabels`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(transparent)]
+    pub struct WritableLabels(
+        pub ::std::collections::HashMap<::std::string::String, WritableLabelsValue>,
+    );
+    impl ::std::ops::Deref for WritableLabels {
+        type Target = ::std::collections::HashMap<::std::string::String, WritableLabelsValue>;
+        fn deref(
+            &self,
+        ) -> &::std::collections::HashMap<::std::string::String, WritableLabelsValue> {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<WritableLabels>
+        for ::std::collections::HashMap<::std::string::String, WritableLabelsValue>
+    {
+        fn from(value: WritableLabels) -> Self {
+            value.0
+        }
+    }
+    impl
+        ::std::convert::From<
+            ::std::collections::HashMap<::std::string::String, WritableLabelsValue>,
+        > for WritableLabels
+    {
+        fn from(
+            value: ::std::collections::HashMap<::std::string::String, WritableLabelsValue>,
+        ) -> Self {
+            Self(value)
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct WritableLabelsValue(::std::string::String);
+    impl ::std::ops::Deref for WritableLabelsValue {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<WritableLabelsValue> for ::std::string::String {
+        fn from(value: WritableLabelsValue) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for WritableLabelsValue {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for WritableLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for WritableLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for WritableLabelsValue {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`WritableSnapshotLabels`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(transparent)]
+    pub struct WritableSnapshotLabels(
+        pub ::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>,
+    );
+    impl ::std::ops::Deref for WritableSnapshotLabels {
+        type Target =
+            ::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>;
+        fn deref(
+            &self,
+        ) -> &::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>
+        {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<WritableSnapshotLabels>
+        for ::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>
+    {
+        fn from(value: WritableSnapshotLabels) -> Self {
+            value.0
+        }
+    }
+    impl
+        ::std::convert::From<
+            ::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>,
+        > for WritableSnapshotLabels
+    {
+        fn from(
+            value: ::std::collections::HashMap<::std::string::String, WritableSnapshotLabelsValue>,
+        ) -> Self {
+            Self(value)
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct WritableSnapshotLabelsValue(::std::string::String);
+    impl ::std::ops::Deref for WritableSnapshotLabelsValue {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<WritableSnapshotLabelsValue> for ::std::string::String {
+        fn from(value: WritableSnapshotLabelsValue) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for WritableSnapshotLabelsValue {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for WritableSnapshotLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for WritableSnapshotLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for WritableSnapshotLabelsValue {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
