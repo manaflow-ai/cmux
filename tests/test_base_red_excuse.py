@@ -211,6 +211,95 @@ class JobListPages(unittest.TestCase):
         self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
 
 
+QUOTA_TEXT = ("API rate limit exceeded for installation ID 1. If you reach out to GitHub Support for help, please "
+              "include the request ID ABCD and timestamp 2026-11-10 06:00:00 UTC. " + "x" * 300)
+
+
+class StrBaseRunsGitHub(FakeGitHub):
+    """FakeGitHub whose list of a workflow's base runs comes back as a str, as it did while the REST quota was spent."""
+
+    def json(self, route, *, paginate=False):
+        if "/actions/workflows/7/runs?" in route:
+            self.routes.append(route)
+            return QUOTA_TEXT
+        return super().json(route, paginate=paginate)
+
+
+class UnreadShape(unittest.TestCase):
+    """2026-11-10: merge_hold refused cmux#39676 at 9be3f014 with a traceback, not a reason: list_base_runs read a
+    workflow's base runs while the REST quota was spent, the answer was a str, and `listed.get("workflow_runs")` raised
+    AttributeError. Every json read that is not a JSON object or list is now Refused as unread, naming what came back."""
+
+    def assert_unread(self, error, route):
+        said = str(error.exception)
+        self.assertIn(f"GitHub's answer to {route}", said)
+        self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], said)
+        self.assertNotIn(QUOTA_TEXT[:excuse.SHAPE_CHARS + 1], said)  # the first 200 characters only
+
+    def test_a_str_base_run_list_refuses_the_judge_with_a_reason(self):
+        github = StrBaseRunsGitHub()
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("could not be read: API rate limit exceeded", str(error.exception))
+
+    def test_main_reports_a_str_answer_as_not_excused(self):
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", StrBaseRunsGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1)
+        self.assertIn("not excused: ", err.getvalue())
+        self.assertIn("could not be read: API rate limit exceeded", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+
+    def test_every_json_read_through_the_judges_reader_is_checked(self):
+        class Answers:
+            def __init__(self, found):
+                self.found = found
+
+            def json(self, route, *, paginate=False):
+                return self.found
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for found, paginate in ((QUOTA_TEXT, False), (QUOTA_TEXT, True), ([{"check_runs": []}, QUOTA_TEXT], True)):
+            with self.subTest(found=str(found)[:20], paginate=paginate), self.assertRaises(excuse.Refused) as error:
+                excuse.rate_limit_aware(Answers(found)).json(route, paginate=paginate)
+            self.assert_unread(error, route)
+        # An object, a list, and a fake's None (nothing) still read as they did.
+        for found in ({"workflow_runs": []}, [], None, [{"check_runs": []}]):
+            self.assertEqual(excuse.rate_limit_aware(Answers(found)).json(route, paginate=True), found)
+
+    def test_list_base_runs_reads_a_str_as_unread(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+        with self.assertRaises(excuse.Refused) as error:
+            excuse.list_base_runs(REPO, "feat-cmux-next", 7, excuse.rate_limit_aware(StrBaseRunsGitHub()), {})
+        self.assert_unread(error, route)
+
+    def reader(self, answers):
+        github = excuse.GitHub()
+        github.run = lambda args: answers.pop(0)
+        return github
+
+    def test_the_real_client_refuses_a_json_str_or_text_that_is_not_json(self):
+        route = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page=100"
+        for said in (json.dumps(QUOTA_TEXT), QUOTA_TEXT, "null", "3"):
+            with self.subTest(said=said[:20]), self.assertRaises(excuse.Refused) as error:
+                self.reader([said]).json(route)
+            self.assertIn(f"GitHub's answer to {route} could not be read: ", str(error.exception))
+            if said.startswith(("\"", "A")):
+                self.assert_unread(error, route)
+        self.assertEqual(self.reader(['{"workflow_runs": []}']).json(route), {"workflow_runs": []})
+
+    def test_the_real_client_checks_each_page_before_the_pager_reads_it(self):
+        # A projected read (a run's jobs) and a whole one (a commit's check runs), paginated: a str page is unread,
+        # never the pager's TypeError.
+        for route in (f"repos/{REPO}/actions/runs/42/jobs?filter=all&per_page=100",
+                      f"repos/{REPO}/commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            with self.subTest(route=route), self.assertRaises(excuse.Refused) as error:
+                self.reader([json.dumps(QUOTA_TEXT)]).json(route, paginate=True)
+            self.assertIn("could not be read: " + QUOTA_TEXT[:excuse.SHAPE_CHARS], str(error.exception))
+
+
 class LastRealAttemptGitHub(FakeGitHub):
     """Head run 10 of cmux#35906 at e1d1894a (run 41931705470): attempt 1 ran and failed, then each later attempt
     in ATTEMPTS ran the jobs it lists, [] for one that ended in startup_failure with no jobs. GitHub's latest-attempt
