@@ -2499,8 +2499,11 @@ Records a remote-terminal tab's title, session name, or text snapshot (the
 frontend shows the snapshot while the other session is offline). An absent
 field is unchanged; `title:null` falls back to `Terminal on <session_name>`
 and `snapshot:null` clears the snapshot. A title or session name change
-persists durably and emits `tab-changed` (and `title-changed` when the
-displayed title changes); a snapshot is
+persists durably. It emits `tab-changed` when the session name changed or when
+what the tab shows of the displayed title changed (its text without the leading
+status glyphs, or the activity they name), and `title-changed` in the second
+case. A spinner frame of the same text is stored and emits nothing, as a local
+terminal's title does. A snapshot is
 stored durably but emits nothing and is not journaled. `changed` is true when
 anything stored changed. Fails for a tab that is not a remote-terminal tab.
 
