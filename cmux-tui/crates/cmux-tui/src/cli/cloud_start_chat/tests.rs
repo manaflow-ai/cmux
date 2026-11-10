@@ -445,7 +445,11 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 #[test]
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
-        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out("@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n"),
+        ]);
         let mut words = vec!["--login", "machine"];
         if wait {
             words.push("--wait");
@@ -454,8 +458,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
             panic!("{:?}", fake.ran)
         };
         assert_eq!(
-            fake.ran,
-            vec![
+            fake.ran[..2],
+            [
                 strings(&["cloud", "list-machines", "--json"]),
                 strings(&[
                     "cloud",
@@ -470,6 +474,13 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 ]),
             ]
         );
+        // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
+        // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
+        assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+        assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+        assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
+        assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+        assert_eq!(answer["folder"], "fresh");
         for (key, value) in [
             ("machine_id", "vm-1"),
             ("machine_name", "chat-fresh"),
@@ -522,8 +533,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
-    // No prompt: new-machine and start-session only.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    // No prompt: new-machine and start-session, then the read of where the chat runs.
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
     else {
         panic!("{:?}", fake.ran)
@@ -531,7 +542,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(answer["sent"], false);
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
-    assert_eq!(fake.ran.len(), 3);
+    assert_eq!(fake.ran.len(), 4);
+    assert!(answer.get("cwd").is_none(), "an unread folder is left out: {answer}");
     // --wait with a prompt: the chat on the machine made in the environment, its turn waited on, and no
     // second machine.
     let mut fake = Fake::new(vec![
@@ -552,7 +564,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
     assert_eq!(fake.ran.len(), 5);
     // --name of no machine yet: that name, in the environment.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let asked = request(&["--name", "py-1", "--environment", "env_1"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));

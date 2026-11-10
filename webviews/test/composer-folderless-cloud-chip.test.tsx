@@ -160,3 +160,22 @@ test("a started Cloud chat in its machine's fresh folder reads No folder, not th
   expect(stripText()).toContain(t("composer.cloudNoFolder"));
   expect(stripText()).not.toContain("peer-4242");
 });
+
+test("an SSH chat in a folder shaped like a Cloud chat's keeps its name: only Cloud chats have a fresh folder", async () => {
+  await mount({
+    started: true,
+    onNewChat: () => undefined,
+    peers: ["build-box"],
+    peerKinds: { "build-box": "ssh" },
+    summary: {
+      sessionId: "s-2",
+      harness: "claude",
+      host: "build-box",
+      peer: "build-box",
+      cwd: "/home/alice/chats/api",
+    },
+  });
+  expect(stripText()).toContain("api");
+  expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
+  expect(stripText()).not.toContain(t("composer.chooseFolder"));
+});
