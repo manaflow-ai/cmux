@@ -95,12 +95,12 @@ const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a refusal says to run next.
 const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their ids";
-const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
+const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODEL]
-                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
-                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
+usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
+                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [-w]
+                 [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -108,7 +108,7 @@ Starts an agent chat, right here unless --on names another target:
   --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
-  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
+  --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm ls`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
@@ -119,7 +119,7 @@ Starts an agent chat, right here unless --on names another target:
                      new machine boots in, with --on cloud or --on vm:new; without
                      it, Auto, as in the app's composer
 
-  --agent AGENT      claude (default), codex, ...
+  --harness HARNESS  claude (default), codex, ... (--agent is its old name)
   --attach FILE      A file the first prompt carries; repeat for more (a chat here).
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing
@@ -132,11 +132,14 @@ Starts an agent chat, right here unless --on names another target:
                      a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
-  --wait             Wait for the chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+  -w, --wait         Wait for the chat's turn to end and print the reply
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
+  cmux chat -w 'Summarize README.md'
+  cmux chat send -w 'Now the tests'          (the next prompt to that chat)
   cmux chat --prompt 'Summarize README.md' --wait --json
   cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
@@ -145,8 +148,9 @@ EXAMPLES
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
-and in Cloud. The chat goes on with cmux chat send SESSION TEXT --wait,
-cmux chat wait SESSION and cmux chat read SESSION (`cmux chat send --help`).
+and in Cloud. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
+last and cmux chat read last: without a SESSION they mean the last chat this
+terminal started or sent to (`cmux chat send --help`).
 Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
 (`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
@@ -335,7 +339,7 @@ pub(super) fn parse_with(
                 start.environment = Some(environment);
             }
             "--timeout" => start.timeout = Some(value()?),
-            "--wait" => start.wait = true,
+            "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
@@ -378,19 +382,28 @@ fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
 }
 
 /// Reads `chat.on` from the app at `stream`. Each ask waits while the app answers its liveness
-/// ping (`window` is how often it is asked), the way every app request does ([`super::app::request`]);
-/// an app that stops answering it, or closes, is no setting. An ask the app refuses before it
-/// ran (`busy`, `timeout`, `unavailable`) is asked again while less than `total` has passed; past
-/// it the answer is `app.setting_unanswered`, retryable.
+/// ping (`window` is how often it is asked), the way every app request does
+/// ([`super::app::request`]), but never past `total` in all; an app that stops answering it, or
+/// closes, is no setting. An ask the app refuses before it ran (`busy`, `timeout`,
+/// `unavailable`) is asked again while less than `total` has passed; past it, or a pending ask
+/// past it, the answer is `app.setting_unanswered`, retryable.
 pub(super) fn read_setting(
     stream: &mut UnixStream,
     window: Duration,
     total: Duration,
 ) -> Result<Option<String>, Value> {
     let began = std::time::Instant::now();
+    // The whole wait, a pending ask included: an app that answers pings but never this ask
+    // would otherwise hold the read forever.
+    let deadline = began + total;
     loop {
-        let answer =
-            super::app::request(stream, "settings.get", json!({ "path": TARGET_SETTING }), window);
+        let answer = super::app::request_by(
+            stream,
+            "settings.get",
+            json!({ "path": TARGET_SETTING }),
+            window,
+            Some(deadline),
+        );
         let refusal = match answer {
             Ok(Ok(answer)) => {
                 return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));
@@ -481,7 +494,7 @@ where
         if vm == "new" {
             return Ok(Route::Cloud(Machine::New));
         }
-        let vm = vm.strip_prefix("machine:").unwrap_or(vm);
+        let vm = super::vm_words::bare_id(vm);
         let listed = (reads.cloud_machines)()?;
         // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
@@ -590,7 +603,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             return Err(retryable(refusal(
                 "chat_target.vm_starting",
                 "your Cloud VM is still being made".to_owned(),
-                "run this command again once `cmux vm list-machines` lists it",
+                "run this command again once `cmux vm ls` lists it",
                 json!({}),
             )));
         }
@@ -608,7 +621,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     Err(refusal(
         "chat_target.which_vm",
         format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
-        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
 }
@@ -897,12 +910,7 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
         };
     }
     let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
-    let seconds = text
-        .parse::<u64>()
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
-    Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
+    Ok(Some(super::chat_send::timeout_value(text)?.min(turn::MAX_TIMEOUT)))
 }
 
 /// Every check a chat here makes of its arguments before it starts, run before `--repo` clones

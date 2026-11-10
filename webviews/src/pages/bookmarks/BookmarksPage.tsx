@@ -38,6 +38,7 @@ import {
   type RootTitles,
 } from "./model";
 import type { BookmarksSnapshot, BookmarksStore, RowIcon } from "./store";
+import { FolderGlyph, GlobeGlyph } from "./glyphs";
 import type { Bookmark } from "./types";
 
 /** `two-pane` ships: the folder tree beside the list (the tree drops below 480 px and the
@@ -267,6 +268,24 @@ export function BookmarksPage({
   );
 
   const trail = folderTrail(snap.tree, snap.folder, titles);
+  // Without the tree (narrow, or the breadcrumb layout) the path starts at one root: the other is
+  // one click away here.
+  const shownRoot = trail[0]?.id;
+  const roots = (
+    <fieldset className={`bm-roots${layout === "two-pane" ? " is-narrow-only" : ""}`} aria-label={t("page.title")}>
+      {(["bar", "other"] as const).map((root) => (
+        <button
+          key={root}
+          type="button"
+          className="bm-root"
+          aria-pressed={shownRoot === root}
+          onClick={() => store.showFolder(root)}
+        >
+          {titles[root]}
+        </button>
+      ))}
+    </fieldset>
+  );
   const crumbs = (
     <Breadcrumbs
       className={`bm-crumbs${layout === "two-pane" ? " is-narrow-only" : ""}`}
@@ -296,6 +315,7 @@ export function BookmarksPage({
         if (event.target instanceof Element && !event.target.closest(".bm-row")) store.select(undefined);
       }}
     >
+      {layout === "two-pane" ? roots : null}
       {layout === "two-pane" ? crumbs : null}
       {snap.notice && !down ? (
         <p className="bm-notice" role="alert">
@@ -401,6 +421,7 @@ export function BookmarksPage({
           <MoreGlyph />
         </button>
       </header>
+      {layout === "two-pane" ? null : roots}
       {layout === "two-pane" ? null : crumbs}
       <div className="bm-body">
         {layout === "two-pane" ? (
@@ -591,32 +612,6 @@ function BookmarkIcon({ node, icon }: { node: Bookmark; icon?: RowIcon | null })
         <GlobeGlyph />
       )}
     </span>
-  );
-}
-
-function FolderGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16">
-      <path
-        d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h2.9l1.5 1.5h5.1c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function GlobeGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16">
-      <g fill="none" stroke="currentColor" strokeWidth="1.1">
-        <circle cx="8" cy="8" r="6.25" />
-        <ellipse cx="8" cy="8" rx="2.6" ry="6.25" />
-        <path d="M1.9 6h12.2M1.9 10h12.2" />
-      </g>
-    </svg>
   );
 }
 
