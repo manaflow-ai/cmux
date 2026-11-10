@@ -81,6 +81,14 @@ const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
 };
 const AGENT_LOGIN_START = "_acpmux/agent_login/start";
 
+/// A copy of `text` that holds its own characters. An engine's slice of a long string can point into the
+/// string it came from (a V8 sliced string), so a log entry of a message's first MAX_PAYLOAD_CHARS kept the whole
+/// message alive: a god chat's MB pages stayed in memory, uncounted by MAX_TEXT_CHARS. A JSON round trip builds a
+/// new flat string (a cut surrogate pair survives it as the same lone code unit).
+export function ownCopy(text: string): string {
+  return JSON.parse(JSON.stringify(text)) as string;
+}
+
 /// `text` with `fields` of its `params` (or `result`) replaced, for the log.
 function withoutFields(text: string, part: "params" | "result", fields: readonly string[]): string {
   try {
@@ -249,7 +257,7 @@ export class AcpWireLog {
     const truncated = text.length > MAX_PAYLOAD_CHARS;
     return {
       size: text.length,
-      text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text,
+      text: truncated ? ownCopy(text.slice(0, MAX_PAYLOAD_CHARS)) : text,
       truncated: truncated || undefined,
     };
   }

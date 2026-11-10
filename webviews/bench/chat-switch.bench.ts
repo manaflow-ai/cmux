@@ -15,7 +15,7 @@
 // LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
 // Each arm's last round also measures 5 s of idle wakeups and renderer task time (bench/stability.ts).
-// Then one page switches A and B back and forth (CHURN=40 times) and prints what each switch leaves behind:
+// Then one page switches A and B back and forth (until warm, then CHURN=40 times) and prints what each switch leaves behind:
 // chat_switch.churn.{heap_kb,dom_nodes,listeners}_per_switch, slopes after a forced GC whose target is 0 (bench/growth.ts).
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
 // FIXTURE=god makes A and B god sessions (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
@@ -43,8 +43,10 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isInteger(TURNS) || TURNS
 }
 const FIXTURE = benchFixture();
 const perfRow = scaledPerfRow(printRow, FIXTURE);
-/// The growth phase: WARM switches to fill caches, then CHURN switches sampled every SAMPLE_EVERY.
+/// The growth phase: at least WARM switches to fill caches (at most MAX_WARM, see below), then CHURN switches
+/// sampled every SAMPLE_EVERY.
 const WARM = 6;
+const MAX_WARM = Number(process.env.MAX_WARM ?? 400);
 const CHURN = Number(process.env.CHURN ?? 40);
 const SAMPLE_EVERY = 4;
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -212,7 +214,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(process.env.HEAP_PROBE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -597,9 +599,13 @@ try {
         version: 3,
       });
   }
-  // Growth per switch (bench/growth.ts): one page switches A, B, A, B... CHURN times; after WARM switches (caches
-  // filled) it samples the GC'd heap, DOM nodes and listeners every SAMPLE_EVERY switches. Back where it started, a
-  // switch must leave nothing behind: each slope's target is 0.
+  // Growth per switch (bench/growth.ts): one page switches A, B, A, B... and, once warm, samples the GC'd heap, DOM
+  // nodes and listeners every SAMPLE_EVERY of CHURN switches. Back where it started, a switch must leave nothing
+  // behind: each slope's target is 0. Warm is WARM switches and then as many as the wire log (wire.ts, the inspector's
+  // bounded record of every message) needs to fill: until it drops its oldest entry it grows by each switch's
+  // messages by design, and that fill is a bound, not a leak (test/wire-log-bounds.test.ts holds the bound).
+  // HEAP_PROBE=1 also takes three heap snapshots in the churn and prints what piled up between them, by constructor
+  // and by the oldest object holding it (bench/heapProbe.ts), from an unminified build.
   if (!REMOTE_TAIL) {
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     try {
@@ -610,8 +616,9 @@ try {
         timeout: 120_000,
         polling: 100,
       });
-      const samples: GrowthSample[] = [];
-      for (let op = 1; op <= WARM + CHURN; op++) {
+      let op = 0;
+      const switchOnce = async () => {
+        op += 1;
         const [id, text, other] = op % 2 ? [B, SECOND_TEXT, FIRST_TEXT] : [A, FIRST_TEXT, SECOND_TEXT];
         await page.evaluate(
           (id) =>
@@ -630,8 +637,33 @@ try {
           { text, other },
           { timeout: 60_000, polling: "raf" },
         );
-        if (op > WARM && (op - WARM) % SAMPLE_EVERY === 0) samples.push(await sampleGrowth(cdp, op));
+      };
+      const wireDropped = () =>
+        page.evaluate(() => {
+          const debug = (
+            window as unknown as {
+              cmuxAcpmuxDebug?: { acpLog(options: { limit: number }): { stats: { dropped: number } } };
+            }
+          ).cmuxAcpmuxDebug;
+          if (!debug) throw new Error("the pane has no cmuxAcpmuxDebug");
+          return debug.acpLog({ limit: 1 }).stats.dropped;
+        });
+      while (op < WARM || op % 2 || ((await wireDropped()) === 0 && op < MAX_WARM)) await switchOnce();
+      const warm = op;
+      if ((await wireDropped()) === 0) throw new Error(`the wire log did not fill in ${MAX_WARM} switches`);
+      const probe = process.env.HEAP_PROBE ? await import("./heapProbe") : undefined;
+      const snapshots: Awaited<ReturnType<NonNullable<typeof probe>["takeSnapshot"]>>[] = [];
+      const samples: GrowthSample[] = [];
+      while (op < warm + CHURN) {
+        await switchOnce();
+        if ((op - warm) % SAMPLE_EVERY) continue;
+        samples.push(await sampleGrowth(cdp, op));
+        // Early, middle and late, each with A selected: what was made early to middle and is alive late piled up.
+        if (probe && [SAMPLE_EVERY, 5 * SAMPLE_EVERY, CHURN].includes(op - warm))
+          snapshots.push(await probe.takeSnapshot(cdp));
       }
+      if (probe && snapshots.length === 3) probe.diff(snapshots[0]!, snapshots[2]!, FIXTURE, snapshots[1]);
+      console.log(`growth: ${warm} warm switches (the wire log full), then ${CHURN} sampled`);
       const growth = growthPerOp(samples);
       console.log(
         `growth over ${CHURN} switches: heap ${growth.heapKbPerOp} KB, ${growth.nodesPerOp} DOM nodes, ` +
