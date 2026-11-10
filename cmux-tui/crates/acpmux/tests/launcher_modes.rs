@@ -212,15 +212,45 @@ mod launcher_modes {
         Client(in_tx, out_rx, 0)
     }
 
-    /// From a remote (Web) connection, a launcher profile of Claude Code gets exactly Claude's set:
-    /// it starts in Claude's asking default, moves between `default` and `plan`, and is refused
-    /// `acceptEdits`, `auto` and `bypassPermissions`, as `claude` is.
+    /// From a remote (Web) connection, a launcher profile of Claude Code gets exactly Claude's set.
+    ///
+    /// A start from the Web passes the mode gate as `claude`'s does: both get the same outcome,
+    /// and neither reads "no reviewed asking mode". (A Web start of a `claude-stdio` profile then
+    /// runs the remote chain's sandbox canary, which this test binary cannot pass on Linux, so the
+    /// outcome there is `remote.sandbox_refused` for both.) A chat the unix socket started is moved
+    /// by the Web between `default` and `plan`, and refused `acceptEdits`, `auto` and
+    /// `bypassPermissions`, as `claude` is.
     #[tokio::test]
     async fn from_the_web_a_launcher_profile_gets_claudes_asking_modes_and_no_others() {
         let (hub, d) = web_hub("web");
         let mut web = web_client(&hub);
+        let mut cli = Client::new(&hub);
+        let mut starts = Vec::new();
         for harness in ["claude", "claude-sr2"] {
             let r = web
+                .call(
+                    "session/new",
+                    json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+                )
+                .await;
+            let message = r["error"]["message"].as_str().unwrap_or_default();
+            assert!(!message.contains("no reviewed asking mode"), "{harness} from the Web: {r}");
+            let outcome = match r["result"]["sessionId"].as_str() {
+                Some(id) => {
+                    assert_eq!(
+                        cli.mode(id).await,
+                        "default",
+                        "{harness} starts in Claude's asking default"
+                    );
+                    "started".to_owned()
+                }
+                None => r["error"]["data"]["reason"].as_str().unwrap_or(message).to_owned(),
+            };
+            starts.push(outcome);
+        }
+        assert_eq!(starts[0], starts[1], "claude-sr2 starts from the Web as claude does");
+        for harness in ["claude", "claude-sr2"] {
+            let r = cli
                 .call(
                     "session/new",
                     json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
@@ -231,15 +261,18 @@ mod launcher_modes {
                 .unwrap_or_else(|| panic!("{harness}: {r}"))
                 .to_owned();
             assert_eq!(
-                web.mode(&id).await,
+                cli.mode(&id).await,
                 "default",
                 "{harness} starts in Claude's asking default"
             );
             for mode in ["plan", "default"] {
                 let set =
                     web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
-                assert!(set.get("error").is_none(), "{harness} set_mode {mode}: {set}");
-                assert_eq!(web.mode(&id).await, mode);
+                assert!(
+                    set.get("error").is_none(),
+                    "{harness} set_mode {mode} from the Web: {set}"
+                );
+                assert_eq!(cli.mode(&id).await, mode);
             }
             for mode in ["acceptEdits", "auto", "bypassPermissions"] {
                 let set =
@@ -247,9 +280,10 @@ mod launcher_modes {
                 let message = set["error"]["message"].as_str().unwrap_or_default();
                 assert!(
                     message.contains("never from a remote WebSocket"),
-                    "{harness} {mode}: {set}"
+                    "{harness} {mode} from the Web: {set}"
                 );
             }
+            assert_eq!(cli.mode(&id).await, "default", "{harness} stays in default");
         }
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
