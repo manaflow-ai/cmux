@@ -17,10 +17,15 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     /// protected folder (``TabRelaunch/startsOnShow(home:)``) wait until their workspace is first
     /// shown.
     public static func steps(tree: DaemonTree, home: String? = nil, shown: Set<String> = []) -> [KeptTabRelaunch] {
-        // Not yet: the order is the tree order, `shown` is not read.
-        tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-            .filter { $0.kind == .pty && $0.dead && $0.relaunch.map { !$0.startsOnShow(home: home) } == true }
-            .map { KeptTabRelaunch(surface: $0.surface) }
+        var first: [KeptTabRelaunch] = [], rest: [KeptTabRelaunch] = []
+        for workspace in tree.workspaces {
+            let steps = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                .filter { $0.kind == .pty && $0.dead && $0.relaunch.map { !$0.startsOnShow(home: home) } == true }
+                .map { KeptTabRelaunch(surface: $0.surface) }
+            guard !steps.isEmpty else { continue }
+            if !shown.isEmpty, shown.contains(WorkspaceModel.identity(workspace)) { first += steps } else { rest += steps }
+        }
+        return first + rest
     }
 }
 

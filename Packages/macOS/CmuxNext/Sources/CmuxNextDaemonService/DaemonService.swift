@@ -67,6 +67,11 @@ public final class DaemonService {
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
     /// Parked tabs whose `restart-tab` is in flight (`wakeParkedTabs`).
     @ObservationIgnored var wakingParkedTabs: Set<SurfaceID> = []
+    /// Kept tabs whose waiting restart a show already asked the daemon to start first (`wakeParkedTabs`).
+    @ObservationIgnored var startedFirstTabs: Set<SurfaceID> = []
+    /// The workspaces a window shows (`WorkspaceModel.id`s), read at the connect: their kept tabs
+    /// restart first (`relaunchKeptLayoutIfNeeded`). The app sets it; nil: tree order.
+    @ObservationIgnored public var shownWorkspaceIDs: (() -> Set<String>)?
     /// Which kept tabs this launch restarts (`restartsKeptTab`), observed by the tab cells.
     public internal(set) var keptTabRestarts: KeptTabRestarts = .none
     /// The connection Quit's end choice runs on, kept after

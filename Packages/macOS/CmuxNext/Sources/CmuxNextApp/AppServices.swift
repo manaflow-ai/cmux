@@ -760,8 +760,8 @@ final class AppServices {
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self) }
-        let registry = registry
-        daemon.workTracker = { registry.track($0) }
+        daemon.workTracker = { [registry] in registry.track($0) }
+        daemon.shownWorkspaceIDs = { [weak self] in self?.windows.shownWorkspaceIDs ?? [] }  // the restore starts their kept tabs first
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
         // machine's daemon copies this hook, as `workTracker`).
         daemon.paneNotReadyText = { MiscHandlerStrings.paneNotReady }
