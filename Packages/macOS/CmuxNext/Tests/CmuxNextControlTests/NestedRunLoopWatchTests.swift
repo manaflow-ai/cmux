@@ -113,6 +113,76 @@ import Testing
         let hangs = reported.hangs.withLock { $0 }
         #expect(hangs.count == 1, "one report for one busy hang, got \(hangs.count)")
     }
+
+    /// End to end on the real main run loop: a nested default-mode run kept busy by many short turns (each far under
+    /// the hang threshold) never lets the main thread sleep and takes no input. No turn is a hang, so the heartbeat
+    /// reports nothing; the nested run is reported once.
+    @MainActor
+    @Test func aNestedRunBusyWithShortTurnsIsReportedOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
+                                                                hangThreshold: .milliseconds(200), hangAssertThreshold: nil))
+        let reported = ReportedHangs()
+        watchdog.onHang = { hang in reported.hangs.withLock { $0.append(hang) } }
+        watchdog.start()
+        defer { watchdog.stop() }
+        let pump = ShortTurnPump(turn: .milliseconds(10), lasting: .milliseconds(800))
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            pump.run()
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        let hangs = reported.hangs.withLock { $0 }
+        #expect(pump.turns > 20, "the run turned many times: \(pump.turns)")
+        #expect(hangs.count == 1, "one report for one nested run that never slept, got \(hangs.count)")
+    }
+}
+
+/// Keeps the main run loop busy with short turns that never let it sleep: a version-0 source that signals itself
+/// again from its own perform, so each run-loop pass handles a source and polls instead of waiting (no
+/// before-waiting). Each turn is busy for `turn`; after `lasting` the source stops the run it was pumped in.
+/// Main thread only (its source is on the main run loop, and `run()` is called there).
+private final class ShortTurnPump {
+    let turn: Duration
+    let lasting: Duration
+    private(set) var turns = 0
+    private var deadline = ContinuousClock.now
+    private var source: CFRunLoopSource?
+
+    init(turn: Duration, lasting: Duration) {
+        self.turn = turn
+        self.lasting = lasting
+    }
+
+    /// Runs a nested default-mode run of the main run loop, pumped until `lasting` has passed.
+    func run() {
+        var context = CFRunLoopSourceContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil,
+                                             copyDescription: nil, equal: nil, hash: nil, schedule: nil, cancel: nil,
+                                             perform: { info in
+                                                 guard let info else { return }
+                                                 Unmanaged<ShortTurnPump>.fromOpaque(info).takeUnretainedValue().perform()
+                                             })
+        let source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
+        self.source = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+        defer {
+            CFRunLoopSourceInvalidate(source)
+            self.source = nil
+        }
+        deadline = ContinuousClock.now + lasting
+        CFRunLoopSourceSignal(source)
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+    }
+
+    private func perform() {
+        turns += 1
+        busyOnTheMainThreadForTest(turn)
+        if ContinuousClock.now < deadline, let source {
+            CFRunLoopSourceSignal(source)
+        } else {
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+    }
 }
 
 /// The forced hang under test: keeps the main thread busy in one run-loop turn for `duration`.
