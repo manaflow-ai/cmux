@@ -185,7 +185,7 @@ class Copies(unittest.TestCase):
             with self.subTest(workflow=workflow, job=job, step=st.get("name")):
                 if (workflow, job) in MARKER_STEPS:
                     marked.add((workflow, job))
-                    self.assertIn("::no verdict: " if "title=" in body else "::error::no verdict: ", body)
+                    self.assertIn("::error::no verdict: ", body)
                     continue
                 self.assertTrue(any(u in body for u in uses),
                                 "a summary step that reads needs results must use scripts/ci/needs_verdict.py's rule "
@@ -216,6 +216,31 @@ class Copies(unittest.TestCase):
 
 
 class Summaries(unittest.TestCase):
+    def test_the_marker_steps_read_their_job_output_by_the_rule(self):
+        """MARKER_STEPS read a verdict output beside the result. A failed result is a red whatever the output says, one
+        that judged nothing is no verdict (exit 3); the crash gate leaves a failed compile to the compile's own red."""
+        cases = {
+            ("cmux-next.yml", "fast-tier", "Report the build fleet's fast tier verdict"): [
+                ({"VERDICT": "pass", "RESULT": "success"}, 0), ({"VERDICT": "fail", "RESULT": "failure"}, 1),
+                ({"VERDICT": "pass", "RESULT": "failure"}, 1), ({"VERDICT": "", "RESULT": "failure"}, 1),
+                ({"VERDICT": "fail", "RESULT": "cancelled"}, 1), ({"VERDICT": "", "RESULT": "cancelled"}, 3),
+                ({"VERDICT": "pass", "RESULT": "abandoned"}, 3), ({"VERDICT": "", "RESULT": ""}, 3),
+                ({"VERDICT": "unavailable", "RESULT": "success"}, 3)],
+            ("cmux-next.yml", "crash-ends-app", "Read the crash gate result"): [
+                ({"OUTCOME": "success", "COMPILE": "success"}, 0), ({"OUTCOME": "failure", "COMPILE": "success"}, 1),
+                ({"OUTCOME": "", "COMPILE": "success"}, 1), ({"OUTCOME": "", "COMPILE": "failure"}, 0),
+                ({"OUTCOME": "", "COMPILE": "cancelled"}, 3), ({"OUTCOME": "", "COMPILE": "abandoned"}, 3),
+                ({"OUTCOME": "", "COMPILE": ""}, 3)],
+        }
+        self.assertEqual({key[:2] for key in cases}, set(MARKER_STEPS), "give a new MARKER_STEPS job its table here")
+        for (workflow, job, name), rows in cases.items():
+            body = step(workflow, job, name)["run"]
+            for env, code in rows:
+                with self.subTest(workflow=workflow, job=job, env=env):
+                    done = run_bash(body, env)
+                    self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                    self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
+
     def test_rust_workspaces(self):
         body = step("rust-workspaces.yml", "summary", "Every planned workspace passed")["run"]
         for plan, workspaces, code in (("success", "success", 0), ("success", "skipped", 0),
