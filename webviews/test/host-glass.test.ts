@@ -468,6 +468,27 @@ test("no step of an open and close shows the App's glass or the blur without the
   expect(violations).toEqual([]);
 });
 
+test("a surface that closes and opens again during its hold gets its deadline at its first report", async () => {
+  const doc = page();
+  const window = dom!.window as unknown as Window;
+  // A slow display: the hold alone outlasts the deadline.
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 40);
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, (surfaces) =>
+    surfaces.length > 0 ? new Promise<void>((resolve) => (answer ??= resolve)) : Promise.resolve(),
+  );
+  const menu = surface(doc, "menu");
+  await Promise.resolve();
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  menu.removeAttribute("data-ending-style");
+  await frames(HOST_GLASS_HOLD_FRAMES + 2);
+  expect(answer).toBeDefined();
+  answer!();
+  await settled();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("a surface that opens again during its close fade goes back on the App's glass", async () => {
   const doc = page();
   const reports: HostGlassSurface[][] = [];
