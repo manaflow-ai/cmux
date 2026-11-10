@@ -13,9 +13,12 @@ const originsOf = (env: "staging" | "production"): ReadonlyArray<string> => {
   expect(start).toBeGreaterThan(-1);
   const line = /"VM_HTTPS_PROXY_ORIGINS": ("(?:[^"\\]|\\.)*")/u.exec(wranglerText.slice(start));
   expect(line).not.toBeNull();
-  const raw = JSON.parse(line![1]!) as string;
-  // Every listed value is an exact https origin: one that is not would be dropped silently.
-  expect(parseHttpsProxyOrigins(raw)).toHaveLength((JSON.parse(raw) as string[]).length);
+  const raw: unknown = JSON.parse(line?.[1] ?? "null");
+  if (typeof raw !== "string") throw new Error(`${env}: VM_HTTPS_PROXY_ORIGINS is not a string`);
+  const listed: unknown = JSON.parse(raw);
+  if (!Array.isArray(listed)) throw new Error(`${env}: VM_HTTPS_PROXY_ORIGINS is not a list`);
+  // Every listed value is an exact https origin: one that is not would disable the whole list.
+  expect(parseHttpsProxyOrigins(raw)).toHaveLength(listed.length);
   return parseHttpsProxyOrigins(raw);
 };
 
