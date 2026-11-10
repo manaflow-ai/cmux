@@ -100,6 +100,7 @@ export function EnvironmentPicker({
   onOpen,
   offload,
   onOffload,
+  offloadReason,
   runMode,
   closeOnTrustAsk = false,
   faceStyle = "label",
@@ -134,6 +135,9 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
+  /// Why the move would refuse now (a chat with no first message yet): its row is greyed, says why
+  /// under its name, and a pick runs nothing.
+  offloadReason?: string;
   /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
@@ -299,7 +303,15 @@ export function EnvironmentPicker({
   // menu, Settings > Devices and the Cloud page. A started chat's list is where it runs and its one
   // move.
   const editing = saved?.current;
-  type Action = { value: string; text: string; kind: "local" | "cloud"; run(): void; signsIn?: true };
+  type Action = {
+    value: string;
+    text: string;
+    kind: "local" | "cloud";
+    run(): void;
+    signsIn?: true;
+    /// Why the row runs nothing now: greyed, with this under its name.
+    reason?: string;
+  };
   const move: Action | undefined =
     offload && onOffload
       ? {
@@ -307,6 +319,7 @@ export function EnvironmentPicker({
           text: t(offload === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
           kind: offload === "move" ? "cloud" : "local",
           run: () => onOffload(offload),
+          ...(offloadReason ? { reason: offloadReason } : {}),
         }
       : undefined;
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
@@ -519,6 +532,8 @@ export function EnvironmentPicker({
     // stays open.
     const machine = positions.get(value)?.environment;
     if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    // A move that would refuse is no pick either: its row already says why.
+    if (action?.reason) return;
     close();
     if (value === CLOUD_RUN) {
       // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
@@ -598,6 +613,9 @@ export function EnvironmentPicker({
           data-kind={action.kind}
           data-action={action === another ? "another" : action === addMachine ? "addMachine" : undefined}
           data-current={checked ? "" : undefined}
+          data-ready={action.reason ? "false" : undefined}
+          aria-disabled={action.reason ? true : undefined}
+          title={action.reason}
         >
           {action === another ? (
             <AnotherMachineIcon />
@@ -608,6 +626,7 @@ export function EnvironmentPicker({
           )}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
+            {action.reason && <span className="acpmux-menu-description">{action.reason}</span>}
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}

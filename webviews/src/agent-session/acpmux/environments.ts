@@ -41,6 +41,21 @@ export const CONNECT_ACTIONS = {
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
 /// A started chat's move: to a Cloud machine, or back to this Mac.
 export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
+/// Why each offered move would refuse now, as the chat's right-click menu row says it under its title.
+export type OffloadReasons = Readonly<Partial<Record<OffloadKind, string>>>;
+
+/// The `pane.tabState` `moveReasons` (by action id) for the offered `kinds`.
+export function offloadReasonsOf(
+  kinds: readonly OffloadKind[],
+  reasons: Readonly<Record<string, string>>,
+): OffloadReasons {
+  const out: Partial<Record<OffloadKind, string>> = {};
+  for (const kind of kinds) {
+    const reason = reasons[CONNECT_ACTIONS[kind]];
+    if (reason) out[kind] = reason;
+  }
+  return out;
+}
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a
 /// `ws://`/`wss://` one (cmux Cloud and other daemons the user connected by URL). In the app the
