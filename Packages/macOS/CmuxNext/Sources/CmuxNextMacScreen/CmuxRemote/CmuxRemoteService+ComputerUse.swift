@@ -197,6 +197,40 @@ extension CmuxRemoteService {
         _ = try await daemonRequest(ComputerUseApprovalsRequest(action: "revoke_sessions"))
     }
 
+    /// The person's per-agent rows of the menu bar's Computer Use row, for cmux Remote's worker.
+    public enum ComputerUseSessionAction: String, Sendable {
+        /// Stop: the agent's Computer Use calls end and are refused with `stopped_by_person`.
+        case stop
+        /// Resume: a stopped agent may act again.
+        case resume
+        /// Show Cursor: ring the agent's cursor where it is.
+        case spotlight
+        /// Show Window: raise the window the agent works in (within its app; the caller activates the app).
+        case raiseWindow = "raise_window"
+    }
+
+    /// Sends `action` for agent session `session` to cmux Remote's Computer Use worker through the
+    /// daemon (`remote-host-call computer_use.session`); returns the worker's answer.
+    @discardableResult
+    public func computerUseSession(_ action: ComputerUseSessionAction, session: String, label: String? = nil) async throws -> [String: Any] {
+        var params: [String: CmuxNextDaemon.JSONValue] = ["action": .string(action.rawValue), "session": .string(session)]
+        if let label { params["label"] = .string(label) }
+        let answer = Self.object(try await call("computer_use.session", .object(params))) ?? [:]
+        switch action {
+        case .stop: computerUse.mark(session, stopped: true)
+        case .resume: computerUse.mark(session, stopped: false)
+        case .spotlight, .raiseWindow: break
+        }
+        return answer
+    }
+
+    /// ``computerUseSession(_:session:label:)`` for a menu row: a refusal is logged, not thrown.
+    public func computerUseSessionReporting(_ action: ComputerUseSessionAction, session: String) async {
+        do { try await computerUseSession(action, session: session) } catch {
+            computerUseLogger.notice("cmux Remote Computer Use \(action.rawValue, privacy: .public) refused: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the
     /// prompt and System Settings name cmux Remote.
     public func requestGrant(_ permission: String) async {

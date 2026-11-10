@@ -8,7 +8,7 @@ public import Foundation
 /// them as `workers["computer-use"].activity`, which the cmux-tui daemon turns into its
 /// `computer-use-activity` event for the app (the menu bar badge and Computer Use row).
 ///
-///     worker -> host  {"type":"activity","session":S,"label":L,"app":{"id","name","pid"}?,"at_ms":T}
+///     worker -> host  {"type":"activity","session":S,"label":L,"app":{"id","name","pid"}?,"at_ms":T,"stopped":B?}
 ///     worker -> host  {"type":"activity","session":S,"ended":true}
 public struct ComputerUseActivity: Equatable, Sendable {
     /// An app an agent acted on: its bundle id, name and process, each when known.
@@ -48,18 +48,22 @@ public struct ComputerUseActivity: Equatable, Sendable {
         public var app: App?
         /// When it acted last (milliseconds since 1970, this Mac's clock).
         public var lastActionMilliseconds: Int64
+        /// The person stopped its Computer Use from the menu bar (its calls are refused until Resume).
+        public var stopped: Bool
 
-        public init(session: String, label: String, app: App? = nil, lastActionMilliseconds: Int64) {
+        public init(session: String, label: String, app: App? = nil, lastActionMilliseconds: Int64, stopped: Bool = false) {
             self.session = session
             self.label = label
             self.app = app
             self.lastActionMilliseconds = lastActionMilliseconds
+            self.stopped = stopped
         }
 
-        /// The status object (`{session, label, app?, last_action_ms}`).
+        /// The status object (`{session, label, app?, last_action_ms, stopped?}`).
         public var fields: [String: Any] {
             var fields: [String: Any] = ["session": session, "label": label, "last_action_ms": lastActionMilliseconds]
             if let app { fields["app"] = app.fields }
+            if stopped { fields["stopped"] = true }
             return fields
         }
     }
@@ -94,7 +98,8 @@ public struct ComputerUseActivity: Equatable, Sendable {
             return sessions.removeValue(forKey: session) != nil || changed
         }
         let next = Session(session: session, label: Self.bounded(line["label"] as? String) ?? "", app: App(line["app"] as? [String: Any]),
-                           lastActionMilliseconds: (line["at_ms"] as? NSNumber)?.int64Value ?? Self.milliseconds(now))
+                           lastActionMilliseconds: (line["at_ms"] as? NSNumber)?.int64Value ?? Self.milliseconds(now),
+                           stopped: line["stopped"] as? Bool ?? false)
         guard sessions[session] != next else { return changed }
         sessions[session] = next
         if sessions.count > Self.limit,
@@ -105,9 +110,10 @@ public struct ComputerUseActivity: Equatable, Sendable {
     }
 
     /// The worker's line for an action of `session`.
-    public static func line(session: String, label: String, app: App?, at: Date) -> Data {
+    public static func line(session: String, label: String, app: App?, at: Date, stopped: Bool = false) -> Data {
         var fields: [String: Any] = ["type": "activity", "session": session, "label": label, "at_ms": milliseconds(at)]
         if let app { fields["app"] = app.fields }
+        if stopped { fields["stopped"] = true }
         return RemoteWire.line(fields)
     }
 

@@ -10863,9 +10863,13 @@ Only the verified app sees `host.screen.devices`, `session`, `pending`, `indicat
 
 `{"cmd":"remote-host-call","method":M,"params":{...}}` for `status`, `refresh`,
 `request {permission}`, `open_settings {permission}`, `restart {worker, force}`,
-`screen.share {on}`, `screen.access {device, scope}` and `screen.stop_session`.
+`screen.share {on}`, `screen.access {device, scope}`, `screen.stop_session` and
+`computer_use.session {action, session, label?}` (the cmux menu bar's per-agent
+rows: `stop` an agent's Computer Use, `resume` it, `spotlight` its cursor,
+`raise_window` the window it works in).
 Any local Unix connection may read, refresh, ask macOS for a grant, restart a
-worker and lower access. Turning sharing on or raising a device's access is
+worker, lower access, stop an agent's Computer Use and spotlight its cursor.
+Turning sharing on, raising a device's access and resuming a stopped agent are
 the verified app's only (`origin.forbidden`).
 
 ### remote-host-config

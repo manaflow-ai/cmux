@@ -101,4 +101,38 @@ import Testing
         #expect(PolicyFlags(always).cursorTag == .always)
         #expect(PolicyFlags(Data(#"{"cursorTag":"sometimes"}"#.utf8)).cursorTag == .hover, "an unknown mode keeps the default")
     }
+    @Test func aStoppedSessionSaysSoAtOnceAndItsRefusedCallsAreNoActions() {
+        let rig = Rig(windows: [42: .init(id: "com.apple.TextEdit", name: "TextEdit", pid: 501)])
+        let reporter = rig.reporter()
+        reporter.noteCapture(.window(42))
+        reporter.noteCursor(cursor("click"))
+        #expect(rig.written.count == 1)
+        #expect(reporter.window(of: "s1")?.window == 42 && reporter.window(of: "s1")?.pid == 501)
+        rig.advance(1)
+        reporter.noteStopped("s1", true)
+        #expect(rig.written.count == 2, "the stop goes at once")
+        #expect(rig.written[1]["stopped"] as? Bool == true)
+        #expect((rig.written[1]["at_ms"] as? NSNumber)?.int64Value == 1_000_000, "the stop is not an action")
+        // The engine's red Stopped event and the stopped agent's refused calls: no action, no line.
+        rig.advance(1)
+        reporter.noteCursor(cursor("refused"))
+        rig.advance(1)
+        reporter.noteCursor(cursor("refused"))
+        #expect(rig.written.count == 2)
+        reporter.noteStopped("s1", false)
+        #expect(rig.written.count == 3 && rig.written[2]["stopped"] == nil, "resume clears it at once")
+        rig.advance(1)
+        reporter.noteCursor(cursor("click"))
+        #expect((rig.written.last?["at_ms"] as? NSNumber)?.int64Value == 1_004_000, "a resumed session acts again")
+    }
+
+    @Test func theHostKeepsAStoppedSessionStopped() {
+        var activity = ComputerUseActivity()
+        let now = Date(timeIntervalSince1970: 1_000)
+        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now))
+        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000, "stopped": true], now: now))
+        #expect(activity.fields.first?["stopped"] as? Bool == true)
+        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now))
+        #expect(activity.fields.first?["stopped"] == nil)
+    }
 }

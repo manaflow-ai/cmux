@@ -479,10 +479,12 @@ sessions changes (the host's `workers["computer-use"].activity`, which the
 worker updates at most every half second per session while it acts, and when
 a session's cursor goes away). The payload is
 `{event:"computer-use-activity", sessions:[{session:string, label:string,
-app?:{id:string, name:string}, last_action_ms:uint64}]}`, newest action first;
+app?:{id:string, name:string}, last_action_ms:uint64, stopped?:bool}]}`, newest action first;
 an empty list when no session acted or the host is gone. `label` is the
 agent's name, `app` the app it acted on last when the worker knows it, and
-`last_action_ms` the wall-clock time of its last action on this machine. Only
+`last_action_ms` the wall-clock time of its last action on this machine;
+`stopped` is true while the person has stopped that agent's Computer Use from
+the menu bar (its calls are refused and do not count as actions). Only
 the person's own local Unix connections hear it (never a page relay or a
 remote device); the cmux app shows its menu bar badge and Computer Use row
 from it. `remote-host-status` carries the same list in `host.workers`.

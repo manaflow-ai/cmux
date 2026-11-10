@@ -77,13 +77,17 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
             public var bundleID: String?
             /// It acted within the last 2 s.
             public var acting: Bool
+            /// The person stopped its Computer Use (the menu's Stop); Resume lets it act again.
+            public var stopped: Bool
 
-            public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false) {
+            public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false,
+                        stopped: Bool = false) {
                 self.id = id
                 self.agent = agent
                 self.appName = appName
                 self.bundleID = bundleID
                 self.acting = acting
+                self.stopped = stopped
             }
         }
 

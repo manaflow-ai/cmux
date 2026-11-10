@@ -17,6 +17,7 @@ struct MenuBarMenuSpecTests {
             case .header(let title): "header:\(title)"
             case .chat(let chat): "chat:\(chat.id)"
             case .command(let command, _, _): "command:\(command)"
+            case .sessionAction(let id, let session, _, _): "\(id.rawValue)@\(session)"
             case .computerUse(let app, _, _): "computerUse:\(app ?? "")"
             }
         }
@@ -179,12 +180,20 @@ struct MenuBarMenuSpecTests {
         #expect(items[15] == .action("search.chats", title: "More…", symbol: "ellipsis"))
         guard case .computerUse(_, let bundleID, let sub) = items[0] else { throw CancellationError() }
         #expect(bundleID == "com.apple.calculator")
-        // A line per session (who, on which app; acting now or not), then the newest session's
-        // actions. No Take Over: the person takes over by using the mouse or keyboard.
-        #expect(Self.ids(sub) == ["info:Claude Code in Calculator", "info:Codex", "-", "computerUseFocus",
-                                  "computerUseFocusCallingTerminal", "computerUseStop", "-", "agentActivity.open"])
+        // Per agent session (user 2026-11-09): its line (who, on which app; acting now or not), then
+        // Stop, Show Cursor and Show Window for that agent; then the rows for every agent. No Take
+        // Over: the person takes over by using the mouse or keyboard.
+        #expect(Self.ids(sub) == [
+            "info:Claude Code in Calculator", "computerUseStop@s1", "command:computerUseShowCursor(\"s1\")", "computerUseFocus@s1", "-",
+            "info:Codex", "computerUseStop@s2", "command:computerUseShowCursor(\"s2\")", "computerUseFocus@s2", "-",
+            "computerUseFocusCallingTerminal", "computerUseStop", "-", "agentActivity.open",
+        ])
         #expect(sub[0] == .info("Claude Code in Calculator", symbol: "cursorarrow.motionlines", avatar: false))
-        #expect(sub[1] == .info("Codex", symbol: "cursorarrow", avatar: false))
+        #expect(sub[1] == .sessionAction("computerUseStop", session: "s1", title: "Stop", symbol: "stop.circle"))
+        #expect(sub[2] == .command(.computerUseShowCursor("s1"), title: "Show Cursor", symbol: "scope"))
+        #expect(sub[3] == .sessionAction("computerUseFocus", session: "s1", title: "Show Window", symbol: "macwindow"))
+        #expect(sub[5] == .info("Codex", symbol: "cursorarrow", avatar: false))
+        #expect(sub[11] == .action("computerUseStop", title: "Stop All Agents", symbol: "stop.circle"))
         let many = MenuBarMenuState(computerUse: .init(sessions: (1...8).map { .init(id: "s\($0)", appName: "App \($0)") }))
         guard case .computerUse(let app, _, let manySub) = MenuBarMenuSpec().items(for: many, isBound: Self.everything)[0] else {
             throw CancellationError()
@@ -208,7 +217,23 @@ struct MenuBarMenuSpecTests {
         guard case .computerUse(_, _, let trimmed) = MenuBarMenuSpec().items(for: some, isBound: { bound.contains($0) })[0] else {
             throw CancellationError()
         }
-        #expect(Self.ids(trimmed) == ["info:An agent", "-", "computerUseStop"])
+        #expect(Self.ids(trimmed) == ["info:An agent", "computerUseStop@s", "command:computerUseShowCursor(\"s\")", "-", "computerUseStop"])
+    }
+
+    /// A stopped agent: its line says Stopped, Resume replaces Stop, and it never counts as acting.
+    @Test func aStoppedSessionOffersResume() throws {
+        let state = MenuBarMenuState(computerUse: .init(sessions: [
+            .init(id: "s1", agent: "Claude Code", appName: "Notes", acting: false, stopped: true),
+        ]))
+        guard case .computerUse(_, _, let sub) = MenuBarMenuSpec().items(for: state, isBound: Self.everything)[0] else {
+            throw CancellationError()
+        }
+        #expect(Self.ids(Array(sub.prefix(4))) == [
+            "info:Claude Code in Notes (Stopped)", "command:computerUseResume(\"s1\")", "command:computerUseShowCursor(\"s1\")",
+            "computerUseFocus@s1",
+        ])
+        #expect(sub[0] == .info("Claude Code in Notes (Stopped)", symbol: "stop.circle", avatar: false))
+        #expect(sub[1] == .command(.computerUseResume("s1"), title: "Resume", symbol: "play.circle"))
     }
 
     /// The builder: native section headers, chat rows that run their command with the harness
@@ -226,8 +251,14 @@ struct MenuBarMenuSpecTests {
         #expect(menu.items[0].title == "Computer Use")
         #expect(menu.items[0].badge?.stringValue == "Notes")
         let sub = try #require(menu.items[0].submenu)
-        #expect(sub.items.map(\.title) == ["Claude Code in Notes", "", "Stop Computer Use"])
+        #expect(sub.items.map(\.title) == ["Claude Code in Notes", "Stop", "Show Cursor", "", "Stop All Agents"])
         #expect(!sub.items[0].isEnabled, "a session line is information, not a command")
+        #expect(sub.items[1].indentationLevel == 1 && sub.items[2].indentationLevel == 1, "an agent's rows sit under its line")
+        let stop = try #require(sub.items[1].representedObject as? ActionMenuPayload)
+        #expect(stop.id == "computerUseStop" && stop.arguments["session"] == .string("s1"), "Stop names its agent's session")
+        _ = sub.items[2].target?.perform(sub.items[2].action, with: sub.items[2])
+        #expect(ran == [.computerUseShowCursor("s1")])
+        ran.removeAll()
         #expect(menu.items[2].isSectionHeader && menu.items[2].title == "Unread")
         let chat = menu.items[3]
         #expect(chat.title == "Fix the sidebar" && chat.image === mark)

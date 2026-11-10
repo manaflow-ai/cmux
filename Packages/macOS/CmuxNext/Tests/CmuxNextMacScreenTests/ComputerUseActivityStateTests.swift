@@ -83,4 +83,21 @@ import Testing
         state.take(host: nil)
         #expect(state.sessions.isEmpty && !state.acting)
     }
+
+    /// A session the person stopped: listed as stopped, never acting (no badge), until it resumes.
+    @Test func aStoppedSessionIsListedButNeverActs() throws {
+        let state = state()
+        state.take(activityEvent: try event([["session": "a", "label": "Codex", "last_action_ms": 4_999_900, "stopped": true]]))
+        #expect(state.sessions.first?.stopped == true)
+        #expect(!state.acting && !state.actingClear.isScheduled, "a stopped agent shows no badge")
+        let row = state.menuBarSessions(now: Date(timeIntervalSince1970: 5_000))[0]
+        #expect(row.stopped && !row.acting)
+        // The app's own Resume marks it at once; the worker's next event agrees.
+        state.mark("a", stopped: false)
+        #expect(state.sessions.first?.stopped == false && state.acting)
+        state.mark("a", stopped: true)
+        #expect(!state.acting)
+        state.mark("missing", stopped: false)
+        #expect(state.sessions.count == 1)
+    }
 }

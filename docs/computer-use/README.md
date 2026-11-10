@@ -50,6 +50,28 @@ daemon sends each change to the app as `computer-use-activity`
 an agent acted within the last 2 seconds, and the sessions in the menu's
 Computer Use row.
 
+### Stop, Resume, Show Cursor and Show Window
+
+The cmux menu bar's Computer Use row lists each agent session with Stop (or
+Resume), Show Cursor and Show Window. They reach the worker as the daemon's
+`remote-host-call computer_use.session` and the host's `session`,
+`cursor/spotlight` and `window/raise` control lines.
+
+- Stop: the engine marks the session stopped (`crate::stop`). Its running call
+  ends at its next checkpoint (between batch steps, between paced keys, between
+  settle captures) and every later call returns the tool error
+  `stopped_by_person` with this text, which the agent sees as is: "The person
+  stopped this agent's Computer Use from the cmux menu bar. Do not retry or work
+  around it; tell the person what you were doing and ask whether to continue."
+  The cursor shows a red Stopped chip, then hides. The agent's terminal or chat
+  keeps running; other agents are unaffected. The stop lives in memory (a
+  restarted worker forgets it).
+- Resume (the verified app only): the session's calls run again.
+- Show Cursor: rings the agent's cursor where it is, or where it last was.
+- Show Window: the worker raises the window the agent last captured within its
+  app (`AXRaise`), and the app brings that app to the front, since the person
+  asked.
+
 An agent can tag its cursor with an optional `cursor_tag` argument on any
 acting tool (60 characters at most); the tag stays for the session's later
 calls. Without one, the tag is the agent's cmux workspace name. When the tag

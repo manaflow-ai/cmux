@@ -10,6 +10,9 @@ import Foundation
 ///     host -> worker  {"type":"config","config":<PolicyConfig>}
 ///     host -> worker  {"type":"approvals","action":"forget|always|never|revoke_sessions|list","app_id":ID}
 ///     worker -> host  {"type":"request_permission","permission":"accessibility|screen-recording"}
+///     host -> worker  {"type":"session","action":"stop|resume","session":S,"label":L,"id":N}
+///     host -> worker  {"type":"cursor/spotlight","session":S,"id":N}
+///     host -> worker  {"type":"window/raise","session":S,"id":N}
 ///
 /// A host line may carry `"id":N`; the worker then answers `{"id":N,"ok":...}` (RemoteWire). The
 /// macOS-only `motion` object (`{"enabled":B,"speed":S}`, the app's animation switches for the
@@ -18,6 +21,12 @@ enum WorkerControl: Equatable, Sendable {
     case configure(WorkerConfiguration)
     case config(policy: Data, motion: CursorMotionSettings?)
     case approvals(id: Int?, action: ApprovalEdit)
+    /// The person's Stop or Resume of one agent session (the cmux menu bar).
+    case session(id: Int?, SessionControl)
+    /// Show Cursor: ring the session's agent cursor where it is (or last was).
+    case spotlight(id: Int?, session: String)
+    /// Show Window: raise the window the session works in, within its app.
+    case raiseWindow(id: Int?, session: String)
     /// A line this worker does not know (ignored, answered when it has an id).
     case unknown(id: Int?, type: String)
 
@@ -36,6 +45,15 @@ enum WorkerControl: Equatable, Sendable {
             } else {
                 self = .unknown(id: id, type: "approvals")
             }
+        case "session":
+            guard let control = SessionControl(line: line) else { self = .unknown(id: id, type: "session"); return }
+            self = .session(id: id, control)
+        case "cursor/spotlight", "window/raise":
+            guard let session = SessionControl.sessionKey(line["session"]) else {
+                self = .unknown(id: id, type: line["type"] as? String ?? "")
+                return
+            }
+            self = line["type"] as? String == "cursor/spotlight" ? .spotlight(id: id, session: session) : .raiseWindow(id: id, session: session)
         case let type:
             self = .unknown(id: id, type: type ?? "")
         }
@@ -110,6 +128,36 @@ struct PolicyFlags: Equatable, Sendable {
 /// tag it set): while the person's pointer is over the cursor, always, or never.
 enum CursorTagMode: String, Equatable, Sendable {
     case hover, always, never
+}
+
+/// The person's Stop or Resume of one agent session (`cmux_cu_engine_session`).
+struct SessionControl: Equatable, Sendable {
+    enum Action: String, Sendable {
+        case stop, resume
+    }
+
+    var action: Action
+    var session: String
+    /// The agent's name, for the cursor's Stopped chip.
+    var label: String
+
+    init(action: Action, session: String, label: String = "") {
+        self.action = action
+        self.session = session
+        self.label = label
+    }
+
+    init?(line: [String: Any]) {
+        guard let action = (line["action"] as? String).flatMap(Action.init(rawValue:)),
+              let session = Self.sessionKey(line["session"]) else { return nil }
+        self.init(action: action, session: session, label: line["label"] as? String ?? "")
+    }
+
+    /// An engine session key: non-empty, at most 256 bytes.
+    static func sessionKey(_ value: Any?) -> String? {
+        guard let text = value as? String, !text.isEmpty, text.utf8.count <= 256 else { return nil }
+        return text
+    }
 }
 
 /// An approvals edit (`cmux_cu_engine_edit_approvals`), or the saved list.

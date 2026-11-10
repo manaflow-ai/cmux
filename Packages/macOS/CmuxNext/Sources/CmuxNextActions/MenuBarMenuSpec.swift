@@ -27,6 +27,9 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case chat(MenuBarMenuState.Chat)
         /// A row that runs on one session, not a registry action.
         case command(Command, title: String, symbol: String)
+        /// A registry action run on one Computer Use session (its `session` argument), indented
+        /// under the session's line.
+        case sessionAction(ActionID, session: String, title: String, symbol: String)
         /// The Computer Use row: `app` (its name and bundle id, for the icon) is what it drives,
         /// nil when nothing does; `items` is its submenu.
         case computerUse(app: String?, bundleID: String?, items: [Item])
@@ -36,6 +39,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     public enum Command: Sendable, Hashable {
         /// Opens the chat (an acpmux session id) in its workspace.
         case openChat(String)
+        /// Lets a Computer Use session the person stopped act again (the engine's session key).
+        case computerUseResume(String)
+        /// Rings the session's agent cursor where it is, so the person finds it.
+        case computerUseShowCursor(String)
     }
 
     /// The most Computer Use sessions the row's submenu names.
@@ -71,6 +78,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         for row in rows {
             switch row {
             case .action(let id, _, _) where !isBound(id): continue
+            case .sessionAction(let id, _, _, _) where !isBound(id): continue
             case .setting where !isBound("openSettings"): continue
             case .computerUse(let app, let bundleID, let items):
                 out.append(.computerUse(app: app, bundleID: bundleID, items: bound(items, isBound: isBound)))
@@ -153,28 +161,50 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         return rows
     }
 
-    /// The Computer Use row and its submenu: a line per agent session (who, on which app; acting now
-    /// or not), the app and the terminal that started the newest, Stop, then Agent Activity. With no
-    /// session: Agent Activity and setup. There is no Take Over: the person takes over by using the
-    /// mouse or keyboard (`computerUse.pauseOnTakeover`), and agents wait on their own.
+    /// The Computer Use row and its submenu (user 2026-11-09: "make a menu bar that lets you: stop on
+    /// agent's CU (must communicate to agent if stopped), focus on an agents cursor for CU"): per
+    /// agent session, its line (who, on which app; acting now, idle or stopped), then Stop (or
+    /// Resume once stopped), Show Cursor and Show Window; then Focus Calling Terminal, Stop for every
+    /// agent, and Agent Activity. With no session: Agent Activity and setup. There is no Take Over:
+    /// the person takes over by using the mouse or keyboard (`computerUse.pauseOnTakeover`).
     private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
-        guard let session = state.session else {
+        guard let newest = state.session else {
             return .computerUse(app: nil, bundleID: nil, items: [
                 .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
                 .action("palette.computerUse.setup", title: nil, symbol: "gear"),
             ])
         }
-        let lines: [Item] = state.sessions.prefix(computerUseSessionLimit).map { session in
-            .info(sessionLine(session), symbol: session.acting ? "cursorarrow.motionlines" : "cursorarrow", avatar: false)
+        var items: [Item] = []
+        for session in state.sessions.prefix(computerUseSessionLimit) {
+            items += sessionRows(session)
+            items.append(.separator)
         }
-        return .computerUse(app: session.appName, bundleID: session.bundleID, items: lines + [
-            .separator,
-            .action("computerUseFocus", title: nil, symbol: "cursorarrow.rays"),
+        items += [
             .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
-            .action("computerUseStop", title: nil, symbol: "stop.circle"),
+            .action("computerUseStop", title: text("menu.menuBar.computerUse.stopAll", "Stop All Agents"), symbol: "stop.circle"),
             .separator,
             .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
-        ])
+        ]
+        return .computerUse(app: newest.appName, bundleID: newest.bundleID, items: items)
+    }
+
+    /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.
+    private static func sessionRows(_ session: MenuBarMenuState.ComputerUse.Session) -> [Item] {
+        let line = sessionLine(session)
+        let symbol = session.stopped ? "stop.circle" : session.acting ? "cursorarrow.motionlines" : "cursorarrow"
+        let title = session.stopped
+            ? String(localized: "menu.menuBar.computerUse.stoppedLine", defaultValue: "\(line) (Stopped)", table: "ProfileActions", bundle: .module)
+            : line
+        let stopOrResume: Item = session.stopped
+            ? .command(.computerUseResume(session.id), title: text("menu.menuBar.computerUse.resume", "Resume"), symbol: "play.circle")
+            : .sessionAction("computerUseStop", session: session.id, title: text("menu.menuBar.computerUse.stop", "Stop"), symbol: "stop.circle")
+        return [
+            .info(title, symbol: symbol, avatar: false),
+            stopOrResume,
+            .command(.computerUseShowCursor(session.id), title: text("menu.menuBar.computerUse.showCursor", "Show Cursor"), symbol: "scope"),
+            .sessionAction("computerUseFocus", session: session.id, title: text("menu.menuBar.computerUse.showWindow", "Show Window"),
+                           symbol: "macwindow"),
+        ]
     }
 
     /// "Claude Code in Notes", or the one of them the worker knows.

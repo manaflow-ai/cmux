@@ -131,6 +131,10 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
         case .openChat(let id):
             WindowActivation.activateApp()
             host.menuBarOpenChat(id)
+        case .computerUseResume(let session):
+            host.menuBarResumeComputerUse(session)
+        case .computerUseShowCursor(let session):
+            host.menuBarShowComputerUseCursor(session)
         }
     }
 

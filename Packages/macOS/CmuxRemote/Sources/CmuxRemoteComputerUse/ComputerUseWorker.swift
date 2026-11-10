@@ -118,6 +118,43 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
                 return
             }
             if let id { channel.write(RemoteWire.answer(id: id, result: engine.savedApprovals())) }
+        case .session(let id, let control):
+            guard let engine = lock.withLock({ self.engine }) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "worker_unavailable", message: "the engine is not running")) }
+                return
+            }
+            // Before a stop, so the engine's red Stopped cursor event is not counted as an action.
+            if control.action == .stop { activity.noteStopped(control.session, true) }
+            let result = engine.apply(control)
+            if control.action == .resume, result != .refused { activity.noteStopped(control.session, false) }
+            guard result != .refused else {
+                if control.action == .stop { activity.noteStopped(control.session, false) }
+                if let id { channel.write(RemoteWire.failure(id: id, code: "bad_request", message: "the engine refused \(control.action.rawValue)")) }
+                return
+            }
+            logger.notice("Computer Use: the person chose \(control.action.rawValue, privacy: .public) for an agent session")
+            if let id {
+                channel.write(RemoteWire.answer(id: id, result: ["session": control.session, "stopped": control.action == .stop,
+                                                                 "changed": result == .changed]))
+            }
+        case .spotlight(let id, let session):
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let shown = self.overlay?.spotlight(session: session) ?? false
+                    if let id { self.channel.write(RemoteWire.answer(id: id, result: ["shown": shown])) }
+                }
+            }
+        case .raiseWindow(let id, let session):
+            // The control thread (never main): accessibility calls may wait on the target app.
+            guard let place = activity.window(of: session) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "this agent has not worked in a window yet")) }
+                return
+            }
+            guard let pid = WindowRaise.raise(window: place.window, pid: place.pid) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "the agent's window is gone")) }
+                return
+            }
+            if let id { channel.write(RemoteWire.answer(id: id, result: ["raised": true, "pid": Int(pid)])) }
         case .unknown(let id, let type):
             if let id { channel.write(RemoteWire.failure(id: id, code: "unknown_method", message: "unknown control line \(type)")) }
         }

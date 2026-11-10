@@ -19,14 +19,18 @@ public struct CmuxRemoteComputerUseSession: Equatable, Sendable {
     public var appPID: Int32?
     /// When it acted last.
     public var lastAction: Date
+    /// The person stopped its Computer Use from the menu bar; its calls are refused until Resume.
+    public var stopped: Bool
 
-    public init(id: String, agent: String? = nil, appID: String? = nil, appName: String? = nil, appPID: Int32? = nil, lastAction: Date) {
+    public init(id: String, agent: String? = nil, appID: String? = nil, appName: String? = nil, appPID: Int32? = nil, lastAction: Date,
+                stopped: Bool = false) {
         self.id = id
         self.agent = agent
         self.appID = appID
         self.appName = appName
         self.appPID = appPID
         self.lastAction = lastAction
+        self.stopped = stopped
     }
 
     /// The session as the File menu's Computer Use actions and the drive indicator's Stop read it.
@@ -41,11 +45,12 @@ public struct CmuxRemoteComputerUseSession: Equatable, Sendable {
     /// badge's window of `now`.
     public func menuBar(now: Date) -> MenuBarMenuState.ComputerUse.Session {
         MenuBarMenuState.ComputerUse.Session(id: id, agent: agent, appName: appName, bundleID: appID,
-                                             acting: now.timeIntervalSince(lastAction) < ComputerUseActingWindow.window)
+                                             acting: !stopped && now.timeIntervalSince(lastAction) < ComputerUseActingWindow.window,
+                                             stopped: stopped)
     }
 
     /// The sessions of a `computer-use-activity` event's `sessions`, or of the host status's
-    /// `workers["computer-use"].activity`: `[{session, label, app: {id, name}?, last_action_ms}]`,
+    /// `workers["computer-use"].activity`: `[{session, label, app: {id, name}?, last_action_ms, stopped?}]`,
     /// newest action first. Rows without a session are skipped.
     public static func sessions(from list: [Any]?) -> [CmuxRemoteComputerUseSession] {
         (list ?? []).compactMap { row -> CmuxRemoteComputerUseSession? in
@@ -55,7 +60,8 @@ public struct CmuxRemoteComputerUseSession: Equatable, Sendable {
             let pid = (app?["pid"] as? NSNumber)?.int32Value
             return CmuxRemoteComputerUseSession(id: id, agent: nonEmpty(row["label"]), appID: nonEmpty(app?["id"]),
                                                 appName: nonEmpty(app?["name"]), appPID: pid.flatMap { $0 > 0 ? $0 : nil },
-                                                lastAction: Date(timeIntervalSince1970: millis / 1000))
+                                                lastAction: Date(timeIntervalSince1970: millis / 1000),
+                                                stopped: row["stopped"] as? Bool ?? false)
         }.sorted { $0.lastAction > $1.lastAction }
     }
 }
@@ -68,8 +74,9 @@ struct ComputerUseActingWindow: Sendable {
     static let window: TimeInterval = 2
 
     /// Whether `sessions` hold an action within the window of `now`, and when that ends (nil: not acting).
+    /// A stopped session never acts.
     static func acting(_ sessions: [CmuxRemoteComputerUseSession], now: Date) -> (acting: Bool, until: Date?) {
-        guard let newest = sessions.map(\.lastAction).max() else { return (false, nil) }
+        guard let newest = sessions.filter({ !$0.stopped }).map(\.lastAction).max() else { return (false, nil) }
         let until = newest.addingTimeInterval(window)
         return until > now ? (true, until) : (false, nil)
     }
@@ -81,6 +88,15 @@ extension CmuxRemoteComputerUseState {
     func take(activity sessions: [CmuxRemoteComputerUseSession]) {
         if self.sessions != sessions { self.sessions = sessions }
         settleActing()
+    }
+
+    /// The person stopped or resumed `session` and cmux Remote took it: the menu shows it at once
+    /// (the worker's next `computer-use-activity` says the same).
+    func mark(_ session: String, stopped: Bool) {
+        guard let index = sessions.firstIndex(where: { $0.id == session }), sessions[index].stopped != stopped else { return }
+        var next = sessions
+        next[index].stopped = stopped
+        take(activity: next)
     }
 
     /// Takes a daemon `computer-use-activity` event's payload.

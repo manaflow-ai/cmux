@@ -31,4 +31,8 @@ public protocol MenuBarExtraHost: AnyObject {
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage?
     /// Opens the chat (an acpmux session id) in its workspace, as its sidebar row does.
     func menuBarOpenChat(_ id: String)
+    /// Lets Computer Use session `session`, which the person stopped, act again (the menu's Resume).
+    func menuBarResumeComputerUse(_ session: String)
+    /// Rings Computer Use session `session`'s agent cursor where it is (the menu's Show Cursor).
+    func menuBarShowComputerUseCursor(_ session: String)
 }

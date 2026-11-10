@@ -16,9 +16,15 @@ final class ComputerUseActivityReporter: Sendable {
     private struct SessionState: Sendable {
         var label = ""
         var app: App?
+        /// The window it worked in last (the capture before its action), for Show Window.
+        var window: UInt32?
+        /// When it acted last; a stopped session's refused calls do not count.
+        var actedAt: Date?
+        var stopped = false
         var sentAt: Date?
         var sentLabel = ""
         var sentApp: App?
+        var sentStopped = false
     }
 
     private struct State: Sendable {
@@ -27,6 +33,8 @@ final class ComputerUseActivityReporter: Sendable {
         var capturedWindow: (id: UInt32, at: Date)?
         /// The app of each window resolved so far (a few entries; a window keeps its owner).
         var windowApps: [UInt32: App] = [:]
+        /// The sessions the person stopped (kept when a session's cursor hides, so it shows again stopped).
+        var stopped: Set<String> = []
     }
 
     private let write: @Sendable (Data) -> Void
@@ -57,9 +65,13 @@ final class ComputerUseActivityReporter: Sendable {
         guard !question.session.isEmpty else { return }
         let app = App(id: question.appID.isEmpty ? nil : question.appID, name: question.appName)
         let line = state.withLockUnchecked { state -> Data? in
-            state.sessions[question.session, default: SessionState()].app = app
-            if !question.agent.isEmpty { state.sessions[question.session]?.label = question.agent }
-            return Self.due(&state, question.session, now: clock(), force: true)
+            var entry = state.sessions[question.session] ?? SessionState(stopped: state.stopped.contains(question.session))
+            entry.app = app
+            if !question.agent.isEmpty { entry.label = question.agent }
+            let now = clock()
+            if !entry.stopped { entry.actedAt = now }
+            state.sessions[question.session] = entry
+            return Self.due(&state, question.session, now: now, force: true)
         }
         if let line { write(line) }
     }
@@ -92,30 +104,61 @@ final class ComputerUseActivityReporter: Sendable {
                 if state.windowApps.count >= 64 { state.windowApps.removeAll() }
                 state.windowApps[id] = app
             }
-            var entry = state.sessions[session, default: SessionState()]
+            var entry = state.sessions[session] ?? SessionState(stopped: state.stopped.contains(session))
             if let label = object["label"] as? String, !label.isEmpty { entry.label = label }
+            // A stopped session's calls are refused: they are not actions (no badge, no newer row).
+            if entry.stopped {
+                state.sessions[session] = entry
+                return nil
+            }
+            entry.actedAt = now
             if let given {
                 entry.app = given
             } else if let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2,
                       let app = state.windowApps[captured.id] {
                 entry.app = app
             }
+            if let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2 { entry.window = captured.id }
             state.sessions[session] = entry
             return Self.due(&state, session, now: now, force: false)
         }
         if let line { write(line) }
     }
 
+    /// The person stopped (`true`) or resumed `session`; its line says so at once. Call it before
+    /// the engine stops the session (the engine's red Stopped cursor event is then no action) and
+    /// after it resumes it.
+    func noteStopped(_ session: String, _ stopped: Bool) {
+        let line = state.withLockUnchecked { state -> Data? in
+            if stopped { state.stopped.insert(session) } else { state.stopped.remove(session) }
+            guard var entry = state.sessions[session] else { return nil }
+            entry.stopped = stopped
+            state.sessions[session] = entry
+            return Self.due(&state, session, now: clock(), force: true)
+        }
+        if let line { write(line) }
+    }
+
+    /// The window `session` worked in last and its app's process (Show Window), nil when unknown.
+    func window(of session: String) -> (window: UInt32, pid: Int32?)? {
+        state.withLockUnchecked { state in
+            guard let entry = state.sessions[session], let window = entry.window else { return nil }
+            return (window, entry.app?.pid)
+        }
+    }
+
     /// The session's line when it is due: what it shows changed, or the interval passed.
     private static func due(_ state: inout State, _ session: String, now: Date, force: Bool) -> Data? {
         guard var entry = state.sessions[session] else { return nil }
-        let changed = entry.label != entry.sentLabel || entry.app != entry.sentApp
+        let changed = entry.label != entry.sentLabel || entry.app != entry.sentApp || entry.stopped != entry.sentStopped
         if !force, !changed, let sent = entry.sentAt, now.timeIntervalSince(sent) < ComputerUseActivity.minimumInterval { return nil }
         entry.sentAt = now
         entry.sentLabel = entry.label
         entry.sentApp = entry.app
+        entry.sentStopped = entry.stopped
         state.sessions[session] = entry
-        return ComputerUseActivity.line(session: session, label: entry.label, app: entry.app, at: now)
+        return ComputerUseActivity.line(session: session, label: entry.label, app: entry.app, at: entry.actedAt ?? now,
+                                        stopped: entry.stopped)
     }
 
     /// The app that owns window `id` (its bundle id, name and process); nil when it is gone.
