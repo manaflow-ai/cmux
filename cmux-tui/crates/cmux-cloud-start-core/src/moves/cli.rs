@@ -317,6 +317,10 @@ pub struct FrozenSync {
     pub socket: String,
     pub local: String,
     pub remote: String,
+    /// Machine to machine (Move to another Cloud machine): the source machine's link socket.
+    /// `local` is then the folder on that machine, and the copy is `cmux link sync relay`.
+    #[serde(default)]
+    pub from_socket: Option<String>,
 }
 
 /// One CLI call: its verb and the facts its arguments carry.
@@ -449,10 +453,13 @@ pub fn agent_move_flags(
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
     if let Some(sync) = sync {
+        if let Some(from) = &sync.from_socket {
+            flags.extend(words(&["--sync", "relay", "--sync-from-socket", from]));
+        }
         let kind = if sync.pull { "pull" } else { "seed" };
+        let kind = if sync.from_socket.is_some() { None } else { Some(kind) };
+        flags.extend(kind.map(|kind| words(&["--sync", kind])).unwrap_or_default());
         flags.extend(words(&[
-            "--sync",
-            kind,
             "--sync-socket",
             &sync.socket,
             "--sync-local",

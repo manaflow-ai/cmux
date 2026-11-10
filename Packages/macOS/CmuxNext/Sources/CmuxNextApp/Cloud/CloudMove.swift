@@ -54,6 +54,8 @@ struct CloudMove {
     func refusal(_ invocation: ActionInvocation, context: AppActionContext) -> String? {
         // An agent's run names its own chat, not the focused tab: its ask checks that chat (``CloudMoveAsks``).
         guard !CloudMoveAsks.isAgent(invocation), let (tab, _) = context.daemonTab(invocation), let reason = Self.refusal(tab, services) else { return nil }
+        // A Cloud machine's chat moves to another Cloud machine it names (``startRelocate(_:context:)``).
+        if Self.runningMachine(tab.agentSession, services) != nil, invocation["machine"] != nil { return nil }
         if case .show = services.cloud.moveRetries[tab.id] { return nil } // read only on a refusal: a defaults read per menu validation
         return reason
     }
@@ -72,6 +74,7 @@ struct CloudMove {
     /// Starts the move of the invocation's chat tab. Throws, before anything
     /// moves, when the tab is not a chat of this Mac with a session.
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        if try startRelocate(invocation, context: context) { return }
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
         var left = retries[tab.id]
@@ -359,7 +362,7 @@ struct CloudMove {
     /// in `folder`, then the chat's tab bound to `session` through the
     /// machine's store, selected; filed into the window, and shown when the run
     /// may change the view. `key` makes the chat tab's creation idempotent.
-    private func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
+    func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
         let daemon = machine.daemon
         guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
@@ -394,7 +397,7 @@ struct CloudMove {
         }
     }
 
-    private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }
+    func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }
     /// A run's working toast (Moving, Bringing back) never times out: its result replaces it (a fixed 10 minutes ended it mid-copy).
     static let working = CmuxToast.untilClosed
 

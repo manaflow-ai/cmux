@@ -57,6 +57,9 @@ mod names;
 mod packs;
 mod place;
 mod pull;
+mod relay;
+/// `cmux link sync relay`'s copy (`cmux link agent move --sync relay`).
+pub(super) use relay::relay;
 mod remote;
 mod seed_pull;
 
@@ -82,7 +85,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -428,6 +431,11 @@ pub(super) fn run(args: &[String]) -> i32 {
     }
     if let Some(code) = run_history(args) {
         return code;
+    }
+    if let [action, rest @ ..] = args
+        && action == "relay"
+    {
+        return relay::run(rest);
     }
     let Some((action, socket, local, remote, store)) = parse(args) else {
         eprintln!("{USAGE}");
