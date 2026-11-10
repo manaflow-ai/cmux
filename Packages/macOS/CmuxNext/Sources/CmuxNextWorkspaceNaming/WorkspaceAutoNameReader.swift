@@ -182,7 +182,7 @@ public struct WorkspaceAutoNameReader {
         if let name = clean(tab.name) { return name }
         let page = livePage(tab)
         let url = page?.url ?? tab.url.flatMap(URL.init(string:))
-        for candidate in [page?.title, tab.title] {
+        for candidate in [page?.title, tab.titleText] {
             guard let title = clean(candidate), title != clean(url?.absoluteString), title != clean(tab.url) else { continue }
             return title
         }
