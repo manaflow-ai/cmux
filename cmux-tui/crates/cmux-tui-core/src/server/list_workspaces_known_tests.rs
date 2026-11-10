@@ -13,9 +13,14 @@ fn run(mux: &Arc<Mux>, request: Value) -> Value {
     handle_command(mux, mux.local_test_client(0), command, &writer).unwrap()
 }
 
+/// A whole tree, not an `unchanged` answer.
+fn is_whole(reply: &Value) -> bool {
+    reply.get("unchanged").is_none() && reply["workspaces"].is_array()
+}
+
 /// What a client keeps from a whole reply to send back as `known`.
 fn known_of(reply: &Value) -> Value {
-    assert!(reply["workspaces"].is_array(), "not a whole tree: {reply}");
+    assert!(is_whole(reply), "not a whole tree: {reply}");
     json!({
         "registry_id": reply["registry_id"],
         "generation": reply["generation"],
@@ -32,7 +37,7 @@ fn list_since(mux: &Arc<Mux>, known: &Value) -> Value {
 
 fn assert_unchanged(reply: &Value, known: &Value) {
     assert_eq!(reply["unchanged"], json!(true), "{reply}");
-    assert!(reply.get("workspaces").is_none(), "an unchanged reply carries no tree: {reply}");
+    assert_eq!(reply["workspaces"], json!([]), "an unchanged reply carries no tree: {reply}");
     for field in [
         "registry_id",
         "generation",
@@ -97,7 +102,7 @@ fn a_current_known_is_unchanged_until_something_the_tree_shows_changes() {
     // is what every title change sends).
     mux.emit(MuxEvent::terminal_title(surface, Arc::from("vim")));
     let titled = list_since(&mux, &known);
-    assert!(titled["workspaces"].is_array(), "a title change kept the old tree: {titled}");
+    assert!(is_whole(&titled), "a title change kept the old tree: {titled}");
     let known = known_of(&titled);
     assert_unchanged(&list_since(&mux, &known), &known);
 
@@ -132,17 +137,17 @@ fn a_partial_or_foreign_known_gets_the_whole_tree() {
         let mut partial = known.clone();
         partial.as_object_mut().unwrap().remove(field);
         let reply = list_since(&mux, &partial);
-        assert!(reply["workspaces"].is_array(), "without {field}: {reply}");
+        assert!(is_whole(&reply), "without {field}: {reply}");
         let mut other = known.clone();
         other[field] = if known[field].is_string() { json!("other") } else { json!(999_999) };
         let reply = list_since(&mux, &other);
-        assert!(reply["workspaces"].is_array(), "another {field}: {reply}");
+        assert!(is_whole(&reply), "another {field}: {reply}");
     }
     // A tree revision from another daemon run (same count, other boot) is not this one.
     let mut restarted = known.clone();
     let count = known["tree_revision"].as_str().unwrap().rsplit_once('.').unwrap().1.to_string();
     restarted["tree_revision"] = json!(format!("0000000000000000.{count}"));
-    assert!(list_since(&mux, &restarted)["workspaces"].is_array());
+    assert!(is_whole(&list_since(&mux, &restarted)));
     mux.shutdown();
 }
 

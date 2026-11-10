@@ -3043,7 +3043,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
 }
 
 /// `list-workspaces` for a client that holds a tree (`known`): an O(1)
-/// `{"unchanged": true}` with the identity and revisions when nothing it
+/// `{"unchanged": true, "workspaces": []}` with the identity and revisions when nothing it
 /// shows changed, else the whole reply with its `tree_revision`. The tree
 /// revision is read first, so a change that lands while the tree is read
 /// makes the next request read it again.
@@ -3064,8 +3064,11 @@ fn list_workspaces_reply_since(
         tree_revision: Some(tree_revision.clone()),
     };
     if *known == current {
+        // `workspaces` stays (empty), so a typed SDK decodes this as the `Tree` it
+        // declares; `unchanged` says to keep the tree the client holds.
         return Ok(json!({
             "unchanged": true,
+            "workspaces": [],
             "registry_id": current.registry_id,
             "generation": current.generation,
             "workspace_revision": workspace_revision,

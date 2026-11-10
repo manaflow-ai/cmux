@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14";
+inline constexpr std::string_view kProtocolIrSha256 = "c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct LayoutUndoResult;
 struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
+struct ListWorkspacesKnown;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -3689,7 +3690,18 @@ struct ListWorkspaceGroupsRequest {
     friend bool operator==(const ListWorkspaceGroupsRequest&, const ListWorkspaceGroupsRequest&) = default;
 };
 
+struct ListWorkspacesKnown {
+    Field<std::string> generation{};
+    Field<std::uint64_t> pane_revision{};
+    Field<std::string> registry_id{};
+    Field<std::uint64_t> terminal_revision{};
+    Field<std::string> tree_revision{};
+    Field<std::uint64_t> workspace_revision{};
+    friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
+};
+
 struct ListWorkspacesRequest {
+    Field<ListWorkspacesKnown> known{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -6111,6 +6123,8 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::uint64_t> terminal_revision{};
+    std::optional<std::string> tree_revision{};
+    std::optional<bool> unchanged{};
     std::optional<std::uint64_t> workspace_revision{};
     std::vector<Workspace> workspaces{};
     friend bool operator==(const Tree&, const Tree&) = default;
@@ -7030,6 +7044,12 @@ template <>
 struct Codec<ListTerminalsResult> {
     static Result<Json> encode(const ListTerminalsResult& value);
     static Result<ListTerminalsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListWorkspacesKnown> {
+    static Result<Json> encode(const ListWorkspacesKnown& value);
+    static Result<ListWorkspacesKnown> decode(const Json& value);
 };
 
 template <>

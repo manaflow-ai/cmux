@@ -1388,9 +1388,10 @@ With `list-workspaces-known-v1`, a client that holds a tree sends `known`: the
 `registry_id`, `generation`, `workspace_revision`, `pane_revision`,
 `terminal_revision` and `tree_revision` of the reply it holds (`{}` when it
 holds none). When every one equals the daemon's, the result is
-`{unchanged: true, registry_id, generation, workspace_revision, pane_revision,
-terminal_revision, tree_revision}` with no `workspaces`, answered without
-reading the tree; the client keeps its tree and applies the events past
+`{unchanged: true, workspaces: [], registry_id, generation,
+workspace_revision, pane_revision, terminal_revision, tree_revision}`,
+answered without reading the tree (`workspaces` is empty so a typed SDK
+still decodes a `Tree`); the client keeps its tree and applies the events past
 `lines_written_before_read` as usual. Otherwise the result is the whole tree
 with its `tree_revision` added. `tree_revision` is an opaque string that
 changes with anything the tree shows (a title, an unread marker, the

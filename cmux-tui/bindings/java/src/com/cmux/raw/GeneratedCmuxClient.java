@@ -727,8 +727,8 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
-    public final Tree listWorkspaces() throws CmuxException {
-        Object result = execute(Commands.LIST_WORKSPACES, Map.of());
+    public final Tree listWorkspaces(ListWorkspacesRequest request) throws CmuxException {
+        Object result = execute(Commands.LIST_WORKSPACES, request.toWire());
         return Tree.fromWire(result);
     }
 

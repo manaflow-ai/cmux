@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14";
+pub const ir_sha256 = "c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1396,6 +1396,15 @@ pub const ListTerminalsResult = struct {
     registry_id: []const u8,
     terminal_revision: u64,
     terminals: []const TerminalRecord,
+};
+
+pub const ListWorkspacesKnown = struct {
+    generation: wire.Field([]const u8) = .absent,
+    pane_revision: wire.Field(u64) = .absent,
+    registry_id: wire.Field([]const u8) = .absent,
+    terminal_revision: wire.Field(u64) = .absent,
+    tree_revision: wire.Field([]const u8) = .absent,
+    workspace_revision: wire.Field(u64) = .absent,
 };
 
 pub const LivePane = struct {
@@ -3431,6 +3440,8 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
+    tree_revision: ?[]const u8 = null,
+    unchanged: ?bool = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
 
@@ -3439,6 +3450,8 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "terminal_revision",
+        "tree_revision",
+        "unchanged",
         "workspace_revision",
     };
 };
@@ -6932,7 +6945,9 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
     );
 }
 
-pub const ListWorkspacesRequest = struct {};
+pub const ListWorkspacesRequest = struct {
+    known: wire.Field(ListWorkspacesKnown) = .absent,
+};
 
 pub const ListWorkspacesResult = Tree;
 
@@ -6944,6 +6959,9 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
+            },
         },
         request,
     );

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14.
+// cmux-tui mux protocol 12, IR c13b957a7289d9d2fe355d3f6fe6a1c43b2edd68d13c0e581c5dd7bf7fa4e9c4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1213,6 +1213,23 @@ pub struct ListTerminalsResult {
     pub registry_id: String,
     pub terminal_revision: u64,
     pub terminals: Vec<TerminalRecord>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListWorkspacesKnown {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub registry_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tree_revision: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace_revision: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -3110,6 +3127,10 @@ pub struct Tree {
     pub registry_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_revision: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tree_revision: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
