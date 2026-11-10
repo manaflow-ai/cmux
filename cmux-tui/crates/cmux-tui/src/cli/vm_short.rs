@@ -293,14 +293,23 @@ pub(super) fn cloud_words(short: &Short, id: Option<&str>) -> Vec<String> {
         let flag = if short.cloud_verb == "move" { "--machine" } else { "--target" };
         words.extend([flag.to_owned(), format!("machine:{id}")]);
     }
-    words.extend(short.tail.iter().map(|word| match word.as_str() {
-        "--yes" | "-y" if super::cloud_help::confirms(short.cloud_verb) => "--confirm".to_owned(),
-        _ => word.clone(),
-    }));
+    words.extend(super::vm::yes_words(short.cloud_verb, &short.tail));
     if !short.command.is_empty() {
         words.extend(["--command".to_owned(), short.command.join(" ")]);
     }
     words
+}
+
+/// `vm move --machine vm:ID`: the global scan took `--machine`, the VM to move to. It names the
+/// VM; with `--target` (the chat tab to move) it goes back as the app's `--machine machine:ID`.
+pub(super) fn restore_machine(short: &mut Short, machine: Option<String>) {
+    let Some(machine) = machine else { return };
+    let id = super::vm_words::bare_id(&machine).to_owned();
+    if short.named.is_none() && !short.targeted {
+        short.named = Some(id);
+    } else {
+        short.tail.extend(["--machine".to_owned(), format!("machine:{id}")]);
+    }
 }
 
 /// Whether `short` already says yes to a delete: `--yes`, `-y`, or the old `--confirm`.
@@ -366,13 +375,8 @@ pub(super) fn table(listed: &Value) -> String {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
     let mut short = parse(&command)?;
-    // `vm move --machine vm:ID`: the global scan took `--machine`; it names the VM to move to.
-    if short.cloud_verb == "move"
-        && short.named.is_none()
-        && !short.targeted
-        && let Some(machine) = global.machine.take()
-    {
-        short.named = Some(super::vm_words::bare_id(&machine).to_owned());
+    if short.cloud_verb == "move" {
+        restore_machine(&mut short, global.machine.take());
     }
     let app = super::vm::app_present(
         global.app_socket.is_some(),

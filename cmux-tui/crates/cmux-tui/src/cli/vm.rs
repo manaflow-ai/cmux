@@ -477,16 +477,30 @@ pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
 /// are text.
 fn yes_as_confirm(words: &[String]) -> Vec<String> {
     let verb = words.iter().find(|word| !word.starts_with('-')).map_or("", String::as_str);
+    yes_words(verb, words)
+}
+
+/// `words` of Cloud's `verb` with its yes (`--yes`, `-y`) as the app's `--confirm`, when `verb`
+/// deletes something. A delete's other flags all take a value (`--path -y` removes the file
+/// `-y`), so a word right after one stays as typed, as does every word from `--` on.
+pub(super) fn yes_words(verb: &str, words: &[String]) -> Vec<String> {
     if !super::cloud_help::confirms(verb) {
         return words.to_vec();
     }
     let mut text = false;
+    let mut value_next = false;
     words
         .iter()
         .map(|word| {
             text |= word == "--";
+            let value = std::mem::replace(
+                &mut value_next,
+                word.starts_with("--")
+                    && !word.contains('=')
+                    && !matches!(word.as_str(), "--" | "--yes" | "--confirm" | "--json"),
+            );
             match word.as_str() {
-                "--yes" | "-y" if !text => "--confirm".to_owned(),
+                "--yes" | "-y" if !text && !value => "--confirm".to_owned(),
                 _ => word.clone(),
             }
         })

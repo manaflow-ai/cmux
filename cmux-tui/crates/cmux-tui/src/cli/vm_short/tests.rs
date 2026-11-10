@@ -1,6 +1,9 @@
 use serde_json::json;
 
-use super::{Resolved, Short, app_list, cloud_words, confirmed, misuse, parse, resolve, table};
+use super::{
+    Resolved, Short, app_list, cloud_words, confirmed, misuse, parse, resolve, restore_machine,
+    table,
+};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -164,6 +167,21 @@ fn exec_ssh_and_move_name_the_vm_by_position() {
     assert_eq!(
         cloud_words(&legacy, None),
         words(&["--target", "vm:vm_a1", "--arg", "command=uname -a"])
+    );
+    // `cloud move --target TAB --machine vm:ID`: the tab and the VM both reach the app.
+    let mut moved = parse(&words(&["cloud", "move", "--target", "tab_1"])).unwrap();
+    restore_machine(&mut moved, Some("vm:vm_a1".to_owned()));
+    assert_eq!(
+        cloud_words(&moved, None),
+        words(&["--target", "tab_1", "--machine", "machine:vm_a1"])
+    );
+    let mut bare = parse(&words(&["vm", "move"])).unwrap();
+    restore_machine(&mut bare, Some("vm:vm_a1".to_owned()));
+    assert_eq!(bare.named.as_deref(), Some("vm_a1"));
+    // A delete's flag value stays as typed: `--path -y` removes the file `-y`.
+    assert_eq!(
+        super::super::vm::yes_words("file-remove", &words(&["--path", "-y", "-y"])),
+        words(&["--path", "-y", "--confirm"])
     );
     // `--yes` is a delete's yes, never another verb's value.
     let value = parse(&words(&["vm", "exec", "dev", "--arg", "-y"])).unwrap();

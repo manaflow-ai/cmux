@@ -489,8 +489,8 @@ CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
-Actions that delete something ask first at a terminal; --yes (-y) skips the
-question and is required without one.
+`cmux vm rm NAME` asks first at a terminal; --yes (-y) skips the question.
+Every other action that deletes something needs --yes.
 Run `cmux action list --category cloud --json` for the live catalog and
 `cmux action describe cloud <action> --json` for an action's arguments.
 ";
@@ -511,8 +511,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
 
-何かを削除するアクションはターミナルで確認します。--yes（-y）で確認を省略でき、
-ターミナルがない場合は必須です。
+`cmux vm rm 名前` はターミナルで確認します。--yes（-y）で確認を省略できます。
+ほかの削除するアクションには --yes が必要です。
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe cloud <アクション> --json` で確認できます。
 ";
