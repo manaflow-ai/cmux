@@ -230,6 +230,48 @@ fn a_peer_dials_the_recorded_listener_and_never_sends_a_token_to_the_urls_port()
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Both tokens are in the peer's config, so no token read is needed: the
+/// record is still read, and it decides where the tokens go. The squatter on
+/// the URL's port hears neither token (review of #40418, F1).
+#[test]
+fn configured_tokens_go_only_to_the_recorded_listener() {
+    let squatter = Squatter::start();
+    let remote = start("conf-remote", json!({}), true, None);
+    let dir = ssh_dir("conf");
+    fake_ssh(&dir, &remote.home);
+    let config: Value =
+        serde_json::from_slice(&std::fs::read(remote.home.join("config.json")).unwrap()).unwrap();
+    let token = config["websocket"]["token"].as_str().expect("the remote's token").to_owned();
+    let peer_token =
+        std::fs::read_to_string(remote.home.join("run/peer.token")).unwrap().trim().to_owned();
+    let url = format!("ssh://box.invalid:{}", squatter.port);
+    let local = start(
+        "conf-local",
+        json!({"peers": {"box": {"url": url, "token": token, "peerToken": peer_token}}}),
+        false,
+        Some(&dir),
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut last = Value::Null;
+    while Instant::now() < deadline {
+        last = peer(&local);
+        if last["state"] == json!("connected") && last["servedAs"] == json!("peer") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(last["state"], json!("connected"), "{last}");
+    assert_eq!(last["servedAs"], json!("peer"), "{last}");
+    let heard = squatter.heard();
+    assert!(!heard.contains(&token), "the token went to the URL's port: {heard}");
+    assert!(!heard.contains(&peer_token), "the peer token went to the URL's port: {heard}");
+    assert!(
+        !heard.to_ascii_lowercase().contains("upgrade"),
+        "an upgrade went to the URL's port: {heard}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The record names a port its daemon no longer holds (it crashed; another
 /// process took the port). The peer sends that process one challenge and no
 /// token, and says why it did not connect.
