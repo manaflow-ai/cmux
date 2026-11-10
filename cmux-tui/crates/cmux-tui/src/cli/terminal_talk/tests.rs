@@ -1559,4 +1559,14 @@ fn w6bc_a_send_refused_at_a_dialog_exits_4_with_the_dialog() {
     assert!(dialog["kind"].is_string(), "{dialog}");
     assert_eq!(dialog["options"][1]["label"], "No", "{dialog}");
     assert_eq!(dialog["deny_keys"], json!(["down", "enter"]), "{dialog}");
+    // W6-BC review: the message (all that human mode prints) names the
+    // dialog's kind, what it asks and the keys that deny it, and never
+    // points at JSON fields that human mode does not show.
+    let message = failure.failure.error["message"].as_str().unwrap_or_default();
+    let kind = dialog["kind"].as_str().unwrap_or("<no kind>");
+    assert!(message.contains(kind), "{message}");
+    assert!(message.contains("Do you want to proceed?"), "{message}");
+    assert!(message.contains("keys down enter"), "{message}");
+    assert!(message.contains("--force"), "{message}");
+    assert!(!message.contains("deny_keys") && !message.contains('`'), "{message}");
 }
