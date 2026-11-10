@@ -227,3 +227,12 @@ private final class Answers: @unchecked Sendable { // crash-allow: a test record
     private(set) var all: [ApprovalAnswer] = []
     func add(_ answer: ApprovalAnswer) { all.append(answer) }
 }
+
+/// The worker's strings never trap: SwiftPM's `Bundle.module` crashed the packaged worker on the
+/// first cursor event (its bundle sits in Contents/Resources, not beside the app).
+@Suite struct ComputerUseTextTests {
+    @Test func stringsResolveOrFallBackToEnglish() {
+        #expect(ComputerUseText.t("computerUse.cursor.click", "Click") == "Click")
+        #expect(ComputerUseText.t("computerUse.cursor.nothing.such", "Fallback") == "Fallback")
+    }
+}
