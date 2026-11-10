@@ -47,7 +47,8 @@ struct HoverCardSeparateSourcesTests {
         let otherStrip = Source(window: window, anchors: [HoverTargetID("tab:b"): CGRect(x: 600, y: 360, width: 160, height: 28)])
         let coordinator = HoverCardCoordinator()
         coordinator.appIsActive = { true }
-        defer { coordinator.dismiss(.action) }
+        // Every card window this test made closes: the shown one and those still fading out.
+        defer { coordinator.dismiss(.action); ([coordinator.panel] + coordinator.retiring).forEach { $0?.closeAfterTest() } }
 
         coordinator.pin(target("ws:a", in: window), from: sidebar)
         let sidebarCard = try #require(coordinator.cardWindow)
