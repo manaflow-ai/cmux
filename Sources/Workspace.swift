@@ -4711,6 +4711,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Bonsplit hints show one modifier, so a chord would render a
         // misleading single-stroke hint; treat it like an unbound shortcut.
         let hasNoHint = shortcut.isUnbound || shortcut.hasChord
+            // An empty set would match no modifier held and reveal hints
+            // that suggest bare digits select tabs.
+            || shortcut.modifierFlags.isEmpty
         let flags: NSEvent.ModifierFlags? = hasNoHint ? nil : shortcut.modifierFlags
         // Hint eligibility for a hintable shortcut belongs to the focus
         // controller; otherwise there is nothing to hint.
