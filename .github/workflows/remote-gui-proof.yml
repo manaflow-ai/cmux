@@ -1,0 +1,106 @@
+name: Remote GUI proof (localhost SSH host, NEXT DEV app)
+run-name: ${{ format('Remote GUI proof{0}', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+
+# One manual trip through cmux NEXT Remote over SSH in the app's GUI, on a throwaway GitHub-hosted Mac.
+# Leo, 2026-11-10: "we're not a terminal-first app anymore. cmux-next is a gui."; Remote is "something
+# that I do certainly care about". No soak, no gate: manual dispatch only, nothing waits on it.
+#
+# The SSH host is this same Mac: scripts/cmux-next/remote-gui-proof-host.sh adds a second local account
+# (rhost) with a stand-in `claude` (no Claude login on the runner; it answers PONG) and a key-only sshd
+# on 127.0.0.1 only, and gives the runner user the ssh alias e2ehost. Nothing listens beyond loopback.
+# scripts/cmux-next/remote-gui-proof.py drives the signed NEXT DEV app of the cmux-next-dev release
+# (as cloud-chat-proof.yml build=published, but signed out: no account is needed for an SSH host)
+# through its control socket: add the host, start a chat there and read the first reply, move a chat
+# there and back, drop the network (pf on lo0) and restore it. Each step leaves a light-mode still,
+# and the evidence (evidence.json) holds the times: pick host -> first reply, drop -> working again.
+on:
+  workflow_dispatch:
+    inputs:
+      drop_seconds:
+        description: How long the network stays dropped before it is restored
+        required: false
+        default: "30"
+        type: string
+      request_id:
+        description: Names the run (its run-name), so the requester finds it
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-gui-proof-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    # GitHub-hosted: the proof adds a user, an sshd and pf rules, which only a throwaway Mac may take.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+
+      - name: Download the published NEXT DEV app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/published"
+          mkdir -p "$dir"
+          row="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cmux-next-dev" \
+            --jq '[.assets[] | select(.name == "cmux-NEXT-DEV.zip")][0] | "\(.id) \(.digest // "")"')"
+          id="${row%% *}"
+          sha="${row#* }"; sha="${sha#sha256:}"
+          case "$id" in ''|null|*[!0-9]*) echo "::error::the cmux-next-dev release has no cmux-NEXT-DEV.zip"; exit 1;; esac
+          case "$sha" in *[!0-9a-f]*|'') echo "::error::the release asset has no sha256 digest"; exit 1;; esac
+          curl -fsSL --retry 3 -o "$dir/app.zip" \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          echo "$sha  $dir/app.zip" | shasum -a 256 -c -
+          ditto -x -k "$dir/app.zip" "$dir"
+          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          [ -n "$app" ] || { echo "::error::the release zip holds no app"; exit 1; }
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          [ "$bundle" = com.cmuxterm.app.debug.next ] || { echo "::error::the release app is $bundle"; exit 1; }
+          codesign --verify --deep --strict "$app"
+          xattr -cr "$app"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist" 2>/dev/null || true)"
+          echo "App: cmux-NEXT-DEV.zip asset $id sha256:$sha build $version" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "PROOF_APP=$app" >> "$GITHUB_ENV"
+          echo "PROOF_DIR=$RUNNER_TEMP/remote-gui-proof" >> "$GITHUB_ENV"
+
+      - name: SSH host on loopback (second local account, key-only sshd)
+        run: scripts/cmux-next/remote-gui-proof-host.sh up "$PROOF_DIR/host"
+
+      - name: Remote journey in the app
+        timeout-minutes: 35
+        env:
+          DROP_SECONDS: ${{ inputs.drop_seconds || '30' }}
+        run: |
+          python3 -I scripts/cmux-next/remote-gui-proof.py --app "$PROOF_APP" --tag "rgp-$GITHUB_RUN_ID" \
+            --host-dir "$PROOF_DIR/host" --drop-seconds "$DROP_SECONDS" --out "$PROOF_DIR/out"
+
+      - name: Summarize
+        if: always()
+        run: |
+          [ -s "$PROOF_DIR/out/summary.md" ] && cat "$PROOF_DIR/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+          cp "$PROOF_DIR/host/sshd.log" "$PROOF_DIR/out/" 2>/dev/null || true
+
+      - name: Upload stills and evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-gui-proof
+          path: ${{ runner.temp }}/remote-gui-proof/out/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop the SSH host
+        if: always()
+        run: scripts/cmux-next/remote-gui-proof-host.sh down "$PROOF_DIR/host" || true
