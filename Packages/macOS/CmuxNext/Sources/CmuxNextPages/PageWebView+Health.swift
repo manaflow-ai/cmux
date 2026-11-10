@@ -48,11 +48,10 @@ extension PageWebView {
     /// App health's `reloadPage`: the page saves its scroll and draft (`cmux.page.save_state`, waited
     /// for at most `saveWait`; a hung page cannot answer, and its last autosave is used), then the
     /// document reloads in whichever engine shows it. Never blocks: the wait is a suspension.
-    /// Returns false, without reloading, when the page holds unsaved edits once the wait ends (the
-    /// person may have typed while it ran).
+    /// False when it did not reload: the page closed, or holds unsaved edits once the save wait ends.
     @discardableResult
     public func reloadKeepingState(saveWait: Duration = .milliseconds(500)) async -> Bool {
-        guard !isClosed else { return true }
+        guard !isClosed else { return false }
         // A document that never loaded or whose process ended has nothing to save, and a WebKit
         // `reload()` of a view whose process ended does nothing: load it in a new process.
         guard loaded else {
@@ -70,8 +69,8 @@ extension PageWebView {
         deadline.schedule(after: saveWait) { @MainActor in done.finish() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in done.hold(continuation) }
         deadline.cancel()
-        guard !isClosed else { return true }
-        guard !holdsUnsavedEdits() else { return false }
+        // An edit that came while the page saved (a hung page that answers again) is not reloaded away.
+        guard !isClosed, !holdsEdits else { return false }
         reloadPage()
         return true
     }
@@ -94,12 +93,11 @@ extension PageWebView {
         }
     }
 
-    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`). False when WebKit
-    /// has no such call.
+    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`); false when WebKit has no such call.
     func killWebContentProcess() -> Bool {
-        let kill = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: kill) else { return false }
-        webView.perform(kill)
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
         return true
     }
 
