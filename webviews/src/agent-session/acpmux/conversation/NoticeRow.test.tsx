@@ -248,7 +248,7 @@ function digest(...ends: { text: string; provenance: Record<string, unknown> }[]
 test("background command ends that went in together read as their notice, never acpmux twice", async () => {
   const read = digest(bgEnd("bg-3", LONG, 0, "note: one"), bgEnd("bg-4", "cargo fmt --check", 0, "ok"));
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("acpmux");
+  expect(read.message.name).toBe("cmux");
   expect(read.message.notice?.title).toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.notice?.more).toBe(1);
   const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
@@ -260,7 +260,7 @@ test("background command ends that went in together read as their notice, never 
   const text = container.querySelector(".cv-received__text")!.textContent ?? "";
   // Opened: each notice's own title, then its body, never the rendered head.
   expect(text).toContain("Background command finished: cargo fmt --check (exit 0)");
-  expect(text).toContain("Task bg-4: cargo fmt --check");
+  expect(text).not.toContain("Task bg-4");
   expect(text).not.toContain("[notice from");
 });
 
@@ -269,7 +269,7 @@ test("one notice that went in as a digest reads as that notice", () => {
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 3)" });
   expect(read.message.notice?.more).toBeUndefined();
-  expect(read.message.text.startsWith("Task bg-5: make")).toBe(true);
+  expect(read.message.text.startsWith("Last 3 lines of its output:")).toBe(true);
 });
 
 test("the most severe notice of a digest names its line", () => {
