@@ -140,4 +140,31 @@ struct LargeSessionObservationTests {
         let moved = feed.workspaces(showing: ["s-7-moved", "s-7"])
         #expect(moved == [SidebarWorkspaceID(fixture.store.workspaces[6].id): "s-7-moved"])
     }
+    /// O6 `SidebarChatHistoryFeed.swift:44`: the session tree's chat history read every live tab's agent session (and its
+    /// lane's chat) in one observation, so an agent chat's session change in any workspace ran the whole history pass
+    /// again. Each live tab's chat is its own observation now; the history reads their joined set.
+    @Test(.timeLimit(.minutes(2)))
+    func o6ChatHistoryObservesEachTabsChatOnItsOwn() async throws {
+        let fixture = LargeSessionFixture()
+        let saved = DesignSettings.shared.sidebarSections
+        DesignSettings.shared.sidebarSections.sessionTree = true
+        defer { DesignSettings.shared.sidebarSections = saved }
+        let history = SidebarChatHistory(defaults: UserDefaults(suiteName: "large-session-o6-\(UUID().uuidString)")!)
+        let feed = SidebarChatHistoryFeed()
+        feed.start(liveTabs: { [store = fixture.store] in store.liveTabs }, localHost: LargeSessionFixture.host, open: { _ in },
+                   windows: AcpmuxChatWindows(), lanes: AgentLaneStore(), history: history)
+        await LargeSessionFixture.until { history.state != nil }
+        try #require(history.state != nil, "fixture: the chat history published no state")
+
+        let chats = fixture.tabs().filter { $0.tab.kind == .conversation }
+        try #require(chats.count == LargeSessionFixture.workspaces)
+        let changes = chats.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            let moved = AgentSessionRef(host: LargeSessionFixture.host, session: "\(LargeSessionFixture.session(item.workspace))-moved", harness: nil)
+            return (item.workspace, { item.tab.conversation = ConversationTabRef(agentSession: moved) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAgentLanes/SidebarChatHistoryFeed", changes: changes)
+        #expect(!woken.isEmpty, "fixture: no chat history observer woke (the counter is not wired)")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "chat history observers woken by more than one workspace: \(wide)")
+    }
 }
