@@ -271,7 +271,6 @@ class RePin(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         job = workflow["jobs"]["repin"]
         self.assertEqual(job["needs"], ["build", "publish"])
-        self.assertIn("needs.publish.result == 'success'", job["if"])
         mint = next(step for step in job["steps"] if step.get("id") == "app-token")
         self.assertEqual(mint["with"]["permission-contents"], "write")
         self.assertNotIn("permission-pull-requests", mint["with"])
@@ -296,7 +295,13 @@ def emit(value):
         sys.exit(result.returncode)
     print(json.dumps(value))
 if Path(sys.argv[0]).name == "git":
-    if args[0] == "diff": sys.exit(1)
+    if args[0] == "diff":
+        # `git diff --quiet PIN PICKED -- INPUTS`: the FFI inputs of two releases are the same only when the test says so.
+        shas = [a for a in args[1:args.index("--")] if not a.startswith("-")] if "--" in args else []
+        if len(shas) == 2:
+            state.setdefault("input_diffs", []).append(shas); save()
+            sys.exit(0 if state.get("same_inputs") else 1)
+        sys.exit(1)
     if args[0] == "rev-parse": print(("d" if ":" in args[-1] else "a") * 40)
     elif args[0] == "hash-object": print("e" * 40)
     elif args[0] == "ls-remote":
@@ -358,6 +363,12 @@ elif args[0] == "api":
             print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
         state.setdefault("run_reads", []).append(endpoint); save()
         emit({"workflow_runs": state.get("runs", [])})
+    elif "/actions/runs/" in endpoint and endpoint.split("?")[0].endswith("/jobs"):
+        if os.environ.get("GH_TOKEN") != "read-token":
+            print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
+        run_id = endpoint.split("/actions/runs/")[1].split("/")[0]
+        state.setdefault("job_reads", []).append(run_id); save()
+        emit({"total_count": len(state.get("jobs", {}).get(run_id, [])), "jobs": state.get("jobs", {}).get(run_id, [])})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
@@ -386,7 +397,7 @@ class RePinPublication(unittest.TestCase):
 
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
-                  check_total=None, runs=(), ancestry=(), runs_read="ok",
+                  check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW):
         step = yaml.safe_load(workflow.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
@@ -401,8 +412,12 @@ class RePinPublication(unittest.TestCase):
             for command in ("git", "gh"):
                 executable(bin_dir / command, REPIN_FAKE)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            for command in ("repin-app-ffi.sh", "check-app-ffi-pin.sh"):
-                executable(scripts / command, "#!/bin/sh\nexit 0\n")
+            executable(scripts / "repin-app-ffi.sh", "#!/bin/sh\nexit 0\n")
+            executable(scripts / "check-app-ffi-pin.sh",
+                       '#!/bin/sh\n[ "$1" = --list-inputs ] && echo cmux-tui/crates/cmux-app-ffi/src\nexit 0\n')
+            # The current pin, read as the check reads it.
+            (work / "scripts/ci").mkdir()
+            executable(work / "scripts/ci/app_ffi_pin.py", f"print('{self.PINNED} {'0' * 64}')\n")
             # The newest published release (NewestPublishedRelease tests the real one).
             executable(scripts / "newest_app_ffi_release.py",
                        f"print('{'d' * 40} {'e' * 64}')\n")
@@ -416,7 +431,7 @@ class RePinPublication(unittest.TestCase):
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit,
                 "head_age_min": head_age_min, "checks": list(checks), "status": status,
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
-                "runs_read": runs_read,
+                "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -597,13 +612,85 @@ class RePinPublication(unittest.TestCase):
 
     def test_a_failed_or_cancelled_release_run_still_re_pins(self):
         # The newer run that held the re-pin must re-pin itself when it ends without a release, or nothing does.
-        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
-        repin = yaml.safe_load(REPIN_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
-        self.assertTrue(release["if"].startswith("${{ always() &&") or release["if"].startswith("always() &&"),
-                        release["if"])
-        self.assertNotIn("needs.publish.result == 'success'", release["if"])
-        for job in (release, repin):
-            self.assertEqual(job["permissions"].get("actions"), "read")
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
+        feat = {"ref": "refs/heads/feat-cmux-next", "event_name": "push"}
+        for result in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(result):
+                context = {"github": feat, "needs": {"publish": {"result": result}, "build": {"result": result}}}
+                self.assertTrue(condition(job["if"], context, failed=result != "success"))
+        for github in ({"ref": "refs/heads/main", "event_name": "push"},
+                       {"ref": "refs/heads/feat-cmux-next", "event_name": "pull_request"}):
+            with self.subTest(**github):
+                context = {"github": github, "needs": {"publish": {"result": "success"}}}
+                self.assertFalse(condition(job["if"], context, failed=False))
+        for path in (WORKFLOW, REPIN_WORKFLOW):
+            permissions = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["repin"]["permissions"]
+            self.assertEqual(permissions.get("actions"), "read", path.name)
+
+    # Review of #40150: a run stays in progress after its own re-pin job ended (its macOS cross-compile shadow needs only
+    # the build), so a hold on the run's status could wait for a re-pin that already ran, or two runs whose publishes
+    # failed could each hold for the other. Only a run whose re-pin job is still to come holds.
+    def test_a_newer_run_whose_re_pin_job_already_ran_does_not_hold(self):
+        newer = "7" * 40
+        for conclusion in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(conclusion):
+                result, state = self.run_repin(
+                    runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                    ancestry=[(self.NEWEST, newer)],
+                    jobs={"9": [{"name": "open the re-pin pull request", "status": "completed",
+                                 "conclusion": conclusion}]})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                self.assertIn("verified open", result.stdout)
+                self.assertEqual(state.get("job_reads"), ["9"])
+
+    def test_a_newer_run_whose_re_pin_job_is_still_to_come_holds(self):
+        newer = "7" * 40
+        for jobs in ([], [{"name": "open the re-pin pull request", "status": "queued", "conclusion": None}],
+                     [{"name": "build xcframework", "status": "in_progress", "conclusion": None}]):
+            with self.subTest(jobs=jobs):
+                result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                               ancestry=[(self.NEWEST, newer)], jobs={"9": jobs})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["published"], [])
+                self.assertIn("run 9", result.stdout)
+
+    def test_a_run_older_than_this_runs_commit_does_not_hold(self):
+        # Two release runs whose publishes failed: the newer one's re-pin must not hold for the older one.
+        older = "6" * 40
+        result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": older}],
+                                       ancestry=[(older, SHA)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+
+    # 2026-11-10: the bot re-pinned #39863 to a release built from the same FFI sources as the current pin, with a new
+    # checksum (the archive is not byte-reproducible): a change with nothing to change, and a fresh review to ask for.
+    PINNED = "5" * 40  # the current pin (the fake app_ffi_pin.py)
+
+    def test_a_release_with_the_pinned_inputs_is_not_re_pinned(self):
+        result, state = self.run_repin(same_inputs=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
+        self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+        self.assertEqual(state["published"], [])
+        self.assertEqual(state["writes"], 0)
+        self.assertIn("same app FFI inputs", result.stdout)
+
+    def test_a_release_with_changed_inputs_is_re_pinned(self):
+        result, state = self.run_repin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
+        self.assertEqual(state["published"], ["b" * 40])
+
+    def test_a_run_waiting_for_hours_does_not_hold(self):
+        # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
+        newer = "7" * 40
+        result, state = self.run_repin(
+            runs=[{"id": 9, "status": "queued", "head_sha": newer, "created_at": "2020-01-01T00:00:00Z"}],
+            ancestry=[(self.NEWEST, newer)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertIn("ignored", result.stdout + result.stderr)
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
         for options in ({"wrong_head": True}, {"close_on_edit": True}):
