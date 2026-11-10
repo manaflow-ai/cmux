@@ -142,6 +142,7 @@ enum TabLifecycle {
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
                                      ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonDefault : ctx.services.settings?.snapshot.newTabPosition)
+        if user { expectOpener(tab, in: controller, slot: slot) }
         let kind = WindowRules().newTabKind(facts)?.kind ?? .terminal
         switch kind {
         case .terminal:
@@ -184,7 +185,14 @@ enum TabLifecycle {
 
     static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {
         guard invocation.origin == .user, invocation.target == nil, !invocation.besideCaller, let pane = ctx.services.windows.active?.focusedPane else { return nil }
-        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == current(pane) }, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
+        let tab = pane.pane.tabs.first { $0.id == current(pane) }, slot = NewTabSlot.target(current: tab, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
+        expectOpener(tab, in: pane, slot: slot)
+        return slot
+    }
+
+    /// A person's new tab in `pane`, made while it shows `tab`, keeps `tab` as its opener (close-focus.md): bound right after it, as a link's tab does; for the end or the start, the quick look-up.
+    static func expectOpener(_ tab: TabModel?, in pane: PaneController?, slot: NewTabSlot.Target?) {
+        if let tab, let pane, ActionRunScope.viewChangeAllowed() { pane.state?.selection.closeRule.expect(in: pane.paneKey, opener: tab.id, listed: pane.pane.tabs.map(\.id), quick: slot.map { if case .after = $0 { false } else { true } } ?? true) }
     }
 
     /// Reopens a browser tab's page on the other engine in the same pane,
@@ -412,7 +420,7 @@ enum TabLifecycle {
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
             // The user's Cmd-W closes a pinned tab like any other, as Chrome's does (cmux-ad i8); the close
-            // selects by the one rule (FocusAfterClose.tab: the tab before). Only Home's tab is kept.
+            // selects by the one close-selection rule (TabCloseSelection: its opener's family, else the next tab). Only Home's tab is kept.
             if invocation.origin == .user {
                 // Several selected tabs close together (Chrome).
                 if let selected = pane.stripModel.keyboardCloseSelection(id) {
