@@ -265,8 +265,11 @@ impl Env {
     /// pi's `cmux` skill: the acpmux CLI, as a guest, for what the MCP tools do elsewhere.
     pub fn pi_skill(&self) -> String {
         use crate::harness_health::channel::quote;
-        let mut cli: Vec<String> =
-            self.entry_env(App::Pi).into_iter().map(|(k, v)| format!("{k}={}", quote(&v))).collect();
+        let mut cli: Vec<String> = self
+            .entry_env(App::Pi)
+            .into_iter()
+            .map(|(k, v)| format!("{k}={}", quote(&v)))
+            .collect();
         cli.push(quote(&self.exe.to_string_lossy()));
         cli.extend(self.args.iter().filter(|a| *a != SERVER_ARG).map(|a| quote(a)));
         let cli = cli.join(" ");
@@ -453,7 +456,10 @@ impl std::error::Error for ForeignEntry {}
 /// The note of a row whose entry is not ours.
 fn foreign_note(config: &Path) -> String {
     let what = if config.ends_with("SKILL.md") { "a skill" } else { "a server" };
-    format!("{what} named {SERVER_KEY} that cmux did not write is in {}; left alone", config.display())
+    format!(
+        "{what} named {SERVER_KEY} that cmux did not write is in {}; left alone",
+        config.display()
+    )
 }
 
 /// Give `app` the entry. An entry of ours that runs another binary is replaced; one we did not
@@ -512,11 +518,7 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     match app {
-        App::ClaudeDesktop
-        | App::ClaudeCode
-        | App::OpenCode
-        | App::GeminiCli
-        | App::QwenCode => {
+        App::ClaudeDesktop | App::ClaudeCode | App::OpenCode | App::GeminiCli | App::QwenCode => {
             if text.trim().is_empty() {
                 return Ok(None);
             }

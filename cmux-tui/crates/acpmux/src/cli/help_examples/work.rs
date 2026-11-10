@@ -303,7 +303,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "desktop link",
         &[
-            ("Give Claude, Codex, OpenCode, Gemini CLI, Qwen Code and pi the cmux tools", "acpmux desktop link"),
+            (
+                "Give Claude, Codex, OpenCode, Gemini CLI, Qwen Code and pi the cmux tools",
+                "acpmux desktop link",
+            ),
             ("See what linking Codex would change", "acpmux desktop link --app codex --dry-run"),
             ("Give only OpenCode the cmux tools", "acpmux desktop link --app opencode"),
         ],

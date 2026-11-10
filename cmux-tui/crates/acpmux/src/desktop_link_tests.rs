@@ -588,8 +588,9 @@ fn opencode_gets_a_local_server_with_one_command_array_beside_the_persons_own() 
     );
     assert_eq!(doc["mcp"]["zeta"]["url"], "https://x");
     // The person's key order stays: theme, mcp, model; their server first.
-    let order: Vec<usize> =
-        ["\"theme\"", "\"mcp\"", "\"zeta\"", "\"cmux\"", "\"model\""].map(|k| text.find(k).unwrap()).to_vec();
+    let order: Vec<usize> = ["\"theme\"", "\"mcp\"", "\"zeta\"", "\"cmux\"", "\"model\""]
+        .map(|k| text.find(k).unwrap())
+        .to_vec();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{text}");
     assert_eq!(status(&env, App::OpenCode).state, State::Linked);
     assert_eq!(link(&env, App::OpenCode, false).note.as_deref(), Some("already linked"));
