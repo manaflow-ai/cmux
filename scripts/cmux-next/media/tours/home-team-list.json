@@ -1,5 +1,5 @@
 {
-  "title": "Home lists the whole team by default: teammates with no chat yet are rows after the conversations, and To: offers them before anything is typed",
+  "title": "Home New Message: To: offers the Chiefs and the team before anything is typed",
   "steps": [
     {
       "title": "Launch",
@@ -17,28 +17,14 @@
       "optional": "the Chief's daemon may not start on this runner"
     },
     {
-      "title": "The list: conversations, then every teammate with no chat yet",
-      "rpc": {
-        "method": "debug.home.sidebar_fixture",
-        "params": {
-          "count": 3,
-          "team": 6,
-          "width": 320
-        }
-      },
-      "wait": 2,
-      "optional": "debug fixture is DEBUG only"
-    },
-    {
       "title": "To: offers the Chiefs and the team before anything is typed",
-      "rpc": {
-        "method": "debug.home.sidebar_fixture",
-        "params": {
-          "new_message": 6
-        }
-      },
+      "cmux": [
+        "action",
+        "run",
+        "home.newMessage"
+      ],
       "wait": 2,
-      "optional": "debug fixture is DEBUG only"
+      "optional": "New Message needs the Home page in this build"
     },
     {
       "title": "Dark",

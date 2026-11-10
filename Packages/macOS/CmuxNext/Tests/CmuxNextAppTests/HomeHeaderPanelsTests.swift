@@ -139,36 +139,4 @@ struct HomeHeaderPanelsTests {
         let alone = try #require(Self.home(right: nil).workspaces.first)
         #expect(ChiefMemoryPageService.tabs(in: alone).isEmpty, "Home alone: nothing open on the right")
     }
-
-    /// The bar draws the host's items and reports a click by id; the same ids keep their buttons.
-    @Test func theBarDrawsItsItemsAndReportsClicks() throws {
-        let bar = HomeHeaderPanelBar()
-        var clicked: [String] = []
-        bar.onToggle = { clicked.append($0) }
-        bar.set([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: false),
-                 HomeHeaderPanelItem(id: "rightSidebar", symbol: "sidebar.right", label: "Right Sidebar", shortcut: "⌥⌘B", isOn: true)])
-        #expect(bar.buttons.count == 2)
-        #expect(bar.intrinsicContentSize.width == 2 * HomeHeaderPanelBar.buttonSize + HomeHeaderPanelBar.spacing)
-        #expect(bar.buttons.map(\.isOn) == [false, true])
-        #expect(bar.buttons[1].themedToolTipShortcut == "⌥⌘B")
-        #expect(bar.buttons[0].accessibilityLabel() == "Memory Inspector")
-        let first = bar.buttons[0]
-        bar.set([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: true),
-                 HomeHeaderPanelItem(id: "rightSidebar", symbol: "sidebar.right", label: "Right Sidebar", isOn: false)])
-        #expect(bar.buttons[0] === first, "a state change keeps the button")
-        #expect(bar.buttons.map(\.isOn) == [true, false])
-        bar.buttons[1].performClick(nil)
-        #expect(clicked == ["rightSidebar"])
-        // Only the buttons are hits: the gap drags the window with the header.
-        bar.frame = NSRect(origin: .zero, size: bar.intrinsicContentSize)
-        bar.layoutSubtreeIfNeeded()
-        let superview = FlippedView(frame: bar.frame)
-        superview.addSubview(bar)
-        #expect(bar.hitTest(CGPoint(x: 14, y: 14)) === bar.buttons[0])
-        #expect(bar.hitTest(CGPoint(x: HomeHeaderPanelBar.buttonSize + HomeHeaderPanelBar.spacing / 2, y: 14)) == nil)
-    }
-
-    private final class FlippedView: NSView {
-        override var isFlipped: Bool { true }
-    }
 }

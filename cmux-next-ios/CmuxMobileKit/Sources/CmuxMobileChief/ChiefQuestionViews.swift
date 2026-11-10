@@ -24,8 +24,12 @@ struct ChiefQuestionBar: View {
     /// the bar leaves before the conversation moves up into its room (R3-2).
     @State private var shown: ChiefBarItem?
     @State private var visible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let fadeDuration = 0.2
+
+    /// The fade the host's band runs with the bar: none under Reduce Motion, as the bar's own.
+    static func bandFadeDuration(reduceMotion: Bool) -> Double { reduceMotion ? 0 : fadeDuration }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,11 +48,11 @@ struct ChiefQuestionBar: View {
                     guard appearing else { return }
                     // Room first, then the bar fades in.
                     resized()
-                    fading(false, Self.fadeDuration)
+                    fading(false, Self.bandFadeDuration(reduceMotion: reduceMotion))
                     withAnimation(.easeOut(duration: Self.fadeDuration).unlessReduceMotion) { visible = true }
                 } else if shown != nil {
                     // The bar fades out first; then the room closes.
-                    fading(true, Self.fadeDuration)
+                    fading(true, Self.bandFadeDuration(reduceMotion: reduceMotion))
                     withAnimation(.easeIn(duration: Self.fadeDuration).unlessReduceMotion) {
                         visible = false
                     } completion: {
