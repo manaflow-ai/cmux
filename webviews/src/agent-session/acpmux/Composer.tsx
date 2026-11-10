@@ -2041,8 +2041,10 @@ function ComposerFrame({
 
   promptBeforeInput.current = (data, state) => {
     typedAt.current = performance.now();
-    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-    if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`. Not while a Cloud
+    // start is out: the started chat has no shell yet, and only the prompt's text reaches it, so `!`
+    // stays text.
+    if (!onShell || cloudStarting || state.composing || !state.empty || !data.startsWith("!")) return false;
     enterShell(data.slice(1));
     return true;
   };

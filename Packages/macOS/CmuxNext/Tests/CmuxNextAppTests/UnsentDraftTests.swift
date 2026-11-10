@@ -75,8 +75,9 @@ struct UnsentDraftTests {
         let sender = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(sender) { "tab-1" }
         _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
-        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person),
-                                                                    limit: .seconds(30)) { drafts.draft(forTab: "tab-1", machine: "this-mac") }
+        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
         #expect(await source.peek()?.cwd == "/w")
         // The started chat's page asks for its seed while the start still awaits its tab and the trust.
         let taking = Task { @MainActor in await source.take() }
@@ -92,22 +93,27 @@ struct UnsentDraftTests {
         withExtendedLifetime(sender) {}
     }
 
-    /// A hand-off later than the page's wait (the folder's trust ran long) does not lose the text: the
-    /// seed reads the sending tab's text as it is then. One that says there is none (the start failed)
-    /// gives none.
-    @Test func aCloudStartsChatTakesTheSendingTabsTextWhenTheHandOffRunsLate() async throws {
+    /// However long the folder's trust runs, the page's seed waits for the hand-off and gets the text
+    /// as it is then, typed after any wait included (cmux#39913 review at 7f5a1b22): no snapshot is
+    /// taken early and dropped. A start that fails hands off none.
+    @Test func aCloudStartsChatWaitsForTheHandOffHoweverLongTheTrustRuns() async throws {
         let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
         let sender = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(sender) { "tab-1" }
-        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
-        let (late, _) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person),
-                                                            limit: .milliseconds(50)) { drafts.draft(forTab: "tab-1", machine: "this-mac") }
-        let seed = await late.take()
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (late, give) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        let taking = Task { @MainActor in await late.take() }
+        // A long trust: the page has waited a while, and the person typed on through it.
+        try await Task.sleep(for: .milliseconds(200))
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly, after the wait"]))
+        give(true)
+        let seed = await taking.value
         #expect(seed?.prompt == "fix the build")
-        #expect(seed?.draft == "and the nightly")
-        let (failed, give) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person),
-                                                                 limit: .seconds(30)) { "never read" }
-        give(false)
+        #expect(seed?.draft == "and the nightly, after the wait")
+        let (failed, fail) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) { "never read" }
+        fail(false)
         #expect(await failed.take()?.draft == nil)
         withExtendedLifetime(sender) {}
     }

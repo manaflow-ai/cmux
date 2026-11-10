@@ -119,26 +119,21 @@ public final class AgentPaneSeedSource {
     /// that fails before its handshake never takes it).
     public var onDraftTaken: (() -> Void)?
 
-    /// The draft a hand-off gives later (``handingOffDraft(_:limit:now:)``): ``take()`` waits for it,
-    /// and past the limit reads `lateDraftNow` instead.
-    private var lateDraft: (@MainActor @Sendable () async -> String??)?
-    private var lateDraftNow: (@MainActor () -> String?)?
-    private var lateDraftLimit: Duration = .zero
+    /// The draft a hand-off gives later (``handingOffDraft(_:now:)``): ``take()`` waits for it.
+    private var lateDraft: AgentPaneLateDraft?
 
     /// A seed whose draft is known only at a hand-off still to come: a Cloud start's chat, whose sending
     /// tab's composer stays open (Leo, 2026-11-09: "I can't click into the composer at all to, like
     /// potentially type other stuff while it's doing that initial load situation") until the App closes
-    /// that tab, after the chat's tab is made and its folder trusted. The page's ``take()`` waits for
-    /// `give` (at most `limit`; a hand-off later than that reads the sending tab's text as `now` has
-    /// it then, so a long trust never loses it); ``peek()`` never waits. `give(true)` hands off the
-    /// sending tab's text as `now` reads it; `give(false)` (the start failed) hands off none. The
-    /// first call counts.
-    public static func handingOffDraft(_ seed: AgentPaneSeed, limit: Duration, now: @escaping @MainActor () -> String?)
+    /// that tab, after the chat's tab is made and its folder trusted. The page's ``take()`` waits for the
+    /// hand-off however long that takes, so nothing typed meanwhile is snapshotted early and dropped:
+    /// the start hands off on every way out (``CloudStartChat`` `openUploaded` gives in a `defer`).
+    /// ``peek()`` never waits. `give(true)` hands off the sending tab's text as `now` reads it then;
+    /// `give(false)` (the start failed) hands off none. The first call counts.
+    public static func handingOffDraft(_ seed: AgentPaneSeed, now: @escaping @MainActor () -> String?)
         -> (source: AgentPaneSeedSource, give: @MainActor (_ handedOff: Bool) -> Void) {
         let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft()
-        source.lateDraft = { .some(await handOff.value()) }
-        source.lateDraftNow = now
-        source.lateDraftLimit = limit
+        source.lateDraft = handOff
         return (source, { handOff.give($0 ? now() : nil) })
     }
 
@@ -201,9 +196,7 @@ public final class AgentPaneSeedSource {
         }
         if let late = lateDraft {
             lateDraft = nil
-            let given = await agentPaneFirst(within: lateDraftLimit, late)
-            if let draft = given ?? lateDraftNow?(), !draft.isEmpty { value?.draft = draft }
-            lateDraftNow = nil
+            if let draft = await late.value(), !draft.isEmpty { value?.draft = draft }
         }
         let seed = value
         if seed?.draft != nil, let taken = onDraftTaken {
@@ -256,8 +249,7 @@ extension AgentPaneSeedSource {
     }
 }
 
-/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:limit:now:)``).
-/// A wait that gives up (``agentPaneFirst(within:_:)``) is resumed by the give, its answer dropped.
+/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:)``).
 @MainActor
 final class AgentPaneLateDraft {
     private var given: String??

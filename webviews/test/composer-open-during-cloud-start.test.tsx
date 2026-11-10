@@ -116,7 +116,12 @@ async function until(check: () => boolean, what: string, within = 15_000) {
 }
 
 type FieldElement = HTMLElement & {
-  acpmuxMarkdownField?: { value(): string; type(text: string): unknown; focus(): void };
+  acpmuxMarkdownField?: {
+    value(): string;
+    type(text: string): unknown;
+    focus(): void;
+    insertTyped(text: string): void;
+  };
 };
 const promptElement = () => host.querySelector<FieldElement>(".acpmux-composer-prompt");
 const promptField = () => {
@@ -430,4 +435,18 @@ test("chips the page adds during the start are refused with the same note: a des
   expect(chipsShown()).toBe(0);
   expect(note()).toContain("Cloud chat opens");
   await typeWhileStarting(TYPED);
+}, 60_000);
+
+test("`!` typed during the start stays text the started chat gets, not shell mode it would lose", async () => {
+  const pane = await startInCloud();
+  await until(() => composerText() === "", "the sent prompt leaves the composer");
+  // As the person types it: the `!` goes through the field's before-input first, where shell mode starts.
+  const field = promptField() as unknown as { insertTyped(text: string): void };
+  await act(async () => field.insertTyped("!"));
+  await act(async () => field.insertTyped("ls the fixtures"));
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(host.querySelector(".acpmux-composer-box textarea")).toBeNull();
+  await until(() => composerText() === "!ls the fixtures", "the `!` stays the prompt's text");
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(pane.hostDraft()).toBe("!ls the fixtures");
 }, 60_000);
