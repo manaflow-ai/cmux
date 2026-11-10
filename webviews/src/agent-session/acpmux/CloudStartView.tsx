@@ -91,6 +91,9 @@ function AskRow({ ask, onAnswer }: { ask?: Ask; onAnswer?: (id: string, button: 
   );
 }
 
+/** Start refusals that name what to do in their own card, with no failed step for the checklist to show. */
+const POLICY_REFUSALS: ReadonlySet<string> = new Set(["cloud_plan_required", "cloud_spend_cap", "cloud_member_budget"]);
+
 export function CloudStartView({
   start,
   bubble = true,
@@ -126,14 +129,17 @@ export function CloudStartView({
   // The chat shell is useful before the machine is ready, so keep the expensive startup
   // checklist out of the way until someone asks for it. A failure is the one time we open it
   // automatically: the failed row and its log tail explain what needs attention.
-  const [expanded, setExpanded] = useState(failed);
+  // A refusal by policy (the plan, the team's spending cap, the member's budget) has no failed step to explain, so the
+  // checklist stays shut and the card's actions stay in view in a short pane (#40036 review F1).
+  const autoOpen = failed && !POLICY_REFUSALS.has(start.code ?? "");
+  const [expanded, setExpanded] = useState(autoOpen);
   const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
-    if (failed) setExpanded(true);
+    if (autoOpen) setExpanded(true);
     else if (start.initialized) setExpanded(false);
-  }, [failed, start.initialized]);
+  }, [autoOpen, start.initialized]);
   const language = usePaneLanguage();
   const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
@@ -324,6 +330,29 @@ export function CloudStartView({
           )}
         </span>
       )}
+      {/* The team's spending cap or the member's budget refused the machine (cloudStartProgress `spendRefusal`):
+          the card says an admin can raise it; This Mac runs the same prompt now, Not now leaves the draft. */}
+      {failed &&
+        (start.code === "cloud_spend_cap" || start.code === "cloud_member_budget") &&
+        (onRunHere || onDismiss) && (
+          <span className="acpmux-cloud-ask__actions">
+            {onRunHere && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-role="default"
+                onClick={() => onRunHere()}
+              >
+                {planLabels.runHere}
+              </button>
+            )}
+            {onDismiss && (
+              <button type="button" className="acpmux-cloud-ask__button" onClick={() => onDismiss()}>
+                {t("harness.notNow")}
+              </button>
+            )}
+          </span>
+        )}
       {failed && start.retryable && onRetry && (
         <span className="acpmux-cloud-ask__actions">
           <button

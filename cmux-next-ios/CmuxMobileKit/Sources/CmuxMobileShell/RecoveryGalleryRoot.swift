@@ -12,6 +12,9 @@ import SwiftUI
 ///   whose action is the shared Retry, as the chats, checkpoints and command pages use;
 /// - `card`: the failure card, the connection banner with Retry, and the waiting card
 ///   a streamed simulator page shows;
+/// - `home`: Home's "Couldn't load" note with its capsule Retry, twice: one whose
+///   read answers at once (Home's retry before it waited for the read) and one
+///   whose read takes about a second (a real network answer);
 /// - `cloud`: a Cloud machine's connect wait (A, the screen's, with the two
 ///   variants it was picked from), its failure with the cause, and Cloud chats
 ///   with no Mac to reach them through.
@@ -37,6 +40,8 @@ public struct RecoveryGalleryRoot: View {
                 cards
             case "cloud":
                 cloud
+            case "home":
+                home
             default:
                 states
             }
@@ -59,6 +64,25 @@ public struct RecoveryGalleryRoot: View {
             }
         }
         .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    private var home: some View {
+        VStack(spacing: 48) {
+            homeNote(id: "instant") {}
+            homeNote(id: "slow") { try? await ContinuousClock().sleep(for: .milliseconds(1200)) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    /// The Home list's problem row as ConversationsHome draws it.
+    private func homeNote(id: String, read: @escaping @MainActor () async -> Void) -> some View {
+        VStack(spacing: 6) {
+            Text(RecoveryMessage.home.text)
+                .font(.footnote)
+                .foregroundStyle(CmuxMobileTheme.standard.colors.label2.color)
+            RetryButton(action: read).accessibilityIdentifier("recoveryGallery.home.retry.\(id)")
+        }
     }
 
     /// A (picked): spinner, what it waits on, and the bound, counted up past 5 s.
