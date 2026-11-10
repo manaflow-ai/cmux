@@ -45,11 +45,14 @@ echo "gh $*" >> "$STUB_DIR/calls.log"
 case "$*" in
   api*"/jobs?"*)
     # The cancelled jobs of an attempt, one "id<TAB>name" a line (FAKE_CANCELLED_JOBS: "id|name;id|name").
+    # FAKE_JOBS_SLEEP: the read hangs that long first (a hung read, not a failed one).
+    if [[ -n "${FAKE_JOBS_SLEEP:-}" ]]; then sleep "$FAKE_JOBS_SLEEP"; fi
     if [[ "${FAKE_JOBS_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     if [[ -n "${FAKE_CANCELLED_JOBS:-}" ]]; then printf '%s\n' "$FAKE_CANCELLED_JOBS" | tr ';|' '\n\t'; fi ;;
   api*"/annotations"*)
     # A job's annotation messages from $STUB_DIR/annotations-<id>; no file is a failed read.
     args="$*"; job="${args#*check-runs/}"; job="${job%%/*}"
+    if [[ -n "${FAKE_ANNOTATIONS_SLEEP:-}" ]]; then sleep "$FAKE_ANNOTATIONS_SLEEP"; fi
     if [[ -f "$STUB_DIR/annotations-$job" ]]; then cat "$STUB_DIR/annotations-$job"; else
       echo "gh: Server Error (HTTP 502)" >&2; exit 1; fi ;;
   api*)
@@ -321,7 +324,8 @@ def cancelled_attempt_names_each_jobs_canceller(failures: list[str], name: str, 
                         FAKE_CANCELLED_JOBS="501|lint (macos);502|test (macos);503|test (windows);504|test (linux)")
     final = out.split("The run was cancelled outside this script", 1)[-1]
     check(failures, name, code == 1 and box.count("gh run cancel") == 0 and box.count("gh run download") == 0
-          and "lint (macos): cancelled by cmux-bot owned-pool rescue or queue janitor, re-run follows" in final
+          and "lint (macos): cancelled by @cmux-bot[bot] (owned-pool rescue or queue janitor); no re-run came" in final
+          and "re-run follows" not in out
           and "test (macos): job timeout 40m" in final
           and "test (windows): cancelled by @some-person" in final
           and "test (linux): cause unknown" in final
@@ -333,6 +337,64 @@ def cancelled_attempt_with_unreadable_jobs_says_cause_unknown(failures: list[str
                         FAKE_JOBS_FAILS="1")
     final = out.split("The run was cancelled outside this script", 1)[-1]
     check(failures, name, code == 1 and "cause unknown" in final and box.count("gh run download") == 0, box, out)
+
+
+def cancelled_attempt_reads_each_job_timeout_in_minutes(failures: list[str], name: str, box: Sandbox) -> None:
+    """GitHub writes a job's limit as a Go duration: `40m0s`, but `1h10m0s` for 70 minutes (ci-rev-1 on
+    #40212). The jobs and limits are the real ones of cmux-tui.yml on feat-cmux-next: lint 40, optchat-chief
+    60, test 90, and the macOS job 70 after #40124."""
+    for job, limit in (("601", "1h10m0s"), ("602", "1h30m0s"), ("603", "40m0s"), ("604", "1h0m0s")):
+        (box.dir / f"annotations-{job}").write_text(
+            f"The job has exceeded the maximum execution time of {limit}\nThe operation was canceled.\n",
+            encoding="utf-8")
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60",
+                        FAKE_CANCELLED_JOBS="601|macOS lint and tests;602|test (macos);603|lint (linux);"
+                                            "604|optchat-chief tests (real daemon)")
+    final = out.split("The run was cancelled outside this script", 1)[-1]
+    check(failures, name, code == 1
+          and "macOS lint and tests: job timeout 70m" in final
+          and "test (macos): job timeout 90m" in final
+          and "lint (linux): job timeout 40m" in final
+          and "optchat-chief tests (real daemon): job timeout 60m" in final, box, out)
+
+
+def cancelled_attempt_reads_an_old_style_timeout(failures: list[str], name: str, box: Sandbox) -> None:
+    (box.dir / "annotations-701").write_text(
+        "The job running on runner X has exceeded the maximum execution time of 360 minutes.\n", encoding="utf-8")
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60",
+                        FAKE_CANCELLED_JOBS="701|test (linux)")
+    final = out.split("The run was cancelled outside this script", 1)[-1]
+    check(failures, name, code == 1 and "test (linux): job timeout 360m" in final, box, out)
+
+
+def rescue_rerun_is_followed_when_cause_reads_hang(failures: list[str], name: str, box: Sandbox) -> None:
+    """A hung cause read must not use up the rescue window (ci-rev-1 on #40212): attempt 2 of the run is
+    followed, as when the reads answer at once."""
+    started = time.monotonic()
+    code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1;queued||2;completed|success|2",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="80", FAKE_JOBS_SLEEP="70",
+                        FAKE_CANCELLED_JOBS="501|lint (macos)")
+    took = time.monotonic() - started
+    check(failures, name, box.count("gh run cancel") == 0 and box.count("gh run download") >= 1
+          and "was not re-run" not in out and took < 40, box, out + f"\n(took {took:.0f}s)")
+
+
+def hung_cause_reads_share_one_small_budget(hang: str):
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        # All cause reads together get CMUX_TUI_HOSTED_CAUSE_READ_SECONDS (default 20); a hung read
+        # ends there and says "cause unknown", and the exit code stays 1.
+        env = {"FAKE_JOBS_SLEEP": "70"} if hang == "jobs" else {"FAKE_ANNOTATIONS_SLEEP": "70"}
+        for job in ("501", "502", "503", "504"):
+            (box.dir / f"annotations-{job}").write_text("The run was canceled by @cmux-bot[bot].\n", encoding="utf-8")
+        started = time.monotonic()
+        code, out = box.run(["--full"], FAKE_STATES="completed|cancelled|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="80",
+                            CMUX_TUI_HOSTED_CAUSE_READ_SECONDS="3",
+                            FAKE_CANCELLED_JOBS="501|a;502|b;503|c;504|d", **env)
+        took = time.monotonic() - started
+        final = out.split("The run was cancelled outside this script", 1)[-1]
+        check(failures, name, code == 1 and "cause unknown" in final and box.count("gh run download") == 0
+              and took < 30, box, out + f"\n(took {took:.0f}s)")
+    return test
 
 
 def cancel_on_timeout_flag_cancels(failures: list[str], name: str, box: Sandbox) -> None:
@@ -475,6 +537,13 @@ def main() -> int:
          cancelled_attempt_names_each_jobs_canceller),
         ("a cancelled attempt whose jobs cannot be read says cause unknown",
          cancelled_attempt_with_unreadable_jobs_says_cause_unknown),
+        ("a cancelled attempt reads each job timeout of 40m0s, 1h0m0s, 1h10m0s and 1h30m0s in minutes",
+         cancelled_attempt_reads_each_job_timeout_in_minutes),
+        ("a cancelled attempt reads an old-style timeout of N minutes", cancelled_attempt_reads_an_old_style_timeout),
+        ("a hung cause read does not use up the rescue window", rescue_rerun_is_followed_when_cause_reads_hang),
+        ("a hung jobs read ends within the cause read budget", hung_cause_reads_share_one_small_budget("jobs")),
+        ("hung annotation reads share one cause read budget",
+         hung_cause_reads_share_one_small_budget("annotations")),
         ("a deadline inside the rescue window is still running (exit 3)", deadline_inside_rescue_window_is_still_running),
         ("glaeda-gh down: one round of gh run watch, then glaeda-gh again", daemon_down_falls_back_for_one_round),
         ("--cancel-on-timeout cancels at the deadline", cancel_on_timeout_flag_cancels),
