@@ -40,7 +40,7 @@ final class HomeConversationPage: NSView {
         host.follow(chief)
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
         let reveal = services.launchReveal
-        page.whenPainted { reveal.markReady(.home) }
+        page.whenPainted { reveal.markReady(.home); DebugTimings.markLaunch("home.first_page") }
     }
 
     @available(*, unavailable)
