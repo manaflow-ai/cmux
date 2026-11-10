@@ -362,6 +362,13 @@ const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
+/// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
+const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
+  await openColumns(ctx, width);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="OpenCode"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
+};
+
 /// Opens the columns on the chat's own tab, where the "used here" marks show beside the hold.
 const openOwnTab: Play = async (ctx) => {
   await openColumns(ctx);
@@ -701,13 +708,13 @@ export default componentEntry<GalleryProps>({
     // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
     "quick-menu-dragged-narrow": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
-      play: (ctx) => openColumns(ctx, 300),
+      play: (ctx) => openOpenCodeAt(ctx, 300),
       note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
     },
     "quick-menu-dragged-narrow-ellipsis": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: async (ctx) => {
-        await openColumns(ctx, 300);
+        await openOpenCodeAt(ctx, 300);
         for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
           Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
       },

@@ -5,7 +5,7 @@
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
-import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
@@ -406,7 +406,23 @@ function Columns({
     ],
     [list],
   );
-  const namesKey = names.join("\u0000");
+  // A face that loads after the menu opened (the UI font, a fallback first) changes every name's
+  // width: the canvas measured the fallback. Each finished font load measures again, so the default
+  // width never depends on whether the face was ready when the menu opened.
+  const [fontLoads, setFontLoads] = useState(0);
+  useEffect(() => {
+    const fonts = open ? popupNode?.ownerDocument.fonts : undefined;
+    if (!fonts) return;
+    const loaded = () => setFontLoads((count) => count + 1);
+    fonts.addEventListener("loadingdone", loaded);
+    let live = true;
+    if (fonts.status !== "loaded") void fonts.ready.then(() => live && loaded());
+    return () => {
+      live = false;
+      fonts.removeEventListener("loadingdone", loaded);
+    };
+  }, [open, popupNode]);
+  const namesKey = `${names.join("\u0000")}\u0001${fontLoads}`;
   useLayoutEffect(() => {
     if (!open || natural?.key === namesKey) return;
     const width = naturalMenuWidth(names, modelsList.current);
