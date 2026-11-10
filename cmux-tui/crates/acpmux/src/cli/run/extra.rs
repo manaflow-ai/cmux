@@ -607,10 +607,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "store:    {}",
                         v.pointer("/store/mode").and_then(Value::as_str).unwrap_or("")
                     );
+                    let adopting = v.get("adopting").and_then(Value::as_u64).unwrap_or(0);
                     println!(
-                        "sessions: {} ({} live agents)",
+                        "sessions: {} ({} live agents{})",
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
+                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0),
+                        if adopting > 0 {
+                            format!(", adopting {adopting}: the restart is reattaching them")
+                        } else {
+                            String::new()
+                        }
                     );
                     if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");
