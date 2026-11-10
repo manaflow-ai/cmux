@@ -60,9 +60,6 @@ public final class SidebarModel {
     @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
     @ObservationIgnored public var onGroupFolded: ((GroupID) -> Void)?
-    /// A project's "Show N more" or "Show less" was pressed: the App stores how far it revealed in the document
-    /// (`SidebarDocStore.setGroupRevealed`), so the project opens as it was left (Leo 2026-11-10).
-    @ObservationIgnored public var onRevealedRows: ((GroupID, Int) -> Void)?
 
     /// Folds (`collapsed`) or opens group `id` at once, as view state (state-ownership-DESIGN.md): the one group in
     /// place, no structural set, then `onGroupFolded`, so it costs the group's rows. False when no listed group has `id`.

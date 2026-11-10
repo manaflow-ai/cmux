@@ -26,6 +26,7 @@
               let row = list.displayed.row(for: .showMore(id)) else { return }
         let revealed = row.childCount == 0 ? 0 : caps.revealed + row.childCount
         list.model.revealedRows[id] = revealed
-        if let group = id.group, project != nil { list.model.onRevealedRows?(group, revealed) }
+        // The document keeps it (no undo entry), so the project opens as it was left, here and in other windows.
+        if let group = id.group, project != nil { list.model.docDrag?.document?.setGroupRevealed(group, revealed) }
     }
 }
