@@ -170,15 +170,19 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
   );
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
+    // The long turn starts with its first two runs done and plays only the third, so it ends as soon as
+    // the short one (gallery health's ready-time budget) and folds the whole turn's work: the long move.
+    const done = long ? STEPS : 0;
+    const played = turnSteps - done;
     setEnded(false);
-    setSteps(0);
+    setSteps(done);
     setState("running");
-    for (let step = 1; step <= turnSteps; step += 1)
-      timers.current.push(window.setTimeout(() => setSteps(step), step * 140));
+    for (let step = done + 1; step <= turnSteps; step += 1)
+      timers.current.push(window.setTimeout(() => setSteps(step), (step - done) * 140));
     if (variant === "live") return;
-    timers.current.push(window.setTimeout(() => setEnded(true), (turnSteps + 2) * 140));
+    timers.current.push(window.setTimeout(() => setEnded(true), (played + 2) * 140));
     // The fold plays on the house settle (180 ms, longer for a long move); the line reads done once it has.
-    timers.current.push(window.setTimeout(() => setState("folded"), (turnSteps + 2) * 140 + 800));
+    timers.current.push(window.setTimeout(() => setState("folded"), (played + 2) * 140 + 800));
   };
   return (
     <div
@@ -229,7 +233,7 @@ export default componentEntry<{ variant: Variant; long?: boolean }>({
   anchors: [{ selector: "[data-testid=turn-end-start]" }],
   checks: {
     anchorMovePx: { value: 0, reason: "The turn's rows must not move the fixed control." },
-    settleMaxMs: { value: 5_000, reason: "The deterministic turn runs for about two seconds (three, the long one)." },
+    settleMaxMs: { value: 5_000, reason: "The deterministic turn runs for about two seconds." },
   },
   covers: [
     "agent-session/acpmux/conversation/turnEndFold.ts#playTurnEnd",
