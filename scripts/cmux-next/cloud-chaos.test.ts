@@ -523,6 +523,24 @@ describe("the felt time after a send", () => {
     chat.stop();
   });
 
+  test("a late record of the chat's previous turn is not the reply", async () => {
+    // The previous turn ended at journal seq 9; its seq 7 arrives late, after the send.
+    const { chat } = await chatWith(0, [
+      { ms: 20, record: { seq: 7, kind: "agent_message_chunk" } },
+      { ms: 300, record: { seq: 10, kind: "agent_message_chunk" } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 5_000, 9);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
+    chat.stop();
+  });
+
+  test("a reply received after the deadline does not count", async () => {
+    const { chat } = await chatWith(0, [{ ms: 900, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 400);
+    expect(felt.felt_ms).toBeNull();
+    chat.stop();
+  });
+
   test("only the agent's own output counts as the reply", () => {
     expect(chaos.isReply({ seq: 1, kind: "agent_message_chunk" })).toBe(true);
     expect(chaos.isReply({ params: { update: { sessionUpdate: "tool_call" } } })).toBe(true);

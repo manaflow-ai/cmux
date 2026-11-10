@@ -407,7 +407,7 @@ export class ChatClient {
   lastError = "";
   private attached = false;
   private paging = false;
-  private stash: any[] = [];
+  private stash: Array<{ record: any; at: number }> = [];
   private stopped = false;
   private reattaching = false;
   readonly dial: DialLike;
@@ -438,9 +438,9 @@ export class ChatClient {
   }
 
   /** The prompt, as the app sends it; a send tried again keeps its `promptId`, so acpmux takes it once. */
-  async prompt(text: string, promptId = `chaos-${Date.now().toString(36)}`): Promise<void> {
-    await this.resolveSurface();
-    answerOf(await this.dial.request({ cmd: "agent-session-prompt", surface: this.surface, prompt_id: promptId, text }, 60_000));
+  async prompt(text: string, promptId = `chaos-${Date.now().toString(36)}`, timeoutMs = 60_000): Promise<void> {
+    await this.resolveSurface(Math.min(30_000, timeoutMs));
+    answerOf(await this.dial.request({ cmd: "agent-session-prompt", surface: this.surface, prompt_id: promptId, text }, Math.min(60_000, timeoutMs)));
   }
 
   /** The highest counting step the client has seen for `tag`. */
@@ -460,7 +460,7 @@ export class ChatClient {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
       if (!this.attached) return;
-      if (this.paging) this.stash.push(m.record);
+      if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
       else this.live(m.record);
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
@@ -470,12 +470,12 @@ export class ChatClient {
     }
   }
 
-  private live(record: any): void {
+  private live(record: any, at = Date.now()): void {
     if (record.seq <= this.held) {
       this.overlaps += 1;
       return;
     }
-    this.received.push({ seq: record.seq, record, via: "live", at: Date.now() });
+    this.received.push({ seq: record.seq, record, via: "live", at });
     this.held = record.seq;
   }
 
@@ -487,8 +487,8 @@ export class ChatClient {
   }
 
   /** Looks the chat tab's current surface up again (it changes when the session host restarts). */
-  private async resolveSurface(): Promise<void> {
-    const now = await resolveChatSurface((f) => this.dial.request(f), this.tab, this.session);
+  private async resolveSurface(timeoutMs = 30_000): Promise<void> {
+    const now = await resolveChatSurface((f) => this.dial.request(f, timeoutMs), this.tab, this.session);
     if (now === null) throw new Error(`the chat's tab (${this.tab || `session ${this.session}`}) is not in the machine's tree`);
     if (now === this.surface) return;
     this.ctx.log?.(`chaos: the chat's tab is now surface ${now} (was ${this.surface})`);
@@ -537,7 +537,7 @@ export class ChatClient {
       this.paging = false;
       const held = this.stash;
       this.stash = [];
-      for (const r of held) this.live(r);
+      for (const r of held) this.live(r.record, r.at);
     }
   }
 
@@ -650,24 +650,27 @@ export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: numbe
  * agent's reply (isReply) after it. A send the dial refuses or never answers (the carrier is still down) is tried
  * again with the same prompt_id, as the app holds a send while it reconnects; the clock keeps running from the first
  * try. `ack_ms` is when the machine took the prompt. Null felt_ms when no reply came within `deadlineMs`.
+ *
+ * Only a record past `afterSeq` (the journal's last seq of the chat's previous turn) and past what the chat held at
+ * the send is this send's reply: a late or replayed record of an earlier turn never stops the clock. A try never
+ * waits past the deadline, and a reply received after it does not count.
  */
-export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number): Promise<Felt> {
+export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0): Promise<Felt> {
   const sentAt = Date.now();
   const from = chat.received.length;
-  // Only a record the chat did not hold at the send: a page that replays a held seq is not this send's reply.
-  const held = chat.held;
+  const held = Math.max(chat.held, afterSeq);
   const promptId = `chaos-felt-${sentAt.toString(36)}`;
   let ack: number | null = null;
   let tries = 0;
   let error = "";
   for (const until = sentAt + deadlineMs; ;) {
-    const hit = chat.received.slice(from).find((r) => r.seq > held && isReply(r.record));
+    const hit = chat.received.slice(from).find((r) => r.seq > held && r.at <= until && isReply(r.record));
     if (hit) return { felt_ms: hit.at - sentAt, ack_ms: ack, tries, error };
     if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
     if (ack === null) {
       tries += 1;
       try {
-        await chat.prompt(text, promptId);
+        await chat.prompt(text, promptId, Math.max(1, until - Date.now()));
         ack = Date.now() - sentAt;
       } catch (e) {
         error = (e as Error).message;
@@ -755,6 +758,12 @@ async function readJournal(ctx: ChaosContext, tag: string, session: string, base
   return events;
 }
 
+/** The last seq of a session's journal after `after` (`after` itself when it has none past it, or it cannot be read). */
+async function journalLast(ctx: ChaosContext, session: string, after: number): Promise<number> {
+  const journal = await readJournal(ctx, "", session, after);
+  return typeof journal === "string" ? after : Math.max(after, ...journal.map((e) => e.seq));
+}
+
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
 async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean): Promise<LossVerdict> {
   const journal = await readJournal(ctx, tag, chat.session, baseline);
@@ -812,9 +821,12 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
     const chatError = await chat.open(ctx.harness ?? "claude").then(() => "", (e: Error) => e.message)
       || await felt.open(ctx.harness ?? "claude").then(() => "", (e: Error) => `the felt chat: ${e.message}`);
     // One reply on the felt chat before any fault, so the first fault's felt time holds no cold agent start.
-    const warm = chatError ? null : await feltAfterSend(felt, `${feltMarker(`${safeTag(ctx.tag)}-warm`)} warm up.`, RECOVER_DEADLINE_MS);
+    // Each felt send counts only records past the felt chat's previous turn (feltFloor).
+    let feltFloor = felt.held;
+    const warm = chatError ? null : await feltAfterSend(felt, `${feltMarker(`${safeTag(ctx.tag)}-warm`)} warm up.`, RECOVER_DEADLINE_MS, feltFloor);
     if (warm) {
       await turnOutcome(ctx, feltMarker(`${safeTag(ctx.tag)}-warm`), felt.session);
+      feltFloor = await journalLast(ctx, felt.session, feltFloor);
       ctx.log?.(`chaos: the felt chat's warm-up reply began after ${warm.felt_ms ?? "no"} ms`);
     }
     if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface}, its felt chat ${felt.session} on ${felt.surface}, each over its own carrier dial`);
@@ -867,11 +879,12 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const healed = causeEndedAt(injectedAt, Date.now(), f.secs);
       await sleep(Math.max(0, healed - Date.now()));
       // The person sends as the cause ends; the connection is timed alongside.
-      const feltSent = feltAfterSend(felt, `${feltMarker(tag)} ${f.name}: reply.`, RECOVER_DEADLINE_MS);
+      const feltSent = feltAfterSend(felt, `${feltMarker(tag)} ${f.name}: reply.`, RECOVER_DEADLINE_MS, feltFloor);
       const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
       const recover = back === null ? null : back - healed;
       const feel = await feltSent;
       const feltTurn = await turnOutcome(ctx, feltMarker(tag), felt.session);
+      feltFloor = await journalLast(ctx, felt.session, feltFloor);
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
