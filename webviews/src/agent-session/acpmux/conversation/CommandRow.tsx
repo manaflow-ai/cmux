@@ -18,7 +18,7 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
@@ -186,7 +186,6 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             reveal={reveal}
             live={running}
           />
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

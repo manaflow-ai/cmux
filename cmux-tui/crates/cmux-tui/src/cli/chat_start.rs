@@ -24,8 +24,9 @@
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
-//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then, with a
-//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`,
+//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then. No app (CI,
+//! a headless VM) is here at once; a live app that is only slow is waited for, since its answer
+//! decides where the chat runs ([`read_setting`]). A refusal says what to run next. `cloud`,
 //! `here`, `vm` and `vm:…` are selectors, never device names: a device called "cloud" is reached
 //! by its id.
 
@@ -82,9 +83,11 @@ pub(super) const TARGET_ENV: &str = "CMUX_ON";
 /// (`cmux config set on TARGET` writes it; settings.rs reads `on` as this key).
 pub(super) const TARGET_SETTING: &str = "chat.on";
 
-/// How long the `chat.on` read may take: an app that does not answer by then is no setting.
-// timeout: an app that does not answer counts as no setting; the chat still starts.
-const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
+/// How long a live app is waited for in all while it answers the `chat.on` read with a passing
+/// refusal (`busy`, its own request deadline): the app bounds each request itself, so this counts
+/// only asks it refused. A loaded host (load 136 on 15 cores, 2026-11-04) passed the app's 2 s
+/// request deadline with both healthy.
+const SETTING_WAIT: Duration = Duration::from_secs(30);
 
 /// How long the catalog read may take.
 // timeout: a daemon that never answers the catalog read fails the start with an error.
@@ -204,7 +207,18 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let rest = start_words(rest)?;
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let env = std::env::var(TARGET_ENV).ok();
-    let start = match parse_with(&words, env, || setting_target(&global)) {
+    let mut unanswered = None;
+    let parsed = parse_with(&words, env, || {
+        setting_target(&global).unwrap_or_else(|error| {
+            unanswered = Some(error);
+            None
+        })
+    });
+    // A live app that never said where chats run: no start, so none runs where it was not meant to.
+    if let Some(error) = unanswered {
+        return Some(super::wire::print_local_error(&error, global.output, 3));
+    }
+    let start = match parsed {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -349,28 +363,62 @@ pub(super) fn pick_target(
 }
 
 /// The app's `chat.on` value (`settings.get`, as `cmux settings get chat.on` reads it), or None:
-/// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
-/// is not a string. The `--socket` kind probe and the read share that one deadline.
-fn setting_target(global: &GlobalArgs) -> Option<String> {
-    let deadline = std::time::Instant::now().checked_add(SETTING_TIMEOUT)?;
-    let left = || {
-        deadline.checked_duration_since(std::time::Instant::now()).filter(|left| !left.is_zero())
-    };
-    let mut stream = setting_stream(
-        || super::app::connect_command_within(global, Some(SETTING_TIMEOUT)),
+/// no app, an app that stopped answering, an unset key or a value that is not a string. The
+/// value decides where the chat runs (a Cloud VM, or here), so a live app that is only slow is
+/// waited for ([`read_setting`]); it used to have 1.5 s, and a busy app's Cloud setting started
+/// the chat here.
+fn setting_target(global: &GlobalArgs) -> Result<Option<String>, Value> {
+    let Some(mut stream) = setting_stream(
+        || super::app::connect_command(global),
         || super::app::socket_path(global).and_then(|path| super::app::connect(&path)),
-    )?;
-    let left = left()?;
-    stream.set_write_timeout(Some(left)).ok()?;
-    let answer = super::app::exchange_within(
-        &mut stream,
-        "settings.get",
-        json!({ "path": TARGET_SETTING }),
-        left,
-    )
-    .ok()?
-    .ok()?;
-    answer.get("value").and_then(Value::as_str).map(str::to_owned)
+    ) else {
+        return Ok(None);
+    };
+    read_setting(&mut stream, super::app::READ_TIMEOUT, SETTING_WAIT)
+}
+
+/// Reads `chat.on` from the app at `stream`. Each ask waits while the app answers its liveness
+/// ping (`window` is how often it is asked), the way every app request does ([`super::app::request`]);
+/// an app that stops answering it, or closes, is no setting. An ask the app refuses before it
+/// ran (`busy`, `timeout`, `unavailable`) is asked again while less than `total` has passed; past
+/// it the answer is `app.setting_unanswered`, retryable.
+pub(super) fn read_setting(
+    stream: &mut UnixStream,
+    window: Duration,
+    total: Duration,
+) -> Result<Option<String>, Value> {
+    let began = std::time::Instant::now();
+    loop {
+        let answer =
+            super::app::request(stream, "settings.get", json!({ "path": TARGET_SETTING }), window);
+        let refusal = match answer {
+            Ok(Ok(answer)) => {
+                return Ok(answer.get("value").and_then(Value::as_str).map(str::to_owned));
+            }
+            Ok(Err(refusal)) => refusal,
+            Err(_) => return Ok(None),
+        };
+        let passing = matches!(
+            refusal.get("code").and_then(Value::as_str),
+            Some("busy" | "timeout" | "unavailable")
+        );
+        if !passing {
+            return Ok(None);
+        }
+        if began.elapsed() >= total {
+            return Err(json!({
+                "code": "app.setting_unanswered",
+                "message": format!(
+                    "the cmux app is running but did not say where chats start (the chat.on \
+                     setting) in {} s, so nothing started; run it again, or pass --on",
+                    total.as_secs()
+                ),
+                "details": {"setting": TARGET_SETTING, "refusal": refusal},
+                "retryable": true,
+            }));
+        }
+        std::thread::sleep(window.min(Duration::from_millis(250)));
+    }
 }
 
 /// The app to read `chat.on` from: the one `--app-socket`, `--socket` or the environment names
@@ -656,7 +704,15 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     };
     let start = match route {
         // Every other argument is checked before anything is cloned.
-        Route::Here if start.repo.is_some() && here_preflight(&start).is_err() => start,
+        // So are the files `--attach` names: the start below refuses the same ones.
+        Route::Here
+            if start.repo.is_some()
+                && (here_preflight(&start).is_err()
+                    || super::agents::chat_control::checked_attachments(&start.attach)
+                        .is_err()) =>
+        {
+            start
+        }
         Route::Here => match in_repo(start, global.output) {
             Ok(start) => start,
             Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
