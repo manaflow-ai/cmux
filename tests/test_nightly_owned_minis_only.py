@@ -33,10 +33,12 @@ legacy-identity copies) on Linux.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -374,6 +376,64 @@ class ToolInstallersWorkOnAMac(unittest.TestCase):
         result, calls = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ("gh",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, "")
+
+    def run_pinned_gh(self, sha256: str | None) -> tuple[subprocess.CompletedProcess, str, str, Path]:
+        """ensure-gh.sh on a Linux x86_64 runner without gh: curl serves a local gh_<v>_linux_amd64.tar.gz.
+        Returns the result, the calls log, the GITHUB_PATH file's text and the RUNNER_TEMP dir (deleted after)."""
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, temp, True)
+        bin_dir, log, gh_path = temp / "bin", temp / "calls.log", temp / "github_path"
+        bin_dir.mkdir()
+        for tool in ("bash", "cat", "chmod", "dirname", "mkdir", "grep", "tr", "head", "cut", "rm", "mv", "cp",
+                     "tar", "gzip", "sha256sum", "shasum", "perl"):
+            real = shutil.which(tool)
+            if real:
+                os.symlink(real, bin_dir / tool)
+        stub(bin_dir, "uname", 'case "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac')
+        for tool in ("sudo", "apt-get", "dpkg", "brew"):
+            stub(bin_dir, tool, f'echo "{tool} $*" >> "{log}"; exit 1')
+        version = re.search(r"^GH_PIN_VERSION=(\S+)", (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text(), re.M)[1]
+        name = f"gh_{version}_linux_amd64"
+        (temp / "src" / name / "bin").mkdir(parents=True)
+        stub(temp / "src" / name / "bin", "gh", 'echo "gh version test"')
+        archive = temp / f"{name}.tar.gz"
+        subprocess.run(["tar", "-czf", str(archive), "-C", str(temp / "src"), name], check=True)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        stub(bin_dir, "curl", f'echo "curl $*" >> "{log}"\n'
+                              f'while [ $# -gt 0 ]; do [ "$1" = -o ] && cp "{archive}" "$2"; shift; done')
+        runner_temp = temp / "runner"
+        runner_temp.mkdir()
+        result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/nightly-steps/ensure-gh.sh")],
+                                capture_output=True, text=True,
+                                env={"PATH": str(bin_dir), "HOME": str(temp), "RUNNER_TEMP": str(runner_temp),
+                                     "GITHUB_PATH": str(gh_path), "GH_PIN_URL": f"https://example.invalid/{name}.tar.gz",
+                                     "GH_PIN_SHA256": sha256 if sha256 is not None else digest})
+        return (result, log.read_text() if log.exists() else "",
+                gh_path.read_text() if gh_path.exists() else "", runner_temp)
+
+    def test_ensure_gh_takes_the_pinned_checksummed_release_first(self) -> None:
+        result, calls, github_path, runner_temp = self.run_pinned_gh(None)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("from the pinned, sha256-checked release", result.stdout)
+        self.assertIn("curl ", calls)
+        self.assertNotRegex(calls, r"brew|sudo|apt-get")
+        added = github_path.strip()
+        self.assertTrue(added.startswith(str(runner_temp)), github_path)
+        self.assertTrue(os.access(Path(added) / "gh", os.X_OK))
+
+    def test_ensure_gh_refuses_a_release_with_the_wrong_sha256(self) -> None:
+        result, calls, github_path, _ = self.run_pinned_gh("0" * 64)
+        self.assertIn("not the pinned", result.stdout)
+        self.assertEqual(github_path, "")
+        # It falls back to the old route (apt here; every stub refuses), then fails loudly.
+        self.assertIn("apt-get", calls)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=No GitHub CLI::", result.stdout)
+
+    def test_ensure_gh_pins_every_runner_platform(self) -> None:
+        script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
+        for platform in ("Darwin/arm64", "Darwin/x86_64", "Linux/x86_64", "Linux/aarch64"):
+            self.assertRegex(script, re.escape(platform) + r"[^\n]*sum=[0-9a-f]{64}")
 
     def test_reel_ffmpeg_installs_with_brew(self) -> None:
         result, calls = self.run_script("scripts/ci/nightly-steps/reel-install-ffmpeg.sh", ())
