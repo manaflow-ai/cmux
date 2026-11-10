@@ -459,6 +459,7 @@ CI_REPO = "manaflow-ai/cmux"
 CI_COMMITS = 50
 CI_PAGE = 5  # commits per GraphQL page: each carries up to 100 suites of up to 100 runs
 CI_TOP_RED = 15
+CI_CALL_TIMEOUT = 45  # seconds per read: 20 reads stay inside the job's limit
 # A finished run counts as green or red; skipped, neutral, cancelled (superseded by a newer push) and still running
 # runs say nothing about the check's health.
 CI_GREEN = {"SUCCESS"}
@@ -482,7 +483,7 @@ def gh_graphql(query: str, variables: Dict[str, Any], run: Callable = subprocess
         if v is not None:
             cmd += ["-F" if isinstance(v, int) else "-f", f"{k}={v}"]
     try:
-        done = run(cmd, capture_output=True, text=True, timeout=120, env=env)
+        done = run(cmd, capture_output=True, text=True, timeout=CI_CALL_TIMEOUT, env=env)
     except (OSError, subprocess.SubprocessError) as e:
         raise SourceError(f"gh could not read the check runs: {e}") from e
     if done.returncode != 0:
@@ -565,9 +566,10 @@ def ci_health(branches: List[str], commits: int, repo: str, history: Optional[Ca
     for b in branches:
         try:
             per[b] = ci_branch_health(history(repo, b, commits))
-        except SourceError as e:
-            per[b] = {"why": str(e)}
-            whys.append(f"{b}: {e}")
+        except Exception as e:  # any odd reply costs this branch's numbers, never the report
+            why = str(e) if isinstance(e, SourceError) else f"unreadable check runs: {type(e).__name__}: {e}"
+            per[b] = {"why": why}
+            whys.append(f"{b}: {why}")
     read = [v for v in per.values() if "why" not in v]
     checks = sum(v["checks"] for v in read)
     pairs = sum(v["pairs"] for v in read)
@@ -657,7 +659,7 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
                          if g["rows"] else f"n/a ({g['why']})"),
         "Animation token coverage": pct(a["value"]) if a["value"] is not None else f"n/a ({a['why']})",
         "CI checks green on base": (f"{pct(ci['green_share'])} of {ci['checks']} checks, newest run on "
-                                    + ", ".join(ci["branches"]) if ci.get("green_share") is not None else f"n/a ({ci.get('why')})"),
+                                    + ", ".join(b for b, v in ci["branches"].items() if "why" not in v) if ci.get("green_share") is not None else f"n/a ({ci.get('why')})"),
         "CI flake rate": (f"{pct(ci['flake_rate'])} of {ci['pairs']} commit-check pairs failed then passed on the same commit"
                           if ci.get("flake_rate") is not None else f"n/a ({ci.get('why')})"),
     }

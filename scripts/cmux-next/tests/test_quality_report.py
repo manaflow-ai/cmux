@@ -422,6 +422,17 @@ class CIHealth(unittest.TestCase):
         self.assertIsNone(none["green_share"])
         self.assertIn("no such branch", none["why"])
 
+    def test_an_odd_reply_costs_only_that_branch(self):
+        def hist(repo, branch, n):
+            if branch == "odd":
+                return [{"checkSuites": None, "oid": "x"}, None]
+            return self.COMMITS
+        ci = qr.ci_health(["feat", "odd"], 50, "o/r", hist)
+        self.assertEqual(ci["green_share"], 0.5)
+        self.assertIn("unreadable check runs", ci["branches"]["odd"]["why"])
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [], ci_branches=["feat", "odd"], ci_history=hist)
+        self.assertTrue(qr.headline(r)["CI checks green on base"].endswith("newest run on feat"))
+
     def test_history_pages_until_enough_commits(self):
         calls = []
         def graphql(q, v):

@@ -35,7 +35,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -84,7 +84,7 @@ jobs:
           permission-actions: read
           permission-issues: read
 
-      # Checks read on this repository only, for the CI health section; its own mint, so an App without the checks
+      # Checks and contents (the commit history) read on this repository only, for the CI health section; its own mint, so an App without the checks
       # grant costs only the CI numbers (n/a, with the reason), never the perf rows or the crash fallback.
       - name: Mint the checks read token
         id: checks-read
@@ -98,6 +98,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-checks: read
+          permission-contents: read
 
       - name: Fetch the perf cron's state
         if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
