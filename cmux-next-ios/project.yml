@@ -151,10 +151,8 @@ settings:
       # 7WLXT3NR37.com.cmux.app.push; the App Group (when on) is group.com.cmux.app.
       CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app
       CMUX_MOBILE_DISPLAY_NAME: cmux
-      # The App Store record's own version line: its first version is 1.0.0, the one
-      # in App Store Connect with the review package (ios/AppStoreReview/metadata/version/1.0.0).
-      # The INTERNAL lane keeps the base MARKETING_VERSION above.
-      MARKETING_VERSION: 1.0.0
+      # The version is the base MARKETING_VERSION above: the review package
+      # (cmux-next-ios/AppStoreReview/metadata/version/<MARKETING_VERSION>) is named for it.
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
       CMUX_MOBILE_APP_PROFILE: cmux App Store CI
