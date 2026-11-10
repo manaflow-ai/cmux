@@ -27,15 +27,17 @@ surface, never a gray picked per component:
 
 - light mode: white, like the content;
 - dark mode: the content's black;
-- an image or see-through window: exactly what the content shows. Where the shade can be cut away
-  (the tab strip), it is cut away under the selected tab. Where it cannot (a sidebar row drawn over
-  the shade), the row paints the colour that, composited over the shade, matches the content:
-  `ThemeTokens.surface(_:overChromeShade:)`, with f = 1-(1-a)/(1-k) and F = a·S/f. When the
-  content is more see-through than the shade is dark (a ≤ k), no colour can match, and the row falls
-  back to `Palette.selectionFill`.
+- an image or see-through window: exactly what the content shows. There the content paints nothing
+  of its own (`Palette.paneFill` is clear) and shows the window's one tint, and the chrome's shade
+  lies on that tint, so no fill over the shade can show what the content shows: it would add the
+  tint twice. The tab strip cuts the shade away under the selected tab instead (the folder tab is
+  clear there). A sidebar row, which cannot cut the shade, keeps `Palette.selectionFill` in a
+  see-through window (`ThemeTokens.selectedSurface(panesPaint:)` is nil); in an opaque window it is
+  the content's surface, opaque.
 
 `selectedSurface` is the token, mapped to `contentSurface`: `ThemeTokens.selectedSurface`,
-`Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab),
+`Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab, =
+`Palette.contentSurface` = `paneFill`, what the content really paints),
 `--cmux-selected-surface`, `--ds-color-selected`. Unselected items have no fill of their own: they
 sit on the chrome.
 
@@ -55,6 +57,10 @@ of a pane get no folder.
   under the selected folder (`ChromeShadeHoles`), so over an image the tab shows what the content does.
 - Strips inside the card (a lower or inner split) draw their own chrome band at the same shade, with
   the same hole, so their folder reads against the card the same way.
+- Under Floating Panes there is no frame shade (the main pane has no radius), so every strip draws
+  that band itself.
+- The card is 12pt, concentric with the window across its 4pt gap; `layout.paneCornerRadius` still
+  sets it.
 
 Gallery: `webviews/src/gallery/fixtures/FolderTabs.gallery.tsx` (`native.folder-tabs`). Variants:
 `goo-r8` (ships), `goo-r8-first-tab`, `goo-r4`, `goo-r12`, `square`, `goo-r8-hairline`,

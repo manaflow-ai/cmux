@@ -17,7 +17,6 @@ import {
   chromeShade,
   css,
   deriveTokens,
-  surfaceOverChromeShade,
   GHOSTTY_DEFAULT,
   hex,
   litGlyph,
@@ -66,14 +65,16 @@ export function webThemePayload(
   const lines = (options.borders ?? "lines") === "lines";
   const tooltip = tooltipSurface(tokens);
   const card = cardMaterial(tokens);
-  // The foreground and background layers (WebTheme.swift, design/selected-is-foreground.md).
+  // The foreground and background layers (WebTheme.swift, design/selected-is-foreground.md): a
+  // selected item on the chrome is the content's surface when the page paints it opaque, else the
+  // selection fill (no fill over the shade shows a see-through page's tint).
   const content = seeThrough ? withAlpha(page, 0) : page;
   const shade = chromeShade(tokens);
   return {
     variables: {
       "--cmux-content-surface": css(content),
       "--cmux-chrome-shade": css(withAlpha(BLACK, shade)),
-      "--cmux-selected-surface": css(surfaceOverChromeShade(content, shade) ?? tokens.selectionFill),
+      "--cmux-selected-surface": css(content.alpha >= 1 ? content : tokens.selectionFill),
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),

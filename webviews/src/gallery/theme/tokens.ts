@@ -334,25 +334,11 @@ export function litGlyph(tokens: ThemeTokens): ThemeRGB {
   return mixed(lit, primary, high);
 }
 
-/** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */
 /** The window chrome's shade over the content (ChromeTunables.mainPaneShadeLight/Dark defaults, the
  * flush corner's frame): black at this alpha (design/selected-is-foreground.md). */
 export const chromeShade = (tokens: ThemeTokens): number => (tokens.isDark ? 0.28 : 0.045);
 
-/** ThemeTokens.surface(_:overChromeShade:) (ThemeTokens+Layers.swift): the fill that, over the
- * chrome's shade `shade`, shows what `surface` shows over the window's backdrop; null when the
- * surface is too see-through to match (alpha at most the shade). */
-export function surfaceOverChromeShade(surface: ThemeRGB, shade: number): ThemeRGB | null {
-  const a = Math.min(Math.max(surface.alpha, 0), 1);
-  const k = Math.min(Math.max(shade, 0), 1);
-  if (a >= 1 || k <= 0) return surface;
-  if (k >= 1) return null;
-  const fill = 1 - (1 - a) / (1 - k);
-  if (fill <= 0) return null;
-  const scale = a / fill;
-  return rgb(Math.min(surface.red * scale, 1), Math.min(surface.green * scale, 1), Math.min(surface.blue * scale, 1), fill);
-}
-
+/** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */
 export function css(color: ThemeRGB): string {
   const channel = (value: number) => Math.round(value * 255);
   const alpha = Math.round(color.alpha * 1000) / 1000;

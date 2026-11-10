@@ -117,10 +117,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
         // The foreground and background layers (design/selected-is-foreground.md): the page's own
         // background is the content; its chrome is black at the window chrome's shade over it; a
-        // selected item on that chrome is the content's surface (`selectedSurface(overChromeShade:)`),
-        // or the selection fill where the content is too see-through to match.
+        // selected item on that chrome is the content's surface when the page paints it opaque. A
+        // see-through page shows the window's tint, which no fill over the shade can match (it would
+        // add the tint twice), so a selected item there keeps the selection fill.
         let chromeShade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
-        let selectedOnChrome = chromeShade > 0 ? ThemeTokens.surface(page, overChromeShade: chromeShade) : nil
+        let selectedOnChrome = page.alpha >= 1 ? page : nil
         variables = [
             "--cmux-content-surface": Self.css(page),
             "--cmux-chrome-shade": Self.css(ThemeRGB.black.withAlpha(chromeShade)),

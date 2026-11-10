@@ -87,25 +87,28 @@ public struct Palette {
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
-    /// The foreground layer (design/selected-is-foreground.md): the content's own surface.
-    public static var contentSurface: NSColor { color(\.contentSurface, dynamic: PaletteDynamic.contentBackground) }
+    /// The foreground layer (design/selected-is-foreground.md): what the content actually paints
+    /// behind itself (``paneFill``): the surface, opaque, in an opaque window, and clear over a
+    /// see-through one, where the window's one tint is the content's surface.
+    public static var contentSurface: NSColor { paneFill }
     /// The selected row on the chrome (design/selected-is-foreground.md): the content's own surface,
     /// so the selected item reads as part of the foreground (Leo, 2026-11-10: "The selected tab
-    /// should be white as well"). Laid over the chrome's shade (`Metrics.mainPaneChromeShade`), it
-    /// shows what the content shows over the window's backdrop, a translucent theme included
-    /// (``ThemeTokens/selectedSurface(overChromeShade:)``). Where the chrome and the content share
-    /// one surface (no shade), or the content is too see-through to match over the shade, the
-    /// content's color would not show, so the selection keeps `selectionFill` there.
-    /// `check-selected-surface.py` keeps every selected tab and row on these tokens.
+    /// should be white as well"). In an opaque window that is the surface, opaque, which hides the
+    /// chrome's shade under the row exactly as the content does. Over a see-through window (a
+    /// translucent theme, an image) the content is the window's own tint and the shade sits on that
+    /// tint, so no fill over the shade can show what the content shows; only a hole in the shade can
+    /// (the folder tab, `ChromeShadeHoles`). A row there keeps `selectionFill`
+    /// (``ThemeTokens/selectedSurface(panesPaint:)``). `check-selected-surface.py` keeps every
+    /// selected tab and row on these tokens.
     public static var selectedSurface: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
-        guard shade > 0, let surface = tokens.selectedSurface(overChromeShade: shade) else { return selectionFill }
-        return surface.nsColor
+        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        return tokens.selectedSurface(panesPaint: paints)?.nsColor ?? selectionFill
     }
-    /// The selected folder tab (`TabCell+CornerFeet`): exactly the content's surface, since the
-    /// chrome's shade is cut away under it (`ChromeShadeHoles`).
-    public static var selectedFolderSurface: NSColor { color(\.selectedSurface, dynamic: PaletteDynamic.contentBackground) }
+    /// The selected folder tab (`TabCell+CornerFeet`): exactly what the content paints
+    /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over
+    /// a see-through window it is clear, and the hole shows the window's tint, as the content does.
+    public static var selectedFolderSurface: NSColor { contentSurface }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.

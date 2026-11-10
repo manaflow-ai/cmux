@@ -103,6 +103,10 @@ public final class CornerFlushChrome: NSView {
     private let strips = NSHashTable<AnyObject>.weakObjects()
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat, sidebarOnLeft: Bool)?
+    /// The band every strip draws while the frame is hidden but the folder tab is on: Floating Panes
+    /// (a main-pane radius of 0) floats each pane on the window's surface, with no frame shade under
+    /// its strip, so the strip draws the chrome's shade itself (0 otherwise).
+    private var hiddenBand: CGFloat = 0
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
 
@@ -172,7 +176,9 @@ public final class CornerFlushChrome: NSView {
     /// a strip inside the card (a lower pane's, or any pane's when panes float) draws the frame's
     /// shade itself. 0 while the flush corner is off or the strip is in another window.
     public func bandShade(for strip: any TabStripCorner & NSView) -> CGFloat {
-        guard !isHidden, let drawn, let root = superview, strip.window === root.window else { return 0 }
+        guard let root = superview, strip.window === root.window else { return 0 }
+        if isHidden { return hiddenBand }
+        guard let drawn else { return 0 }
         let frame = root.convert(strip.cornerFrameInWindow, from: nil)
         let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes
         return onFrame ? 0 : drawn.alpha
@@ -204,6 +210,7 @@ public final class CornerFlushChrome: NSView {
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
+        hiddenBand = on && Metrics.floatingPanes ? alpha : 0
         guard on, alpha > 0, radius > 0, superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)

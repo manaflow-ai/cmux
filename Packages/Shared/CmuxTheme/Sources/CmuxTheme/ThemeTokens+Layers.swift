@@ -24,29 +24,13 @@ extension ThemeTokens {
         ThemeRGB.black.withAlpha(min(max(shade, 0), 1)).composited(over: contentSurface.withAlpha(1))
     }
 
-    /// The selected surface laid over the chrome's shade (black at `shade`) so that it shows what
-    /// the content surface shows over the window's backdrop: the same color in an opaque window,
-    /// and in a see-through one (a translucent theme, an image background) the same mix of tint
-    /// and backdrop, so a selected tab and the content it opens read as one surface.
-    ///
-    /// Over a backdrop `B`, content of alpha `a` shows `a·S + (1-a)·B`; a fill of alpha `f` over
-    /// the shade shows `f·F + (1-f)(1-k)·B`. Equal when `f = 1 - (1-a)/(1-k)` and `F = a·S/f`.
-    /// A surface more see-through than the shade is dark (`a <= k`) cannot be matched without
-    /// knowing the backdrop: nil, and the caller keeps a fill that still shows (a folder tab cuts the
-    /// shade away instead, `ChromeShadeHoles`, and needs no match).
-    public func selectedSurface(overChromeShade shade: Double) -> ThemeRGB? {
-        Self.surface(selectedSurface, overChromeShade: shade)
-    }
-
-    /// ``selectedSurface(overChromeShade:)`` for any content surface (a page's own background).
-    public static func surface(_ surface: ThemeRGB, overChromeShade shade: Double) -> ThemeRGB? {
-        let a = min(max(surface.alpha, 0), 1), k = min(max(shade, 0), 1)
-        guard a < 1, k > 0 else { return surface }
-        guard k < 1 else { return nil }
-        let fill = 1 - (1 - a) / (1 - k)
-        guard fill > 0 else { return nil }
-        let scale = a / fill
-        return ThemeRGB(red: min(surface.red * scale, 1), green: min(surface.green * scale, 1),
-                        blue: min(surface.blue * scale, 1), alpha: fill)
+    /// The selected surface for an item drawn over the chrome's shade, such as a sidebar row: the
+    /// content surface, opaque, when panes paint it (an opaque window), which covers the shade exactly
+    /// as the content does. In a see-through window the content is the window's one tint over the
+    /// backdrop and the shade lies on that tint, so a fill over the shade can never show what the
+    /// content shows for an unknown backdrop (it would add the tint twice): nil, and the caller keeps
+    /// a fill that still shows. A folder tab cuts the shade away instead and needs no fill.
+    public func selectedSurface(panesPaint: Bool) -> ThemeRGB? {
+        panesPaint ? selectedSurface.withAlpha(1) : nil
     }
 }
