@@ -125,7 +125,7 @@ pub fn intent(prompt: &str) -> Vec<String> {
 fn stem(word: &str) -> String {
     for (end, min) in [("ing", 6), ("ed", 5), ("es", 5), ("s", 4)] {
         if word.len() >= min && word.ends_with(end) && !word.ends_with("ss") {
-            return word[..word.len() - end.len()].to_owned();
+            return word.strip_suffix(end).unwrap_or(word).to_owned();
         }
     }
     word.to_owned()
@@ -646,7 +646,8 @@ pub fn parse_draft(answer: &str) -> Option<Draft> {
             name = skill_name(v);
             list = "";
         } else if lower.starts_with("description:") {
-            description = redact(&one_line(line["description:".len()..].trim(), MAX_DESCRIPTION));
+            let value = line.get("description:".len()..).unwrap_or("").trim();
+            description = redact(&one_line(value, MAX_DESCRIPTION));
             list = "";
         } else if lower.starts_with("steps:") {
             list = "steps";
