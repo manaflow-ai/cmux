@@ -12,7 +12,7 @@ import { stackTeamIdFor } from "../src/domains/user.ts"
 const LIVE = "rk_live_0123456789abcdef"
 const prod = (extra: Record<string, unknown> = {}) => ({ ...(env as object), ENVIRONMENT: "production", STRIPE_USAGE_KEY: LIVE, BILLING_USAGE_PRICE_SET: "v2", ...extra }) as any
 /** The live v2 catalog as backend/scripts/stripe-usage-catalog.ts makes it: two meters aggregating `last`, one metered price per plan and mode. */
-const liveCatalog = () => {
+const liveCatalog = (): { meters: any[]; prices: any[] } => {
   const meters = INCLUDED_MODES.map((m) => ({ id: `mtr_${m}`, event_name: usageMeterEvent(m), default_aggregation: { formula: "last" } }))
   const prices = USAGE_PLANS.flatMap((plan) =>
     usageModesOf(plan).map((m) => {
