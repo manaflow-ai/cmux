@@ -176,8 +176,7 @@ struct InstantPerfTests {
         let god = try await open(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_open_last_messages", target: 150, small: small, god: god,
-            knownRed: [.ratio],
-            why: "the open decodes a full 128 KiB page of heavy records (tool logs, diffs, images) where the small chat is 0.1 MB in all; the first draw waits for the whole page",
+            // Green on base: the open reads one byte-capped page, the newest, whatever the chat holds.
             note: "small \(AgentChatFixture.small.count) records (\(Self.mb(AgentChatFixture.small.totalBytes))) vs god \(AgentChatFixture.god.count) records (\(Self.mb(AgentChatFixture.god.totalBytes)))")
     }
 
