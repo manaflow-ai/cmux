@@ -248,11 +248,16 @@ impl Hub {
             if !registered && !crate::claude_peers::enabled() {
                 return None;
             }
-            // The app's own record must name an entrypoint (Claude Code) or originator (Codex)
-            // the setting lists: a tag alone is anyone's to set. A registered chat was proven
-            // by the kernel's pids at registration instead, so any entrypoint is its own.
+            // A chat nobody registered: the app's own record must name an entrypoint (Claude
+            // Code) or originator (Codex) the setting lists, since a tag alone is anyone's to
+            // set. A registered chat never goes by an entrypoint (anyone's to write): only by the
+            // process its registration recorded, below.
             let listed = crate::claude_peers::listed_entrypoints();
             if family == "codex" {
+                // Only Claude Code sessions register (`register.rs`).
+                if registered {
+                    return None;
+                }
                 let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
                 return Some(Target::Codex { home: homes.codex, thread });
             }
