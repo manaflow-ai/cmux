@@ -42,7 +42,7 @@ pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 const PICKUP_DEADLINE: Duration = Duration::from_secs(30);
 
 /// How long the load check may take (the daemon's own trial waits 5 s): a hang breaker only, as
-/// [`PICKUP_DEADLINE`].
+/// `PICKUP_DEADLINE`.
 const PROBE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Package files copied per reload (a runaway folder costs no more).
