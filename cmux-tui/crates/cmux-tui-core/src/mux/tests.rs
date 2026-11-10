@@ -50,6 +50,7 @@ mod respawn_gate_jump;
 mod restart;
 mod rows;
 mod signaled_mutex;
+mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;

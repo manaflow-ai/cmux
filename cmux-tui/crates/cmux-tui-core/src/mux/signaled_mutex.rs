@@ -99,6 +99,8 @@ impl<T> SignaledMutex<T> {
     ) -> SignaledMutexGuard<'a, T> {
         let waited = waited_from.elapsed();
         self.stats.acquired(site, waited, blocker);
+        #[cfg(test)]
+        REGISTRY_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
@@ -406,6 +408,18 @@ const STATE_LOCK_NAME: &str = "mux.state";
 #[cfg(test)]
 thread_local! {
     static STATE_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static REGISTRY_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many times this thread has taken the workspace registry lock (test hook): a test proves a read never takes
+/// the writer's lock by counting, with no timing (REGISTRY WAL, the snapshot read).
+#[cfg(test)]
+pub(crate) fn registry_locks_taken_on_this_thread() -> u64 {
+    REGISTRY_LOCKS_TAKEN.with(Cell::get)
 }
 
 /// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
