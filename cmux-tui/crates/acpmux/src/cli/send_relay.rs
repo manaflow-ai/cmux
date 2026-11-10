@@ -331,6 +331,11 @@ pub(crate) fn relay_with_deadline(
         _ => cmd.env_remove(FROM_SUBAGENT_ENV).env_remove(FROM_LABEL_ENV),
     };
     let child = cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
+    // Named from the spawn: the relay may be killed before it can record anything itself.
+    #[cfg(unix)]
+    let killed = format!("its process group {} was killed", child.id());
+    #[cfg(not(unix))]
+    let killed = format!("its process {} was killed", child.id());
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
     let done = crate::cli::bounded_child::wait(
         child,
@@ -341,7 +346,7 @@ pub(crate) fn relay_with_deadline(
     .map_err(|e| -> anyhow::Error {
         if e.kind() == std::io::ErrorKind::TimedOut {
             AppError::timeout(format!(
-                "the send relay for {session:?} exceeded its caller deadline"
+                "the send relay for {session:?} exceeded its caller deadline; {killed}"
             ))
             .into()
         } else {
