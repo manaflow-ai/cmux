@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 
 import chrome_parity as cp  # noqa: E402
 import parity_chrome_cdp as chrome_arm  # noqa: E402
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, account_home  # noqa: E402
 
 METHOD = ("app-clock: socket input (no OS event), frames from the app's own ScreenCaptureKit recorder (display "
           "time); the OS input hop is not measured")
@@ -428,8 +428,39 @@ def pacing_result(cmux, hz, spans):
             "spans": len(spans), "frames": len(changed), **facts}
 
 
+CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+
+
+def activate_once(cmux):
+    """One CuaDriver `bring_to_front` call for the bench app, and its answer. A bench app is started from ssh, and with
+    no such call it gives no key to a Chromium page: 0 of 40 `debug.key` keys typed before this step, 40 of 40 after
+    it (aws-m4pro-7, 2026-11-10). `debug.focus` still said "not the active app" 0.8 s after the call and at the row's
+    end: the proven fact is that the keys arrive after the call, not a state of the app. A person's app was in front
+    before its first key, so the step adds nothing a person does not have. The bench shell itself gets no right.
+    The call runs with the ACCOUNT's home and temp folder, never with the bench's own HOME: with another HOME the
+    client finds no daemon and makes a new `.cua-driver` config there."""
+    if not os.path.exists(CUA_DRIVER):
+        raise NotRun(f"cmux: the key-field row needs CuaDriver to bring the app to the front one time ({CUA_DRIVER} is not on this host)")
+    env = dict(os.environ, HOME=account_home())
+    env.pop("TMPDIR", None)  # no bench temp folder either: the client then takes the account's own
+    try:
+        done = subprocess.run([CUA_DRIVER, "call", "bring_to_front", json.dumps({"pid": int(cmux.app.process.pid)})],
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=25, check=False, env=env)
+    except subprocess.TimeoutExpired as error:
+        raise NotRun("cmux: CuaDriver bring_to_front did not return in 25 s") from error
+    try:
+        answer = json.loads(done.stdout) if done.stdout.strip() else None
+    except ValueError:
+        answer = None
+    if done.returncode != 0 or not isinstance(answer, dict) or answer.get("isError") or answer.get("error") or not answer.get("activated"):
+        raise NotRun(f"cmux: CuaDriver bring_to_front failed (exit {done.returncode}): {(done.stderr.strip() or done.stdout.strip())[:160]}")
+    pause(0.8)
+    return {"tool": "bring_to_front", "activated": True}
+
+
 def row_key_field(cmux, server, hz, load, rng):
     cmux.setup(load, server.url("field", report="1"))
+    front = activate_once(cmux)
     left, top, width, height = cmux.page_box()
     cmux.rpc("debug.mouse", {"target": "page", "x": 300, "y": 42})  # a click in the field (page points): focus
     pause(0.6)
@@ -439,6 +470,7 @@ def row_key_field(cmux, server, hz, load, rng):
     stamps = type_keys(cmux, 40, rng, target="page")
     result = latency_result(cmux, hz, stamps)
     result["typed"] = server.typed - before
+    result["front_step"] = front  # says in results.jsonl that this run had the step (a run from before it has no such field)
     if result["typed"] < len(stamps):
         raise NotRun(f"only {result['typed']} of {len(stamps)} keys reached the field: no sample from keys that were not delivered")
     return result
