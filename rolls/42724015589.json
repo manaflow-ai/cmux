@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42724015589",
+  "recorded_at": "2026-11-10T00:00:57Z",
+  "reason": "cmux-tui a55d9ed6976a changes the image's cmux-tui (pinned b2ff7aaff8ec)",
+  "dry_run": false,
+  "cmux_tui": "a55d9ed6976aad54feb922f247ebc53bd508e949",
+  "fixes": [
+    {
+      "sha": "a55d9ed6976aad54feb922f247ebc53bd508e949",
+      "mergedAt": "2026-11-09T15:39:10-08:00",
+      "subject": "Settings › Agents: an Endpoint tab for open-weight models and your own endpoint, with several models (#39341)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T00:00:57Z",
+    "snapshot_id": "sh-b7afb837f7544abe87c2a2e30aa309a6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42724015589): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "da939b014a1e800b49346c84ad2baf6c8adda86f",
+    "image": "cloud-native-auto-a55d9ed6-42724015589-1",
+    "revision": "ci-42724015589-1",
+    "at": "2026-11-10T00:00:57Z"
+  },
+  "rolled_back": false
+}
