@@ -1,14 +1,15 @@
 // l10n-allow-file: gallery drafts, machine names and host words, not shipped copy.
 //
-// The composer while a new chat starts in Cloud (App.tsx `cloudStarting`, cloudStartProgress.ts
-// `cloudStartLocksComposer`): locked while the host answers (this tab closes once the chat opens on
-// the machine), the person's again once the start stalls (no word from the host for
-// CLOUD_START_STALL_MS) or fails. Leo, 2026-11-09: "I can't click into the composer at all".
+// The composer while a new chat starts in Cloud (App.tsx `cloudStarting`): open the whole time, its
+// Send waiting until the start ends (this tab closes once the chat opens on the machine, and what was
+// typed meanwhile seeds that chat's composer). A start with no word from the host for
+// CLOUD_START_STALL_MS stalls: the card says where it stopped. Leo, 2026-11-09: "I can't click into
+// the composer at all".
 import { useLayoutEffect, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { ComposerHandle } from "./Composer";
-import { cloudStartLocksComposer, type CloudStartProgress } from "./cloudStartProgress";
+import type { CloudStartProgress } from "./cloudStartProgress";
 
 type State = "starting" | "copying" | "stalled" | "failed" | "signing-in";
 type Props = { state: State };
@@ -31,13 +32,14 @@ const starts: Record<State, CloudStartProgress> = {
   },
   "signing-in": { ...begun, signingIn: true },
 };
-/// What the composer holds: the sent prompt while it is out; after a stall the person typed on.
+/// What the composer holds: the Send took the prompt out (it shows as the message), so only what
+/// the person typed since; a failed start puts the prompt back in front of it.
 const drafts: Record<State, string> = {
-  starting: task,
-  copying: task,
-  stalled: `${task} Also check the dock.`,
+  starting: "",
+  copying: "",
+  stalled: "Also check the dock.",
   failed: task,
-  "signing-in": task,
+  "signing-in": "",
 };
 
 export default componentEntry<Props>({
@@ -65,8 +67,9 @@ export default componentEntry<Props>({
           <Composer
             handle={handle}
             snapshot={snapshot}
-            locked={cloudStartLocksComposer(start)}
-            // App.tsx `cloudSendHeld`: Send waits while the start is out, stalled too.
+            // App.tsx `cloudStarting` and `cloudSendHeld`: typing stays open, Send waits while the
+            // start is out, stalled too.
+            cloudStarting={start.state === "starting"}
             blockSend={start.state === "starting"}
             chips={() => null}
             onSend={() => false}
@@ -83,23 +86,23 @@ export default componentEntry<Props>({
   variants: {
     starting: {
       props: { state: "starting" },
-      note: "Just sent: the composer holds the sent prompt and takes no input while the host gets a machine.",
+      note: "Just sent: the prompt shows as the message, and the composer is open and empty while the host gets a machine; Send waits.",
     },
     copying: {
       props: { state: "copying" },
-      note: "The folder copies: progress keeps coming, so the composer stays locked.",
+      note: "The folder copies: progress keeps coming, and the composer stays open with Send waiting.",
     },
     stalled: {
       props: { state: "stalled" },
-      note: "No word from the host for five minutes: the card says where it stopped, the person types again, and Send waits for the start to end.",
+      note: "No word from the host for five minutes: the card says where it stopped; what the person typed stays, and Send waits for the start to end.",
     },
     failed: {
       props: { state: "failed" },
-      note: "The start failed: the host's words and Retry, and the prompt is back in an unlocked composer.",
+      note: "The start failed: the host's words and Retry, and the prompt is back in the composer.",
     },
     "signing-in": {
       props: { state: "signing-in" },
-      note: "Waiting on the browser sign-in: the person is acting, so no stall is counted and the box stays locked.",
+      note: "Waiting on the browser sign-in: the person is acting, so no stall is counted; the composer stays open.",
     },
   },
 });

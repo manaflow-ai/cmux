@@ -197,6 +197,45 @@ not a banner).
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
 
+## Bookmarks bar
+
+The strip under the toolbar that shows the Bookmarks Bar folder's items (`webviews/src/browser-chrome/bookmarks-bar/BookmarksBar.tsx`,
+`model.ts`, `store.ts`, `bookmarksBar.css`; page `pages/bookmarks-bar`; host
+`CmuxNextBookmarks/Page/BookmarksBarPage.swift`; gallery `browser-chrome.bookmarks-bar`). It is the
+native `BookmarksBarView`'s look and behavior, now drawn by a page.
+
+- **Hosting.** Each browser tab's chrome holds a native strip (`BookmarksBarHostView`, height
+  `controlHeight + space2`, the pane fill). A strip borrows a bar page from `BookmarksBarPages` when
+  it enters a window and gives it back when it leaves, so there is one page per bar on screen (one
+  per visible browser pane), however many tabs are open; switching tabs in a pane hands the same
+  page to the next tab. One spare page waits for the next bar. A page that last drew another
+  profile stays hidden until it reports its new row's layout; the strip's fill stands in. The page
+  never takes the keys.
+- **Data.** The page reads only what it draws: `bookmarks.children` of `bar` (one level) and of
+  `other` (its count), again on each `bookmarks-changed` of its profile and on a relay resync. A
+  folder, the chevron or Other Bookmarks reads that subtree on the click.
+- **Layout (Standard density, pt).** Items 24 tall, 2 apart, from a 2 inset; 8 side padding, a 12
+  icon, 4 to the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit goes
+  behind the chevron (24 square); Other Bookmarks keeps the trailing end. Only the items that fit are
+  rendered.
+- **States.** No fill at rest, the gray hover fill fading at the quick motion step, the pressed fill
+  at once. Empty bar with Other Bookmarks: the caption hint in the faint ink. A drop shows a 2 pt
+  line between items.
+- **Menus.** Folders, the chevron and Other Bookmarks open native menus (the host builds them from
+  the page's rows; a submenu fills when it opens) with Open All past one link and "(empty)" for
+  none. Right-click is the registry's Bookmark or Bookmarks Bar menu.
+- **Clicks.** Click opens in the tab, Cmd-click or the middle button in a background tab, Shift or
+  Cmd-Shift in a new tab. Drag an item to reorder it; drop a link to bookmark it there (its title
+  is the dragged link's text). A refused drop or move says why.
+
+| surface | variants | recommended |
+| --- | --- | --- |
+| bookmarks bar | parity (today), tonal (a faint fill at rest), dense (6 padding, no gap) | **parity** |
+
+**Parity** keeps the bar as it was: the move to a page changes nothing a person sees. Tonal reads
+the items as buttons, but a strip of filled pills under every tab is busy; dense fits more before
+the chevron, but titles run into each other.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts
