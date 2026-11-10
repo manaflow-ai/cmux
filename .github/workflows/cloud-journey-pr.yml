@@ -19,7 +19,7 @@ name: Cloud journey (PR CLI on staging)
 # Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, the
 # environment backend.yml's journey-preview already reads on pull request refs (cmux-next-vm-image-dev
 # admits feat-cmux-next only). Same-repo pull requests only; a fork's never gets them.
-# Without the pair, cloud-journey-ci.sh notes the skip and passes. The chat runs on the model stub.
+# Without the pair the job fails (it never skips). The chat runs on the model stub.
 
 on:
   # A manual run on feat-cmux-next: the same journey at the branch tip, as the staging agent account of
@@ -122,4 +122,11 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
-        run: bash scripts/cmux-next/cloud-journey-ci.sh
+        run: |
+          # cloud-journey-ci.sh passes when the pair is empty; here an empty pair (a misnamed or missing
+          # secret) is this check's red, never a silent skip.
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error title=Cloud journey cannot run::no Stack pair in this environment (CMUX_JOURNEY_DEV_STACK_EMAIL/_PASSWORD on a pull request, CMUX_DOGFOOD_STACK_* on a dispatch)"
+            exit 1
+          fi
+          bash scripts/cmux-next/cloud-journey-ci.sh
