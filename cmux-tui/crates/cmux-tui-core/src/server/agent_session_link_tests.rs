@@ -9,7 +9,7 @@ use std::os::unix::net::UnixListener;
 /// Returns the link to it and the params of each request it read.
 fn scripted(
     results: Vec<Value>,
-) -> (Arc<AcpmuxLink>, std::sync::mpsc::Receiver<Value>, cmux_unix_socket::TestDir) {
+) -> (Arc<AcpmuxLink>, Receiver<Value>, cmux_unix_socket::TestDir) {
     let dir = cmux_unix_socket::short_test_dir("aslink");
     let socket = dir.path().join("acpmux.sock");
     let listener = UnixListener::bind(&socket).unwrap();

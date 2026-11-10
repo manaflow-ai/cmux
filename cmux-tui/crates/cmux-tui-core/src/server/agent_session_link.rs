@@ -459,9 +459,9 @@ impl crate::mux::Mux {
             return keys;
         }
         let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return keys };
-        let deadline = std::time::Instant::now() + WORKSPACE_LOOKUP_BUDGET;
+        let deadline = Instant::now() + WORKSPACE_LOOKUP_BUDGET;
         for session in sessions {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
             }
