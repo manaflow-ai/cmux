@@ -33,6 +33,17 @@ TREE = {
     "webviews/test/other.test.ts": 'import { other } from "../src/other";\n',
     "webviews/test/strings.test.ts": 'import { path } from "../src/strings";\n',
     "webviews/test/scan.test.ts": 'import { readFileSync } from "node:fs";\nreadFileSync("src/x");\n',
+    "webviews/src/pool.ts": "export const pool = 1;\n",
+    "webviews/src/app.ts": 'import { hub } from "./hub";\nexport const app = hub;\n',
+    "webviews/src/files.ts": 'import { readFile } from "node:fs/promises";\nexport const read = readFile;\n',
+    "webviews/src/tools.ts": 'export const tools = ["readFile", "readdir"];\n',
+    "webviews/test/pool.test.ts": "const load = () => import(`../src/pool.ts`);\n",
+    "webviews/test/fresh.test.ts": "const load = () => import(`../src/pool.ts?${Math.random()}`);\n",
+    "webviews/test/served.test.ts": 'const { createServer } = await import("vite");\n',
+    "webviews/test/tools.test.ts": 'import { tools } from "../src/tools";\n',
+    "webviews/test/helper.test.ts": 'import { read } from "../src/files";\n',
+    "webviews/test/preload.ts": 'import { hub } from "../src/preloaded";\n',
+    "webviews/src/preloaded.ts": "export const hub = 1;\n",
     "schemas/settings/settings-schema.json": "{}\n",
     "cmux-tui/assets/fixture-icons.svg": "<svg/>\n",
     "docs/readme.md": "x\n",
@@ -40,8 +51,18 @@ TREE = {
 }
 
 
+# Tests the import graph cannot cover, which every selection runs: one reads files, one imports
+# a computed path, one starts Vite, one imports a helper that reads files.
+ALWAYS = ["webviews/test/fresh.test.ts", "webviews/test/helper.test.ts", "webviews/test/scan.test.ts",
+          "webviews/test/served.test.ts"]
+
+
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
+
+
+def with_always(*tests: str) -> list[str]:
+    return sorted(set(tests) | set(ALWAYS))
 
 
 class SelectTest(unittest.TestCase):
@@ -72,26 +93,37 @@ class SelectTest(unittest.TestCase):
 
     def test_a_leaf_selects_its_importer_and_the_disk_readers(self) -> None:
         self.assertEqual(self.change("webviews/src/leaf.ts"),
-                         ["webviews/test/leaf.test.ts", "webviews/test/scan.test.ts"])
+                         with_always("webviews/test/leaf.test.ts"))
 
     def test_a_hub_selects_every_test_that_reaches_it(self) -> None:
         self.assertEqual(self.change("webviews/src/hub.ts"),
-                         ["webviews/test/leaf.test.ts", "webviews/test/other.test.ts", "webviews/test/scan.test.ts"])
+                         with_always("webviews/test/leaf.test.ts", "webviews/test/other.test.ts"))
 
     def test_a_changed_test_runs_itself(self) -> None:
         self.assertEqual(self.change("webviews/test/other.test.ts"),
-                         ["webviews/test/other.test.ts", "webviews/test/scan.test.ts"])
+                         with_always("webviews/test/other.test.ts"))
 
     def test_a_file_outside_webviews_selects_the_tests_reaching_what_names_it(self) -> None:
         self.assertEqual(self.change("schemas/settings/settings-schema.json"),
-                         ["webviews/test/scan.test.ts", "webviews/test/strings.test.ts"])
+                         with_always("webviews/test/strings.test.ts"))
 
-    def test_a_file_no_webviews_source_names_and_docs_select_only_disk_readers(self) -> None:
-        self.assertEqual(self.change("unrelated/tool.py", "docs/readme.md"), ["webviews/test/scan.test.ts"])
+    def test_a_file_no_webviews_source_names_and_docs_select_only_the_always_set(self) -> None:
+        self.assertEqual(self.change("unrelated/tool.py", "docs/readme.md"), ALWAYS)
 
-    def test_a_source_no_test_imports_and_a_deleted_test_select_only_disk_readers(self) -> None:
-        self.assertEqual(self.change("webviews/src/dead.ts"), ["webviews/test/scan.test.ts"])
-        self.assertEqual(self.change("webviews/test/leaf.test.ts", delete=True), ["webviews/test/scan.test.ts"])
+    def test_a_source_no_test_imports_and_a_deleted_test_select_only_the_always_set(self) -> None:
+        self.assertEqual(self.change("webviews/src/dead.ts"), ALWAYS)
+        self.assertEqual(self.change("webviews/test/leaf.test.ts", delete=True), ALWAYS)
+
+    def test_a_template_import_reaches_its_static_path(self) -> None:
+        self.assertEqual(self.change("webviews/src/pool.ts"), with_always("webviews/test/pool.test.ts"))
+
+    def test_strings_naming_file_reads_in_app_code_do_not_mark_a_test(self) -> None:
+        self.assertEqual(self.change("webviews/src/tools.ts"), with_always("webviews/test/tools.test.ts"))
+
+    def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
+        self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
+        self.assertIsNone(self.change("webviews/src/preloaded.ts"))
+        self.assertIsNone(self.change("webviews/test/preload.ts"))
 
     def test_build_inputs_unmapped_assets_and_names_in_data_files_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/package.json"))
@@ -103,7 +135,7 @@ class SelectTest(unittest.TestCase):
         self.change("webviews/src/leaf.ts")
         run = lambda: subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_affected.py"), "--base", "HEAD^1",
                                       "--repo", str(self.root)], capture_output=True, text=True, check=True)
-        self.assertEqual(run().stdout.split(), ["test/leaf.test.ts", "test/scan.test.ts"])
+        self.assertEqual(run().stdout.split(), [t.removeprefix("webviews/") for t in with_always("webviews/test/leaf.test.ts")])
         self.change("webviews/package.json")
         self.assertEqual(run().stdout, "")
 
