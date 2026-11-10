@@ -361,6 +361,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -486,6 +487,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminalGeometry",
         "CmuxNextTestExitTrace",
         "CmuxNextTestSupport",
@@ -2137,6 +2139,16 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextTaskManagerPage": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTaskManagerPage",
+      "targets": [
+        "CmuxNextPages",
+        "CmuxNextResources",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextTerminal": {
       "kind": "regular",
