@@ -5,6 +5,9 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
+import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
+import { CONNECT_RETURN_TO } from "@cmux/protocol"
+import { CONFIGURE_URL_PATTERN, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -392,6 +395,93 @@ describe("connections end to end (workerd)", () => {
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/..", issue: 1, body: "x" })).json.error.code).toBe("validation.invalid")
     // Managed sources cannot be claimed over the API.
     expect((await op(token, "integration.policy.apply_managed", { source: "sso", policy: {}, applied_by: "me" })).status).toBe(400)
+  })
+
+  it("GitHub Connect with a repo: reuses a covering connection, authorizes an existing installation, opens its configure page when the link misses the repo, and returns to the chat", async () => {
+    const { token, team } = await signedIn("conn-gh-reuse")
+    const installation = 984355
+    const chat = "cmux-nightly://session/01a12408-f0a2-79a0-8c59-cb472f5bb9aa"
+    const configureUrl = `https://github.com/organizations/acme/settings/installations/${installation}`
+    const fake = fakeHttp({
+      "https://api.github.com/orgs/acme/installation": () => ok({ id: installation, repository_selection: "selected", account: { login: "acme", id: 9001, type: "Organization" } }),
+      "https://api.github.com/orgs/newowner/installation": () => ok({ message: "Not Found" }, 404),
+      "https://api.github.com/users/newowner/installation": () => ok({ message: "Not Found" }, 404),
+      "https://api.github.com/users/newowner": () => ok({ login: "newowner", id: 4242 }),
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
+      [`https://api.github.com/user/installations/${installation}/repositories`]: () => ok({ repositories: [{ full_name: "acme/web" }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: installation, account: { login: "acme", type: "Organization" }, permissions: { contents: "write" } }] })
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => { instance.http = fake.http })
+    const claims = (state: string) => JSON.parse(atob(state.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>
+
+    // The App is installed on the owner: GitHub's authorize page, never the install page. The state names the installation, repo, configure page and chat.
+    const started = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to: chat })
+    const url = new URL(started.json.value.authorize_url)
+    expect(url.origin + url.pathname).toBe("https://github.com/login/oauth/authorize")
+    expect(url.searchParams.get("client_id")).toBe("Iv1.test")
+    expect(url.searchParams.get("redirect_uri")).toBe(`${testEnv.DASHBOARD_ORIGIN.replace(/\/$/, "")}/integrations/callback`)
+    const state = url.searchParams.get("state")!
+    expect(claims(state)).toMatchObject({ inst: installation, repo: "acme/web", cfg: configureUrl, ret: chat })
+    // OAuth brings back a code and no installation_id; the person's link reaches the repo, so the answer is the chat link only.
+    const done = await op(token, "integration.complete", { state, code: "c" })
+    expect(done.json).toMatchObject({ ok: true, value: { status: "active", account: { key: `github:installation:${installation}` }, resources: { repos: ["acme/web"] }, return_to: chat } })
+    expect(done.json.value.configure_url).toBeUndefined()
+    const linked = started.json.value.connection.id as string
+
+    // Reuse before asking: nothing to open, no new pending connection.
+    const before = (await read(token, "integration.list")).json.value.connections.length
+    const reused = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to: chat })
+    expect(reused.json).toMatchObject({ ok: true, value: { connected: true, connection: { id: linked, status: "active" } } })
+    expect(reused.json.value.authorize_url).toBeUndefined()
+    expect((await read(token, "integration.list")).json.value.connections.length).toBe(before)
+
+    // A redirect naming another installation than the signed state is refused.
+    const other = await op(token, "integration.connect", { provider: "github", repo: "acme/api" })
+    const otherState = new URL(other.json.value.authorize_url).searchParams.get("state")!
+    expect(claims(otherState).ret).toBeUndefined()
+    expect((await op(token, "integration.complete", { state: otherState, code: "c", installation_id: "1" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+
+    // The person's link leaves the repo out of the installation: the completion answers the installation's configure page.
+    const missing = await op(token, "integration.connect", { provider: "github", repo: "acme/api", return_to: chat })
+    const missingState = new URL(missing.json.value.authorize_url).searchParams.get("state")!
+    const added = await op(token, "integration.complete", { state: missingState, code: "c" })
+    expect(added.json).toMatchObject({ ok: true, value: { status: "active", configure_url: configureUrl, return_to: chat } })
+
+    // Not installed on the owner: the install page, preselecting the owner.
+    const fresh = new URL((await op(token, "integration.connect", { provider: "github", repo: "newowner/app" })).json.value.authorize_url)
+    expect(fresh.origin + fresh.pathname).toBe("https://github.com/apps/cmux-test/installations/new/permissions")
+    expect(fresh.searchParams.get("target_id")).toBe("4242")
+
+    // Without repo nothing changes: the install page, and no return link or installation in the state.
+    const plain = new URL((await op(token, "integration.connect", { provider: "github" })).json.value.authorize_url)
+    expect(plain.origin + plain.pathname).toBe("https://github.com/apps/cmux-test/installations/new")
+    expect(claims(plain.searchParams.get("state")!)).not.toHaveProperty("ret")
+    expect(claims(plain.searchParams.get("state")!)).not.toHaveProperty("inst")
+    // Connect never asks GitHub about a repository (no answer can tell whether a private one exists), and owner lookups use the App's key.
+    expect(fake.calls.some((c) => c.url.startsWith("https://api.github.com/repos/"))).toBe(false)
+    expect(fake.calls.filter((c) => /\/(orgs|users)\/[^/]+\/installation$/.test(c.url)).every((c) => /^Bearer ey/.test(c.auth ?? ""))).toBe(true)
+  })
+
+  it("the dashboard callback checks the same return and configure grammars as the API", () => {
+    expect(RETURN_TO_PATTERN.source).toBe(CONNECT_RETURN_TO.source)
+    expect(CONFIGURE_URL_PATTERN.source).toBe(GITHUB_CONFIGURE_URL.source)
+    // What the callback page follows: only these, from the completion's answer.
+    expect(integrationReturnLink({ return_to: "cmux-nightly://session/ses-01#turn-turn_7" })).toBe("cmux-nightly://session/ses-01#turn-turn_7")
+    for (const bad of ["https://evil.example/x", "javascript:alert(1)", "//evil.example", "cmux://evil.example/session/a", "cmux://auth-callback/x", `cmux://session/${"a".repeat(600)}`, 42]) expect(integrationReturnLink({ return_to: bad })).toBeUndefined()
+    expect(integrationConfigureLink({ configure_url: "https://github.com/organizations/acme/settings/installations/42" })).toBe("https://github.com/organizations/acme/settings/installations/42")
+    for (const bad of ["https://github.com.evil.example/settings/installations/42", "https://evil.example/settings/installations/42", "javascript:alert(1)"]) expect(integrationConfigureLink({ configure_url: bad })).toBeUndefined()
+  })
+
+  it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {
+    const { token } = await signedIn("conn-gh-return-bad")
+    for (const return_to of ["https://evil.example/x", "javascript:alert(1)", "//evil.example/x", "cmux://evil.example/session/a", "cmux://session/a#frag", "cmux://session/a?next=https://evil.example", "cmux://auth-callback/x", `cmux://session/${"a".repeat(600)}`]) {
+      const r = await op(token, "integration.connect", { provider: "github", repo: "acme/web", return_to })
+      expect(r.json.ok).not.toBe(true)
+      expect(r.json.error?.code ?? r.json.code).toBe("validation.invalid")
+    }
+    const slack = await op(token, "integration.connect", { provider: "slack", repo: "acme/web" })
+    expect(slack.json.error?.code ?? slack.json.code).toBe("validation.invalid")
   })
 
   it("a stricter policy narrows existing connections: installation-scope links and denied providers stop working", async () => {

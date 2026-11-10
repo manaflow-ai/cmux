@@ -66,6 +66,9 @@ public final class DaemonRecovery {
     @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+    /// App health holds replacements (``AppHealth/holdsReplace``: the owner is restoring and still
+    /// makes progress): the watch's automatic restart waits; a person's Restart still runs.
+    @ObservationIgnored public var holdsReplace: () -> Bool = { false }
 
     /// When failed starts count as cmux-tui being down (``startFailurePersists``): a full disk at once, because only
     /// the person can free space; any other failure once at least ``failedStarts`` starts in a row failed over at
@@ -219,7 +222,13 @@ public final class DaemonRecovery {
     /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
     /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
     private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
-        guard launcher != nil, !isRestarting, claim() else { return false }
+        guard launcher != nil, !isRestarting else { return false }
+        // Before the claim, which spends the watch's allowance for this owner.
+        if holdsReplace() {
+            logger.notice("cmux-tui automatic restart held: the owner is restoring and still makes progress")
+            return false
+        }
+        guard claim() else { return false }
         return await restart(automatic: true)
     }
 
