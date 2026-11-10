@@ -290,12 +290,6 @@ extension SharedEdgeMotion {
                     (horizontal ? to.maxX - from.maxX : to.maxY - from.maxY) / lineMove)
         }
 
-        /// How fast `pane`'s size along the axis changes for each point per second of the line's change of speed.
-        func sizeShare(_ pane: PaneID) -> CGFloat {
-            guard let from = caught.panes[pane], let to = probe.panes[pane] else { return 0 }
-            return (axis == .horizontal ? to.width - from.width : to.height - from.height) / lineMove
-        }
-
         /// A fraction of 1: the edge moves as the line does.
         static func rigid(_ fraction: CGFloat) -> Bool { abs(fraction - 1) < 0.000_001 }
 
