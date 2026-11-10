@@ -162,14 +162,35 @@ PIECE = 8
 PART = re.compile(r"[^/\s]+")
 
 
-# Names the machine controls (a path's parts, a process's name) print only when they cannot be a credential, whatever
-# detection found or missed: a part is shown when it is lower-case words joined by `.`, `_` or `-` (no digit, no
-# capital: `node_modules`, `settings.ini`, `.codex`, `apply_patch`), or one of the names below that break that rule.
-# Any other part prints as `[a name]`, keeping a short file extension (`[a name].json`). Detection decides what counts
-# as a finding; this alone decides what may be printed.
-PLAIN = re.compile(r"^\.?[a-z]+(?:[._-][a-z]+)*$")
-KNOWN_NAMES = {"arg0", "python3", "node", "x86_64", "aarch64", "lib64", "Library", "Documents", "Desktop", "Downloads"}
-EXTENSION = re.compile(r"(\.[a-z0-9]{1,5})$")
+# Names the machine controls (a path's parts, a process's name, an environment variable's name) print only when they
+# are on the fixed lists below, whatever detection found or missed: no rule about a name's letters, digits, case or
+# punctuation can show that it holds no credential, a list can. Any other part prints as `[a name]` (`[a process]`,
+# `[a variable]`), keeping a file extension from EXTENSIONS. Detection decides what counts as a finding; only these
+# lists decide what may be printed.
+KNOWN_NAMES = {
+    # The walked roots and the usual system folders.
+    "", "home", "root", "etc", "opt", "srv", "tmp", "var", "run", "user", "workspace", "usr", "lib", "lib64", "bin",
+    "sbin", "share", "local", "include", "src", "proc", "sys", "dev", "mnt", "media", "boot", "snap", "cmux", "ubuntu",
+    # What tools keep in a home or a project.
+    ".cache", ".config", ".local", ".ssh", ".aws", ".codex", ".claude", ".gemini", ".npm", ".bun", ".cargo", ".rustup",
+    ".docker", ".kube", ".git", ".vscode", ".gnupg", ".pki", ".tmp", "gcloud", "plugins", "sessions", "projects", "arg0",
+    "builds", "cmux-tui", "node_modules", "dist", "build", "target", "out", "vendor", "packages", "site-packages",
+    "dist-packages", "project", "app", "apps", "lib", "libs", "test", "tests", "docs", "scripts", "config", "data",
+    "logs", "log", "state", "cache", "skills", "agents", "commands", "hooks", "keyprobe",
+    # Files that hold credentials, settings or shell setup.
+    ".env", ".env.local", ".env.production", ".env.development", ".npmrc", ".netrc", ".pypirc", ".bashrc", ".profile",
+    ".bash_profile", ".zshrc", ".gitconfig", ".git-credentials", ".claude.json", ".credentials.json", "auth.json",
+    "credentials", "config", "config.json", "config.toml", "settings.json", "settings.local.json", "secrets.json",
+    "application_default_credentials.json", "credentials.db", "access_tokens.db", "hosts.yml", "token.json",
+    "session.json", "environment", "apply_patch", "acpmux", "cmux", "codex", "claude", "notes.txt", "README.md",
+}
+KNOWN_PROCESSES = {
+    "bash", "sh", "dash", "zsh", "node", "bun", "python3", "python", "claude", "codex", "acpmux", "cmux", "cmux-tui",
+    "sshd", "systemd", "systemd-journal", "systemd-logind", "systemd-udevd", "systemd-resolve", "sudo", "tmux", "cron",
+    "dbus-daemon", "agetty", "containerd", "dockerd", "tail", "sleep", "env", "tool", "init", "rsyslogd", "git",
+}
+EXTENSIONS = {".json", ".env", ".toml", ".yaml", ".yml", ".ini", ".txt", ".md", ".ts", ".js", ".mjs", ".py", ".rs",
+              ".sh", ".bin", ".conf", ".cfg", ".pem", ".key", ".db", ".log", ".bak", ".old"}
 LINE_NO = re.compile(r"^(.*?)(:\d+)?$", re.S)
 # What the probe itself writes in place of a value, kept only when it is the whole part (with a line number): any
 # other character beside a mark is the machine's and goes through the same rule as any name.
@@ -177,21 +198,20 @@ OWN_MARKS = {"[a secret]", "[a piece of a secret]", "[a name]"} | {f"[{kind}]" f
 
 
 def shown_part(part):
-    """One part of a name the machine controls, as it may be printed."""
+    """One part of a path, as it may be printed."""
     name, line = LINE_NO.match(part).groups()
-    if not part or part in KNOWN_NAMES or name in OWN_MARKS:
+    if name in KNOWN_NAMES or name in OWN_MARKS:
         return part
-    if PLAIN.match(name) and len(name) <= 64:
-        return part
-    ext = EXTENSION.search(name)
-    return "[a name]" + (ext.group(1) if ext and PLAIN.match(ext.group(1)[1:] or "x") else "") + (line or "")
+    ext = next((e for e in EXTENSIONS if name.endswith(e) and len(name) > len(e)), "")
+    return "[a name]" + ext + (line or "")
 
 
 def safe_place(text):
     """A finding's place (`/a/path:N` or `process NAME (N pids)`) with every part the machine named made safe."""
     m = re.match(r"^process (.*) \((\d+ pids?)\)$", text, re.S)
     if m:
-        return f"process {shown_part(m.group(1))} ({m.group(2)})"
+        comm = m.group(1)
+        return f"process {comm if comm in KNOWN_PROCESSES else '[a process]'} ({m.group(2)})"
     return "/".join(shown_part(part) for part in text.split("/"))
 
 _PIECES = (0, set())
@@ -269,14 +289,15 @@ def value_finding(value):
     return next((kind for kind, _ in SHAPES if kind in kinds), None)
 
 
-# An environment variable's name prints as itself only when it is a known key's name or upper-case words joined by
-# `_` (no digit, no lower case: `CODEX_AUTH_JSON`, `CACHE_DIR`); any other name may carry a credential (`CACHE_<token>`).
-PLAIN_VAR = re.compile(r"^[A-Z]+(?:_[A-Z]+)*$")
+# An environment variable's name prints as itself only when it is a known key's name or on KNOWN_VARS; any other name
+# may carry a credential (`CACHE_<token>`, whatever its case).
+KNOWN_VARS = {"PATH", "HOME", "USER", "SHELL", "PWD", "LANG", "TERM", "EDITOR", "TMPDIR", "XDG_CONFIG_HOME",
+              "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "NODE_OPTIONS", "PYTHONPATH", "EXTRA_PATH"}
 
 
 def shown_var(name):
     """An environment variable's name as it may be printed."""
-    return name if name in KEY_NAMES or (PLAIN_VAR.match(name) and len(name) <= 64) else "[a variable]"
+    return name if name in KEY_NAMES or name in KNOWN_VARS else "[a variable]"
 
 
 def scan_env(entries):

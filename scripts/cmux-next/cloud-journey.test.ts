@@ -993,14 +993,14 @@ describe("clean-room provider key probe", () => {
       for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, REFRESH_ENV, REFRESH_ARG, MISTRAL, MISTRAL_ARG, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
       const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
       expect(got).toEqual([
-        "cmdline process [a secret] (1 pid): MISTRAL_API_KEY",
-        "cmdline process [a secret] (1 pid): an OAuth refresh token",
+        "cmdline process [a process] (1 pid): MISTRAL_API_KEY",
+        "cmdline process [a process] (1 pid): an OAuth refresh token",
         "cmdline process env (1 pid): OPENAI_API_KEY",
         "cmdline process node (1 pid): an OpenAI project key",
         "cmdline process sh (1 pid): XAI_API_KEY",
         "cmdline process tool (1 pid): GEMINI_API_KEY",
         "cmdline process tool (1 pid): OPENAI_API_KEY",
-        "env process [a Google AI key] (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
+        "env process [a process] (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
         "env process codex (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
         "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
@@ -1008,18 +1008,18 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/.claude/.credentials.json:1: an Anthropic OAuth token",
         "file /home/cmux/.codex/auth.json: a Codex login file",
         "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
+        "file /home/cmux/[a name].txt:2: an AWS access key id",
         "file /home/cmux/[a secret]/.codex/auth.json: a Codex login file",
-        "file /home/cmux/app/node_modules/x/.env:1: ANTHROPIC_API_KEY",
-        "file /home/cmux/app/node_modules/x/.env:1: an Anthropic API key",
-        "file /home/cmux/aws.txt:2: an AWS access key id",
-        "file /home/cmux/bin/blob: an OpenAI project key",
+        "file /home/cmux/app/node_modules/[a name]/.env:1: ANTHROPIC_API_KEY",
+        "file /home/cmux/app/node_modules/[a name]/.env:1: an Anthropic API key",
+        "file /home/cmux/bin/[a name]: an OpenAI project key",
         "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "file /home/cmux/.codex/.tmp/plugins/p/skills/api.md:1: an OAuth refresh token",
-        "file /opt/tool/bin/blob: an OpenAI project key",
+        "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OAuth refresh token",
+        "file /opt/[a name]/bin/[a name]: an OpenAI project key",
       ]);
       expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
       expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
@@ -1077,9 +1077,9 @@ describe("clean-room provider key probe", () => {
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/project/dev/.env:1: ANTHROPIC_API_KEY",
         "file /home/cmux/project/dev/.env:1: an Anthropic API key",
-        "file /home/cmux/project/proc/notes:1: an OpenAI project key",
-        "file /usr/k:1: an OpenAI project key",
-        "file /usr/share/secret/key.env:1: an OpenAI project key",
+        "file /home/cmux/project/proc/[a name]:1: an OpenAI project key",
+        "file /usr/[a name]:1: an OpenAI project key",
+        "file /usr/share/[a name]/[a name].env:1: an OpenAI project key",
         "file /workspace/project/.env:1: OPENAI_API_KEY",
       ]);
       expect(probe.shipped ?? []).toEqual([]);
@@ -1106,8 +1106,8 @@ describe("clean-room provider key probe", () => {
         "file /workspace/project/.env:2: an OpenAI project key",
       ]);
       expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
-        "/home/cmux/.claude/plugins/p/.env:1",
-        "/home/cmux/.claude/plugins/p/.env:2",
+        "/home/cmux/.claude/plugins/[a name]/.env:1",
+        "/home/cmux/.claude/plugins/[a name]/.env:2",
       ]);
       // Read once, reported under both names.
       expect(probe.scanned.files).toBe(1);
@@ -1134,9 +1134,9 @@ describe("clean-room provider key probe", () => {
     try {
       const { probe } = run(root);
       expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/.local/bin/[a name]: a Google AI key",
         "/home/cmux/.local/bin/cmux:2: OPENAI_API_KEY",
         "/home/cmux/.local/bin/cmux:2: an OpenAI project key",
-        "/home/cmux/.local/bin/other: a Google AI key",
       ]);
       expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
         "/home/cmux/.codex/tmp/arg0/[a name]/apply_patch",
@@ -1165,8 +1165,8 @@ describe("clean-room provider key probe", () => {
       const { probe, out } = run(root);
       for (const v of [ESCAPED, ESCAPED.slice(0, 15), ESCAPED.slice(1), MISTRAL, MISTRAL.slice(0, 15)]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "env process [a piece of a secret] (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
-        "env process [a piece of a secret] (1 pid): OPENAI_API_KEY (a value)",
+        "env process [a process] (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
+        "env process [a process] (1 pid): OPENAI_API_KEY (a value)",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
       ]);
     } finally {
@@ -1194,11 +1194,11 @@ describe("clean-room provider key probe", () => {
       const { probe, out } = run(root);
       for (const v of [SPLIT, SPLIT_KEY, LOGIN]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a name].json:1: OPENAI_API_KEY",
+        "/home/cmux/[a name].json:2: an OAuth refresh token",
         "/home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
         "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
         "/home/cmux/[a secret]/.codex/auth.json:1: an OAuth refresh token",
-        "/home/cmux/big.json:2: an OAuth refresh token",
-        "/home/cmux/conf.json:1: OPENAI_API_KEY",
         "/home/cmux/token.json:2: an OAuth refresh token",
       ]);
     } finally {
@@ -1223,12 +1223,12 @@ describe("clean-room provider key probe", () => {
       const { probe, out } = run(root);
       for (const v of [AWS, LATE, AWS.slice(0, 15), LATE.slice(0, 15)]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a name].json:1: an OAuth refresh token",
         "/home/cmux/[a secret]/.aws/credentials: an AWS credentials file",
         "/home/cmux/[a secret]/.aws/credentials:2: an AWS access key id",
         "/home/cmux/[a secret]/.aws/credentials:3: AWS_SECRET_ACCESS_KEY",
         "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
-        "/home/cmux/late.json:1: an OAuth refresh token",
-        "/home/cmux/project/settings.ini:1: AWS_SECRET_ACCESS_KEY",
+        "/home/cmux/project/[a name].ini:1: AWS_SECRET_ACCESS_KEY",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1313,12 +1313,12 @@ describe("clean-room provider key probe", () => {
       const { probe, out } = run(root);
       for (const v of [SEP, SEP.slice(0, 15), SEP.slice(0, 6), SEP.slice(7, 13), "Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt", "Aa8k_Aa8k_"]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
-        "env process [a name] (1 pid): OPENAI_API_KEY (a value)",
+        "env process [a process] (1 pid): OPENAI_API_KEY (a value)",
         "env process node (1 pid): OPENAI_API_KEY (a value)",
         "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
-        "file /home/cmux/a.b/[a name]/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/[a name]/[a name]/.codex/auth.json: a Codex login file",
         "file /home/cmux/project/.env:1: MISTRAL_API_KEY",
-        "file /home/cmux/project/blob.bin: an OAuth refresh token",
+        "file /home/cmux/project/[a name].bin: an OAuth refresh token",
       ]);
       expect(probe.complete).toBe(true);
     } finally {
@@ -1344,6 +1344,30 @@ describe("clean-room provider key probe", () => {
         "env process tool (1 pid): [a variable] (an OpenAI project key)",
         "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
         "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a credential made only of letters leaves in no name: only listed names print", () => {
+    const LOWER = "qzmtwprxvknhfgdcslybuaeioj";
+    const UPPER = LOWER.toUpperCase();
+    const root = plant({
+      [`proc/5/comm`]: `${LOWER.slice(0, 15)}\n`,
+      "proc/5/environ": `CACHE_${UPPER}=${PROJ}\0`,
+      "proc/5/cmdline": "tool\0",
+      "home/cmux/session.json": `{"access_token":"${LOWER}"}\n`,
+      [`home/cmux/${LOWER}/.codex/auth.json`]: "{}",
+      [`home/cmux/${LOWER.slice(0, 9)}/${LOWER.slice(9, 18)}/${LOWER.slice(18)}.json`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [LOWER, UPPER, LOWER.slice(0, 15), LOWER.slice(0, 9), LOWER.slice(9, 18), LOWER.slice(18)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a process] (1 pid): [a variable] (an OpenAI project key)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/[a name]/[a name].json:1: an OpenAI project key",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
