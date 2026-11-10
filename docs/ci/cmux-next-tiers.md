@@ -51,6 +51,16 @@ is routed.
 | swift | `cmux-next swift test` (a pull request only with `full-ci`; the tip suite dispatch runs it on the `feat-cmux-next` tip) | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
+An app FFI re-pin runs only the app compile. When a pull request changes
+Package.swift alone, only the CCmuxAppFFI url's release sha and its checksum
+change, and that release's source commit has the head's FFI sources
+(`pure_ffi_repin` in the router), the native tier is its only Mac tier: the
+build fleet's app compile, with the Mac Release compile as the fallback when the
+fleet gives no verdict. `cmux-next checks` still runs "Check the app FFI pin".
+Any other Package.swift change runs every tier, as before. On 2026-11-10 re-pin
+#40576 waited 2 h 49 min behind the Mac queue that every tier took, and the base
+stayed red on the pin check for about five hours.
+
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
 webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
 or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
