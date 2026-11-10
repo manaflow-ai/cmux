@@ -1,3 +1,4 @@
+import CmuxConnectivityTelemetry
 public import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
@@ -487,7 +488,11 @@ public actor MobileHostSupervisor {
         var next = state
         change(&next)
         guard next != state else { return }
+        let previous = state
         state = next
         continuation.yield(next)
+        if previous.phase != next.phase || previous.phones.count != next.phones.count {
+            ConnectivityTelemetry.shared.record(MobileHostConnectivityEvent(next).event)
+        }
     }
 }

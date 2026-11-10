@@ -150,3 +150,20 @@ final class SeenRecords: @unchecked Sendable {
     func add(_ record: ConnectivityRecord) { lock.withLock { records.append(record) } }
     var all: [ConnectivityRecord] { lock.withLock { records } }
 }
+
+@Suite("Connectivity remote gate")
+struct ConnectivityRemoteGateTests {
+    func record(_ audience: ConnectivityAudience, _ outcome: ConnectivityEvent.Outcome, at seconds: TimeInterval) -> ConnectivityRecord {
+        ConnectivityRecord(date: Date(timeIntervalSince1970: seconds), audience: audience, area: .phoneHost, name: "phase",
+                           outcome: outcome, fields: [:], detail: nil, sampleRate: 1, droppedBefore: 0)
+    }
+
+    @Test func teamSendsEveryFailureEveryoneOnePerKeyPerHour() {
+        var gate = ConnectivityRemoteGate()
+        #expect((0..<5).allSatisfy { gate.sendsEvent(for: record(.team, .failure, at: Double($0))) })
+        #expect(!gate.sendsEvent(for: record(.team, .success, at: 6)))
+        #expect(gate.sendsEvent(for: record(.everyone, .failure, at: 10)))
+        #expect(!gate.sendsEvent(for: record(.everyone, .failure, at: 20)))
+        #expect(gate.sendsEvent(for: record(.everyone, .failure, at: 3611)))
+    }
+}
