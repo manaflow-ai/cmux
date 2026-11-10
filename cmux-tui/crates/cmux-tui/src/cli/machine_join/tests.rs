@@ -752,6 +752,15 @@ fn a_plan_refusal_keeps_its_code() {
     assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
 }
 
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is one this CLI keeps, so a
+/// cap, a rate limit or a machine's state reaches the person by name, not as a bare status.
+#[test]
+fn every_platform_refusal_code_is_known() {
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        assert_eq!(known_code(Some(row.code)), row.code);
+    }
+}
+
 #[test]
 fn machine_lists_platform_flags_are_taken_out_before_the_daemon_reads_them() {
     let (auth, kept) = split_auth(&strings(&[

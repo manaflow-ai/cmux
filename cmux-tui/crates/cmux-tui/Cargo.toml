@@ -68,6 +68,7 @@ tempfile = "3"
 cmux-json.workspace = true
 cmux-cloud-client.workspace = true
 cmux-cloud-environment.workspace = true
+cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true

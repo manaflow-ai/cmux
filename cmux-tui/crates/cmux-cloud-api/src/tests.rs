@@ -1839,4 +1839,32 @@ mod turn_checkpoints {
             None
         )));
     }
+
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192) as a turn's step
+    /// handles it: the body's `retryable` decides (a busy machine's 409 and an outage's 503 are
+    /// sent again, a cap's 403 and a final 503 are not), and a rate limit's 429 is retried too.
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for row in PLATFORM {
+            let body = json!({
+                "_tag": "MachineRefusal", "code": row.code, "message": "m",
+                "retryable": row.retryable,
+            });
+            assert_eq!(
+                retryable(&refusal(row.status, Some(&body))),
+                row.handling() != Handling::Final,
+                "{} {}",
+                row.status,
+                row.code
+            );
+        }
+        // An outage on a workspace machine route: #1192's MachineUnavailable says retry.
+        let outage = json!({
+            "_tag": "MachineUnavailable", "code": "machine.placement_unavailable",
+            "message": "Placement could not finish. Retry with the same client key.",
+            "retryable": true, "cause": "cloud.provider.unavailable: down",
+        });
+        assert!(retryable(&refusal(503, Some(&outage))));
+    }
 }

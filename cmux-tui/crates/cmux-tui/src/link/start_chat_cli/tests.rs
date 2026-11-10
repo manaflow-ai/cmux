@@ -1673,6 +1673,37 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+
+    // A cap: the App's own create would meet the same cap, so the send is refused with its code.
+    let capped = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 403, code: "cloud.quota.vm_limit" })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &capped);
+    assert_eq!(
+        (refused["ok"].clone(), refused["error_code"].clone()),
+        (json!(false), json!("cloud.quota.vm_limit")),
+        "{refused}"
+    );
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is the platform's answer for
+/// the send: a cap, a plan, a rate limit or a machine's state is shown or retried, never left to
+/// the App's own create, which would meet it again. Only a refused sign-in (`auth.forbidden`,
+/// the case #30574 wrote the fallback for) still falls back.
+#[test]
+fn no_platform_refusal_falls_back_to_the_apps_create() {
+    use crate::cli::PlatformCallError as E;
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        let error = E::Status { status: row.status, code: row.code };
+        assert_eq!(
+            made_no_machine(&error),
+            row.code == "auth.forbidden",
+            "{} {}",
+            row.status,
+            row.code
+        );
+    }
 }
 
 /// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has

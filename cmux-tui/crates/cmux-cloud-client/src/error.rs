@@ -157,6 +157,34 @@ mod tests {
         assert!(e.retryable);
     }
 
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192), as #1192 answers it:
+    /// the body's `retryable` decides, not the status (a busy machine's 409 is retried, a final
+    /// 503 is not, a cap's 403 never).
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for refusal in PLATFORM {
+            let body = serde_json::json!({
+                "_tag": "MachineRefusal", "code": refusal.code, "message": "m",
+                "retryable": refusal.retryable,
+            });
+            let e = ApiError::from_status(refusal.status, body.to_string().as_bytes());
+            assert_eq!(
+                e.retryable,
+                refusal.handling() != Handling::Final,
+                "{} {}",
+                refusal.status,
+                refusal.code
+            );
+        }
+        // A 503 that says it is final.
+        let e = ApiError::from_status(
+            503,
+            br#"{"code":"machine.placement_unavailable","retryable":false,"cause":"x: y"}"#,
+        );
+        assert!(!e.retryable);
+    }
+
     #[test]
     fn an_html_proxy_page_is_not_shown_as_the_message() {
         let e = ApiError::from_status(502, b"<html>bad gateway</html>");
