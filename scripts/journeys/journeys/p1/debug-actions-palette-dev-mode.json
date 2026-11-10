@@ -253,7 +253,7 @@
               "path": "/tmp/jr-ddm-off-${nonce}.png"
             },
             "path": "rows",
-            "lacks": "debug.tabBarPlayground"
+            "lacks": "action:debug.tabBarPlayground"
           }
         }
       ]
@@ -513,7 +513,7 @@
               "path": "/tmp/jr-ddm-on-${nonce}.png"
             },
             "path": "rows",
-            "contains": "debug.tabBarPlayground"
+            "contains": "action:debug.tabBarPlayground"
           }
         },
         {
