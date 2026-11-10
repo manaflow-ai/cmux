@@ -62,6 +62,7 @@ NOT_MERGE_GATES = {
     ("ci.yml", "macos-admission-gate"): "an admission, not a verdict: only a concluded failure declines",
     ("ci.yml", "linux-preflight"): "classic main CI only; skips feat-cmux-next",
     ("ci.yml", "ci-status"): "classic main CI only; skips feat-cmux-next",
+    ("cloud-chat-proof.yml", "verdict"): "a workflow_dispatch proof run on feat-cmux-next, not a merge gate",
     ("cloud-vm-image-roll.yml", "report"): "a roll's record, not a merge gate",
     ("cmux-next-fast-gates.yml", "post"): "a status poster: posts pending for no verdict (#39791)",
     ("cmux-next-media.yml", "hand-off"): "media comment, not a gate",

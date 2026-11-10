@@ -13,7 +13,9 @@
 //! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
 //!
 //! A change returns once a file that holds it is on disk, unless the write failed: that is
-//! logged and the change is only in memory until a later write succeeds, as before. The file is
+//! logged and the change is only in memory until a later write succeeds, as before. A new
+//! delivery is the exception: when its write fails it is taken out again and the sender is told,
+//! so a message is never answered as kept when a restart would lose it. The file is
 //! written outside the deliveries lock and changes made while one write runs share the next one
 //! (group commit): 60 sends at once used to queue behind 180 whole-file writes and syncs, each up
 //! to a second on a busy disk (`design/acpmux-perf.md` in leo-workspace).
@@ -223,12 +225,18 @@ impl Outbox {
         crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
-    /// Records a new delivery; the same prompt id again answers with the first one.
-    pub fn add(&self, delivery: Delivery) -> Delivery {
-        let (delivery, change) = self.add_scoped(delivery, false);
-        self.save(change);
+    /// Records a new delivery; the same prompt id again answers with the first one. Fails when
+    /// the file cannot be written: then the delivery is not kept in memory either (not kept
+    /// means not sent), and a later write never puts it on disk.
+    pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
+        let (delivery, change, added) = self.add_scoped(delivery, false);
+        self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
+        // The first add of this prompt id failed and took it out after this one found it.
+        if !added && !self.book().deliveries.contains_key(&delivery.id) {
+            anyhow::bail!("the first send of this prompt id was not saved");
+        }
         self.changed.notify_waiters();
-        delivery
+        Ok(delivery)
     }
 
     /// A direct forward's recovery intent is scoped to its proven sender and target.
@@ -236,13 +244,14 @@ impl Outbox {
     /// Unlike ordinary queued deliveries, a forward must not proceed when this
     /// write fails: no later retry can recreate its intent after a restart.
     pub fn remember_forward(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
-        let (delivery, change) = self.add_scoped(delivery, true);
+        let (delivery, change, _) = self.add_scoped(delivery, true);
         self.save_checked(change)?;
         self.changed.notify_waiters();
         Ok(delivery)
     }
 
-    fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64) {
+    /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
+    fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
@@ -257,11 +266,11 @@ impl Outbox {
             let first = first.clone();
             // The first add may still be writing: answer once the file holds it too.
             let change = book.changes;
-            return (first, change);
+            return (first, change, false);
         }
         book.deliveries.insert(delivery.id.clone(), delivery.clone());
         let change = book.changed();
-        (delivery, change)
+        (delivery, change, true)
     }
 
     pub fn start_delivery(&self, id: &str) -> bool {
@@ -378,6 +387,14 @@ impl Outbox {
     }
 
     fn save_checked(&self, change: u64) -> anyhow::Result<()> {
+        self.save_or_take_out(change, None)
+    }
+
+    /// [`Self::save_checked`], and when the write fails, delivery `added` is taken out of the
+    /// book before the next write can start: no later write puts on disk what its sender was
+    /// told is not kept. Every add that shared the failed write fails too, as `saved` did not
+    /// advance; each tries the write again itself.
+    fn save_or_take_out(&self, change: u64, added: Option<&str>) -> anyhow::Result<()> {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return Ok(());
         };
@@ -406,7 +423,14 @@ impl Outbox {
         };
         // Failed writes never advance saved. A retry of the same in-memory intent
         // must try the write again before it can report success.
-        crate::config::write_atomic(&path, &bytes?)?;
+        let written =
+            bytes.map_err(anyhow::Error::from).and_then(|b| crate::config::write_atomic(&path, &b));
+        if let Err(e) = written {
+            if let Some(id) = added {
+                self.book().deliveries.remove(id);
+            }
+            return Err(e);
+        }
         *saved = newest;
         Ok(())
     }
@@ -556,12 +580,12 @@ mod tests {
             let mut d = delivery(n);
             d.created_at = n as u64;
             d.caller = Some(if n % 2 == 0 { "s-even" } else { "s-odd" }.into());
-            outbox.add(d);
+            outbox.add(d).unwrap();
         }
         let mut intent = delivery(9);
         intent.request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "x"});
         intent.state = State::Held;
-        outbox.add(intent);
+        outbox.add(intent).unwrap();
         let ids = |(v, _): (Vec<Delivery>, usize)| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
         assert_eq!(ids(outbox.list(None, 10)), ["d-3", "d-2", "d-1", "d-0"]);
         assert_eq!(ids(outbox.list(Some("s-even"), 10)), ["d-2", "d-0"]);
@@ -577,7 +601,7 @@ mod tests {
     #[test]
     fn forward_intents_do_not_alias_other_senders_targets_or_queued_deliveries() {
         let outbox = Outbox::default();
-        outbox.add(delivery(1));
+        outbox.add(delivery(1)).unwrap();
         let mut intent = delivery(1);
         intent.id = "intent-1".into();
         intent.caller = Some("sender".into());
@@ -598,7 +622,7 @@ mod tests {
         assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-4");
         intent.id = "unused-retry-id".into();
         assert_eq!(outbox.remember_forward(intent).unwrap().id, "intent-4");
-        assert_eq!(outbox.add(delivery(1)).id, "d-1");
+        assert_eq!(outbox.add(delivery(1)).unwrap().id, "d-1");
     }
 
     #[test]
@@ -704,7 +728,7 @@ mod tests {
                 let outbox = outbox.clone();
                 let path = path.clone();
                 std::thread::spawn(move || {
-                    outbox.add(delivery(n));
+                    outbox.add(delivery(n)).unwrap();
                     // What a restart would read right now holds this one.
                     let saved: BTreeMap<String, Delivery> =
                         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -723,6 +747,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// An add whose write fails is not kept: the sender is told so, and neither this daemon nor
+    /// a restart delivers it. Nor does a later write that succeeds bring it back.
+    #[test]
+    fn an_add_whose_write_fails_is_not_kept() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A regular file where the folder should be fails the write, also for root.
+        let blocked = dir.join("blocked");
+        std::fs::write(&blocked, b"block").unwrap();
+        let path = blocked.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        outbox.open(&path);
+        assert!(outbox.add(delivery(1)).is_err());
+        assert!(outbox.get("d-1").is_none(), "a delivery not on disk is still in memory");
+        // Adds that share one failed write all fail, the same prompt id again among them.
+        let held = outbox.saved.lock().unwrap();
+        let adds: Vec<_> = [2, 3, 2]
+            .into_iter()
+            .enumerate()
+            .map(|(n, d)| {
+                let outbox = outbox.clone();
+                let mut d = delivery(d);
+                d.id = format!("d-{n}-again");
+                std::thread::spawn(move || outbox.add(d).is_err())
+            })
+            .collect();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        drop(held);
+        for add in adds {
+            assert!(add.join().unwrap(), "an add that shared a failed write answered as kept");
+        }
+        assert_eq!(outbox.list(None, 10).0.len(), 0, "a delivery not on disk is still in memory");
+        std::fs::remove_file(&blocked).unwrap();
+        std::fs::create_dir(&blocked).unwrap();
+        outbox.add(delivery(4)).unwrap();
+        let restarted = Outbox::default();
+        let pending: Vec<_> = restarted.open(&path).into_iter().map(|d| d.id).collect();
+        assert_eq!(pending, ["d-4"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A retry of a prompt whose first add is still writing answers only once the file holds it.
     #[test]
     fn a_duplicate_add_returns_once_the_first_is_on_disk() {
@@ -735,7 +800,7 @@ mod tests {
         let held = outbox.saved.lock().unwrap();
         let first = {
             let outbox = outbox.clone();
-            std::thread::spawn(move || outbox.add(delivery(1)))
+            std::thread::spawn(move || outbox.add(delivery(1)).unwrap())
         };
         while outbox.get("d-1").is_none() {
             std::thread::yield_now();
@@ -744,7 +809,7 @@ mod tests {
             let outbox = outbox.clone();
             let path = path.clone();
             std::thread::spawn(move || {
-                let again = outbox.add(delivery(1));
+                let again = outbox.add(delivery(1)).unwrap();
                 let saved: BTreeMap<String, Delivery> =
                     serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
                 (again.id, saved.contains_key("d-1"))
@@ -791,7 +856,7 @@ mod tests {
         keep_attachments(&kept, &d.request).unwrap();
         let orphan = kept.with_file_name("gone.json");
         std::fs::write(&orphan, b"{}").unwrap();
-        outbox.add(d);
+        outbox.add(d).unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains(&data));
         assert_eq!(outbox.get("d1").unwrap().request["prompt"][0]["data"], data);
         let restarted = Outbox::default();
