@@ -24,6 +24,7 @@ import {
   type Ref,
 } from "react";
 import type { ToastAvoidanceReports } from "../../../agent-session/acpmux/toastAvoidance";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import { AttachmentContext } from "../../home-channels/AttachmentViews";
 import type { AttachmentService } from "../../home-channels/attachmentService";
 import { conversationName } from "../../home-channels/model";
@@ -112,6 +113,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onCancelUpload?(key: string): void;
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   onCopy?(text: string): void;
+  /** A drag on an attachment: the host drags the file out (to Finder, another app). */
+  onDragAttachment?: RowActions["onDragAttachment"];
   /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
   onReply?(message: HomeMessage): void;
   /** Delete on my committed message in a Chief chat (bubbleMenu `canDeleteMessage`). */
@@ -155,6 +158,26 @@ export interface MessagesTranscriptProps extends TranscriptData {
   toast?: ReactNode;
   ref?: Ref<MessagesTranscriptHandle>;
 }
+
+/** The row callbacks the transcript passes on (``RowActions``): present or absent decides a menu row. */
+const ROW_CALLBACKS = [
+  "onRetry",
+  "onDiscard",
+  "canCancelUpload",
+  "onCancelUpload",
+  "onReact",
+  "onReply",
+  "onDelete",
+  "onRetryReply",
+  "onForward",
+  "onShare",
+  "onFile",
+  "onReplyToSelection",
+  "onOpenReplies",
+  "onDragAttachment",
+] as const satisfies readonly (keyof MessagesTranscriptProps & keyof RowActions)[];
+
+const copyText = (text: string) => void navigator.clipboard?.writeText(text);
 
 const reducedMotion = () => {
   const gate = document.documentElement.dataset.cmuxMotion;
@@ -224,6 +247,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   // A toast over the message box takes room under the newest message (+ToastRoom.swift): a row of
   // its height ends the transcript while it shows, so the rows move up with it and back down after.
   const [toastHeight, setToastHeight] = useState(0);
+  const hasToast = !!props.toast;
   const toastBox = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const element = toastBox.current;
@@ -231,7 +255,9 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const observer = new ResizeObserver(() => setToastHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [props.toast]);
+    // The box is there while a toast is, in the composer of this key: a new toast element in the same
+    // box needs no new observer.
+  }, [hasToast, conversation.id, props.composerKey]);
   const extras = useMemo<TranscriptExtras | undefined>(() => {
     if (!toastHeight) return props.extras;
     const room = {
@@ -278,45 +304,29 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     typing: (props.typing ?? []).some((person) => person !== me) || props.draft !== undefined,
     host: props.bubbleHost ?? NO_BUBBLE_HOST,
   };
-  const actions = useMemo<RowActions>(
-    () => ({
-      onRetry: props.onRetry,
-      onDiscard: props.onDiscard,
-      ...(props.canCancelUpload ? { canCancelUpload: props.canCancelUpload } : {}),
-      ...(props.onCancelUpload ? { onCancelUpload: props.onCancelUpload } : {}),
-      onReact: props.onReact,
-      onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
-      ...(props.onReply ? { onReply: props.onReply } : {}),
-      ...(props.onDelete ? { onDelete: props.onDelete } : {}),
-      ...(props.onRetryReply ? { onRetryReply: props.onRetryReply } : {}),
-      ...(props.onForward ? { onForward: props.onForward } : {}),
-      ...(props.onShare ? { onShare: props.onShare } : {}),
-      ...(props.onFile ? { onFile: props.onFile } : {}),
-      ...(props.onReplyToSelection ? { onReplyToSelection: props.onReplyToSelection } : {}),
-      ...(props.onOpenReplies ? { onOpenReplies: props.onOpenReplies } : {}),
+  // The rows' actions keep one identity while the callbacks behind them change: each runs the newest
+  // prop (read when it runs), and the object changes only when a callback comes or goes, or the links
+  // or approvals change. A page render with new inline callbacks (each store change, a typing
+  // indicator, a Chief's stream) then re-renders no row: TranscriptRowView is memo.
+  const latest = useRef(props);
+  latest.current = props;
+  const present = ROW_CALLBACKS.filter((name) => props[name] !== undefined).join(" ");
+  const approvals = props.approvals;
+  const actions = useMemo<RowActions>(() => {
+    const out: Record<string, unknown> = {};
+    for (const name of present.split(" ") as (typeof ROW_CALLBACKS)[number][]) {
+      if (!name) continue;
+      out[name] = (...args: unknown[]) =>
+        (latest.current[name] as ((...args: unknown[]) => unknown) | undefined)?.(...args);
+    }
+    return {
+      ...out,
+      onCopy: (text: string) => (latest.current.onCopy ?? copyText)(text),
       ...(links ? { links } : {}),
-      ...(props.approvals ? { approvals: props.approvals } : {}),
+      ...(approvals ? { approvals } : {}),
       context: () => facts.current,
-    }),
-    [
-      props.onRetry,
-      props.onDiscard,
-      props.canCancelUpload,
-      props.onCancelUpload,
-      props.onReact,
-      props.onCopy,
-      props.onReply,
-      props.onDelete,
-      props.onRetryReply,
-      props.onForward,
-      props.onShare,
-      props.onFile,
-      props.onReplyToSelection,
-      props.onOpenReplies,
-      links,
-      props.approvals,
-    ],
-  );
+    } as RowActions;
+  }, [present, links, approvals]);
   const fileDrop: FileDropTarget | undefined = attachments
     ? {
         over: (types) => {
@@ -353,7 +363,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const sameConversation = state.conversation === conversation.id;
     if (sameConversation && state.atBottom && lastKey !== state.lastKey && delta > 0 && delta < 600 && !reducedMotion())
       stack.current?.animate?.([{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }], {
-        duration: 240,
+        // A structural move: the standard step (a raw 240 ms until Leo 2026-11-10: "the slow animations").
+        duration: MOTION_MS.standard,
         easing: "cubic-bezier(0.2, 0.9, 0.3, 1)",
       });
     state.lastKey = lastKey;
@@ -394,13 +405,17 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
 
   // The pinned section's height: the top row grows by it, so the oldest message scrolls clear of it.
   const pinnedBox = useRef<HTMLDivElement | null>(null);
+  const hasPinned = !!pinned;
+  const hasCard = !!setupCard;
   useEffect(() => {
     const element = pinnedBox.current;
     if (!element) return setPinnedHeight(0);
     const observer = new ResizeObserver(() => setPinnedHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [pinned, setupCard]);
+    // The boxes are there while their parts are: a new element for the same part (each page render
+    // makes one) keeps its observer and reads no layout.
+  }, [hasPinned, hasCard]);
   // The room above the message box, and the natural heights of the pinned section and the card:
   // pinnedLayout.ts shares that room out (the native layoutPinnedSection).
   const pinnedContent = useRef<HTMLDivElement | null>(null);
@@ -422,7 +437,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     const observer = new ResizeObserver(read);
     for (const part of parts) if (part) observer.observe(part);
     return () => observer.disconnect();
-  }, [scroller, pinned, setupCard]);
+  }, [scroller, hasPinned, hasCard]);
   // Before the room is measured nothing is capped (a first frame shows the parts whole).
   const shares = heights.room
     ? pinnedLayout(heights.room, pinned ? heights.pinned : undefined, setupCard ? heights.card : undefined)

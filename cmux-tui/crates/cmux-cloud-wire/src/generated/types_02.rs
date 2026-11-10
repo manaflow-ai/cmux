@@ -4,6 +4,18 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EnrollmentToken {
+    pub id: EnrollmentTokenId,
+    pub label: String,
+    pub allowed_domains: Option<Vec<String>>,
+    pub expires_at: Option<i64>,
+    pub created_by: String,
+    pub created_at: i64,
+    pub revoked_at: Option<i64>,
+    pub uses: i64,
+}
+
 /// base64url(SHA-256(token)) without padding.
 pub type EnrollmentTokenHash = String;
 
@@ -886,19 +898,5 @@ wire_enum! {
     HostNetworkPeerInboundItemVariant1Protocol {
         Tcp = "tcp",
         Udp = "udp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeerInboundItemVariant1 {
-    pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-}
-
-wire_enum! {
-    HostNetworkPeerInboundItemVariant2Protocol {
-        Any = "any",
-        Icmp = "icmp",
     }
 }

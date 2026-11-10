@@ -5,6 +5,47 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes invite.create declares.
+    InviteCreateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        DuplicateInvite = "duplicate_invite",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidInvite = "invalid_invite",
+        InviteLimit = "invite_limit",
+        InviteSelf = "invite_self",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Revoke a pending invite (the inviter or the conversation owner).
+    InviteRevokeOp {
+        name: "invite.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: InviteRevokeParams,
+        result: HomeConversationCommit,
+        error: InviteRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteRevokeParams {
+    pub conversation: ConversationId,
+    pub invite_id: InviteId,
+}
+
+wire_errors! {
     /// The error codes invite.revoke declares.
     InviteRevokeError {
         Archived = "archived",
@@ -860,43 +901,6 @@ wire_errors! {
         ReadOnly = "read_only",
         UnknownConversation = "unknown_conversation",
         UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Lift a ban (admins and the owner), so the person may be added or invited again.
-    ParticipantsUnbanOp {
-        name: "participants.unban",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsUnbanParams,
-        result: HomeConversationCommit,
-        error: ParticipantsUnbanError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsUnbanParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-}
-
-wire_errors! {
-    /// The error codes participants.unban declares.
-    ParticipantsUnbanError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
 }

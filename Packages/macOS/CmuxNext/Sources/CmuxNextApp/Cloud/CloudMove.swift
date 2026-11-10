@@ -215,7 +215,7 @@ struct CloudMove {
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
-        guard moved.ok, let movedSession = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        guard moved.ok, let movedSession = moved.sessionID else { throw CloudMoveFailure.moving(moved, machine: name, retry: again) }
         // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
         if let host = AgentTabStore.registryHost(of: machine.daemon) {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
@@ -284,7 +284,7 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        throw Self.failure(syncing: last, machine: machine, retry: retry)
+        throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
     }
 
     /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
@@ -292,12 +292,6 @@ struct CloudMove {
         let remote = folder.remote(under: root)
         guard !suffix.isEmpty else { return remote }
         return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
-    }
-
-    /// A failed copy's failure: an outdated machine's Retry updates it first.
-    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -384,24 +378,6 @@ struct CloudMove {
         let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         if let pane = await daemon.store.firstPane(mirroring: workspace) {
             for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
-    }
-
-    /// The failure of a `cmux link agent move` answer, in plain words. `retry`
-    /// runs the move again on its machine; a garbage answer (a crash) may come
-    /// after the commit, so it is unresolved, never failed.
-    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        switch answer.errorCode {
-        case "move_unresolved", CloudMoveCLI.badAnswer: Failure(message: CloudMoveStrings.unresolved, retry: retry)
-        case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
-        case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
-        case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
-        // This Mac's own daemon (the source) is never the machine to update.
-        case CloudMoveStrings.outdatedCode where answer.side != "source":
-            Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
-        case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
-        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
         }
     }
 

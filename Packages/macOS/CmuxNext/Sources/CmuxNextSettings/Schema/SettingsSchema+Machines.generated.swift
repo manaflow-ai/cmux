@@ -32,6 +32,9 @@ extension CloudNewWorkspaceSetting {
     /// `cloud.newWorkspaceFolder`: What a new Cloud workspace starts with.
     public nonisolated static let folderPath = ["cloud", "newWorkspaceFolder"]
     public nonisolated static let folderDefault: CloudWorkspaceFolder = .inherit
+    /// `cloud.turnCheckpoints`.
+    public nonisolated static let turnCheckpointsPath = ["cloud", "turnCheckpoints"]
+    public nonisolated static let turnCheckpointsDefault = false
 }
 
 extension CloudAgentStartSetting {
@@ -201,6 +204,16 @@ nonisolated enum MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(CloudAgentStartSetting.fallback),
                 keywords: ["cloud", "vm", "machine", "agent", "start", "session", "create", "new machine", "move", "ask", "approve", "permission", "bypass", "without asking", "delegate"]
+            ),
+            SettingDescriptor(
+                CloudNewWorkspaceSetting.turnCheckpointsPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.cloud.turnCheckpoints", "Save a Checkpoint Before Each Cloud Chat Turn"),
+                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."),
+                kind: .toggle,
+                default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
+                keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
             ),
         ]
     }

@@ -1513,6 +1513,29 @@
             }
           }
         },
+        "paused_hourly_rate_usd": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
         "running_since": {
           "required": false,
           "type": {
@@ -25868,6 +25891,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -27725,6 +27766,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -28575,6 +28634,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29127,6 +29204,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -29597,6 +29692,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -30048,6 +30161,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -30812,6 +30943,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -31256,6 +31405,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -31728,6 +31895,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -32247,6 +32432,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -32713,6 +32916,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -33157,6 +33378,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -35255,6 +35494,24 @@
                   }
                 ]
               },
+              "paused_hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "running_since": {
                 "anyOf": [
                   {
@@ -36548,6 +36805,24 @@
                 ]
               },
               "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "paused_hourly_rate_usd": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -59698,8 +59973,162 @@
         "name": "MutationResult",
         "arguments": [
           {
-            "kind": "ref",
-            "name": "Connection"
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConnectionId"
+                }
+              },
+              "owner": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamId"
+                }
+              },
+              "created_by": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "provider": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "IntegrationProvider"
+                }
+              },
+              "account": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "object",
+                    "fields": {
+                      "key": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      },
+                      "name": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      },
+                      "url": {
+                        "required": false,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "scopes_requested": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "scopes_granted": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "status": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConnectionStatus"
+                }
+              },
+              "status_detail": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "sharing": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "private",
+                    "team"
+                  ]
+                }
+              },
+              "resources": {
+                "required": false,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "repos": {
+                      "required": true,
+                      "type": {
+                        "kind": "nullable",
+                        "inner": {
+                          "kind": "array",
+                          "items": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "created_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "updated_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "return_to": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "configure_url": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
           }
         ]
       },
@@ -59766,7 +60195,124 @@
         "$defs": {}
       },
       "output_json_schema": {
-        "$ref": "#/$defs/Connection",
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "owner": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "created_by": {
+            "$ref": "#/$defs/UserId"
+          },
+          "provider": {
+            "$ref": "#/$defs/IntegrationProvider"
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "name"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes_granted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/$defs/ConnectionStatus"
+          },
+          "status_detail": {
+            "type": "string"
+          },
+          "sharing": {
+            "type": "string",
+            "enum": [
+              "private",
+              "team"
+            ]
+          },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "repos": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "repos"
+            ],
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updated_at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "return_to": {
+            "type": "string"
+          },
+          "configure_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner",
+          "created_by",
+          "provider",
+          "account",
+          "scopes_requested",
+          "scopes_granted",
+          "status",
+          "sharing",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": true,
         "$defs": {
           "ConnectionId": {
             "type": "string",
@@ -59803,120 +60349,6 @@
               "revoked",
               "expired"
             ]
-          },
-          "Connection": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/ConnectionId"
-              },
-              "owner": {
-                "$ref": "#/$defs/TeamId"
-              },
-              "created_by": {
-                "$ref": "#/$defs/UserId"
-              },
-              "provider": {
-                "$ref": "#/$defs/IntegrationProvider"
-              },
-              "account": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "key": {
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "key",
-                      "name"
-                    ],
-                    "additionalProperties": true
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "scopes_requested": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "scopes_granted": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "status": {
-                "$ref": "#/$defs/ConnectionStatus"
-              },
-              "status_detail": {
-                "type": "string"
-              },
-              "sharing": {
-                "type": "string",
-                "enum": [
-                  "private",
-                  "team"
-                ]
-              },
-              "resources": {
-                "type": "object",
-                "properties": {
-                  "repos": {
-                    "anyOf": [
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "repos"
-                ],
-                "additionalProperties": true
-              },
-              "created_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              }
-            },
-            "required": [
-              "id",
-              "owner",
-              "created_by",
-              "provider",
-              "account",
-              "scopes_requested",
-              "scopes_granted",
-              "status",
-              "sharing",
-              "created_at",
-              "updated_at"
-            ],
-            "additionalProperties": true
           }
         }
       }
@@ -59960,6 +60392,23 @@
               ]
             }
           },
+          "repo": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+            }
+          },
+          "return_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512,
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -59986,10 +60435,19 @@
                 }
               },
               "authorize_url": {
-                "required": true,
+                "required": false,
                 "type": {
                   "kind": "primitive",
                   "name": "string"
+                }
+              },
+              "connected": {
+                "required": false,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    true
+                  ]
                 }
               }
             }
@@ -60028,7 +60486,7 @@
         "expose": "never",
         "group": "integration"
       },
-      "docs": "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+      "docs": "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -60051,6 +60509,15 @@
               "private",
               "team"
             ]
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+          },
+          "return_to": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
           }
         },
         "required": [
@@ -60078,11 +60545,16 @@
           },
           "authorize_url": {
             "type": "string"
+          },
+          "connected": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
           }
         },
         "required": [
-          "connection",
-          "authorize_url"
+          "connection"
         ],
         "additionalProperties": true,
         "$defs": {

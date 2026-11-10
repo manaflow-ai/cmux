@@ -5,6 +5,20 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerInboundItemVariant1 {
+    pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+wire_enum! {
+    HostNetworkPeerInboundItemVariant2Protocol {
+        Any = "any",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostNetworkPeerInboundItemVariant2 {
     pub protocol: HostNetworkPeerInboundItemVariant2Protocol,
 }
@@ -884,19 +898,4 @@ wire_enum! {
 pub struct TeamPolicyValuesGithubRepoScope {
     pub value: TeamPolicyValuesGithubRepoScopeValue,
     pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRequireOrgAdmin {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesGithubRepoAllowListValue {
-    None(LitNone),
-    List(Vec<RepoPattern>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
 }

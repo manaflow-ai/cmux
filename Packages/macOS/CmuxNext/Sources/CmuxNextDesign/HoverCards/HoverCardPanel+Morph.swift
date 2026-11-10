@@ -129,9 +129,10 @@ extension HoverCardPanel {
 
     /// A first show that grows out of its target (`HoverCardEntrance.morph`): the same resize as a
     /// retarget's, from a drop as wide as the target (at most the card) and as tall as the card's
-    /// rounded corners, on the card's touching edge, to the whole card. The settle spring is
-    /// slightly under-damped, so the card stretches a hair past rest and pulls back, the surface
-    /// tension Leo asked for (2026-11-07). Motion off: no growth, the fade alone.
+    /// rounded corners, on the card's touching edge, to the whole card, on the settle spring. The
+    /// card stops on its rest size: it does not stretch past it and pull back (that stretch, Leo
+    /// 2026-11-07, went with every other bounce, Lawrence 2026-11-10). Motion off: no growth, the
+    /// fade alone.
     @discardableResult
     func grow() -> Bool {
         let rest = cardFrame

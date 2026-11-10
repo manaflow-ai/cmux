@@ -5,6 +5,21 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRequireOrgAdmin {
+    pub value: bool,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TeamPolicyValuesGithubRepoAllowListValue {
+    None(LitNone),
+    List(Vec<RepoPattern>),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRepoAllowList {
     pub value: TeamPolicyValuesGithubRepoAllowListValue,
     pub mode: PolicyMode,

@@ -292,6 +292,31 @@
             "delegate"
           ],
           "swift_owner": "CloudAgentStartSetting"
+        },
+        {
+          "key": "cloud.turnCheckpoints",
+          "name": "turnCheckpoints",
+          "title": {
+            "key": "settings.cloud.turnCheckpoints",
+            "text": "Save a Checkpoint Before Each Cloud Chat Turn"
+          },
+          "help": {
+            "key": "settings.cloud.turnCheckpoints.help",
+            "text": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "checkpoint",
+            "snapshot",
+            "undo",
+            "rewind",
+            "restore",
+            "turn",
+            "back",
+            "machine"
+          ]
         }
       ]
     },

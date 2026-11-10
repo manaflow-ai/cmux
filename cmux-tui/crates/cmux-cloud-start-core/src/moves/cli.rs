@@ -334,6 +334,14 @@ pub struct FrozenSync {
     pub socket: String,
     pub local: String,
     pub remote: String,
+    /// Machine to machine (Move to another Cloud machine): the source machine's link socket.
+    /// `local` is then the folder on that machine, and the copy is `cmux link sync relay`.
+    #[serde(default)]
+    pub from_socket: Option<String>,
+    /// With `from_socket`: the folder on this Mac a Move to Cloud seeded the source from. Its
+    /// seed record follows the chat to the new machine, so Bring Back Local still merges there.
+    #[serde(default)]
+    pub seed_local: Option<String>,
 }
 
 /// One CLI call: its verb and the facts its arguments carry.
@@ -503,10 +511,13 @@ pub fn agent_move_flags(
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
     for sync in syncs {
+        if let Some(from) = &sync.from_socket {
+            flags.extend(words(&["--sync", "relay", "--sync-from-socket", from]));
+        }
         let kind = if sync.pull { "pull" } else { "seed" };
+        let kind = if sync.from_socket.is_some() { None } else { Some(kind) };
+        flags.extend(kind.map(|kind| words(&["--sync", kind])).unwrap_or_default());
         flags.extend(words(&[
-            "--sync",
-            kind,
             "--sync-socket",
             &sync.socket,
             "--sync-local",
@@ -514,6 +525,9 @@ pub fn agent_move_flags(
             "--sync-remote",
             &sync.remote,
         ]));
+        if let (Some(_), Some(seed_local)) = (&sync.from_socket, &sync.seed_local) {
+            flags.extend(words(&["--sync-seed-local", seed_local]));
+        }
     }
     if ask_first {
         flags.push("--ask-first".to_owned());

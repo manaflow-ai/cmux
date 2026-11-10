@@ -291,12 +291,19 @@ pub(crate) fn within(path: &str, root: &str) -> bool {
 /// project rebuilds on the machine. The ambiguous names (`target`, `build`,
 /// `dist`, `venv`, `Pods`) count only beside the file that makes them one.
 pub(super) fn heavy(dir: &Path, name: &str) -> bool {
-    let beside = |files: &[&str]| files.iter().any(|file| dir.join(file).is_file());
+    heavy_by(name, |file| dir.join(file).is_file())
+}
+
+/// [`heavy`] for a folder that is not on this Mac: `has_file` says whether
+/// the folder holding `name` has the file at that relative path (a sibling
+/// such as `Cargo.toml`, or `venv/pyvenv.cfg`).
+pub(super) fn heavy_by(name: &str, mut has_file: impl FnMut(&str) -> bool) -> bool {
+    let mut beside = |files: &[&str]| files.iter().any(|file| has_file(file));
     match name {
         "node_modules" | ".venv" | "__pycache__" | ".next" | ".nuxt" | "DerivedData"
         | ".gradle" | ".tox" | ".mypy_cache" | ".pytest_cache" | ".cache" | ".turbo"
         | ".parcel-cache" => true,
-        "venv" => dir.join("venv/pyvenv.cfg").is_file(),
+        "venv" => beside(&["venv/pyvenv.cfg"]),
         "Pods" => beside(&["Podfile", "Podfile.lock"]),
         "target" => beside(&["Cargo.toml", "pom.xml"]),
         "build" => beside(&[

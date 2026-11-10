@@ -2,16 +2,15 @@
 // Leo, 2026-11-09: "I can't click into the composer at all to, like potentially type other stuff
 // while it's doing that initial load situation." A Cloud start locks the composer until the host
 // answers `cloud.startChat`, and nothing on the host bounds a whole start, so a start that never
-// answered kept the box locked for good. A start with no word from the host for
-// CLOUD_START_STALL_MS stalls: the card says where it stopped and the composer is the person's
-// again. A failed start unlocks it too.
+// answered looked like a start for good. The composer is open throughout now (#39913) and what is
+// typed moves to the chat as a draft. A start with no word from the host for CLOUD_START_STALL_MS
+// stalls: the card says where it stopped and that typing carries over.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   CLOUD_START_STALL_MS,
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartLocksComposer,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
@@ -37,15 +36,6 @@ function manualSchedule() {
   };
 }
 
-test("a start out locks the composer; a stalled or failed one does not", () => {
-  expect(cloudStartLocksComposer(undefined)).toBe(false);
-  expect(cloudStartLocksComposer(begun())).toBe(true);
-  expect(cloudStartLocksComposer(cloudStartStalled(begun(), "k-1"))).toBe(false);
-  const failed = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine." });
-  expect(failed?.state).toBe("failed");
-  expect(cloudStartLocksComposer(failed)).toBe(false);
-});
-
 test("silence from the host for the stall time stalls the start that was out", () => {
   const { armed, schedule } = manualSchedule();
   let current: CloudStartProgress | undefined = begun();
@@ -61,7 +51,6 @@ test("silence from the host for the stall time stalls the start that was out", (
   expect(CLOUD_START_STALL_MS).toBeGreaterThan(180_000);
   armed[0]!.run();
   expect(current?.stalled).toBe(true);
-  expect(cloudStartLocksComposer(current)).toBe(false);
   disarm();
   expect(armed[0]!.disarmed).toBe(true);
 });
@@ -94,22 +83,17 @@ test("a stall only counts while nothing waits on the person, and only for its ow
   expect(cloudStartStalled(asking, "k-1")).toBe(asking);
 });
 
-test("a start that stalls while its chat opens unlocks the composer too", () => {
-  const opening = cloudStartPushed(begun(), { key: "k-1", step: "opening", machine: "paint-dev" });
-  expect(cloudStartLocksComposer(opening)).toBe(true);
-  expect(cloudStartLocksComposer(cloudStartStalled(opening, "k-1"))).toBe(false);
-});
-
-test("the stalled card says plainly, before any typing, that a late success loses what is typed", () => {
+test("the stalled card says plainly that what is typed moves to the chat as a draft", () => {
   const markup = renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine", stalled: true }} bubble />);
-  expect(markup).toContain("what you type here is lost");
+  expect(markup).toContain("what you type here moves to it as a draft");
+  expect(markup).not.toContain("is lost");
+  expect(markup).not.toContain("You can type again");
 });
 
 test("a stalled start keeps the composer open as its steps still move, and ends as usual", () => {
   const stalled = cloudStartStalled(begun(), "k-1");
   const pushed = cloudStartPushed(stalled, { key: "k-1", step: "folder", machine: "paint-dev" });
   expect(pushed).toMatchObject({ step: "folder", machine: "paint-dev", stalled: true });
-  expect(cloudStartLocksComposer(pushed)).toBe(false);
   // The chat opened after all: no card (this tab closes).
   expect(cloudStartEnded(pushed, "k-1", { ok: true })).toBeUndefined();
   // It failed after all: a failed card, no longer stalled.
@@ -118,7 +102,7 @@ test("a stalled start keeps the composer open as its steps still move, and ends 
   expect(failed?.stalled).toBeUndefined();
 });
 
-test("the stalled card says where the start stopped and that the composer is open", () => {
+test("the stalled card says where the start stopped and that typing carries over", () => {
   const markup = renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine", stalled: true }} bubble />);
   expect(markup).toContain('data-stalled="true"');
   expect(markup).toContain("Set up a Cloud machine");

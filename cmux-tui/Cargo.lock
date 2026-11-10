@@ -1424,6 +1424,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-health-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1987,6 +1995,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-manifest",
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
@@ -2037,6 +2046,7 @@ dependencies = [
  "ghostty-vt",
  "glob",
  "libc",
+ "notify",
  "parking_lot",
  "plist",
  "ratatui",

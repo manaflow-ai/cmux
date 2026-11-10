@@ -1,6 +1,402 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.unreadBanner": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Banner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط غير المقروء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka nepročitanog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner for ulæste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungelesen-Banner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aviso de no leídos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bandeau des non lus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner dei non letti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未読バナー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដាមិនទាន់អាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않음 배너"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banner for uleste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek nieprzeczytanych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aviso de não lidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Баннер непрочитанного"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบยังไม่ได้อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmamış afişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Банер непрочитаного"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu ngữ chưa đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未读横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未讀橫幅"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.unreadBanner.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند عودتك إلى محادثة استمرت في العمل، يوضح شريط في أعلى اليسار عدد الأدوار الجديدة وينتقل إليها. عند طيه يصبح علامة صغيرة. انقر بزر الماوس الأيمن على الشريط أو على سطر جديد لإخفائه أو إعادته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada se vratite u razgovor koji je nastavio raditi, traka gore lijevo kaže koliko je poteza novo i vodi do njih. Skupljena je mala oznaka. Desni klik na traku ili liniju Novo je sakriva ili vraća."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du vender tilbage til en chat, der har arbejdet videre, viser et banner øverst til venstre, hvor mange ture der er nye, og springer til dem. Skjult er det et lille mærke. Højreklik på banneret eller linjen Ny for at skjule det eller vise det igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kehrst du zu einem Chat zurück, der weitergearbeitet hat, zeigt oben links ein Banner, wie viele Runden neu sind, und springt dorthin. Eingeklappt ist es eine kleine Pille. Rechtsklick auf das Banner oder die Neu-Linie blendet es aus oder wieder ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando vuelves a un chat que siguió trabajando, un aviso arriba a la izquierda dice cuántos turnos son nuevos y salta a ellos. Contraído, es una pequeña etiqueta. Haz clic derecho en el aviso o en la línea Nuevo para ocultarlo o mostrarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand vous revenez dans une conversation qui a continué, un bandeau en haut à gauche indique combien de tours sont nouveaux et y mène. Réduit, c'est une petite pastille. Clic droit sur le bandeau ou la ligne Nouveau pour le masquer ou le réafficher."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando torni in una chat che ha continuato a lavorare, un banner in alto a sinistra indica quanti turni sono nuovi e ti porta lì. Compresso è una piccola etichetta. Fai clic destro sul banner o sulla linea Nuovo per nasconderlo o mostrarlo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "作業を続けていたチャットに戻ると、左上のバナーが新しいターン数を示し、そこへ移動できます。折りたたむと小さなピルになります。バナーまたは「新着」の線を右クリックすると、非表示にしたり元に戻したりできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលអ្នកត្រឡប់ទៅការជជែកដែលបន្តធ្វើការ បដានៅខាងលើឆ្វេងប្រាប់ថាមានវេនថ្មីប៉ុន្មាន ហើយទៅកាន់វា។ ពេលបង្រួម វាជាស្លាកតូច។ ចុចកណ្ដុរស្ដាំលើបដា ឬបន្ទាត់ថ្មី ដើម្បីលាក់ ឬបង្ហាញវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업을 계속한 채팅으로 돌아오면 왼쪽 위 배너가 새 턴의 수를 알려 주고 그곳으로 이동합니다. 접으면 작은 알약 모양이 됩니다. 배너나 새 항목 선을 오른쪽 클릭하여 숨기거나 다시 표시하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du kommer tilbake til en chat som fortsatte å jobbe, viser et banner øverst til venstre hvor mange runder som er nye, og hopper dit. Skjult er det et lite merke. Høyreklikk banneret eller Ny-linjen for å skjule det eller vise det igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy wracasz do czatu, który dalej pracował, pasek w lewym górnym rogu pokazuje, ile tur jest nowych, i przenosi do nich. Zwinięty jest małą pigułką. Kliknij prawym przyciskiem pasek lub linię Nowe, aby go ukryć lub przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando você volta a um chat que continuou trabalhando, um aviso no canto superior esquerdo diz quantos turnos são novos e leva até eles. Recolhido, é uma pequena etiqueta. Clique com o botão direito no aviso ou na linha Novo para ocultá-lo ou mostrá-lo de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда вы возвращаетесь в чат, который продолжал работать, баннер слева вверху показывает, сколько ходов новых, и переходит к ним. Свёрнутый, он становится маленькой меткой. Щёлкните баннер или линию «Новое» правой кнопкой, чтобы скрыть его или вернуть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อคุณกลับมาที่แชทที่ทำงานต่อไป แถบที่มุมซ้ายบนจะบอกว่ามีรอบใหม่กี่รอบและพาไปที่นั่น เมื่อย่อจะเป็นป้ายเล็ก คลิกขวาที่แถบหรือเส้นใหม่เพื่อซ่อนหรือแสดงอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışmaya devam eden bir sohbete döndüğünüzde, sol üstteki afiş kaç turun yeni olduğunu söyler ve oraya götürür. Daraltıldığında küçük bir etikettir. Gizlemek veya geri getirmek için afişe ya da Yeni çizgisine sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли ви повертаєтеся до чату, який продовжував працювати, банер угорі ліворуч показує, скільки ходів нові, і переходить до них. Згорнутий, він стає маленькою міткою. Клацніть банер або лінію «Нове» правою кнопкою, щоб сховати чи повернути його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi bạn quay lại một cuộc trò chuyện vẫn tiếp tục làm việc, biểu ngữ ở góc trên bên trái cho biết có bao nhiêu lượt mới và đưa bạn tới đó. Khi thu gọn, nó là một nhãn nhỏ. Nhấp chuột phải vào biểu ngữ hoặc đường Mới để ẩn hoặc hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回到一直在工作的聊天时，左上角的横幅会显示有多少新轮次，并可跳转过去。收起时是一个小标签。右键点按横幅或“新”线可隐藏或恢复它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回到一直在工作的聊天時，左上角的橫幅會顯示有多少新輪次，並可跳轉過去。收合時是一個小標籤。右鍵點按橫幅或「新」線可隱藏或恢復它。"
+          }
+        }
+      }
+    },
+    "settings.choice.collapsed": {
+      "comment": "Settings: a choice's title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مطوي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eingeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraído"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compresso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjult"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recolhido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнутий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合"
+          }
+        }
+      }
+    },
     "settings.chats.coldArchive": {
       "extractionState": "manual",
       "localizations": {
@@ -5958,127 +6354,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي مظهر المجموعات الخاص بـ cmux، وهو الزجاج. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون."
+            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي مظهر المجموعات الخاص بـ cmux، وهو الزجاج. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون. أما الأقسام فترسم كل مجموعة كعنوان قسم بسيط بدلًا من ذلك، بلا خلفية ولا خط بجانب مساحات عملها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi cmuxov izgled grupa, a to je staklo. Grupa uvijek ima vidljivu pozadinu, i kada nema boju."
+            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi cmuxov izgled grupa, a to je staklo. Grupa uvijek ima vidljivu pozadinu, i kada nema boju. Odjeljci umjesto toga crtaju svaku grupu kao običan naslov odjeljka, bez pozadine i bez linije pored njenih radnih prostora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger cmux' eget gruppeudseende, som er glas. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve."
+            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger cmux' eget gruppeudseende, som er glas. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve. Sektioner tegner i stedet hver gruppe som en enkel sektionsoverskrift, uden baggrund og uden streg ved dens arbejdsområder."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet das Gruppenaussehen von cmux, also Glas. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe."
+            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet das Gruppenaussehen von cmux, also Glas. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe. Abschnitte zeichnet jede Gruppe stattdessen als schlichte Abschnittsüberschrift, ohne Hintergrund und ohne Linie neben ihren Workspaces."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa el aspecto de grupo propio de cmux, que es vidrio. Un grupo siempre tiene un fondo visible, también cuando no tiene color."
+            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa el aspecto de grupo propio de cmux, que es vidrio. Un grupo siempre tiene un fondo visible, también cuando no tiene color. Secciones dibuja cada grupo como un simple encabezado de sección, sin fondo y sin línea junto a sus espacios de trabajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur."
+            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur. Rubriques affiche plutôt chaque groupe comme un simple titre de section, sans arrière-plan ni ligne à côté de ses espaces de travail."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa l’aspetto dei gruppi di cmux, cioè il vetro. Un gruppo ha sempre uno sfondo visibile, anche senza colore."
+            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa l’aspetto dei gruppi di cmux, cioè il vetro. Un gruppo ha sempre uno sfondo visibile, anche senza colore. Sezioni disegna invece ogni gruppo come una semplice intestazione di sezione, senza sfondo e senza linea accanto ai suoi spazi di lavoro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動は cmux 標準のグループの見た目（ガラス）を使います。色のないグループにも、常に見える背景があります。"
+            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動は cmux 標準のグループの見た目（ガラス）を使います。色のないグループにも、常に見える背景があります。セクションは、各グループを背景もワークスペース横の線もない、シンプルなセクション見出しとして描きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើរូបរាងក្រុមរបស់ cmux ដែលជាកញ្ចក់។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។"
+            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើរូបរាងក្រុមរបស់ cmux ដែលជាកញ្ចក់។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។ ផ្នែកគូរក្រុមនីមួយៗជាចំណងជើងផ្នែកធម្មតាជំនួសវិញ ដោយគ្មានផ្ទៃខាងក្រោយ និងគ្មានបន្ទាត់ក្បែរកន្លែងធ្វើការរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 cmux 기본 그룹 모양인 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다."
+            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 cmux 기본 그룹 모양인 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다. 섹션은 각 그룹을 배경도, 작업 공간 옆의 선도 없는 단순한 섹션 제목으로 그립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker cmux sitt eget gruppeutseende, som er glass. En gruppe har alltid en synlig bakgrunn, også uten farge."
+            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker cmux sitt eget gruppeutseende, som er glass. En gruppe har alltid en synlig bakgrunn, også uten farge. Seksjoner tegner i stedet hver gruppe som en enkel seksjonsoverskrift, uten bakgrunn og uten strek ved arbeidsområdene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa wyglądu grup cmux, czyli szkła. Grupa zawsze ma widoczne tło, także bez koloru."
+            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa wyglądu grup cmux, czyli szkła. Grupa zawsze ma widoczne tło, także bez koloru. Sekcje rysują zamiast tego każdą grupę jako zwykły nagłówek sekcji, bez tła i bez linii obok jej obszarów roboczych."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa a aparência de grupo do próprio cmux, que é vidro. Um grupo sempre tem um fundo visível, mesmo sem cor."
+            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa a aparência de grupo do próprio cmux, que é vidro. Um grupo sempre tem um fundo visível, mesmo sem cor. Seções desenha cada grupo como um simples título de seção, sem fundo e sem linha ao lado dos seus espaços de trabalho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует вид групп cmux, то есть стекло. У группы всегда есть видимый фон, даже без цвета."
+            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует вид групп cmux, то есть стекло. У группы всегда есть видимый фон, даже без цвета. Разделы вместо этого рисуют каждую группу как простой заголовок раздела, без фона и без линии рядом с её рабочими пространствами."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้รูปลักษณ์กลุ่มของ cmux ซึ่งเป็นกระจก กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี"
+            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้รูปลักษณ์กลุ่มของ cmux ซึ่งเป็นกระจก กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี ส่วนจะวาดแต่ละกลุ่มเป็นหัวข้อส่วนแบบเรียบง่ายแทน โดยไม่มีพื้นหลังและไม่มีเส้นข้างพื้นที่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, cmux'un kendi grup görünümünü, yani camı kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır."
+            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, cmux'un kendi grup görünümünü, yani camı kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır. Bölümler ise her grubu arka planı ve çalışma alanlarının yanında çizgisi olmayan sade bir bölüm başlığı olarak çizer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує вигляд груп cmux, тобто скло. Група завжди має видиме тло, навіть без кольору."
+            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує вигляд груп cmux, тобто скло. Група завжди має видиме тло, навіть без кольору. Розділи натомість малюють кожну групу як простий заголовок розділу, без тла й без лінії біля її робочих просторів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng giao diện nhóm của cmux, tức là kính. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu."
+            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng giao diện nhóm của cmux, tức là kính. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu. Mục thay vào đó vẽ mỗi nhóm như một tiêu đề mục đơn giản, không có nền và không có đường kẻ bên cạnh các không gian làm việc."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动使用 cmux 自己的群组外观，即玻璃。群组始终有可见的背景，即使没有颜色。"
+            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动使用 cmux 自己的群组外观，即玻璃。群组始终有可见的背景，即使没有颜色。分区则把每个群组绘制为简单的分区标题，没有背景，工作区旁也没有线条。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動使用 cmux 自己的群組外觀，即玻璃。群組始終有可見的背景，即使沒有顏色。"
+            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動使用 cmux 自己的群組外觀，即玻璃。群組始終有可見的背景，即使沒有顏色。分區則把每個群組繪製為簡單的分區標題，沒有背景，工作區旁也沒有線條。"
           }
         }
       }
@@ -6475,6 +6871,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "實色"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundSections": {
+      "comment": "Group background choice: no background, each group a plain section heading.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقسام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odjeljci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sektioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abschnitte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rubriques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sezioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "섹션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seksjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekcje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seções"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölümler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分區"
           }
         }
       }
@@ -122776,127 +123304,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+            "value": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "分割、閉じる、移動、ズーム、列のスクロール、画面の切り替えがスライドして収まります。オフにすると即座に切り替わります。"
+            "value": "分割、閉じる、移動、ズーム、列のスクロールがスライドして収まります。オフにすると即座に切り替わります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تنزلق عمليات التقسيم والإغلاق والنقل والتكبير وتمرير الأعمدة وتبديل الشاشات إلى أماكنها. عند الإيقاف: تتغير فورًا."
+            "value": "تنزلق عمليات التقسيم والإغلاق والنقل والتكبير وتمرير الأعمدة إلى أماكنها. عند الإيقاف: تتغير فورًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dijeljenja, zatvaranja, premještanja, zumiranja, pomicanja kolona i promjene ekrana klize na mjesto. Isključeno: mijenjaju se odmah."
+            "value": "Dijeljenja, zatvaranja, premještanja, zumiranja i pomicanja kolona klize na mjesto. Isključeno: mijenjaju se odmah."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opdelinger, lukninger, flytninger, zoom, kolonnerulning og skærmskift glider på plads. Fra: de skifter med det samme."
+            "value": "Opdelinger, lukninger, flytninger, zoom og kolonnerulning glider på plads. Fra: de skifter med det samme."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Teilen, Schließen, Verschieben, Zoomen, Spaltenscrollen und Bildschirmwechsel gleiten an ihren Platz. Aus: Sie wechseln sofort."
+            "value": "Teilen, Schließen, Verschieben, Zoomen und Spaltenscrollen gleiten an ihren Platz. Aus: Sie wechseln sofort."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las divisiones, cierres, movimientos, zooms, desplazamientos de columnas y cambios de pantalla se deslizan a su sitio. Desactivado: cambian al instante."
+            "value": "Las divisiones, cierres, movimientos, zooms y desplazamientos de columnas se deslizan a su sitio. Desactivado: cambian al instante."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les divisions, fermetures, déplacements, zooms, défilements de colonnes et changements d'écran glissent en place. Désactivé : ils changent immédiatement."
+            "value": "Les divisions, fermetures, déplacements, zooms et défilements de colonnes glissent en place. Désactivé : ils changent immédiatement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Divisioni, chiusure, spostamenti, zoom, scorrimenti delle colonne e cambi di schermata scorrono in posizione. Disattivato: cambiano subito."
+            "value": "Divisioni, chiusure, spostamenti, zoom e scorrimenti delle colonne scorrono in posizione. Disattivato: cambiano subito."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការបំបែក ការបិទ ការផ្លាស់ទី ការពង្រីក ការរំកិលជួរឈរ និងការប្តូរអេក្រង់ រអិលចូលកន្លែង។ បិទ៖ ពួកវាប្តូរភ្លាមៗ។"
+            "value": "ការបំបែក ការបិទ ការផ្លាស់ទី ការពង្រីក និងការរំកិលជួរឈរ រអិលចូលកន្លែង។ បិទ៖ ពួកវាប្តូរភ្លាមៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "분할, 닫기, 이동, 확대/축소, 열 스크롤, 화면 전환이 미끄러지듯 자리를 잡습니다. 끄면 즉시 바뀝니다."
+            "value": "분할, 닫기, 이동, 확대/축소, 열 스크롤이 미끄러지듯 자리를 잡습니다. 끄면 즉시 바뀝니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Delinger, lukkinger, flyttinger, zoom, kolonnerulling og skjermbytter glir på plass. Av: de endres med en gang."
+            "value": "Delinger, lukkinger, flyttinger, zoom og kolonnerulling glir på plass. Av: de endres med en gang."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podziały, zamknięcia, przeniesienia, powiększenia, przewijanie kolumn i zmiany ekranów wsuwają się na miejsce. Wyłączone: zmieniają się od razu."
+            "value": "Podziały, zamknięcia, przeniesienia, powiększenia i przewijanie kolumn wsuwają się na miejsce. Wyłączone: zmieniają się od razu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Divisões, fechamentos, movimentos, zooms, rolagens de colunas e trocas de tela deslizam até o lugar. Desativado: mudam na hora."
+            "value": "Divisões, fechamentos, movimentos, zooms e rolagens de colunas deslizam até o lugar. Desativado: mudam na hora."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разделение, закрытие, перемещение, масштабирование, прокрутка колонок и смена экранов плавно встают на место. Выкл.: меняются сразу."
+            "value": "Разделение, закрытие, перемещение, масштабирование и прокрутка колонок плавно встают на место. Выкл.: меняются сразу."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การแบ่ง การปิด การย้าย การซูม การเลื่อนคอลัมน์ และการสลับหน้าจอจะเลื่อนเข้าที่ ปิด: เปลี่ยนทันที"
+            "value": "การแบ่ง การปิด การย้าย การซูม และการเลื่อนคอลัมน์จะเลื่อนเข้าที่ ปิด: เปลี่ยนทันที"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölme, kapatma, taşıma, yakınlaştırma, sütun kaydırma ve ekran geçişleri kayarak yerine oturur. Kapalı: hemen değişir."
+            "value": "Bölme, kapatma, taşıma, yakınlaştırma ve sütun kaydırma kayarak yerine oturur. Kapalı: hemen değişir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Розділення, закриття, переміщення, масштабування, прокручування колонок і зміна екранів плавно стають на місце. Вимк.: змінюються одразу."
+            "value": "Розділення, закриття, переміщення, масштабування і прокручування колонок плавно стають на місце. Вимк.: змінюються одразу."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chia, đóng, di chuyển, phóng to, cuộn cột và chuyển màn hình trượt vào chỗ. Tắt: thay đổi ngay lập tức."
+            "value": "Chia, đóng, di chuyển, phóng to và cuộn cột trượt vào chỗ. Tắt: thay đổi ngay lập tức."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拆分、关闭、移动、缩放、列滚动和屏幕切换会滑动到位。关闭后立即切换。"
+            "value": "拆分、关闭、移动、缩放和列滚动会滑动到位。关闭后立即切换。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "分割、關閉、移動、縮放、欄捲動和螢幕切換會滑動到位。關閉後立即切換。"
+            "value": "分割、關閉、移動、縮放和欄捲動會滑動到位。關閉後立即切換。"
           }
         }
       }
@@ -123421,268 +123949,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "新工作區列在側邊欄中展開。關閉後立即顯示。"
-          }
-        }
-      }
-    },
-    "settings.ui.animations.bounce": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Animation Bounce"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "アニメーションの弾み"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ارتداد الحركة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odskok animacije"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animationsfjedring"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animationsfederung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rebote de animación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rebond des animations"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rimbalzo delle animazioni"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការលោតនៃចលនា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "애니메이션 바운스"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animasjonsfjæring"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbicie animacji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quique das animações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пружинистость анимации"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเด้งของภาพเคลื่อนไหว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animasyon sekmesi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пружність анімації"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Độ nảy của hiệu ứng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "动画弹跳"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "動畫彈跳"
-          }
-        }
-      }
-    },
-    "settings.ui.animations.bounce.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "なしではタブ、行、ペインがその位置でぴたりと止まります。控えめでは小さく弾んで落ち着きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا شيء يوقف علامات التبويب والصفوف والأجزاء في مكانها تمامًا. خفيف يتركها تستقر بارتداد صغير."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ništa zaustavlja kartice, redove i okna tačno na mjestu. Suptilno ih pušta da se smire uz mali odskok."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen stopper faner, rækker og ruder præcis på deres plads. Diskret lader dem falde på plads med et lille fjed."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine hält Tabs, Zeilen und Bereiche genau an ihrem Platz an. Dezent lässt sie mit einem kleinen Federn einrasten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ninguno detiene pestañas, filas y paneles justo en su sitio. Sutil los deja asentarse con un pequeño rebote."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun arrête onglets, lignes et sous-fenêtres exactement à leur place. Discret les laisse se poser avec un petit rebond."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuno ferma schede, righe e riquadri esattamente al loro posto. Leggero li fa assestare con un piccolo rimbalzo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មាន បញ្ឈប់ផ្ទាំង ជួរ និងផ្ទាំងបន្ទះនៅកន្លែងរបស់វាត្រឹមត្រូវ។ ស្រាល ឱ្យវាស្ងប់ដោយលោតបន្តិច។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "없음은 탭, 행, 창을 정확히 제자리에 멈춥니다. 은은하게는 작게 튕기며 자리 잡습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen stopper faner, rader og ruter nøyaktig på plassen sin. Diskret lar dem falle på plass med en liten fjæring."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak zatrzymuje karty, wiersze i panele dokładnie na miejscu. Subtelne pozwala im osiąść z lekkim odbiciem."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum para abas, linhas e painéis exatamente no lugar. Sutil os deixa assentar com um pequeno quique."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет останавливает вкладки, строки и панели точно на месте. Слегка даёт им встать на место с небольшим отскоком."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มี จะหยุดแท็บ แถว และบานหน้าต่างตรงตำแหน่งพอดี เล็กน้อย จะให้เด้งเล็กน้อยก่อนเข้าที่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yok sekmeleri, satırları ve bölmeleri tam yerinde durdurur. Hafif, küçük bir sekmeyle yerleşmelerini sağlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає зупиняє вкладки, рядки й панелі точно на місці. Легко дає їм стати на місце з невеликим відскоком."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không dừng tab, hàng và khung đúng vị trí. Nhẹ cho chúng nảy nhẹ trước khi dừng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无：标签页、行和窗格精确停在原位。轻微：以轻微弹跳落定。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無：分頁、列與窗格精確停在原位。輕微：以輕微彈跳落定。"
           }
         }
       }
@@ -166973,6 +167239,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式工作時，其工作清單顯示在最新訊息下方，而不是輸入框上方的列中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.promptCoach": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Coach"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدرب الطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Savjetnik za upite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-coach"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Coach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asesor de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトコーチ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រូបង្វឹកប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 코치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ledetekst-coach"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trener promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помощник по запросам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem koçu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помічник із запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huấn luyện lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词教练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示詞教練"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.promptCoach.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد محادثة احتاجت إلى عدة تصحيحات، يعرض كيف كان يمكن لطلبها الأول أن يقول كل شيء دفعة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon razgovora koji je trebao nekoliko ispravki, pokazuje kako je prvi upit mogao sve reći odjednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en chat, der krævede flere rettelser, vises hvordan den første prompt kunne have sagt det hele på én gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt nach einem Chat mit mehreren Korrekturen, wie der erste Prompt alles auf einmal hätte sagen können."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras un chat que necesitó varias correcciones, muestra cómo su primer prompt podría haberlo dicho todo de una vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une discussion qui a demandé plusieurs corrections, montre comment le premier prompt aurait pu tout dire d'un coup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo una chat che ha richiesto diverse correzioni, mostra come il primo prompt avrebbe potuto dire tutto in una volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何度か修正が必要だったチャットのあとに、最初のプロンプトで一度に伝える書き方を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីការជជែកដែលត្រូវកែតម្រូវច្រើនដង បង្ហាញពីរបៀបដែលប្រអប់បញ្ចូលដំបូងអាចនិយាយទាំងអស់ក្នុងពេលតែមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 번 고쳐야 했던 채팅이 끝나면, 첫 프롬프트로 한 번에 말할 수 있었던 방법을 보여줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en chat som trengte flere rettelser, viser hvordan den første ledeteksten kunne ha sagt alt på én gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po czacie, który wymagał kilku poprawek, pokazuje, jak pierwszy prompt mógł powiedzieć wszystko od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois de um chat que precisou de várias correções, mostra como o primeiro prompt poderia ter dito tudo de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После чата, где понадобилось несколько исправлений, показывает, как первый запрос мог сказать всё сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจากแชตที่ต้องแก้ไขหลายครั้ง จะแสดงว่าพรอมต์แรกจะบอกทุกอย่างได้ในครั้งเดียวอย่างไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Birkaç düzeltme gerektiren bir sohbetten sonra, ilk istemin her şeyi tek seferde nasıl söyleyebileceğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після чату, де знадобилося кілька виправлень, показує, як перший запит міг сказати все одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau một cuộc trò chuyện cần sửa nhiều lần, cho thấy lời nhắc đầu tiên có thể nói hết mọi thứ cùng lúc như thế nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的对话之后，显示第一条提示词如何一次说清所有内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在需要多次修正的對話之後，顯示第一則提示詞如何一次說清所有內容。"
           }
         }
       }
@@ -215313,6 +215843,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử, `cmux cloud` trong terminal và script sẽ tạo máy đám mây, chuyển cuộc trò chuyện lên đám mây và khởi động phiên ở đó mà không có thẻ hỏi bạn trước. Giới hạn gói của bạn vẫn áp dụng. Chỉ bạn mới có thể thay đổi tùy chọn này."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体、终端中的 `cmux cloud` 和脚本会创建云端机器、将聊天移到云端并在那里启动会话，不会先显示卡片询问你。你的方案限制仍然适用。只有你可以更改此项。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式、終端機中的 `cmux cloud` 和指令碼會建立雲端機器、將聊天移到雲端並在那裡啟動工作階段，不會先顯示卡片詢問你。你的方案限制仍然適用。只有你可以變更此項。"}}
+      }
+    },
+    "settings.cloud.turnCheckpoints": {
+      "comment": "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Save a Checkpoint Before Each Cloud Chat Turn"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حفظ نقطة استعادة قبل كل دور في دردشة السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sačuvaj kontrolnu tačku prije svakog poteza Cloud chata"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gem et checkpoint før hver tur i en Cloud-chat"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Vor jedem Zug eines Cloud-Chats einen Checkpoint speichern"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guardar un punto de control antes de cada turno del chat en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistrer un point de contrôle avant chaque tour d’un chat Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva un checkpoint prima di ogni turno della chat Cloud"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットの各ターンの前にチェックポイントを保存"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកចំណុចត្រួតពិនិត្យមុនវេននីមួយៗនៃការជជែក Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 각 턴 전에 체크포인트 저장"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagre et sjekkpunkt før hver tur i en Cloud-chat"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuj punkt kontrolny przed każdą turą czatu w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salvar um checkpoint antes de cada turno do chat na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохранять контрольную точку перед каждым ходом облачного чата"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกจุดตรวจสอบก่อนแต่ละรอบของแชต Cloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her Cloud sohbet turundan önce bir kontrol noktası kaydet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігати контрольну точку перед кожним ходом хмарного чату"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu điểm khôi phục trước mỗi lượt trò chuyện Cloud"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在每轮云端聊天之前保存检查点"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在每輪雲端聊天之前儲存檢查點"}}
+      }
+    },
+    "settings.cloud.turnCheckpoints.help": {
+      "comment": "Settings > Machines: help for the Save a Checkpoint Before Each Cloud Chat Turn toggle. Back to Before This Turn is the chat's undo action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يحفظ آلة السحابة بالكامل بين أدوار دردشة السحابة، لتستعيدها «العودة إلى ما قبل هذا الدور» في ثوانٍ. يحتفظ بأحدث بضع نقاط استعادة لكل دردشة. عند الإيقاف: لا تُحفظ أي نقاط استعادة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Čuva cijelu Cloud mašinu između poteza Cloud chata, tako da je Nazad prije ovog poteza vraća za nekoliko sekundi. Zadržava nekoliko najnovijih kontrolnih tačaka svakog chata. Isključeno: kontrolne tačke se ne čuvaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gemmer hele Cloud-maskinen mellem turene i en Cloud-chat, så Tilbage til før denne tur gendanner den på få sekunder. Beholder de nyeste få checkpoints for hver chat. Fra: ingen checkpoints gemmes."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Speichert die ganze Cloud-Maschine zwischen den Zügen eines Cloud-Chats, sodass „Zurück vor diesen Zug“ sie in Sekunden wiederherstellt. Behält die neuesten paar Checkpoints jedes Chats. Aus: Es werden keine Checkpoints gespeichert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guarda toda la máquina en la nube entre los turnos de un chat en la nube, para que Volver a antes de este turno la restaure en segundos. Conserva los puntos de control más recientes de cada chat. Desactivado: no se guarda ningún punto de control."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistre toute la machine Cloud entre les tours d’un chat Cloud, pour que Revenir avant ce tour la restaure en quelques secondes. Garde les quelques points de contrôle les plus récents de chaque chat. Désactivé : aucun point de contrôle n’est enregistré."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva l’intera macchina Cloud tra i turni di una chat Cloud, così Torna a prima di questo turno la ripristina in pochi secondi. Conserva gli ultimi checkpoint di ogni chat. Disattivato: nessun checkpoint viene salvato."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットのターンの間に Cloud マシン全体を保存し、「このターンの前に戻る」で数秒で復元できるようにします。各チャットの最新のいくつかのチェックポイントを保持します。オフ: チェックポイントは保存されません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកម៉ាស៊ីន Cloud ទាំងមូលរវាងវេននៃការជជែក Cloud ដើម្បីឱ្យ ត្រឡប់ទៅមុនវេននេះ ស្ដារវាក្នុងរយៈពេលប៉ុន្មានវិនាទី។ រក្សាចំណុចត្រួតពិនិត្យថ្មីៗបំផុតមួយចំនួននៃការជជែកនីមួយៗ។ បិទ៖ មិនរក្សាទុកចំណុចត្រួតពិនិត្យទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 턴 사이에 Cloud 머신 전체를 저장해, 이 턴 이전으로 되돌리기가 몇 초 만에 복원합니다. 채팅마다 최신 체크포인트 몇 개를 보관합니다. 끔: 체크포인트를 저장하지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagrer hele Cloud-maskinen mellom turene i en Cloud-chat, så Tilbake til før denne turen gjenoppretter den på sekunder. Beholder de nyeste sjekkpunktene for hver chat. Av: ingen sjekkpunkter lagres."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuje całą maszynę w chmurze między turami czatu w chmurze, aby Wróć do stanu sprzed tej tury przywracało ją w kilka sekund. Zachowuje kilka najnowszych punktów kontrolnych każdego czatu. Wyłączone: punkty kontrolne nie są zapisywane."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salva a máquina na nuvem inteira entre os turnos de um chat na nuvem, para que Voltar para antes deste turno a restaure em segundos. Mantém os checkpoints mais recentes de cada chat. Desativado: nenhum checkpoint é salvo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохраняет всю облачную машину между ходами облачного чата, чтобы «Вернуться к моменту до этого хода» восстанавливало её за секунды. Хранит несколько последних контрольных точек каждого чата. Выключено: контрольные точки не сохраняются."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกเครื่อง Cloud ทั้งเครื่องระหว่างรอบของแชต Cloud เพื่อให้ ย้อนกลับไปก่อนรอบนี้ กู้คืนได้ในไม่กี่วินาที เก็บจุดตรวจสอบล่าสุดไม่กี่จุดของแต่ละแชต ปิด: ไม่บันทึกจุดตรวจสอบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir Cloud sohbetinin turları arasında Cloud makinesinin tamamını kaydeder; böylece Bu Turdan Öncesine Dön onu saniyeler içinde geri yükler. Her sohbetin en yeni birkaç kontrol noktasını saklar. Kapalı: kontrol noktası kaydedilmez."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігає всю хмарну машину між ходами хмарного чату, щоб «Повернутися до моменту перед цим ходом» відновлювало її за секунди. Зберігає кілька найновіших контрольних точок кожного чату. Вимкнено: контрольні точки не зберігаються."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu toàn bộ máy Cloud giữa các lượt của cuộc trò chuyện Cloud, để Quay lại trước lượt này khôi phục nó trong vài giây. Giữ vài điểm khôi phục mới nhất của mỗi cuộc trò chuyện. Tắt: không lưu điểm khôi phục nào."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端聊天的各轮之间保存整台云端机器，让“回到这一轮之前”在几秒内恢复它。每个聊天保留最新的几个检查点。关闭：不保存检查点。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端聊天的各輪之間儲存整台雲端機器，讓「回到這一輪之前」在幾秒內還原它。每個聊天保留最新的幾個檢查點。關閉：不儲存檢查點。"}}
       }
     },
     "settings.agentPane.composerRing": {

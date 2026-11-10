@@ -37,7 +37,7 @@ extension AgentShareActions {
             return .refused(code: "unavailable", message: AgentShareStrings.reason("share.chat_moved") ?? paneUnavailable)
         }
         let chat = AgentShareChat(surface: found.surface.rawValue, session: session, connection: host.shareConnection(holding: found),
-                                  isLocal: isLocal, title: found.title, cloudOwner: cloudOwner)
+                                  isLocal: isLocal, title: found.titleText, cloudOwner: cloudOwner)
         do {
             switch op {
             case .state:

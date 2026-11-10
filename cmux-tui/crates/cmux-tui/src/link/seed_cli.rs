@@ -76,9 +76,13 @@
 
 mod fetch;
 mod held;
+mod hop;
 mod pull;
 mod record;
 
+pub(super) use hop::{
+    abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
+};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
@@ -97,7 +101,8 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--or-copy | --base-head SHA --base-index SHA --base-work SHA]
-       cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]";
+       cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]
+       cmux link seed move --from-socket PATH --socket PATH LOCAL_FOLDER FROM_FOLDER TO_FOLDER";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -233,6 +238,29 @@ pub(super) fn run(args: &[String]) -> i32 {
         args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
     {
         return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
+    }
+    // A seeded folder from one machine to another as git, this Mac's folder untouched ([`hop`]):
+    // both passes at once, as `cmux link agent move --sync relay --sync-seed-local` runs them.
+    if let ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] =
+        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
+    {
+        let (from, to, local) = (Path::new(from), Path::new(to), Path::new(local));
+        let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
+        // One person's move from a shell: its own owner, apart from any chat's.
+        let owner = "cli";
+        let moved = hop_bulk(from, from_root, to, to_root, local, owner)
+            .and_then(|()| hop_frozen(from, from_root, to, to_root, local, owner))
+            .and_then(|()| land(local, to_root, owner));
+        return match moved {
+            Ok(_) => {
+                println!("{}", json!({"ok": true, "mode": "seed"}));
+                0
+            }
+            Err(error) => {
+                println!("{}", SeedError::of(&error).line());
+                1
+            }
+        };
     }
     let Some(command) = parse(args) else {
         eprintln!("{USAGE}");
@@ -437,6 +465,42 @@ impl<'a> Machine<'a> {
             "the machine runs an older cmux-tui without git-seed-v1; update the machine",
         )
     }
+}
+
+/// A seeded or copied folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
+/// (`from_root`) to the one at `to` (`to_root`; `cmux link agent move --sync relay`): this Mac's
+/// record of `local` follows, so Bring Back Local from the new machine merges against the same
+/// seed. False when there is no record, or it is of another machine than `from`.
+pub(in crate::link) fn follow(
+    local: &Path,
+    from_root: &str,
+    to_root: &str,
+    from: &Path,
+    to: &Path,
+) -> anyhow::Result<bool> {
+    let local = std::fs::canonicalize(local)?;
+    let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
+    let id = |socket: &Path| {
+        machine_gate::identify(socket)?.get("session_id")?.as_str().map(str::to_owned)
+    };
+    if kept.machine.is_some() {
+        let source = anyhow::Context::context(
+            id(from),
+            "the first machine did not say which machine it is",
+        )?;
+        if kept.machine.as_deref() != Some(source.as_str()) {
+            return Ok(false);
+        }
+    }
+    kept.machine =
+        Some(anyhow::Context::context(id(to), "the new machine did not say which machine it is")?);
+    // A copied folder's Bring Back Local merges against the copy's own base (`link-sync`), which
+    // the relay's copy of the machine's record still matches.
+    if kept.mode == Kept::Copy {
+        sync_cli::carry_base(&local, from_root, to_root)?;
+    }
+    record::save(&local, to_root, &kept)?;
+    Ok(true)
 }
 
 /// A full push: the seed, else the copy (module docs). With `head_first` (the

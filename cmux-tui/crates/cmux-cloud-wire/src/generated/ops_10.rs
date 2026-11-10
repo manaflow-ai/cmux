@@ -5,6 +5,50 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitGetResult {
+    pub team: String,
+    pub default_usd: WireNumber,
+    pub is_default: bool,
+    pub resets_at: i64,
+    pub me: TeamAiLimitMember,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<TeamAiLimitMember>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_usage: Option<TeamAiUsageLine>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub next_cursor: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.get declares.
+    TeamAiLimitGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Set one member's personal monthly AI spending limit (USD per UTC month, any amount; 0 = no AI); null clears it and the member uses the team default again. Team admins and billing members, in a person's session. Recorded in the billing audit.
+    TeamAiLimitMemberSetOp {
+        name: "team.ai_limit.member.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "money",
+        principals: [Session],
+        params: TeamAiLimitMemberSetParams,
+        result: TeamAiLimitMemberSetResult,
+        error: TeamAiLimitMemberSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitMemberSetParams {
+    pub member: UserId,
+    pub limit_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAiLimitMemberSetResult {
     pub member: UserId,
     pub limit_usd: Option<WireNumber>,
@@ -850,51 +894,4 @@ pub struct TeamMembersListParams {
     pub limit: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<TeamRole>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamMembersListResult {
-    pub team: TeamId,
-    pub members: Vec<TeamMember>,
-    pub member_count: WireNumber,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seat_count: Option<WireNumber>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub no_owner: Option<bool>,
-    pub next_cursor: Option<String>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.members.list declares.
-    TeamMembersListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only.
-    TeamMembersRemoveOp {
-        name: "team.members.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamMembersRemoveParams,
-        result: TeamMembersRemoveResult,
-        error: TeamMembersRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamMembersRemoveParams {
-    pub user: UserId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamMembersRemoveResult {
-    pub user: UserId,
-    pub removed: bool,
 }

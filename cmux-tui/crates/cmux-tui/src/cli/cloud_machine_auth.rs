@@ -14,7 +14,7 @@
 
 use serde_json::{Value, json};
 
-use super::cloud_start_chat::{Runner, SelfRunner, forwarded_globals, step_result};
+use super::cloud_start_chat::{Runner, self_runner, step_result};
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "usage: cmux cloud machine-auth --machine VM_ID [--json]
@@ -198,7 +198,7 @@ pub(super) fn ask(runner: &mut dyn Runner, machine: &str, route: &Route) -> Resu
 }
 
 fn run(global: &GlobalArgs, output: OutputMode, machine: &str) -> i32 {
-    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    let mut runner = self_runner(global);
     let route = Route::choose(global, |key| std::env::var(key).ok());
     match ask(&mut runner, machine, &route) {
         Err(error) => super::wire::print_local_error(&error, output, 1),

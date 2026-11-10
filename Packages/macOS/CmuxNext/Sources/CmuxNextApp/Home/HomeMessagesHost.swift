@@ -40,7 +40,7 @@ import MessagesLabHome
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
 /// - Clicks: `chief.settings {conversation, anchor}` -> `{shown}` (the settings under the name pill, page points),
 ///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.action` (the Feed page's `cmux.app.action.run`);
-///   Stop, Stop all agents, Continue, Restart and Start now are ``HomeMessagesChiefTurn``'s.
+///   ``HomePageAttachmentDrag``'s drag out; Stop, Stop all agents, Continue, Restart and Start now are ``HomeMessagesChiefTurn``'s.
 /// Streams: `appearance` (the bubble look, each chat's colours, the composer's spell checking),
 /// `group.follow {conversation}` and `requests.follow` (Group Info and Requests while they show,
 /// ``HomeMessagesFollow``), `headerPanels` (the toggles of
@@ -55,7 +55,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "composing", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageToastAvoidance.op,
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation", HomePageAttachmentDrag.op, HomePageToastAvoidance.op,
                            HomeMessagesBubbleOps.prefix, HomeMessagesSeeThrough.stream].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
@@ -68,7 +68,7 @@ final class HomeMessagesHostProvider: PageProvider {
     let hidden = HomeMessagesHiddenFeed()
     /// The `list` stream (tags, Cloud note, teammates, header sizes) and the list's width (``HomeMessagesListFeed``).
     let list: HomeMessagesListFeed
-    private var previewProvider: HomeLinkPreviewProvider?
+    private lazy var previews = HomeLinkPreviewProvider(services: services)
     private var keeping: HomeMessagesKept?
     private var bubbleOps: HomeMessagesBubbleOps?
     /// Stop, Stop all agents, Continue and Restart on the conversation's own Chief (``HomeMessagesChiefTurn``).
@@ -96,6 +96,7 @@ final class HomeMessagesHostProvider: PageProvider {
     let composerFiles = HomeComposerFiles()
     /// The mic, the compose bar's box toasts rest above, and the see-through Chief's switch and header height.
     let dictation = HomePageDictation(), toastAvoidance = HomePageToastAvoidance(), seeThrough = HomeMessagesSeeThrough()
+    private lazy var attachmentDrag = HomePageAttachmentDrag(window: { [weak self] in self?.window() }, personOnly: RefusalStrings.personOnlyFromPage) { [weak self] in try? await self?.services?.home.homeStore.fetchAttachment($0, at: $1, variant: .original) }
 
     init(services: AppServices, widthKey: String) {
         self.services = services
@@ -113,7 +114,7 @@ final class HomeMessagesHostProvider: PageProvider {
         if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
         if let userOnly, HomeMessagesPageRoute.needsPerson(name, fields) { throw userOnly }
         let chiefAnswer = try await chiefTurn.call(name, fields, userGesture: context.userGesture)
-        if let answer = try chiefAnswer ?? toastAvoidance.call(name, fields) ?? seeThrough.call(name, fields) { return answer }
+        if let answer = try chiefAnswer ?? toastAvoidance.call(name, fields) ?? seeThrough.call(name, fields) ?? attachmentDrag.call(name, fields, userGesture: context.userGesture) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
@@ -193,10 +194,8 @@ final class HomeMessagesHostProvider: PageProvider {
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
                 throw PageError.invalidParams("url and kind must name a link")
             }
-            let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
-            previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreview.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
             guard let text = fields["url"]?.stringValue,

@@ -38,5 +38,7 @@ extension SettingsSchema {
         "cloud.useMyCodexLoginOnMyCloudMachines": "Cloud machines reach Codex through the Cloud service; no login is copied",
         // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
         "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
+        // No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour.
+        "ui.animations.bounce": "no animation passes its place; every spring stops exactly on it",
     ]
 }

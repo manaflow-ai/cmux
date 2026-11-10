@@ -151,7 +151,7 @@ fn public_layout_node(
             }
             Ok(leaf)
         }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
             anyhow::ensure!(ratio.is_finite(), "layout split ratio is not finite");
             let direction = match direction.as_str() {
                 "right" | "horizontal" => "horizontal",

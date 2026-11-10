@@ -78,6 +78,8 @@ pub const CASES_WINDOW_WORKSPACE: &[EnumCase] = &[EnumCase { value: "window", ti
 #[rustfmt::skip]
 pub const CASES_THEME_BACKGROUND: &[EnumCase] = &[EnumCase { value: "theme", title: t("LayoutActions", "argument.value.appearanceProperty.theme", "Theme") }, EnumCase { value: "background", title: t("LayoutActions", "argument.value.appearanceProperty.background", "Background") }, EnumCase { value: "tint", title: t("LayoutActions", "argument.value.appearanceProperty.tint", "Tint") }, EnumCase { value: "opacity", title: t("LayoutActions", "argument.value.appearanceProperty.opacity", "Opacity") }];
 #[rustfmt::skip]
+pub const CASES_TERMINAL_BROWSER: &[EnumCase] = &[EnumCase { value: "terminal", title: t("LayoutActions", "argument.value.dividerInsertKind.terminal", "Terminal") }, EnumCase { value: "browser", title: t("LayoutActions", "argument.value.dividerInsertKind.browser", "Browser") }, EnumCase { value: "agentChat", title: t("LayoutActions", "argument.value.dividerInsertKind.agentChat", "Agent Chat") }, EnumCase { value: "newTabPage", title: t("LayoutActions", "argument.value.dividerInsertKind.newTabPage", "New Tab Page") }];
+#[rustfmt::skip]
 pub const CASES_ALL: &[EnumCase] = &[EnumCase { value: "all", title: t("WorkspaceActions", "argument.value.autoArchive.restoreAll", "Restore All") }];
 #[rustfmt::skip]
 pub const CASES_DEFAULT_NEVER: &[EnumCase] = &[EnumCase { value: "default", title: t("WorkspaceActions", "argument.value.autoArchive.default", "Use the Default") }, EnumCase { value: "never", title: t("WorkspaceActions", "argument.value.autoArchive.never", "Never") }, EnumCase { value: "24", title: t("WorkspaceActions", "argument.value.autoArchive.day", "After 1 Idle Day") }, EnumCase { value: "72", title: t("WorkspaceActions", "argument.value.autoArchive.threeDays", "After 3 Idle Days") }, EnumCase { value: "168", title: t("WorkspaceActions", "argument.value.autoArchive.week", "After 1 Idle Week") }, EnumCase { value: "720", title: t("WorkspaceActions", "argument.value.autoArchive.month", "After 30 Idle Days") }];
@@ -503,8 +505,6 @@ pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActi
 #[rustfmt::skip]
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
 pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const KEYMAP: Argument = Argument { name: "keymap", title: t("Localizable", "argument.keymap", "Keymap"), kind: ArgKind::Enumeration(CASES_CMUX_ITERM2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -542,6 +542,10 @@ pub const SCOPE_2: Argument = Argument { name: "scope", title: t("LayoutActions"
 pub const PROPERTY: Argument = Argument { name: "property", title: t("LayoutActions", "argument.appearanceProperty", "Property"), kind: ArgKind::Enumeration(CASES_THEME_BACKGROUND), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const VALUE: Argument = Argument { name: "value", title: t("LayoutActions", "argument.appearanceValue", "Value"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const KIND_2: Argument = Argument { name: "kind", title: t("LayoutActions", "argument.dividerInsertKind", "Kind"), kind: ArgKind::Enumeration(CASES_TERMINAL_BROWSER), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const SPLIT_2: Argument = Argument { name: "split", title: t("LayoutActions", "argument.dividerSplit", "Divider"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ITEM_2: Argument = Argument { name: "item", title: t("WorkspaceActions", "argument.autoArchive.item", "Archived Workspace"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "archivedWorkspaces", pinned: CASES_ALL, other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

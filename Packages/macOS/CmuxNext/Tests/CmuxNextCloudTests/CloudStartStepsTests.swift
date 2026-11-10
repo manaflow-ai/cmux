@@ -20,4 +20,26 @@ import Testing
         #expect(steps.recorded.map(\.step) == ["connect", "tab", "approvals"])
         #expect(steps.recorded.map(\.ms) == [40, 2500, 0])
     }
+
+    /// `cloud start-session`'s `stages_ms`: every clock made while the run's record is current adds its steps there
+    /// in the order they end, a nested clock's (`login.machine`) before the step that holds it; a clock made outside
+    /// the run only logs.
+    @MainActor @Test func aRunsRecordHoldsEveryNestedClocksStepsInTheOrderTheyEnded() async {
+        var now = ContinuousClock.now
+        let record = CloudStartStepRecord()
+        await CloudStartStepRecord.$current.withValue(record) {
+            let outer = CloudStartSteps(log: { _ in }, now: { now })
+            now += .milliseconds(7100)
+            outer.done("machine")
+            let login = CloudStartSteps(log: { _ in }, now: { now })
+            now += .milliseconds(300)
+            login.done("login.machine")
+            now += .milliseconds(1200)
+            login.done("login.transfer")
+            outer.done("login")
+        }
+        CloudStartSteps(log: { _ in }, now: { now }).done("outside")
+        #expect(record.steps.map(\.name) == ["machine", "login.machine", "login.transfer", "login"])
+        #expect(record.steps.map(\.ms) == [7100, 300, 1200, 1500])
+    }
 }

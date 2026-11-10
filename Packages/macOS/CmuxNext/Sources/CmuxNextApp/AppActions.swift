@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebarActions
@@ -78,6 +79,7 @@ enum AppActions {
         GroupIconHandlers.bind(into: registry, context: context)
         MachineIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
+        DividerActions(host: services).bind(into: registry)
         ColumnHandlers.bind(into: registry, context: context)
         NewAtPlacement.bind(into: registry, context: context)
         CanvasHandlers.bind(into: registry, context: context)

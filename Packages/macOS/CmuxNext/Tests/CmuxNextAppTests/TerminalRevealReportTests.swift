@@ -26,12 +26,35 @@ struct TerminalRevealReportTests {
         #expect(report.fields["content_scale"] == "1.00" && report.fields["scales_agree"] == "false")
     }
 
+    /// A terminal shown again on a display of another scale keeps its frame at the layer's old scale until Ghostty's
+    /// first frame at the new scale: the layer's scale is Ghostty's and lands with that frame (ghostty-integration
+    /// P12, fork 0efdef967). The kept frame shows at the scale it was drawn at, so the reveal is no scale mismatch
+    /// (it was reported as one, at error level, on each such reveal). A layer still at another scale after a frame
+    /// showed since the reveal is one.
+    @Test func aLayerScaleThatWaitsForItsFirstFrameIsNoMismatchAtTheReveal() {
+        var report = Self.report(content: 2, layer: 1, window: 2)
+        #expect(report.scalesAgree, "\(report.message)")
+        #expect(!report.isSuspect, "\(report.message)")
+        report.framesSinceReveal = 1
+        #expect(!report.scalesAgree, "\(report.message)")
+    }
+
     /// Blank means nothing on the layer and nothing held over it; a held frame is not blank.
     @Test func blankIsNoFrameAndNoHeldFrame() {
         var report = Self.report(content: 2, layer: 2, window: 2, hasFrame: false)
         #expect(report.isBlank)
         report.holdingFrame = true
         #expect(!report.isBlank)
+    }
+
+    /// A frame Ghostty showed since the reveal (its present callback) means the pane drew: not blank, and the report
+    /// says how many.
+    @Test func aFrameShownSinceTheRevealIsNotBlank() {
+        var report = Self.report(content: 2, layer: 2, window: 2, hasFrame: false)
+        report.framesSinceReveal = 2
+        #expect(!report.isBlank)
+        #expect(report.message.hasSuffix(" frames_since_reveal=2"))
+        #expect(report.fields["frames_since_reveal"] == "2")
     }
 
     // MARK: The blank check
@@ -69,6 +92,33 @@ struct TerminalRevealReportTests {
         for _ in 0..<50 { await Task.yield() }
         #expect(reports.items.isEmpty, "a check cancelled by a hide still reported")
         #expect(!watch.isWatching)
+    }
+
+    /// Review of #40174 (GI LAND 2): the reveal's own report no longer calls a layer scale that waits for its first
+    /// frame a mismatch, and no other report read the scales after a frame showed, so a layer scale that never landed
+    /// (tiny text that stays) had no report. The check at the limit now reports it, apart from a blank pane; a pane
+    /// that drew at its scale, and one with no frame since the reveal (its layer scale may still wait), report nothing.
+    @Test func aLayerScaleStillWrongAfterAFrameShowedIsReportedAtTheLimit() async throws {
+        let clock = ManualClock()
+        let watch = TerminalBlankWatch(clock: clock)
+        let blank = Reports(), mismatch = Reports()
+        var stale = Self.report(content: 2, layer: 1, window: 2)
+        stale.framesSinceReveal = 3
+        let drew = stale
+        watch.watch(probe: { drew }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
+        try await clock.waitForSleeper()
+        clock.advance(by: TerminalBlankWatch.limit)
+        for _ in 0..<50 where mismatch.items.isEmpty { await Task.yield() }
+        #expect(mismatch.items == [drew], "a layer scale still wrong after 3 frames was not reported")
+        #expect(blank.items.isEmpty, "a pane that drew was reported blank")
+
+        mismatch.items.removeAll()
+        let waiting = Self.report(content: 2, layer: 1, window: 2)
+        watch.watch(probe: { waiting }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
+        try await clock.waitForSleeper()
+        clock.advance(by: TerminalBlankWatch.limit)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(mismatch.items.isEmpty && blank.items.isEmpty, "a kept frame at its own scale, no frame since the reveal, was reported")
     }
 
     // MARK: A real terminal shown again

@@ -439,6 +439,8 @@ pub struct CloudMachine {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub hourly_rate_usd: Option<Option<WireNumber>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub paused_hourly_rate_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub running_since: Option<Option<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop: Option<bool>,
@@ -892,15 +894,3 @@ pub type EmailAddress = String;
 
 /// A lowercase DNS name such as acme.com.
 pub type EmailDomain = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct EnrollmentToken {
-    pub id: EnrollmentTokenId,
-    pub label: String,
-    pub allowed_domains: Option<Vec<String>>,
-    pub expires_at: Option<i64>,
-    pub created_by: String,
-    pub created_at: i64,
-    pub revoked_at: Option<i64>,
-    pub uses: i64,
-}

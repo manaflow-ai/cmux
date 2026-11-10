@@ -169,7 +169,7 @@
     "cmux-tui/crates/cmux-tui/src/cli/setup/harness.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/skew.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/status/terminal_wait.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/cmux-tui/src/cli/terminal_talk/send.rs:rust-duration": {"count": 3, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
+    "cmux-tui/crates/cmux-tui/src/cli/terminal_talk/send.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/vm.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/vnc.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/wire.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},

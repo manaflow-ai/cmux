@@ -31,6 +31,8 @@ pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
     folder_to_replace,
 };
+mod meta_parts;
+pub use meta_parts::PARTS_FILE;
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;
@@ -324,8 +326,9 @@ pub struct SessionMeta {
     pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
-    /// where an agent lists them once (perf100).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// where an agent lists them once (perf100). Kept in `session.parts.json`, not
+    /// `session.json` (`store/meta_parts.rs`): every other metadata save leaves it unwritten.
+    #[serde(default, skip_serializing_if = "meta_parts::skip_commands")]
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
     #[serde(
@@ -457,8 +460,13 @@ pub struct SessionMeta {
     /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub bookmarks: BTreeSet<u64>,
-    /// The tools the chat has (`hub/tools.rs`).
-    #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
+    /// The tools the chat has (`hub/tools.rs`). Its rows are kept in `session.parts.json`, as
+    /// `available_commands` is (`store/meta_parts.rs`).
+    #[serde(
+        default,
+        skip_serializing_if = "meta_parts::skip_tools",
+        serialize_with = "meta_parts::tools_without_rows"
+    )]
     pub tools: ToolInventory,
     /// Initial branch (session/new or fork; git_state.rs), never updated: it joins the
     /// session to its PR (hq#1920). None outside a repository or on detached HEAD.
@@ -1270,6 +1278,8 @@ pub struct LocalStore {
     cold: Mutex<()>,
     /// [`Store::on_rehydrate`].
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
+    /// The parts files written or read (`store/meta_parts.rs`).
+    parts: meta_parts::PartsMemo,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1321,6 +1331,7 @@ impl LocalStore {
             unlisted: Default::default(),
             cold: Default::default(),
             rehydrate_hook: Default::default(),
+            parts: Default::default(),
         })
     }
 
@@ -1397,7 +1408,8 @@ impl LocalStore {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
-            Ok(meta) => {
+            Ok(mut meta) => {
+                self.parts.merge(&session, text.as_bytes(), &mut meta);
                 self.mark_unlisted(&id, false);
                 Ok(Some(meta))
             }
@@ -1647,7 +1659,9 @@ impl Store for LocalStore {
         }
         let mut text = String::new();
         BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
-        Ok(Some(serde_json::from_str(&text)?))
+        let mut meta: SessionMeta = serde_json::from_str(&text)?;
+        self.parts.merge(&session, text.as_bytes(), &mut meta);
+        Ok(Some(meta))
     }
 
     fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -1662,7 +1676,11 @@ impl Store for LocalStore {
         let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
-        write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
+        // The large fields only when they changed (`store/meta_parts.rs`), then the rest.
+        let parts = self.parts.write(&dir, meta)?;
+        let text = meta_parts::to_string_pretty(meta, &parts)?;
+        meta_parts::note_written(text.len());
+        write_atomic(&dir.join("session.json"), text.as_bytes())
     }
 
     fn flush_session(&self, id: &str) -> Result<()> {

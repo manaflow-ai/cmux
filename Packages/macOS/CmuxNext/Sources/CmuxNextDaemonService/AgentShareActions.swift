@@ -178,7 +178,7 @@ public struct AgentShareActions {
         guard let tab, let session = AgentShareChat.session(of: tab) else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
         let isLocal = host.shareIsOnThisMac(tab)
         return .success(AgentShareChat(surface: tab.surface.rawValue, session: session, connection: host.shareConnection(holding: tab),
-                                       isLocal: isLocal, title: tab.title, cloudOwner: isLocal ? nil : host.shareCloudOwner(tab)))
+                                       isLocal: isLocal, title: tab.titleText, cloudOwner: isLocal ? nil : host.shareCloudOwner(tab)))
     }
 
     /// Whether the owner started the run in this app (palette, menu, key): their gesture is their

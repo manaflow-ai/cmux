@@ -5,6 +5,49 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptResult {
+    pub epoch: i64,
+    pub accepted_by: String,
+    pub accepted_at: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.taint.accept declares.
+    TeamVmTaintAcceptError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.
+    ThreadUpdateOp {
+        name: "thread.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ThreadUpdateParams,
+        result: HomeConversationCommit,
+        error: ThreadUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ThreadUpdateParams {
     pub conversation: ConversationId,
     pub root: MessageId,

@@ -80,7 +80,8 @@ export interface CreateDraft {
   openWhenRunning?: boolean;
   /**
    * The create was refused at a machines cap: the machine the sheet offers to free first ("Delete
-   * NAME and create", or "Archive and delete NAME, then create").
+   * NAME and create", or "Archive and delete NAME, then create"), or at the running-machines limit
+   * with none of the person's machines idle ("Pause NAME and create").
    */
   offer?: CapOffer;
   /** The offered machine is being archived: the create runs once the mirror shows it gone. */
@@ -153,7 +154,7 @@ export interface CloudStoreOptions {
 }
 
 /** The host's answer to a native machine action: the op's answer fields, or a declined sheet. */
-type MachineActionResult = ActionRunResult & Partial<MachineResult>;
+type MachineActionResult = ActionRunResult & Partial<MachineResult> & { made_room?: { machine?: CloudMachine } };
 
 export class CloudStore {
   private state: CloudState;
@@ -465,7 +466,8 @@ export class CloudStore {
    */
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
-    if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
+    // Waiting on the make-room archive (Return in a field included): createIfRoom submits once it is gone.
+    if (!draft || draft.submitting || draft.waitingFor || !draft.memoryMb || !this.canChange()) return;
     this.set({
       create: {
         ...draft,
@@ -501,6 +503,7 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
+      if (session === this.session) this.madeRoom(result?.made_room?.machine);
       // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
       if (
         draft.openWhenRunning &&
@@ -527,13 +530,14 @@ export class CloudStore {
       if (this.state.create?.key === draft.key)
         this.set({
           // A refusal is the key's answer: the server replays it for the same key, so the create
-          // after making room needs a new one.
+          // after making room (by the offer, or by hand on the page behind the sheet) needs a new one.
           create: {
             ...draft,
             submitting: false,
             waitingFor: undefined,
             ...outcome,
-            ...(offer ? { offer, key: this.key() } : {}),
+            ...(offer ? { offer } : {}),
+            ...(offer || refusal ? { key: this.key() } : {}),
           },
         });
       if (session === this.session && !refusal && !blocked && !offer) this.set(failure(error, false));
@@ -550,19 +554,27 @@ export class CloudStore {
     const draft = this.state.create;
     const offer = draft?.offer;
     if (!draft || !offer || draft.submitting || draft.waitingFor || !this.canChange()) return;
-    const action = offer.kind === "delete" ? CloudOps.machineDelete : CloudOps.machineArchiveDelete;
+    const action =
+      offer.kind === "pause"
+        ? CloudOps.machinePause
+        : offer.kind === "delete"
+          ? CloudOps.machineDelete
+          : CloudOps.machineArchiveDelete;
     const key = this.key();
-    this.pushIntent({ key, kind: offer.kind === "delete" ? "delete" : "archive", machine: offer.machine });
+    this.pushIntent({ key, kind: offer.kind, machine: offer.machine });
     this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined } });
     const back = (patch: Partial<CreateDraft>) => {
       const now = this.state.create;
       if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
     };
     try {
-      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
-        action,
-        args: { machine: offer.machine, idempotency_key: key },
-      });
+      const args = { machine: offer.machine, idempotency_key: key };
+      // A pause is a plain op (nothing is lost); a delete or an archive is confirmed natively. The
+      // platform frees the slot when it takes the pause, so the create follows its answer.
+      const result =
+        offer.kind === "pause"
+          ? await this.client!.call<MachineActionResult>(action, args)
+          : await this.runNative(action, args);
       if (result?.confirmed === false) {
         this.dropIntent(key);
         return back({});
@@ -717,9 +729,10 @@ export class CloudStore {
     this.pushIntent({ key, kind: "create", name });
     const session = this.session;
     try {
-      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
-        action: CloudOps.snapshotRestore,
-        args: { snapshot: snapshot.id, ...(as ? { name: as } : {}), idempotency_key: key },
+      const result = await this.runNative(CloudOps.snapshotRestore, {
+        snapshot: snapshot.id,
+        ...(as ? { name: as } : {}),
+        idempotency_key: key,
       });
       if (result?.confirmed === false) return this.dropIntent(key);
       // Recorded even after a session restart, so the pending create row cannot stay.
@@ -934,6 +947,21 @@ export class CloudStore {
     this.updateIntent(key, { replied: true, revision: revisionOf(result) });
   }
 
+  /**
+   * The machine the platform paused so a create fits the running-machines limit, as the create
+   * answered it. Its row shows paused with the answer; the owner's event for it says the same.
+   */
+  private madeRoom(paused: CloudMachine | undefined): void {
+    if (!paused?.id) return;
+    const known = this.state.machines.find((machine) => machine.id === paused.id);
+    // An event that already passed the answer wins.
+    if (known && Number(known.revision) > Number(paused.revision)) return;
+    this.setMirror(
+      applyEvent(this.state.machines, { type: "upsert", revision: this.state.revision, machine: paused }),
+      this.state.revision,
+    );
+  }
+
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
     // The machine Get just created stays selected until its first event reaches the mirror.
@@ -990,9 +1018,7 @@ export class CloudStore {
     const args = { machine, ...params, idempotency_key: key };
     try {
       // Recorded even after a session restart, so the intent cannot stay pending.
-      const result = native
-        ? await this.client!.call<MachineActionResult | null>(ACTION_RUN, { action: op, args })
-        : await this.client!.call<MachineResult>(op, args);
+      const result = native ? await this.runNative(op, args) : await this.client!.call<MachineResult>(op, args);
       if (native && (result as ActionRunResult | null)?.confirmed === false) {
         this.dropIntent(key);
         return undefined;
@@ -1006,6 +1032,14 @@ export class CloudStore {
       if (session === this.session) this.fail(op, error);
       return undefined;
     }
+  }
+
+  /**
+   * A native machine action: the host's answer with the op's own fields at the top. A confirmed op
+   * (`CONFIRMED_ACTIONS`) answers them under `value` (PageProviders `runConfirmed`).
+   */
+  private async runNative(action: string, args: Record<string, unknown>): Promise<MachineActionResult | null> {
+    return confirmedValue(await this.client!.call<NativeAnswer | null>(ACTION_RUN, { action, args }));
   }
 
   private async native(action: string, args: Record<string, unknown>): Promise<void> {
@@ -1091,6 +1125,16 @@ function signedOutState(): Partial<CloudState> {
     archives: [],
     retention: undefined,
   };
+}
+
+/** The host's answer to a native action: a confirmed op's own answer sits under `value`. */
+type NativeAnswer = MachineActionResult & { value?: unknown };
+
+/** `{confirmed: true, value}` as the op's own fields beside `confirmed`; any other answer as it is. */
+export function confirmedValue(answer: NativeAnswer | null): MachineActionResult | null {
+  if (!answer || answer.confirmed !== true || answer.value === null || typeof answer.value !== "object") return answer;
+  const { value, ...rest } = answer;
+  return { ...rest, ...(value as Partial<MachineResult>) };
 }
 
 /** The projection `revision` of a mutation result, when the owner sent one. */

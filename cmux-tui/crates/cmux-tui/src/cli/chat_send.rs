@@ -30,24 +30,28 @@ use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat send SESSION [--on here|vm:ID|NAME] [--wait] [--timeout SECONDS] [--json] TEXT
-       cmux chat --resume SESSION [--on here|vm:ID|NAME] [--wait] [--timeout SECONDS] [--json] TEXT
+usage: cmux chat send [SESSION|last] [--on here|vm:ID|NAME] [-w] [--timeout DURATION] [--json] TEXT
+       cmux chat --resume SESSION [--on here|vm:ID|NAME] [-w] [--timeout DURATION] [--json] TEXT
 
 Sends the next prompt to the chat SESSION (the session_id `cmux chat` answered), wherever it
 runs: here, or on the Cloud VM whose workspace in the cmux app shows it. TEXT `-` reads stdin.
+Without SESSION (or with `last`) it goes to the last chat this terminal started or sent to:
+  cmux chat --on vm:new 'Run the tests'
+  cmux chat send -w 'Now fix the failing one'
 
   --on TARGET        Where the chat runs, when the app does not show it: here or vm:ID|NAME
-  --wait             Wait for the turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+  -w, --wait         Wait for the turn to end and print the reply
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 With --wait the answer has session_id and reply (and the turn's status); a chat here also
 answers workspace_id and tab_id from `cmux chat`. Exit codes: 0 ok, 1 refused or the turn
 failed, 2 bad arguments or the agent waits on a permission, 3 --timeout passed
 (chat.wait_timeout, details.answer.timed_out true).
 
-A chat here, by its session id (a UUID or acp:…):
-  cmux chat read SESSION [--after ID] [--limit N]   Its transcript (`cmux agents chat read`)
-  cmux chat wait SESSION [--timeout SECONDS]        Wait for its turn to end, print the reply
+A chat here, by its session id (a UUID or acp:…), or `last`:
+  cmux chat read SESSION|last [--after ID] [--limit N]   Its transcript (`cmux agents chat read`)
+  cmux chat wait SESSION|last [--timeout DURATION]        Wait for its turn to end, print the reply
 
   cmux chat send --to chief|PERSON|GROUP --text TEXT messages a Chief or a person instead
   (`cmux chat send --help` without a SESSION).
@@ -55,9 +59,10 @@ A chat here, by its session id (a UUID or acp:…):
 
 /// `cmux chat wait SESSION`'s usage.
 const WAIT_USAGE: &str = "\
-usage: cmux chat wait SESSION [--timeout SECONDS] [--json]
+usage: cmux chat wait SESSION|last [--timeout DURATION] [--json]
 
-Waits until the chat SESSION here (a UUID or acp:…) stops working and prints the reply of its
+Waits until the chat SESSION here (a UUID or acp:…; `last`: the last chat this terminal started
+or sent to) stops working and prints the reply of its
 last turn, as `cmux chat send SESSION TEXT --wait` does. --timeout defaults to 900 seconds.
 Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent waits on a
 permission, 3 --timeout passed (chat.wait_timeout).
@@ -98,7 +103,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let words = words_of(&command)?;
     let words = cloud_start_chat::lift_output_of(words, &mut global.output, TAKES_VALUE);
-    let send = match parse(&words, command.get(1).map(String::as_str) == Some("send")) {
+    let mut send = match parse(&words, command.get(1).map(String::as_str) == Some("send")) {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -106,6 +111,20 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(Parsed::Run(send)) => send,
         Err(error) => return Some(usage_failure(&error, global.output)),
     };
+    if send.session == super::last_chat::LAST {
+        let Some(last) = super::last_chat::recall() else {
+            return Some(super::wire::print_local_error(
+                &super::last_chat::none_yet(),
+                global.output,
+                1,
+            ));
+        };
+        send.session = last.session;
+        // Its VM, as recorded: no lookup in the app's topology.
+        if send.on.is_none() {
+            send.on = last.vm.map(|vm| format!("vm:{vm}"));
+        }
+    }
     let place = locate(
         &send.session,
         send.on.as_deref(),
@@ -113,7 +132,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         || cloud_start_chat::app_machines(&global),
     );
     Some(match place {
-        Ok(Place::Here) => here(&global, &send),
+        Ok(Place::Here) => {
+            let code = here(&global, &send);
+            if code == 0 {
+                super::last_chat::remember(&send.session, None);
+            }
+            code
+        }
         Ok(Place::Vm(machine)) => cloud_start_chat::send_existing(
             &global,
             &machine,
@@ -137,7 +162,9 @@ pub(super) fn is_session_id(word: &str) -> bool {
 pub(super) fn session_verb(command: &[String]) -> Option<(&str, &[String])> {
     let [scope, verb, rest @ ..] = command else { return None };
     let first = rest.first()?;
-    let ours = scope == "chat" && matches!(verb.as_str(), "read" | "wait") && is_session_id(first);
+    let ours = scope == "chat"
+        && matches!(verb.as_str(), "read" | "wait")
+        && (is_session_id(first) || first == super::last_chat::LAST);
     ours.then_some((verb.as_str(), rest))
 }
 
@@ -161,11 +188,7 @@ pub(super) fn parse_wait(words: &[String]) -> Result<Option<(String, Duration)>,
                         .cloned()
                         .ok_or_else(|| UsageError::new("--timeout needs a value"))?,
                 };
-                let seconds = text.parse::<u64>().ok().filter(|seconds| *seconds > 0);
-                let seconds = seconds.ok_or_else(|| {
-                    UsageError::new(format!("--timeout takes seconds, not {text}"))
-                })?;
-                timeout = Duration::from_secs(seconds).min(turn::MAX_TIMEOUT);
+                timeout = timeout_value(&text)?.min(turn::MAX_TIMEOUT);
             }
             _ if word.starts_with('-') => {
                 return Err(UsageError::new(format!("unknown flag {word}")));
@@ -178,10 +201,30 @@ pub(super) fn parse_wait(words: &[String]) -> Result<Option<(String, Duration)>,
     Ok(Some((session, timeout)))
 }
 
-/// `chat read SESSION …` (`agents chat read`) or `chat wait SESSION …` (agents/turn.rs).
+/// `chat read SESSION …` (`agents chat read`) or `chat wait SESSION …` (agents/turn.rs); `last`
+/// is the last chat this terminal used (last_chat.rs).
 fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
+    let mut words = words.to_vec();
+    if words.first().map(String::as_str) == Some(super::last_chat::LAST) {
+        let Some(last) = super::last_chat::recall() else {
+            return super::wire::print_local_error(&super::last_chat::none_yet(), global.output, 1);
+        };
+        if let Some(vm) = last.vm {
+            let error = refusal(
+                "chat_target.vm_chat",
+                format!(
+                    "the last chat ({}) runs on vm:{vm}; chat {verb} reads a chat here",
+                    last.session
+                ),
+                "cmux chat send -w 'TEXT' sends to it and prints the reply",
+                json!({"session_id": last.session, "vm": vm}),
+            );
+            return super::wire::print_local_error(&error, global.output, 1);
+        }
+        words[0] = last.session;
+    }
     let words = cloud_start_chat::lift_output_of(
-        words,
+        &words,
         &mut global.output,
         &["--timeout", "--after", "--limit"],
     );
@@ -270,6 +313,7 @@ pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageEr
     let mut send = Send::default();
     let mut session = None;
     let mut text = None;
+    let mut positional: Vec<String> = Vec::new();
     let mut words = words.iter();
     while let Some(word) = words.next() {
         let (flag, inline) = match word.split_once('=') {
@@ -285,19 +329,11 @@ pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageEr
         };
         match flag {
             "-h" | "--help" => return Ok(Parsed::Help),
-            "--wait" => send.wait = true,
+            "--wait" | "-w" => send.wait = true,
             "--on" => send.on = Some(take()?),
             "--resume" if !send_verb => set(&mut session, take()?, "the session")?,
             "--prompt" | "-p" => set(&mut text, take()?, "the prompt")?,
-            "--timeout" => {
-                let seconds = take()?;
-                // As `cloud start-chat` takes it: whole seconds, more than none.
-                let seconds =
-                    seconds.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(
-                        || UsageError::new(format!("--timeout takes seconds, not {seconds}")),
-                    )?;
-                send.timeout = Some(Duration::from_secs(seconds));
-            }
+            "--timeout" => send.timeout = Some(timeout_value(&take()?)?),
             "--" => {
                 let rest: Vec<String> = words.by_ref().cloned().collect();
                 for rest in rest {
@@ -307,9 +343,28 @@ pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageEr
             _ if word.starts_with('-') && word != "-" => {
                 return Err(UsageError::new(format!("unknown flag {word}")));
             }
-            _ if send_verb && session.is_none() => session = Some(word.clone()),
+            _ if send_verb => positional.push(word.clone()),
             _ => set(&mut text, word.clone(), "the prompt")?,
         }
+    }
+    // `send SESSION TEXT`; `send TEXT` (or `--prompt TEXT`) to the last chat; one word that is a
+    // session id is the session, still waiting for its prompt.
+    match positional.as_slice() {
+        [] => {}
+        [one] if text.is_some() || is_session_id(one) || one == super::last_chat::LAST => {
+            session = Some(one.clone());
+        }
+        [one] => set(&mut text, one.clone(), "the prompt")?,
+        [first, second] => {
+            session = Some(first.clone());
+            set(&mut text, second.clone(), "the prompt")?;
+        }
+        _ => {
+            return Err(UsageError::new("give the prompt once (quote a prompt of several words)"));
+        }
+    }
+    if send_verb && session.is_none() {
+        session = Some(super::last_chat::LAST.to_owned());
     }
     send.session = session.ok_or_else(|| UsageError::new("name the chat: its SESSION id"))?;
     let text = text.ok_or_else(|| UsageError::new("give the prompt: TEXT, or - for stdin"))?;
@@ -318,6 +373,25 @@ pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageEr
         return Err(UsageError::new("the prompt is empty"));
     }
     Ok(Parsed::Run(send))
+}
+
+/// `--timeout`'s value: a duration (`30s`, `5m`, `1h`, `1500ms`); a bare number is seconds, as it
+/// always was (cmuxterm-hq#8621: one duration form for every `--timeout`). None is refused.
+pub(super) fn timeout_value(text: &str) -> Result<Duration, UsageError> {
+    super::status::duration(text).ok().filter(|timeout| !timeout.is_zero()).ok_or_else(|| {
+        UsageError::new(format!(
+            "--timeout takes a duration such as 30s, 5m or 1h (a bare number is seconds), not {text:?}"
+        ))
+    })
+}
+
+/// A Chief's `--timeout`: [`timeout_value`] in whole seconds (rounded up), `0` for none, as before.
+pub(in crate::cli) fn timeout_secs(text: &str) -> Result<Option<u64>, String> {
+    if text == "0" {
+        return Ok(None);
+    }
+    let timeout = timeout_value(text).map_err(|error| error.0)?;
+    Ok(Some(timeout.as_millis().div_ceil(1000).try_into().unwrap_or(u64::MAX)))
 }
 
 fn set(slot: &mut Option<String>, value: String, what: &str) -> Result<(), UsageError> {

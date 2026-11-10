@@ -452,7 +452,7 @@ wire_op! {
         risk: "mutate-shared",
         principals: [Session],
         params: IntegrationCompleteParams,
-        result: Connection,
+        result: IntegrationCompleteResult,
         error: IntegrationCompleteError,
     }
 }
@@ -466,6 +466,49 @@ pub struct IntegrationCompleteParams {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_action: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResultAccount {
+    pub key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+wire_enum! {
+    IntegrationCompleteResultSharing {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResultResources {
+    pub repos: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResult {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<IntegrationCompleteResultAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: IntegrationCompleteResultSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<IntegrationCompleteResultResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configure_url: Option<String>,
 }
 
 wire_errors! {
@@ -483,7 +526,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.
+    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.
     IntegrationConnectOp {
         name: "integration.connect",
         class: Mutation,
@@ -511,12 +554,19 @@ pub struct IntegrationConnectParams {
     pub scopes: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sharing: Option<IntegrationConnectParamsSharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationConnectResult {
     pub connection: Connection,
-    pub authorize_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected: Option<BoolLit<true>>,
 }
 
 wire_errors! {
@@ -849,45 +899,4 @@ pub struct InviteCreateParams {
     pub locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_variant: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes invite.create declares.
-    InviteCreateError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DuplicateInvite = "duplicate_invite",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidInvite = "invalid_invite",
-        InviteLimit = "invite_limit",
-        InviteSelf = "invite_self",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Revoke a pending invite (the inviter or the conversation owner).
-    InviteRevokeOp {
-        name: "invite.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: InviteRevokeParams,
-        result: HomeConversationCommit,
-        error: InviteRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteRevokeParams {
-    pub conversation: ConversationId,
-    pub invite_id: InviteId,
 }

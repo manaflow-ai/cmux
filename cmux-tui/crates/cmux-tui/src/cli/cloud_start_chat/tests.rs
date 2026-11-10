@@ -208,6 +208,12 @@ struct Fake {
     costs: Vec<(&'static str, Duration)>,
     /// How long the step at this index of `ran` takes, before `costs`.
     slow: Vec<(usize, Duration)>,
+    /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
+    stream: Option<Result<Value, Value>>,
+    /// The link waits' answers, in order.
+    pushes: VecDeque<Result<Value, link_wait::Failure>>,
+    /// The app calls and link waits asked: what and its params.
+    called: Vec<(String, Value)>,
 }
 
 impl Fake {
@@ -219,6 +225,9 @@ impl Fake {
             paused: Duration::ZERO,
             costs: Vec::new(),
             slow: Vec::new(),
+            stream: None,
+            pushes: VecDeque::new(),
+            called: Vec::new(),
         }
     }
 }
@@ -245,6 +254,30 @@ impl Runner for Fake {
     }
     fn fresh_name(&mut self) -> String {
         "chat-fresh".into()
+    }
+    fn app(
+        &mut self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
+        self.called.push((method.to_owned(), params));
+        self.clock += Duration::from_millis(5);
+        self.stream.clone()
+    }
+    fn observe(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        after: u64,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::Failure> {
+        self.called.push((
+            "observe".to_owned(),
+            json!({"socket": socket, "surface": surface, "after_seq": after}),
+        ));
+        self.clock += Duration::from_millis(400);
+        self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
     }
 }
 
@@ -318,6 +351,123 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     assert_eq!(fake.paused, Duration::from_secs(2));
 }
 
+fn started_with_surface() -> Ran {
+    let mut ran = started();
+    let mut answer: Value = serde_json::from_str(&ran.stdout).unwrap();
+    answer["result"]["surface_id"] = json!("7");
+    ran.stdout = answer.to_string();
+    ran
+}
+
+/// A fresh chat's turn: pushed over the machine's link (the app's stream socket, then the tab's records read
+/// here), not `cloud exec ... acp wait` and `acp last` (Leo, 2026-11-10: "have we figured out where the 26.5
+/// seconds were yet?"; the trailing two execs took 1091 + 2590 ms). The reply and the felt times come from the
+/// records.
+#[test]
+fn a_fresh_chats_turn_is_pushed_over_the_link() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    let update = |seq: u64, at: u64, text: &str| {
+        json!({"seq": seq, "at": at, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}})
+    };
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update(2, 2_100, "po"), update(3, 2_200, "ng"),
+    ], "last_seq": 3, "ended": "timeout"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 4, "at": 3_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 4, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["wait_route"], "link");
+    assert_eq!(answer["turn"]["status"], "completed");
+    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // No exec after the send; the second wait starts after the first one's newest seq.
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+    assert_eq!(fake.called[0], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
+    assert_eq!(fake.called[1].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
+    assert_eq!(fake.called[2].1["after_seq"], 3);
+}
+
+/// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
+/// the agent's error, not at `--timeout`.
+#[test]
+fn a_pushed_turn_that_fails_answers_its_error() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": "agent process closed", "errorKind": "agent_exited"}},
+    ], "last_seq": 2, "ended": "turn_end"})));
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "pong", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed");
+    assert_eq!(error["message"], "agent process closed");
+    assert_eq!(error["details"]["errorKind"], "agent_exited");
+    assert_eq!(error["details"]["turn"]["status"], "failed");
+    assert_eq!(error["details"]["wait_route"], "link");
+}
+
+/// The link closes mid-turn after some records were read: the turn is read through exec instead.
+#[test]
+fn a_link_that_closes_mid_turn_falls_back_to_exec() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+    ], "last_seq": 1, "ended": "closed"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["wait_route"], "exec");
+}
+
+/// No app answers the link's socket (an older app) or the link cannot be observed: the turn is read through the
+/// Cloud API's exec as before, and the answer says which route it took.
+#[test]
+fn without_the_link_the_turn_is_read_through_exec() {
+    for stream in [None, Some(Ok(json!({"socket": "/tmp/link.sock"})))] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started_with_surface(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+            exec_out(
+                "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+                 @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+            ),
+        ]);
+        fake.stream = stream;
+        let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(answer["reply"], "4");
+        assert_eq!(answer["wait_route"], "exec");
+    }
+}
+
 #[test]
 fn the_answer_times_each_step_it_ran() {
     let mut fake = Fake::new(vec![
@@ -349,6 +499,32 @@ fn the_answer_times_each_step_it_ran() {
             ("cloud exec", 10_000, 5_000)
         ]
     );
+}
+
+/// Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?". The app's own split of
+/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `detail`; an
+/// app that reports none leaves the step as it was.
+#[test]
+fn the_start_sessions_own_split_rides_under_its_step() {
+    let split = json!({"steps": [{"step": "machine", "ms": 7100}, {"step": "connect.link", "ms": 2800}],
+                       "machine": {"session_new": 1800}, "total": 22_826});
+    let mut with_split = started();
+    let mut answer: Value = serde_json::from_str(&with_split.stdout).unwrap();
+    answer["result"]["stages_detail_ms"] = split.clone();
+    with_split.stdout = answer.to_string();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        with_split,
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["detail"], split);
+    assert!(steps[0].get("detail").is_none() && steps[2].get("detail").is_none(), "{steps:?}");
 }
 
 /// `cloud start-session`'s own split (the app's `stages_ms`) goes under that step's `parts`, so its 20-odd seconds
@@ -1955,7 +2131,7 @@ fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
     assert_eq!(error["details"]["make_room"]["how"], "delete");
     assert_eq!(
         error["details"]["make_room"]["command"],
-        "cmux cloud kill-machine --target machine:vm-b --confirm"
+        "cmux vm kill-machine --target vm:vm-b --confirm"
     );
     // Nothing was deleted without --make-room.
     assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
@@ -2110,7 +2286,7 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
 fn a_fresh_name_has_sixteen_random_hex_characters() {
-    let mut runner = SelfRunner { globals: Vec::new() };
+    let mut runner = SelfRunner { globals: Vec::new(), global: GlobalArgs::default() };
     let names: Vec<String> = (0..64).map(|_| runner.fresh_name()).collect();
     for name in &names {
         let hex = name.strip_prefix("chat-").unwrap_or_else(|| panic!("{name}"));

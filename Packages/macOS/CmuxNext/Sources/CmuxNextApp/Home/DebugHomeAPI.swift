@@ -75,7 +75,7 @@ enum DebugHomeAPI {
                                        services: AppServices) async -> JSONValue {
         guard let id = conversation ?? services.home.defaultChiefConversation else { return failure("no Chief conversation") }
         #if DEBUG || CMUX_BENCH_HOOKS
-        guard let view = home.tabViews.values.first(where: { $0.conversation.rawValue == id && $0.window != nil }) else {
+        guard let view = services.home.tabViews.values.first(where: { $0.conversation.rawValue == id && $0.window != nil }) else {
             return failure("no Home view shows \(id)")
         }
         let result = await view.chief.debugEditPicture(URL(fileURLWithPath: path), zoom: zoom, save: save)
