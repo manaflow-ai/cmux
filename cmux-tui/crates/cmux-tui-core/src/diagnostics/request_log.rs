@@ -399,8 +399,10 @@ impl RequestLog {
 
     /// Hands `entry` to the writer; never waits. A full queue drops it and counts it.
     fn submit(&self, entry: Entry) {
-        // RED: the record is not handed to the writer yet (the next commit does it).
-        let _ = (&self.sender, &self.dropped, TrySendError::Full(entry));
+        if let Err(TrySendError::Full(_)) = self.sender.try_send(entry) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            self.dropped_total.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Records dropped at a full queue since the start.
