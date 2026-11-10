@@ -1,6 +1,18 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.agentMessagePlayground.moved": {
+      "comment": "The Debug agent message playground's refusal: the native transcript it drew is gone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent message playground moved to the web gallery (Home Messages cards)."
+          }
+        }
+      }
+    },
     "home.teleport.notice.moving": {
       "comment": "Chat row: the Chief is moving to %@ (a place: cmux Cloud or a machine).",
       "extractionState": "manual",
