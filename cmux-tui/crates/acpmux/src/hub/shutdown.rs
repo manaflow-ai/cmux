@@ -322,6 +322,9 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
+        // start, an older one too, reads every delivery from `outbox.json` alone.
+        self.outbox.compact();
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();

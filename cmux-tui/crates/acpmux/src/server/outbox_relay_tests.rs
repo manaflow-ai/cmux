@@ -306,10 +306,11 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
 async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     let (hub, fake) = setup(FakeHub::default());
     let dir = std::env::temp_dir().join(format!("outbox-not-saved-{}", uuid::Uuid::now_v7()));
-    // A folder where `outbox.json` should be: its write fails, also for root, while the
-    // attachments beside it can still be written.
+    // Folders where `outbox.json` and its journal should be: their writes fail, also for root,
+    // while the attachments beside them can still be written.
     let path = dir.join("outbox.json");
     std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(crate::hub::outbox::journal_path(&path)).unwrap();
     hub.outbox.open(&path);
     let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
     let mut params = request("huge-blue/lane", "prompt-not-saved");
