@@ -408,6 +408,56 @@ async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A harness pipe is bytes, not text: a line that is not UTF-8 (a tool's stderr, a stray byte
+/// in a child's output) arrives with U+FFFD and the pipe keeps being read. Before, the host's
+/// line reader took the decode error as the end of the pipe: it stopped reading and dropped
+/// the read end, so the harness's next write failed (EPIPE) and its later lines were lost.
+#[tokio::test]
+async fn a_line_that_is_not_utf8_never_ends_a_harness_pipe() {
+    let dir = scratch("utf8");
+    let mut spec = spec(&dir, "s-utf8");
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        "import json,sys,time\n\
+         sys.stderr.buffer.write(b'bad \\xff err\\n'); sys.stderr.flush()\n\
+         sys.stdout.buffer.write(b'\\xfe not json\\n'); sys.stdout.flush()\n\
+         time.sleep(0.5)\n\
+         sys.stderr.write('after err\\n'); sys.stderr.flush()\n\
+         print(json.dumps({'jsonrpc':'2.0','method':'x/after','params':{}})); sys.stdout.flush()\n"
+            .into(),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (link, _) = connected(&record, 0).await;
+    let mut after = 0;
+    let seen = read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })).await;
+    let entries: Vec<&Entry> = seen.iter().map(|(_, e)| e).collect();
+    assert!(
+        entries
+            .iter()
+            .any(|e| matches!(e, Entry::Err { line } if line.contains("bad \u{FFFD} err"))),
+        "the bad stderr line arrives lossy: {entries:?}"
+    );
+    assert!(
+        entries.iter().any(|e| matches!(e, Entry::Err { line } if line.contains("after err"))),
+        "stderr is still read after a bad line: {entries:?}"
+    );
+    assert!(
+        entries.iter().any(
+            |e| matches!(e, Entry::In { msg } if msg.get("method") == Some(&json!("x/after")))
+        ),
+        "stdout is still read after a bad line: {entries:?}"
+    );
+    assert!(
+        entries.iter().any(|e| matches!(e, Entry::Exit { code: Some(0), .. })),
+        "the harness exits cleanly, not on a broken pipe: {entries:?}"
+    );
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A host whose start fails (here the harness cannot be spawned) leaves no
 /// liveness lock file behind: a stale `.live` file would outlive the session.
 #[tokio::test]
