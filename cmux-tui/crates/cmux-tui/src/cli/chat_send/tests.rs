@@ -243,3 +243,18 @@ fn read_and_wait_take_last() {
         assert_eq!(session_verb(&command).map(|(found, _)| found), Some(verb));
     }
 }
+
+/// cmuxterm-hq#8621: `--timeout` takes a duration in chat and the Chief, as `status wait` and
+/// `terminal … screen wait` do; a bare number keeps meaning seconds.
+#[test]
+fn timeouts_are_durations_and_a_bare_number_is_seconds() {
+    assert_eq!(timeout_value("90").unwrap(), Duration::from_secs(90));
+    assert_eq!(timeout_value("5m").unwrap(), Duration::from_secs(300));
+    assert_eq!(timeout_value("1h").unwrap(), Duration::from_secs(3600));
+    assert_eq!(timeout_value("1500ms").unwrap(), Duration::from_millis(1500));
+    assert!(timeout_value("0").is_err() && timeout_value("soon").is_err());
+    assert_eq!(timeout_secs("0"), Ok(None));
+    assert_eq!(timeout_secs("1500ms"), Ok(Some(2)));
+    assert_eq!(timeout_secs("2m"), Ok(Some(120)));
+    assert_eq!(sent(&["s-1", "hi", "-w", "--timeout", "5m"], true).timeout, Some(Duration::from_secs(300)));
+}
