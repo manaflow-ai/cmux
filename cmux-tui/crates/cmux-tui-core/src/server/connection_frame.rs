@@ -2,6 +2,8 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 
+#[cfg(test)]
+mod command_stats_tests;
 #[cfg(unix)]
 mod machine_catalog;
 
