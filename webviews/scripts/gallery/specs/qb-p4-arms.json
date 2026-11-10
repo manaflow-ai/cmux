@@ -1,0 +1,32 @@
+{
+ "shots": [
+  {
+   "name": "empty-recents",
+   "entry": "viewer-empty.empty-state",
+   "arms": {
+    "before": ".ve-title{font-size:var(--text-title)!important;line-height:1.3!important;letter-spacing:-0.01em!important}.ve-button{height:26px!important;border:1px solid var(--ve-line)!important;background:var(--ve-surface)!important;font-size:var(--text-detail)!important}.ve-button:hover:not(:disabled){background:color-mix(in srgb,var(--ve-fg) 6%,var(--ve-surface))!important}.ve-button-primary{border-color:transparent!important;background:var(--ve-fg)!important;font-weight:400!important}.ve-button-large{height:30px!important;border-radius:var(--ds-radius-control)!important;font-size:var(--text-body)!important}.ve-button-quiet{border-color:transparent!important;background:transparent!important}",
+    "A (this PR)": "",
+    "B title 15": ".ve-title{font-size:var(--text-title)!important;line-height:var(--text-title--line-height)!important}",
+    "C keep outline": ".ve-button:not(.ve-button-primary):not(.ve-button-quiet){border:1px solid var(--ve-line)!important;background:var(--ve-surface)!important}"
+   },
+   "width": 900,
+   "height": 640,
+   "deviceScaleFactor": 1
+  },
+  {
+   "name": "editor-empty",
+   "entry": "pages.editor",
+   "arms": {
+    "before": ".ve-title{font-size:var(--text-title)!important;line-height:1.3!important;letter-spacing:-0.01em!important}.ve-button{height:26px!important;border:1px solid var(--ve-line)!important;background:var(--ve-surface)!important;font-size:var(--text-detail)!important}.ve-button:hover:not(:disabled){background:color-mix(in srgb,var(--ve-fg) 6%,var(--ve-surface))!important}.ve-button-primary{border-color:transparent!important;background:var(--ve-fg)!important;font-weight:400!important}.ve-button-large{height:30px!important;border-radius:var(--ds-radius-control)!important;font-size:var(--text-body)!important}.ve-button-quiet{border-color:transparent!important;background:transparent!important}",
+    "A (this PR)": "",
+    "B title 15": ".ve-title{font-size:var(--text-title)!important;line-height:var(--text-title--line-height)!important}",
+    "C keep outline": ".ve-button:not(.ve-button-primary):not(.ve-button-quiet){border:1px solid var(--ve-line)!important;background:var(--ve-surface)!important}"
+   },
+   "width": 1100,
+   "height": 700,
+   "deviceScaleFactor": 1,
+   "variant": "empty",
+   "frame": "window"
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "shots": [
+  {
+   "name": "empty-recents",
+   "entry": "viewer-empty.empty-state",
+   "arms": {
+    "after": ""
+   },
+   "width": 900,
+   "height": 640,
+   "deviceScaleFactor": 1
+  },
+  {
+   "name": "empty-none",
+   "entry": "viewer-empty.empty-state",
+   "arms": {
+    "after": ""
+   },
+   "width": 900,
+   "height": 640,
+   "deviceScaleFactor": 1,
+   "variant": "empty"
+  },
+  {
+   "name": "markdown-empty",
+   "entry": "pages.markdown",
+   "arms": {
+    "after": ""
+   },
+   "width": 1100,
+   "height": 700,
+   "deviceScaleFactor": 1,
+   "variant": "empty",
+   "frame": "window"
+  },
+  {
+   "name": "editor-empty",
+   "entry": "pages.editor",
+   "arms": {
+    "after": ""
+   },
+   "width": 1100,
+   "height": 700,
+   "deviceScaleFactor": 1,
+   "variant": "empty",
+   "frame": "window"
+  }
+ ]
+}
