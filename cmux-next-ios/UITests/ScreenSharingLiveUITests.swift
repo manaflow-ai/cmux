@@ -102,6 +102,8 @@ final class ScreenSharingLiveUITests: XCTestCase {
             input.tap()
             app.buttons["Trackpad"].firstMatch.tap()
             settle(app, 1)
+            // Close the overlay so the strokes below land on the screen, not on it.
+            app.buttons["screen.trackpad.hide"].firstMatch.tapIfExists()
             screen.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55))
                 .press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.56)))
             settle(app, 1)

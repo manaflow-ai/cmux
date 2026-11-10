@@ -68,6 +68,8 @@ public struct ScreenSessionView: View {
     @State private var trackpadPlacement = TrackpadOverlayPlacement()
     @GestureState private var trackpadDrag = CGSize.zero
     @State private var trackpadLink = ScreenTrackpadLink()
+    /// The overlay's measured height, for keeping it on screen while it is dragged.
+    @State private var trackpadPanelHeight: CGFloat = 280
     @Environment(\.scenePhase) private var scenePhase
 
     public init(session: ScreenSession, features: ScreenFeatures = .all,
@@ -83,7 +85,7 @@ public struct ScreenSessionView: View {
             ScreenView(session: session, fitToDisplay: session.preferences.fitToDisplay,
                        displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
                        inputMode: session.preferences.inputMode, trackpadLink: trackpadLink,
-                       trackpadPadActive: hasTrackpadOverlay && trackpadOpen)
+                       trackpadPadActive: trackpadShown)
                 .ignoresSafeArea()
             if chromeVisible {
                 VStack(spacing: 6) {
@@ -167,10 +169,14 @@ public struct ScreenSessionView: View {
 
     private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
 
+    /// The overlay is open on a connected screen (its pad drives the pointer).
+    private var trackpadShown: Bool {
+        guard hasTrackpadOverlay, trackpadOpen, case .connected = session.phase else { return false }
+        return true
+    }
+
     /// Room the overlay is kept inside, from the screen's edges.
     private static let trackpadMargin: CGFloat = 12
-    /// The overlay's height, for keeping it on screen while it is dragged.
-    private static let trackpadPanelHeight: CGFloat = 300
 
     /// The Trackpad button while the overlay is closed, the overlay while open.
     private var trackpadLayer: some View {
@@ -201,7 +207,7 @@ public struct ScreenSessionView: View {
     }
 
     private func trackpadPanel(container: CGSize) -> some View {
-        let panel = CGSize(width: min(container.width, 380), height: Self.trackpadPanelHeight)
+        let panel = CGSize(width: min(container.width, 380), height: trackpadPanelHeight)
         let offset = TrackpadOverlayPlacement.clamped(
             CGSize(width: trackpadPlacement.offset.width + trackpadDrag.width,
                    height: trackpadPlacement.offset.height + trackpadDrag.height),
@@ -229,6 +235,7 @@ public struct ScreenSessionView: View {
         .padding(12)
         .frame(width: panel.width)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trackpadPanelHeight = $0 }
         .offset(offset)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("screen.trackpad.overlay")

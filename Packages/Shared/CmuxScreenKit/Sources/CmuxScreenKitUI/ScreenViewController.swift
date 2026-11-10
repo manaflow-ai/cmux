@@ -697,7 +697,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     // MARK: Trackpad mode
 
-    private func handleTrackpad(_ event: SingleTouchRecognizer.Event) {
+    /// Which finger the trackpad gesture follows: the screen's (trackpad
+    /// mode) or the overlay pad's. One gesture at a time: the other's
+    /// touches are ignored while it is down.
+    private enum TrackpadFinger { case screen, pad }
+    private var trackpadFinger: TrackpadFinger?
+
+    private func handleTrackpad(_ event: SingleTouchRecognizer.Event, from finger: TrackpadFinger = .screen) {
+        if case .down = event {
+            if lastTrackpadPoint != nil, trackpadFinger != finger { return }
+            trackpadFinger = finger
+        } else if trackpadFinger != finger {
+            return
+        }
         switch event {
         case let .down(point, time):
             lastTrackpadPoint = point
@@ -760,7 +772,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     public var trackpadPadActive = false {
         didSet {
             guard trackpadPadActive != oldValue else { return }
-            if !trackpadPadActive, inputMode != .trackpad { padTouch(.cancelled) }
+            // Closing the pad mid-gesture (a tap's window, a drag) lets the button go.
+            if !trackpadPadActive, trackpadFinger == .pad { endPadGesture() }
             updateCursor()
             followCursor()
         }
@@ -768,7 +781,14 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// One finger on the overlay's pad: the same gesture as trackpad mode's finger on the screen.
     func padTouch(_ event: SingleTouchRecognizer.Event) {
-        handleTrackpad(event)
+        handleTrackpad(event, from: .pad)
+    }
+
+    private func endPadGesture() {
+        lastTrackpadPoint = nil
+        trackpadFinger = nil
+        applyTrackpad(trackpad.cancel())
+        scheduleTrackpadDeadline()
     }
 
     /// Two fingers tapped on the pad: a right click where the pointer is.

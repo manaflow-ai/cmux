@@ -51,7 +51,10 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
         twoFingerPan.minimumNumberOfTouches = 2
         twoFingerPan.maximumNumberOfTouches = 2
         twoFingerPan.addTarget(self, action: #selector(handleTwoFingerPan(_:)))
+        // Fingers and the pencil, as on the screen; an iPad mouse drives the screen itself.
+        let touches = [UITouch.TouchType.direct, .pencil].map { NSNumber(value: $0.rawValue) }
         for recognizer in [finger, twoFingerTap, twoFingerPan] as [UIGestureRecognizer] {
+            recognizer.allowedTouchTypes = touches
             recognizer.delegate = self
             addGestureRecognizer(recognizer)
         }
