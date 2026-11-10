@@ -258,6 +258,29 @@ impl MessageWriter {
         result
     }
 
+    /// [`MessageWriter::send_stream_backpressured`] of a snapshot viewer's
+    /// `output` event ([`RenderService::serialize_snapshot_output`]).
+    pub(super) fn send_snapshot_output_backpressured(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        (generation, offset): (u64, u64),
+        colors: Option<&Value>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_snapshot_output(surface, output, generation, offset, colors)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     pub(super) fn send_terminal<T: Serialize + ?Sized>(
         &self,
         value: &T,
