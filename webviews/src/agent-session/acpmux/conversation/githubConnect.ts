@@ -109,16 +109,19 @@ function refusalLine(text: string): string | undefined {
 /// The repository a refusal line names: `OWNER/REPO: <code>` (git, gh) or `for GitHub for
 /// OWNER/REPO (<code>)` (the MCP text).
 function lineRepo(line: string): string | undefined {
-  const shell = /(?:^|\s)([A-Za-z0-9][\w.-]*\/[\w.-]+): (?:integration\.not_found|github\.not_connected|needs_reauth|policy\.denied)\b/.exec(
-    line,
-  );
+  const shell =
+    /(?:^|\s)([A-Za-z0-9][\w.-]*\/[\w.-]+): (?:integration\.not_found|github\.not_connected|needs_reauth|policy\.denied)\b/.exec(
+      line,
+    );
   if (shell) return shell[1];
   return /token for GitHub for ([^\s()]+) \(/.exec(line)?.[1];
 }
 
 /// A github.com remote the call's output printed (`git push`'s `https://github.com/OWNER/REPO.git`).
 function remoteRepo(text: string): string | undefined {
-  const match = /(?:https:\/\/|git@)github\.com[/:]([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?=[\s/'"]|$)/m.exec(text);
+  const match = /(?:https:\/\/|git@)github\.com[/:]([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?=[\s/'"]|$)/m.exec(
+    text,
+  );
   return match ? `${match[1]}/${match[2]}` : undefined;
 }
 

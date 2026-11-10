@@ -89,7 +89,8 @@ await requireBrowserLane("github-connect-taps-browser.test.ts", async () => {
 
   const walk = (page: Page) =>
     page.evaluate(
-      () => (globalThis as { __githubConnectWalk?: unknown }).__githubConnectWalk ?? { asked: [], opened: [], sent: [] },
+      () =>
+        (globalThis as { __githubConnectWalk?: unknown }).__githubConnectWalk ?? { asked: [], opened: [], sent: [] },
     ) as Promise<{
       asked: (string | null)[];
       opened: string[];
@@ -113,7 +114,9 @@ await requireBrowserLane("github-connect-taps-browser.test.ts", async () => {
         // GitHub's own install page for the repository's owner (preselected by target_id): Install.
         const github = await browser.newPage({ viewport: { width, height } });
         screens.add("github-install");
-        await github.setContent('<main><h1>Install cmux</h1><p>on acme</p><button id="install">Install</button></main>');
+        await github.setContent(
+          '<main><h1>Install cmux</h1><p>on acme</p><button id="install">Install</button></main>',
+        );
         await github.click("#install");
         taps += 1;
         await github.close();
@@ -153,7 +156,9 @@ await requireBrowserLane("github-connect-taps-browser.test.ts", async () => {
       try {
         await chat.getByRole("button", { name: "Connect GitHub" }).click();
         await chat.locator('[data-github-connect="refused"]').waitFor();
-        expect(await chat.locator("[data-github-connect]").textContent()).toContain("Sign in to cmux to connect GitHub.");
+        expect(await chat.locator("[data-github-connect]").textContent()).toContain(
+          "Sign in to cmux to connect GitHub.",
+        );
         expect(await chat.locator("[data-github-connect] button").allTextContents()).toEqual(["Try again"]);
         expect((await walk(chat)).sent).toEqual([]);
       } finally {

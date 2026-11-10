@@ -70,7 +70,7 @@ export default componentEntry<Props>({
               record.asked.push(repo);
               if (walk === "refuse") {
                 const reason = "Sign in to cmux to connect GitHub.";
-                throw new NativeError({ code: "unavailable", message: reason, details: { reason } });
+                throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
               }
               // The host opens what integration.connect answered (GitHubConnections.swift).
               record.opened.push(

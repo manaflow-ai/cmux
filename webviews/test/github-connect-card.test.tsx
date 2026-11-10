@@ -70,7 +70,9 @@ test("git's and gh's refusal line and the MCP error each ask for a connect, with
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
   // The structured error alone (a harness that keeps only structuredContent), the repository from the call's args.
   const structured = JSON.parse(mcpRefusal()).structuredContent;
-  expect(githubConnectCall(mcp(JSON.stringify({ structuredContent: structured }), { owner: "octo", repo: "cat" }))).toEqual({
+  expect(
+    githubConnectCall(mcp(JSON.stringify({ structuredContent: structured }), { owner: "octo", repo: "cat" })),
+  ).toEqual({
     reason: "not-connected",
     repo: "octo/cat",
   });
@@ -127,14 +129,21 @@ test("one card per turn, on the chat's last turn's footer, naming the turn's las
   expect(footers[0]!.githubConnect).toEqual({ reason: "not-connected", repo: "acme/web", callId: "call-mcp-2" });
   // A prompt after it (the card's Continue, or the person's own): that turn is no longer the last,
   // so its card is gone; the next turn draws its own if it fails again.
-  const later = [...turn, row("u2", "user", { text: "Continue" }), row("a2", "assistant", { text: "Pushed." }), {
-    ...end,
-    id: "end-2",
-  }];
+  const later = [
+    ...turn,
+    row("u2", "user", { text: "Continue" }),
+    row("a2", "assistant", { text: "Pushed." }),
+    {
+      ...end,
+      id: "end-2",
+    },
+  ];
   const shaped = turnView(later, new Set()).filter((each) => each.kind === "turnSummary");
   expect(shaped.map((each) => each.githubConnect)).toEqual([undefined, undefined]);
   // A turn whose GitHub calls went through draws none.
-  expect(githubConnectNeed([calls(shell("To https://github.com/acme/web.git\n   abc..def  HEAD -> main"))])).toBeUndefined();
+  expect(
+    githubConnectNeed([calls(shell("To https://github.com/acme/web.git\n   abc..def  HEAD -> main"))]),
+  ).toBeUndefined();
 });
 
 test("the chat goes on when the person is back from GitHub, and only after leaving", () => {
@@ -284,7 +293,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   let refuse = true;
   const reason = "Sign in to cmux to connect GitHub.";
   const { asked } = await render(async () => {
-    if (refuse) throw new NativeError({ code: "unavailable", message: reason, details: { reason } });
+    if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
   await press("Connect GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
