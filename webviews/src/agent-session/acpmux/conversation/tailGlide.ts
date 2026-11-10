@@ -152,7 +152,9 @@ export function createTailGlide(): TailGlide {
         if (id === anchor) below = true;
         if (!below || id === anchor) continue;
         const was = before.get(id);
-        if (!was || typeof row.animate !== "function") continue;
+        // Another element under the same id (the next turn's live line, turns.ts `liveLineFrame`)
+        // came where it is: nothing of it was drawn anywhere else, so it has no move to play.
+        if (!was || was.row !== row || typeof row.animate !== "function") continue;
         const moved = top - was.top - (to.top - from.top);
         if (Math.abs(moved) < MIN_MOVE_PX) continue;
         const { ms, easing } = timing(thread, look, moved);

@@ -90,6 +90,15 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 /// The running turn's line, its last row from the send to the turn's end (turnEndFold.ts reads it).
 export const LIVE_THINKING = `${THINKING}-live`;
+/// The element the live line draws in (model.ts `frame`, the transcript's React key): one per turn,
+/// named by the prompt that opened it, so the line keeps its element from the send to the turn's end
+/// (a steer goes on with its turn, ``continuesTurn``) and the next turn's line is an element of its
+/// own. One element for every turn moved the last turn's line down to the next turn's bottom and
+/// faded it in again there: a layout shift of the whole view's height each time a turn ended and the
+/// next began in one update (a catch-up, a fast agent; transcript-replay.bench.ts
+/// `transcript_replay.live.cls` 0.38 on the long log and 6.17 on the god session). The id stays
+/// LIVE_THINKING: Find, the folds, the tail glide and the turn's end read the line by it.
+export const liveLineFrame = (promptId: string) => `${LIVE_THINKING}:${promptId}`;
 export const WORKING = "working";
 /// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
@@ -961,6 +970,7 @@ function shapedTurn(
       at: user.at,
       kind: THINKING,
       verbKey: user.id,
+      frame: liveLineFrame(user.id),
       // The running turn's slot from the send (`LIVE_SLOT`): the turn opening never resizes the line.
       ...LIVE_SLOT,
     };
@@ -1079,6 +1089,7 @@ function sentLine(sent: AcpmuxRow): AcpmuxRow {
     at: sent.at,
     kind: THINKING,
     verbKey: sent.id,
+    frame: liveLineFrame(sent.id),
     ...LIVE_SLOT,
   };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
@@ -2193,7 +2204,15 @@ function codexLiveTurn(
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
-  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true, verbKey: user.id };
+  const line: AcpmuxRow = {
+    id: LIVE_THINKING,
+    version: 1,
+    at,
+    kind: THINKING,
+    below: true,
+    verbKey: user.id,
+    frame: liveLineFrame(user.id),
+  };
   if (!last) return [...rows, line];
   const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {

@@ -2050,9 +2050,10 @@ function TranscriptView({
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
     // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
     const loadArrival = loadFade.current.open && coldOpen === undefined;
-    // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
-    // the last rows did not end with came now, with the prompt that opened it, so it enters on the
-    // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
+    // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING) and one
+    // frame per turn (turns.ts `liveLineFrame`): a line the last rows did not end with came now, with
+    // the prompt that opened it, so it enters on the send's clock with the prompt (conversation.css
+    // SEND-ENTRANCE), as a new element, never the last turn's moved. O(1): the last rows' tail only.
     const liveBefore = previous.at(-1)?.below ? rowFrameKey(previous.at(-1)!) : undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
