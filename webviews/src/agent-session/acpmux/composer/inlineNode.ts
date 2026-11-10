@@ -8,7 +8,7 @@
 // attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
-import { Fragment, type Node as ProseNode, type ResolvedPos, Slice } from "@milkdown/kit/prose/model";
+import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import {
   type EditorState,
   NodeSelection,
@@ -380,11 +380,8 @@ export function inlinePlugin(views: InlineViews) {
   );
 }
 
-/// Places attachments `ids` at the selection, the caret after them; false where they cannot go or the
-/// editor has no such node. In a code block, whose text takes no attachment, they go on their own
-/// line right under the block (placeUnderCode), never in the strip above the whole prompt (Leo,
-/// 2026-11-10: "we have inline stuff, so why is this not inline? This one went above the whole
-/// thing.").
+/// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
+/// code block) or the editor has no such node.
 ///
 /// `replace`: the person's own paste or drop, which takes the selection's place as a paste of text
 /// does, a selection across lines or the whole prompt (Select All) included. Their placeholder then
@@ -408,15 +405,13 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
     !selection.empty &&
     (selection.$from.parent !== selection.$to.parent || !selection.$from.parent.inlineContent)
   ) {
-    // Not into a code block it would end in: the attachment goes under that block, and the
-    // selection's text stays.
-    const $lands = selection.$from.parent.inlineContent ? selection.$from : selection.$to;
-    if ($lands.parent.type.spec.code) return placeUnderCode(view, tr, $lands, ids);
+    // Not into a code block it would end in: the attachment could not go there.
+    const lands = selection.$from.parent.inlineContent ? selection.$from.parent : selection.$to.parent;
+    if (lands.type.spec.code) return false;
     tr.deleteSelection();
   }
   const { $from, $to, from, to } = tr.selection;
-  if ($from.parent.type.spec.code && $from.parent === $to.parent) return placeUnderCode(view, tr, $from, ids);
-  if (!$from.parent.inlineContent || $from.parent !== $to.parent) return false;
+  if (!$from.parent.inlineContent || $from.parent.type.spec.code || $from.parent !== $to.parent) return false;
   const nodes = Fragment.from(ids.map((id) => type.create({ id })));
   if (!$from.parent.canReplace($from.index(), $to.index(), nodes)) return false;
   const placedAt = tr.steps.length;
@@ -426,41 +421,11 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
   return true;
 }
 
-/// Attachments `ids` pasted or dropped with the caret (`$in`) in a code block: on their own line right
-/// under the block, after the attachments already there, as one edit. The caret and the block's text
-/// stay as they were, so what the person types next still goes in the block. False where no line can
-/// go there (the editor has no paragraph).
-function placeUnderCode(view: EditorView, tr: Transaction, $in: ResolvedPos, ids: readonly string[]): boolean {
-  const { schema } = view.state;
-  const type = schema.nodes[INLINE_NODE];
-  const paragraph = schema.nodes.paragraph;
-  if (!type || !paragraph) return false;
-  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
-  const after = $in.after($in.depth);
-  const $after = tr.doc.resolve(after);
-  const next = $after.nodeAfter;
-  // The line of attachments an earlier paste in this block made: these go after them.
-  if (next?.type === paragraph && next.childCount > 0 && everyChild(next, (child) => child.type === type))
-    tr.insert(after + next.nodeSize - 1, nodes);
-  else {
-    const made = paragraph.create(null, nodes);
-    if (!$after.parent.canReplace($after.index(), $after.index(), Fragment.from(made))) return false;
-    tr.insert(after, made);
-  }
-  view.dispatch(tr.scrollIntoView());
-  return true;
-}
-
-function everyChild(node: ProseNode, test: (child: ProseNode) => boolean): boolean {
-  for (let index = 0; index < node.childCount; index += 1) if (!test(node.child(index))) return false;
-  return true;
-}
-
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
 export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
   if (!found.length) {
-    // A chip with no place (one the field could not take): what
+    // A chip with no place (an oversized paste in a code fence keeps its chip in the strip): what
     // goes in next goes after the selection, never over the person's selected draft.
     const { selection } = view.state;
     if (caret && !selection.empty) {
