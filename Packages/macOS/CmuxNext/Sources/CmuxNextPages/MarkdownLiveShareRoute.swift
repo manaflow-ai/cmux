@@ -3,11 +3,16 @@ import Foundation
 /// A request path of the local live server (plans/cmux-next/markdown-omnibar-DESIGN.md section
 /// 4.1): `/md/<token>/<name>` is the page, `/md/<token>/<name>/events` its reload stream. Any
 /// other path, or one with `..`, routes nowhere and answers 404.
-nonisolated enum MarkdownLiveShareRoute: Equatable, Sendable {
+public nonisolated enum MarkdownLiveShareRoute: Equatable, Sendable {
+    /// `/md/<token>/<name>`: the shared file's page.
     case page(token: String)
+    /// `/md/<token>/<name>/events`: the page's reload stream.
     case events(token: String)
 
-    init?(path: String) {
+    /// The route of request `path` (its query ignored); nil for any path the server does not serve.
+    ///
+    /// - Parameter path: The request target, such as `/md/abc123/notes.md/events`.
+    public init?(path: String) {
         let path = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? path
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().map(String.init)
         guard path.hasPrefix("/"), !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
