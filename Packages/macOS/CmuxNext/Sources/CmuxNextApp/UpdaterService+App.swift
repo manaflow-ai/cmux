@@ -27,16 +27,9 @@ extension UpdaterService {
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willRelaunch = { [weak services] in
-            services?.quit.origins.record(.explicit(.keep))
-            // The update's quit hands the agent daemon to the new build (QuitCoordinator).
-            services?.quit.relaunchesIntoUpdate = true
-        }
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         hidesForRelaunch = { _ = handoff.hide() }
-        installAbandoned = { [weak services] in
-            handoff.restore()
-            services?.quit.relaunchesIntoUpdate = false
-        }
+        installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the

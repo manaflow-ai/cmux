@@ -273,6 +273,17 @@ public nonisolated enum AcpmuxUpdateHandoff {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
+    /// How long the update's quit waits for the daemon to stop and exit: inside the keep quit's 4 s
+    /// (`QuitDeadline.keepQuitLimit`). A daemon still running past it is left to the new build's
+    /// version handoff.
+    public static let quitLimit: Duration = .milliseconds(1500)
+
+    /// ``handOff(_:within:)`` within ``quitLimit``, logged: the update quit's step.
+    @concurrent public static func handOffForQuit(_ environment: AcpmuxEnvironment?) async {
+        let outcome = await handOff(environment, within: quitLimit)
+        logger.notice("update relaunch: acpmux \(String(describing: outcome), privacy: .public)")
+    }
+
     /// Whether the update's relaunch stops the daemon `status` describes: never an attached daemon
     /// (another app's), nor one that would lose its chats (a memory store without agent hosts).
     static func decide(_ status: AcpmuxStatus, attached: Bool) -> AcpmuxVersionHandoff.Decision {

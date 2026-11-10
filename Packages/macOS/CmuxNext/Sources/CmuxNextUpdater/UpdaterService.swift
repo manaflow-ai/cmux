@@ -34,6 +34,9 @@ public final class UpdaterService {
     /// When the feed last answered a probe (``probe()``), on ``now``: the install click decides at
     /// once on a read this recent (``StagedUpdateRefresh/clickReadFreshness``).
     @ObservationIgnored public internal(set) var lastProbeAnsweredAt: Date?
+    /// Sparkle committed to relaunching into the installed update (cleared if the install is
+    /// abandoned): the quit that follows hands the agent daemon to the new build.
+    @ObservationIgnored public internal(set) var relaunchesIntoUpdate = false
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
