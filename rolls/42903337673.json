@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42903337673",
+  "recorded_at": "2026-11-10T21:24:56Z",
+  "reason": "cmux-tui c17a7eb68219 changes the image's cmux-tui (pinned 1bf420804085)",
+  "dry_run": false,
+  "cmux_tui": "c17a7eb682197ffe7dcc0012f308504c3750547e",
+  "fixes": [
+    {
+      "sha": "c17a7eb682197ffe7dcc0012f308504c3750547e",
+      "mergedAt": "2026-11-10T20:58:30Z",
+      "subject": "perf(daemon): slow request log in the session folder (#40677)"
+    },
+    {
+      "sha": "19189603b2f346c0e005b8b8453426a23b6aa5e1",
+      "mergedAt": "2026-11-10T20:41:07Z",
+      "subject": "docs(cmux-tui): a fix names its port to the other branch, or says why there is none (#40773)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T21:24:56Z",
+    "snapshot_id": "sh-2de772966260453582fe570c28c8496c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42903337673): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "938610a979332c7a041c5d26c54f7dcbcfaaff87",
+    "image": "cloud-native-auto-c17a7eb6-42903337673-1",
+    "revision": "ci-42903337673-1",
+    "at": "2026-11-10T21:24:56Z"
+  },
+  "rolled_back": false
+}
