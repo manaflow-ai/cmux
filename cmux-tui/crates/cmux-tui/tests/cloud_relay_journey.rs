@@ -136,6 +136,11 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     std::os::unix::fs::symlink("src/lib.txt", first.join("chain-c")).unwrap();
     fs::create_dir_all(first.join("target/debug")).unwrap();
     fs::write(first.join("target/debug/big.o"), vec![7u8; 1 << 20]).unwrap();
+    // A folder VM two later swaps for a symlink, and a group-writable file.
+    fs::create_dir_all(first.join("deep")).unwrap();
+    fs::write(first.join("deep/gone.txt"), "deleted after the bulk\n").unwrap();
+    fs::write(first.join("shared.txt"), "group writable\n").unwrap();
+    fs::set_permissions(first.join("shared.txt"), fs::Permissions::from_mode(0o664)).unwrap();
     // A file big enough to be streamed part by part.
     fs::write(
         first.join("data.bin"),
@@ -202,6 +207,16 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
         "the relay deleted VM two's own work"
     );
     fs::remove_dir_all(second.join("lib-link")).unwrap();
+
+    // VM two swaps a relayed folder for a symlink to a copy outside the folder: a file the
+    // source deletes then goes only inside the target folder, never through the symlink.
+    let outside = two.home().join("work/saved-deep");
+    fs::rename(second.join("deep"), &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, second.join("deep")).unwrap();
+    fs::remove_file(first.join("deep/gone.txt")).unwrap();
+    relay(&mac, &one, &first, &two, &second);
+    assert!(outside.join("gone.txt").exists(), "a relay deleted through a symlinked folder");
+    fs::remove_file(second.join("deep")).unwrap();
 
     // A folder VM two already has, that no relay made, is never written over.
     let theirs = two.home().join("work/theirs");

@@ -70,8 +70,8 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
-mod hop;
 mod held;
+mod hop;
 mod pull;
 mod record;
 
