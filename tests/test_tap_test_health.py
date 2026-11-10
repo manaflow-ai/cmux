@@ -290,7 +290,8 @@ class BaseRedConsumer(unittest.TestCase):
 
     def lines(self, test_lines, build_lines=(), extra=()):
         return [(BUILD, 3, "##[group]Run swift build --build-tests"), *((BUILD, 8, line) for line in build_lines),
-                (base.TEST_STEP, 10, "##[group]Run swift test"), *((base.TEST_STEP, 19, line) for line in test_lines),
+                (base.TEST_STEP, 10, f"##[group]{base.TEST_STEP}"),
+                *((base.TEST_STEP, 19, line) for line in test_lines),
                 (base.TEST_STEP, 19.5, "##[error]Process completed with exit code 1."), *extra]
 
     def frame(self, github, lines, steps=None, columns=True):
@@ -385,7 +386,7 @@ class BaseRedConsumer(unittest.TestCase):
             # The passing step printed the quarantined failure in the second the failing step starts.
             "passed step, boundary second": ([(BUILD, 3, "##[group]Run swift build --build-tests"),
                                               *((BUILD, 10.1, line) for line in HEAD.splitlines()),
-                                              (base.TEST_STEP, 10.4, "##[group]Run swift test"),
+                                              (base.TEST_STEP, 10.4, f"##[group]{base.TEST_STEP}"),
                                               (base.TEST_STEP, 19.5, "##[error]Process completed with exit code 1.")],
                                              [(BUILD, "success", 3, 10), (base.TEST_STEP, "failure", 10, 20)]),
             # Two steps share a name; the passing one printed it and the failing one names no test.
