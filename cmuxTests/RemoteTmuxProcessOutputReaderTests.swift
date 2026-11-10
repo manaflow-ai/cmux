@@ -41,10 +41,11 @@ import Testing
         try pipe.fileHandleForWriting.close()
 
         // Stopping is a suspended read source, which announces nothing, so this waits on the
-        // reader's pause counter. The consumer holds every chunk, so the reader cannot resume
-        // and the counter cannot pass 1 while this waits.
+        // reader's pause counter, and on the consumer task having taken the chunks the reader
+        // published before it paused. The consumer holds every chunk, so the reader cannot
+        // resume and the counter cannot pass 1 while this waits.
         let deadline = ContinuousClock.now + .seconds(30)
-        while reader.pauseCount == 0, ContinuousClock.now < deadline {
+        while reader.pauseCount == 0 || held.byteCount < bound, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(1))
         }
         #expect(reader.pauseCount == 1)

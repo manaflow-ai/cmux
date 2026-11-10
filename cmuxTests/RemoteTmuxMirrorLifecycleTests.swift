@@ -230,6 +230,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         reader.processDidExit()
 
         #expect(await capture.value == terminalError)
+        #expect(reader.pauseCount == 0)
     }
 
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {

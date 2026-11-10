@@ -131,6 +131,10 @@ extension RemoteTmuxControlConnection {
     /// already shows its result. Panes with a seed in progress keep it and stop retaining
     /// their output too.
     ///
+    /// Idle panes are repainted too: the backlog is still unparsed in the transport, so nothing
+    /// says which panes it belongs to. Each full-history capture replaces the pane's scrollback
+    /// with tmux's own history, as a reconnect does, so a pane keeps every line tmux kept.
+    ///
     /// The capture replies queue behind the backlog in the stream, so the parser still reads
     /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
     /// at a time; a flood that keeps outrunning the reader starts another after it finishes.
