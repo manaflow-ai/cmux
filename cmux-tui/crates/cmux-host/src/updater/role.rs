@@ -805,7 +805,9 @@ fn check_inner(
 /// the next profile as [`check`] does, records the update as pending and restarts the
 /// services: the new `cmux host run` proves it or rolls it back ([`healthy`]), and its
 /// guard is the new build's own (the old one has no `host update guard`). From then on
-/// the machine updates itself.
+/// the machine updates itself. A rollback after the flip leaves the work link on
+/// `current`, that is on the image's build, not the file the Mac app had put there
+/// (kept at [`super::WORK_CMUX_TUI_KEPT`]).
 pub fn adopt(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
@@ -865,15 +867,13 @@ pub fn adopt(paths: &Paths) -> Outcome {
         }
     };
     if let Err(e) = store::flip(paths, plan.to) {
-        if relinked {
-            super::restore_work_link(paths);
-        }
+        super::restore_work_link(paths, relinked);
         drop(commit);
         disarm_guard();
         clear_pending(paths);
         return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
     }
-    if relinked {
+    if relinked != super::Relinked::Unchanged {
         log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
     }
     log(&format!(
