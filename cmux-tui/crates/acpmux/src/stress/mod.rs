@@ -68,9 +68,9 @@ pub(crate) fn disk_bytes(dir: &Path) -> u64 {
 /// that straddle it.
 pub(crate) fn slope(ys: &[f64]) -> f64 {
     let mut pairs = Vec::new();
-    for i in 0..ys.len() {
-        for j in i + 1..ys.len() {
-            pairs.push((ys[j] - ys[i]) / (j - i) as f64);
+    for (i, a) in ys.iter().enumerate() {
+        for (j, b) in ys.iter().enumerate().skip(i + 1) {
+            pairs.push((b - a) / (j - i) as f64);
         }
     }
     if pairs.is_empty() {
@@ -78,7 +78,7 @@ pub(crate) fn slope(ys: &[f64]) -> f64 {
     }
     pairs.sort_by(f64::total_cmp);
     let mid = pairs.len() / 2;
-    if pairs.len() % 2 == 1 { pairs[mid] } else { (pairs[mid - 1] + pairs[mid]) / 2.0 }
+    if !pairs.len().is_multiple_of(2) { pairs[mid] } else { (pairs[mid - 1] + pairs[mid]) / 2.0 }
 }
 
 /// The least-squares slope of `ys` over their index (printed beside the robust one).

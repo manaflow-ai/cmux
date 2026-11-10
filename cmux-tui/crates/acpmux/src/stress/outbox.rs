@@ -58,7 +58,7 @@ fn written_per_change(kept: usize) -> Option<f64> {
     let change = |n: u32| {
         outbox.update("live", |d| {
             d.attempts = n;
-            d.state = if n % 2 == 0 { State::Queued } else { State::Delivering };
+            d.state = if n.is_multiple_of(2) { State::Queued } else { State::Delivering };
         })
     };
     // Warm-up: the first change after open writes the journal's header whole.
