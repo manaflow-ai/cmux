@@ -214,11 +214,16 @@ struct SidebarStickyHeaderTests {
     /// 30 does, within 1.2x. Printed with sticky headers off (before) and on (after), from one harness.
     ///
     /// Both groups make the same scroll (`depthWithinGroup`), so the frames compare one to one. A group of 30 cannot
-    /// scroll 1,800 pt: its list ends after about 540 pt. Before, each group scrolled as far as it could, and a scroll
-    /// loses the same few configures at its ends whatever its length (the rows of the overscan have their views before
-    /// it starts, and a row is parked one row later than it is realized). Those were a quarter of the short scroll and
-    /// a fifteenth of the long one: 1.00 configures a frame at 30 against 1.43 at 3,000, with one configure for each
-    /// row that came into range in both. The 1,800 pt scroll through 3,000 is still printed (`deep`), with its parts.
+    /// scroll 1,800 pt: its list ends after 28 frames down and back. Before, each group scrolled as far as it could,
+    /// and part of a scroll brings no row into range: at the list's end the realization range runs past the last row
+    /// by the overscan (the short list only, the long one never gets there), and on the way back the rows within the
+    /// overscan and the prune margin of the turn never left. That part is a large share of the short scroll's travel
+    /// and a small one of the long one's: 1.00 configures a frame at 30 against 1.43 at 3,000, with one configure for
+    /// each row that came into range in both.
+    ///
+    /// The 1,800 pt scroll that only the large group can make (`deep`) is checked by itself, on a count that does not
+    /// depend on how far it goes: a scroll frame configures a row only when the row gets a view, and the scroll holds
+    /// the views the short one holds.
     @Test func aScrollThroughAGroupOfThreeThousandCostsWhatOneOfThirtyDoes() {
         let depth = Self.depthWithinGroup(of: 30)
         var on: [Int: Sample] = [:]
@@ -229,7 +234,8 @@ struct SidebarStickyHeaderTests {
                 if sticky { on[members] = sample }
             }
         }
-        print("SIDEBAR-STICKY deep " + Self.scroll(3_000, sticky: true, depth: 1_800).line)
+        let deep = Self.scroll(3_000, sticky: true, depth: 1_800)
+        print("SIDEBAR-STICKY deep " + deep.line)
         guard let small = on[30], let large = on[3_000] else { return }
         #expect(small.frames == large.frames && small.frames > 0, "both groups make the same scroll: \(small.line) / \(large.line)")
         #expect(small.stuckFrames > 0 && large.stuckFrames > 0, "both scrolls stick the header: \(small.line) / \(large.line)")
@@ -237,5 +243,15 @@ struct SidebarStickyHeaderTests {
         #expect(Double(large.views) <= Double(small.views) * 1.2, "views grew: \(small.line) -> \(large.line)")
         #expect(Double(large.rowViews) <= Double(small.rowViews) * 1.2 + 1, "row views grew: \(small.line) -> \(large.line)")
         #expect(large.stuckUpdatesPerFrame <= small.stuckUpdatesPerFrame * 1.2, "stuck-header updates/frame grew: \(small.line) -> \(large.line)")
+        // The long scroll: more frames than the short one, the same work in each.
+        #expect(deep.frames > large.frames && deep.stuckFrames > 0, "the deep scroll goes on past the short one: \(deep.line)")
+        for sample in [small, large, deep] {
+            #expect(sample.realized > 0 && sample.configures <= sample.realized,
+                    "a scroll frame configured a row that got no view in it: \(sample.line)")
+        }
+        #expect(Double(deep.views) <= Double(small.views) * 1.2, "views grew in the deep scroll: \(small.line) -> \(deep.line)")
+        #expect(Double(deep.rowViews) <= Double(small.rowViews) * 1.2 + 1, "row views grew in the deep scroll: \(small.line) -> \(deep.line)")
+        #expect(deep.stuckUpdatesPerFrame <= small.stuckUpdatesPerFrame * 1.2,
+                "stuck-header updates/frame grew in the deep scroll: \(small.line) -> \(deep.line)")
     }
 }
