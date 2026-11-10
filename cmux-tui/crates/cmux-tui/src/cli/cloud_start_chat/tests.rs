@@ -305,9 +305,13 @@ fn made() -> Ran {
 }
 
 fn started() -> Ran {
-    ok(json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
-              "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-              "tab_id": "tab-1", "target": "machine:vm-1"}))
+    ok(started_value())
+}
+
+fn started_value() -> Value {
+    json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
+           "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
+           "tab_id": "tab-1", "target": "machine:vm-1"})
 }
 
 #[test]
@@ -382,6 +386,29 @@ fn the_answer_times_each_step_it_ran() {
             ("cloud exec", 10_000, 5_000)
         ]
     );
+}
+
+/// `cloud start-session`'s own split (the app's `stages_ms`) goes under that step's `parts`, so its 20-odd seconds
+/// name the machine, the connect, the login, the tab and the start (cmuxterm-hq#8658: "no breakdown of it yet").
+#[test]
+fn the_start_sessions_own_stages_are_its_parts() {
+    let parts = json!([{"step": "machine", "ms": 8_100}, {"step": "connect", "ms": 9_400},
+                       {"step": "login", "ms": 2_100}, {"step": "tab", "ms": 700}, {"step": "start", "ms": 2_500}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts.clone();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["parts"], parts);
+    assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
 }
 
 #[test]
@@ -902,22 +929,56 @@ fn an_unanswered_read_of_the_turn_is_asked_again() {
     assert_eq!(fake.paused, NOT_STARTED_PAUSE);
 }
 
-/// READ_TRIES unanswered reads in a row are the machine not answering; a read the machine answers in between
-/// starts the count again.
+/// Unanswered reads are asked again, with backoff, until `--timeout` runs out: only then is the chat
+/// `chat.unreachable` (a fixed three tries failed a slow-but-working machine with most of the deadline left).
 #[test]
-fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
+fn unanswered_reads_are_asked_again_until_the_deadline() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"running\"}]}\n";
     let mut answers = vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(running)];
-    answers.extend((0..READ_TRIES).map(|_| unanswered()));
+    answers.extend((0..40).map(|_| unanswered()));
     let mut fake = Fake::new(answers);
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
-    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    // The deadline's own answer: the read that found it passed (`chat.unreachable`) or the wait that had none of it
+    // left (`chat.wait_timeout`), whichever came first.
+    let code = error["code"].as_str();
+    assert!(matches!(code, Some("chat.unreachable" | "chat.wait_timeout")), "{error}");
+    assert!(exit == 1 || exit == 3, "{exit}");
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
-    assert_eq!(fake.ran.len(), 5 + READ_TRIES as usize, "{:?}", fake.ran);
+    // Far more than three reads, and the failure comes only once the deadline has passed.
+    assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
+    assert!(fake.clock.duration_since(began) >= Duration::from_secs(120), "{:?}", fake.clock.duration_since(began));
+}
+
+/// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
+/// goes unanswered, and the reply is still read back inside `--timeout`.
+#[test]
+fn a_machine_that_answers_after_30_s_of_unanswered_reads_gets_its_reply_read() {
+    let mut answers = vec![signed_in(), started(), exec_out(SENT)];
+    // Each fake step takes 5 s; with the pauses between them, these reads span over 30 s.
+    answers.extend((0..5).map(|_| unanswered()));
+    answers.push(exec_out(REPLIED));
+    let mut fake = Fake::new(answers);
+    let Outcome::Done(answer) =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["unanswered_reads"], 5);
+    let unanswered_span = Duration::from_secs(5 * 5) + fake.paused;
+    assert!(unanswered_span >= Duration::from_secs(30), "{unanswered_span:?}");
+}
+
+/// The pauses between unanswered reads grow from 2 s and stop growing at 15 s.
+#[test]
+fn unanswered_pauses_back_off_to_a_cap() {
+    let pauses: Vec<u64> = (1..=6).map(|n| unanswered_pause(n).as_secs()).collect();
+    assert_eq!(pauses, [2, 4, 8, 15, 15, 15]);
 }
 
 /// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
