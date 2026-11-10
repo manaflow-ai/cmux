@@ -1076,11 +1076,13 @@ fn steps(
             .filter(|_| stage.is_final())
             .and_then(|why| cap::cap_of("", why));
         if let Some(found) = capped {
-            let why = stage.reason.as_deref().unwrap_or_default();
-            let (message, details) = cap::at_cap(found, why, &listed, |id| {
+            let (message, mut details) = cap::at_cap(found, &listed, |id| {
                 again_command(request, &Machine::Target(id.to_owned()))
             });
-            return failed("cloud.machine_cap", message, details, 1);
+            if let Some(fields) = details.as_object_mut() {
+                fields.insert("reason".to_owned(), json!(stage.reason));
+            }
+            return failed(cap::code_of(found), message, details, 1);
         }
         if stage.is_final() {
             return failed(
@@ -1800,30 +1802,21 @@ fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
     let code = at(&error, "code").as_str().unwrap_or_default();
     let message = at(&error, "message").as_str().unwrap_or_default();
     match cap::cap_of(code, message) {
-        Some(found) if !signed_out(&error) => {
-            let message = message.to_owned();
-            cap_refusal(found, &message, listed, request, error)
-        }
+        Some(found) if !signed_out(&error) => cap_refusal(found, listed, request, error),
         _ => app_failure(error),
     }
 }
 
-/// `cloud.machine_cap`: the cap `found` refused (`refusal`, its words), the account's machines in `listed`
-/// and the commands that free one; `app` is what the app answered.
-fn cap_refusal(
-    found: cap::Cap,
-    refusal: &str,
-    listed: &Value,
-    request: &Request,
-    app: Value,
-) -> Outcome {
-    let (text, mut details) = cap::at_cap(found, refusal, listed, |id| {
+/// `cloud.machine_cap` or `cloud.spend_cap`: the stop `found` refused, the account's machines in `listed`
+/// and the commands that free one; `app` is what the app answered, its own words included.
+fn cap_refusal(found: cap::Cap, listed: &Value, request: &Request, app: Value) -> Outcome {
+    let (text, mut details) = cap::at_cap(found, listed, |id| {
         again_command(request, &Machine::Target(id.to_owned()))
     });
     if let Some(fields) = details.as_object_mut() {
         fields.insert("app".to_owned(), app);
     }
-    failed("cloud.machine_cap", text, details, 1)
+    failed(cap::code_of(found), text, details, 1)
 }
 
 /// A create that failed after the app answered it pending (its row under `creating`, or the machine it became
@@ -1838,7 +1831,7 @@ fn create_failed(request: &Request, created: &Value, row: &Value, now: &Value) -
         .unwrap_or("no reason given");
     let app = json!({"app": created, "creation": row});
     match cap::cap_of(code, reason) {
-        Some(found) => cap_refusal(found, reason, now, request, app),
+        Some(found) => cap_refusal(found, now, request, app),
         None => failed(
             "cloud.start_failed",
             format!("the new machine's create failed: {reason}"),

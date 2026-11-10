@@ -1717,7 +1717,13 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with("this plan allows 5 active machines: "), "{message}");
+    assert!(
+        message.starts_with("Cloud could not start a new machine: too many machines are running at once"),
+        "{message}"
+    );
+    // A paid plan has no machine count: the guard's number stays in the app's answer, out of the lead.
+    assert!(!message.contains("plan allows"), "{message}");
+    assert_eq!(error["details"]["app"]["message"], "this plan allows 5 active machines");
     assert!(
         message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target machine:vm-a`"),
         "{message}"
@@ -1749,12 +1755,48 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with(cap), "{message}");
+    assert!(
+        message.starts_with("Cloud could not start a new machine: too many machines are kept at once"),
+        "{message}"
+    );
+    assert!(!message.contains("limit of 20"), "{message}");
     assert!(
         message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
+    assert_eq!(error["details"]["app"]["creation"]["error"]["message"], cap);
+}
+
+#[test]
+fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([
+            {"machine_id": "vm-a", "title": "api", "status": "running"},
+            {"machine_id": "vm-b", "title": "web", "status": "paused"},
+        ])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "cloud.spend_cap.reached",
+                           "message": "this team is at its spending cap"})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.spend_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("Cloud could not start a new machine: your team reached its spending cap"),
+        "{message}"
+    );
+    assert!(message.contains("nothing is lost"), "{message}");
+    assert!(message.contains("api (running)"), "{message}");
+    // A paused machine cannot start at the cap: never offered.
+    assert!(!message.contains("web (paused)"), "{message}");
+    assert_eq!(error["details"]["cap"], "spend");
 }
 
 #[test]
@@ -1770,6 +1812,15 @@ fn only_a_cap_refusal_reads_as_a_cap() {
         ),
         Some(Cap::Held)
     );
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "this plan allows 200 machines in all, paused ones included; delete one first"
+        ),
+        Some(Cap::Held)
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x"), Some(Cap::Spend));
+    assert_eq!(cap_of("cmux.cloud.spend_cap_reached", "x"), Some(Cap::Spend));
     assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
     assert_eq!(cap_of("app.unreachable", "no app"), None);
 }
