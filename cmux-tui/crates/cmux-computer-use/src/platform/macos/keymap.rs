@@ -177,3 +177,41 @@ pub fn carries_text(key: &Key, flags: u64) -> Option<char> {
         _ => None,
     }
 }
+
+/// `AXMenuItemCmdModifiers` bits (HIToolbox `kMenu*Modifier`): Command is
+/// implied unless `MENU_NO_COMMAND` is set.
+pub const MENU_SHIFT: i64 = 1;
+pub const MENU_OPTION: i64 = 2;
+pub const MENU_CONTROL: i64 = 4;
+pub const MENU_NO_COMMAND: i64 = 8;
+
+/// Whether a menu item's key equivalent is `combo`. `cmd_char` is
+/// `AXMenuItemCmdChar` (AppKit reports it upper-case, with Shift in the
+/// modifiers), `virtual_key` is `AXMenuItemCmdVirtualKey` for items whose
+/// equivalent is a non-character key (arrows, Delete, F-keys).
+pub fn menu_item_matches(
+    combo: &crate::keys::KeyCombo,
+    cmd_char: Option<&str>,
+    virtual_key: Option<i64>,
+    menu_mods: i64,
+) -> bool {
+    let has = |m: Modifier| combo.modifiers.contains(&m);
+    let wanted = (if has(Modifier::Shift) { MENU_SHIFT } else { 0 })
+        | (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
+        | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
+        | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
+    if menu_mods & 0x0f != wanted {
+        return false;
+    }
+    match (&combo.key, cmd_char.filter(|c| !c.is_empty())) {
+        (Key::Char(c), Some(item)) => {
+            let mut chars = item.chars();
+            matches!((chars.next(), chars.next()), (Some(i), None) if i.to_lowercase().eq(c.to_lowercase()))
+        }
+        (key, None) => match (key_code(key), virtual_key) {
+            (Some((code, _)), Some(v)) => i64::from(code) == v,
+            _ => false,
+        },
+        _ => false,
+    }
+}

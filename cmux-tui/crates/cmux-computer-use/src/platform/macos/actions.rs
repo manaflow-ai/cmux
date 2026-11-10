@@ -355,6 +355,24 @@ pub(super) fn press_keys(
     if shift {
         flags |= keymap::FLAG_SHIFT;
     }
+    // A shortcut with Command in the background: press the app's menu item
+    // with that key equivalent through accessibility. AppKit matches posted
+    // key events to menu items by the event's characters, which a synthetic
+    // event fills from the key code without Shift, so cmd+shift+t reached
+    // TextEdit as cmd+t (Show Fonts) and its menu item never ran.
+    if delivery == Delivery::Background
+        && combo.modifiers.contains(&crate::keys::Modifier::Meta)
+        && let Some(item) = menu_item_for(t.window.pid, combo)
+    {
+        if item.bool("AXEnabled") == Some(false) {
+            let title = item.string("AXTitle").unwrap_or_default();
+            return Err(DesktopError::Unsupported(format!(
+                "the menu item for this shortcut ({title:?}) is disabled right now"
+            )));
+        }
+        item.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
+        return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
+    }
     let route = d.key_route(&t, delivery)?;
     // Space, Return and the arrows open a focused pop-up's menu.
     if delivery == Delivery::Background
@@ -575,4 +593,38 @@ pub(super) fn perform_action(
         route_name(ax_action)
     };
     Ok(outcome_after(&route, before, &el))
+}
+
+/// The enabled-or-not menu item of `pid`'s menu bar whose key equivalent is
+/// `combo`, searched breadth-first through submenus (bounded), or None.
+fn menu_item_for(pid: i32, combo: &KeyCombo) -> Option<Ax> {
+    let bar = Ax::application(pid)?.element("AXMenuBar")?;
+    let mut menus: Vec<Ax> =
+        bar.elements("AXChildren").iter().flat_map(|top| top.elements("AXChildren")).collect();
+    let mut seen = 0usize;
+    for _depth in 0..4 {
+        let mut next = Vec::new();
+        for menu in &menus {
+            for item in menu.elements("AXChildren") {
+                seen += 1;
+                if seen > 2000 {
+                    return None;
+                }
+                let number = |name: &str| item.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
+                let cmd_char = item.string("AXMenuItemCmdChar");
+                let virtual_key = number("AXMenuItemCmdVirtualKey");
+                if (cmd_char.as_deref().is_some_and(|c| !c.is_empty()) || virtual_key.is_some())
+                    && keymap::menu_item_matches(combo, cmd_char.as_deref(), virtual_key, number("AXMenuItemCmdModifiers").unwrap_or(0))
+                {
+                    return Some(item);
+                }
+                next.extend(item.elements("AXChildren"));
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        menus = next;
+    }
+    None
 }

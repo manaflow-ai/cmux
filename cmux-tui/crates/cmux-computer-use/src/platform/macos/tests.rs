@@ -250,3 +250,33 @@ fn macos_desktop_smoke() {
         }
     }
 }
+
+#[test]
+fn shortcuts_match_menu_items_by_char_and_modifiers() {
+    use crate::keys::KeyCombo;
+    let m = |combo: &str, ch: Option<&str>, vk: Option<i64>, mods: i64| {
+        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), ch, vk, mods)
+    };
+    // TextEdit's Make Plain Text is ⇧⌘T: AX reports "T" with the Shift bit.
+    assert!(m("cmd+shift+t", Some("T"), None, keymap::MENU_SHIFT));
+    // ⌘T (Show Fonts) is not ⇧⌘T, and the other way round.
+    assert!(!m("cmd+shift+t", Some("T"), None, 0));
+    assert!(!m("cmd+t", Some("T"), None, keymap::MENU_SHIFT));
+    assert!(m("cmd+t", Some("T"), None, 0));
+    // Option and Control must match exactly too.
+    assert!(m("cmd+alt+s", Some("S"), None, keymap::MENU_OPTION));
+    assert!(!m("cmd+s", Some("S"), None, keymap::MENU_OPTION));
+    assert!(m("ctrl+cmd+f", Some("F"), None, keymap::MENU_CONTROL));
+    // An item with no Command (MENU_NO_COMMAND) never matches a cmd chord.
+    assert!(!m("cmd+f", Some("F"), None, keymap::MENU_NO_COMMAND));
+    // Non-character equivalents compare the virtual key code.
+    let (left, _) = keymap::key_code(&crate::keys::Key::Left).unwrap();
+    assert!(m("cmd+left", None, Some(i64::from(left)), 0));
+    assert!(!m("cmd+right", None, Some(i64::from(left)), 0));
+    // Punctuation and digits match as typed.
+    assert!(m("cmd+,", Some(","), None, 0));
+    assert!(m("cmd+1", Some("1"), None, 0));
+    // A missing or multi-character equivalent never matches a character key.
+    assert!(!m("cmd+s", None, None, 0));
+    assert!(!m("cmd+s", Some("SS"), None, 0));
+}
