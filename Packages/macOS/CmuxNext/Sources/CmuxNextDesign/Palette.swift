@@ -115,6 +115,17 @@ public struct Palette {
     /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over
     /// a see-through window it is clear, and the hole shows the window's tint, as the content does.
     public static var selectedFolderSurface: NSColor { contentSurface }
+    /// The folder tab reads as the selection: the content's surface stands out of the chrome around it
+    /// by ``ThemeTokens/minimumSelectedContrast`` (``ThemeTokens/selectedOnChrome(_:chromeShade:)``, the
+    /// rows' rule). Over a see-through window the hole shows the content's own tint, so the theme's
+    /// content colour, made opaque, stands in for it. False on a chrome with no shade or a near-black
+    /// theme (Builtin Dark's #000000): the selected tab keeps `selectionFill` on its pill there, over the
+    /// folder, so it never disappears.
+    public static var selectedFolderReads: Bool {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
+        return ThemeTokens.selectedOnChrome(tokens.contentSurface.withAlpha(1), chromeShade: shade) != nil
+    }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.

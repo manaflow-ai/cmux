@@ -353,8 +353,9 @@ final class TabCell {
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             // The folder tab draws the selected tab (the content's surface, one shape with the content); the
-            // pill draws nothing under it, so the selection is never a gray pill.
-            if runsIntoCard { backgroundLayer.backgroundColor = nil }
+            // pill draws nothing under it, so the selection is never a gray pill. Where the content's surface
+            // does not stand out of the chrome (no shade, a near-black theme), the pill keeps the selection fill.
+            if runsIntoCard, Palette.selectedFolderReads { backgroundLayer.backgroundColor = nil }
             cornerFeetLayer?.fillColor = Palette.selectedFolderSurface.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.

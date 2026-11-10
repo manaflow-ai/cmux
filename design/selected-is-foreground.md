@@ -39,7 +39,9 @@ The content's surface counts as the selection only where it stands out of the ch
 WCAG contrast of at least 1.04 against black at the chrome's shade over it
 (`ThemeTokens.minimumSelectedContrast`, `ThemeTokens.selectedOnChrome`, mirrored in the gallery's
 `selectedOnChrome`). No shade (bare, panes, flat-sidebar-line), or a near-black theme whose shade
-does not show (Builtin Dark's #000000), keeps `Palette.selectionFill`.
+does not show (Builtin Dark's #000000), keeps `Palette.selectionFill`. The folder tab follows the
+same rule (`Palette.selectedFolderReads`): where it would not read, its pill keeps the selection fill
+over the folder. A folder is made hidden and fades in on its first selection, like every later one.
 
 The folder join changes no layout's geometry: Floating Panes and Blocks (pane separation `cards`)
 keep their pane padding (`Metrics.codePanePadding`), so each pane's first tab sits inside its card.

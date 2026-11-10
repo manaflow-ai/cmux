@@ -28,7 +28,9 @@ extension TabCell {
         } else {
             folder = CAShapeLayer()
             folder.actions = ["path": NSNull(), "fillColor": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
-            folder.opacity = runsIntoCard ? 1 : 0
+            // Made hidden: ``updateFolder(animated:)`` shows it, faded in on a first selection like every
+            // later one, at once for a layout that puts a selected tab into the card.
+            folder.opacity = 0
             themeScope.perform { folder.fillColor = Palette.selectedFolderSurface.cgColor }
             layer.insertSublayer(folder, below: backgroundLayer)
             cornerFeetLayer = folder
