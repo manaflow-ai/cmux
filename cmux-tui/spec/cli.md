@@ -1489,7 +1489,11 @@ dialog adds `accept_keys` and `accept_label`. A blocked `send` has `reply` and
 `reason`; it and the refused send exit 4, as `agent start` does. The
 refused send's localized message (all that human mode prints) names the
 dialog's kind, its `msg`, the keys that deny it and `--force`. A blocked
-`wait --until idle` answers `state: "blocked"` and exits 4. cmux never
+`wait --until idle` answers `state: "blocked"` and exits 4. A `blocked` that only
+the screen-detection plugin guessed (agent record `source` `plugin`) counts
+only while the screen shows no input box of the agent, or still shows dialog
+options: the plugin can read a screen just before the agent redraws it. The
+agent's own report of blocked (a hook or OSC 7501 record) always counts. cmux never
 answers a dialog: the caller asks the person and sends the keys with
 `terminal <sel> keys`.
 

@@ -244,14 +244,20 @@ pub(in crate::cli) fn deny_keys(
 }
 
 /// The question the dialog asks: the lowest of the bottom rows above its
-/// options that holds a `?`, up to its last `?` (`Do you want to proceed?`).
+/// options that holds a `?` at the end of a word, up to the last such `?`
+/// (`Do you want to proceed?`). A lone `?` is a key in a footer hint
+/// (`? for shortcuts`), not a question.
 fn question(screen: &str) -> Option<String> {
     bottom_rows(screen).iter().rev().find_map(|row| {
         if option(row).is_some() || cursor_row(row).is_some() {
             return None;
         }
         let (_, text) = unboxed(row);
-        let asked = text.get(..=text.rfind('?')?)?.trim();
+        let (end, _) = text.char_indices().rfind(|(index, character)| {
+            *character == '?'
+                && text[..*index].chars().next_back().is_some_and(char::is_alphanumeric)
+        })?;
+        let asked = text[..=end].trim();
         (asked.len() > 1).then(|| asked.to_owned())
     })
 }
@@ -286,6 +292,11 @@ pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -
 /// message of its newest blocked OSC 7501 record, else a startup dialog on
 /// `screen`, else a question its hooks reported (`agent_question`). `agents`
 /// are the daemon's agent records of that terminal.
+///
+/// A `blocked` that only a screen guess gives (the screen-detection plugin)
+/// is `None` once `screen` shows the agent's input box with no dialog on
+/// it: the plugin can read a screen just before the agent redraws it and
+/// then not read it again. The agent's own report of blocked always holds.
 pub(in crate::cli) fn blocked_dialog(
     terminal: &Value,
     agents: &[Value],
@@ -293,6 +304,14 @@ pub(in crate::cli) fn blocked_dialog(
 ) -> Option<Value> {
     let row = roster::agent_of_terminal(terminal, agents, false)?;
     if row.state != roster::AgentState::Blocked {
+        return None;
+    }
+    let screen_guess = matches!(row.source.as_str(), "plugin" | "detected");
+    if screen_guess
+        && readiness::composer_visible(screen)
+        && options(screen).is_empty()
+        && readiness::startup_dialog(screen).is_none()
+    {
         return None;
     }
     let number = |value: &Value| {

@@ -617,19 +617,22 @@ pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
     // Only the blocked check below reads the agent; done-until-seen is moot.
     let agent = roster::agent_of_terminal(terminal, agents, false);
-    if !request.force
-        && let Some(agent) = &agent
-        && agent.state == AgentState::Blocked
+    // The dialog it shows, as a blocked send answers it; a failed read
+    // leaves the options out. A stale screen guess of blocked has none.
+    let dialog = agent
+        .as_ref()
+        .filter(|agent| !request.force && agent.state == AgentState::Blocked)
+        .and_then(|_| {
+            let screen = plan(&["terminal", &id, "screen", "read"])
+                .ok()
+                .and_then(|read| backend.request(session, read).ok())
+                .and_then(|read| read.get("text").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_default();
+            dialog_options::blocked_dialog(terminal, agents, &screen)
+        });
+    if let Some(agent) = &agent
+        && let Some(dialog) = dialog
     {
-        // The dialog it shows, as a blocked send answers it; a failed read
-        // leaves the options out.
-        let screen = plan(&["terminal", &id, "screen", "read"])
-            .ok()
-            .and_then(|read| backend.request(session, read).ok())
-            .and_then(|read| read.get("text").and_then(Value::as_str).map(str::to_owned))
-            .unwrap_or_default();
-        let dialog = dialog_options::blocked_dialog(terminal, agents, &screen)
-            .unwrap_or_else(|| dialog_options::dialog_json(AGENT_QUESTION.id, None, &screen));
         let messages = &crate::localization::catalog().pane_cli;
         return Err(SendFailure::local(
             "agent.waiting_for_input",
