@@ -114,6 +114,15 @@ struct MobileSSHTmuxControlParserTests {
         #expect(MobileSSHTmuxProvider.parseTerminalID("a/b/%12")! == ("a/b", 12))
     }
 
+    /// A session name is the user's to choose, so one that happens to contain
+    /// the grouped-session marker is still a workspace.
+    @Test func userSessionNamedLikeAGroupedSessionKeepsItsWorkspace() {
+        let row = MobileSSHTmuxProvider.PaneRow(
+            session: "build-cmux-ios-demo", windowIndex: 0, windowName: "zsh", windowPaneCount: 1, pane: 1, paneIndex: 0
+        )
+        #expect(MobileSSHTmuxProvider.workspaces(from: [row]).map(\.id) == ["build-cmux-ios-demo"])
+    }
+
     // MARK: Screen title sequences
 
     private func filtered(_ chunks: [String]) -> (output: String, titles: [String]) {

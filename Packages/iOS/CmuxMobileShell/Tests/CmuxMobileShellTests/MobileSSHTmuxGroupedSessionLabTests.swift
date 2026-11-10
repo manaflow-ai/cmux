@@ -83,6 +83,22 @@ struct MobileSSHTmuxGroupedSessionLabTests {
         #expect(Self.tmuxStatus(socket, "has-session", "-t", "=laptop") == 0)
     }
 
+    /// A user's own session whose name contains the grouped-session marker is
+    /// listed as a workspace and survives the stale-session collection, even
+    /// with no client attached to it.
+    @Test(.timeLimit(.minutes(1))) func userSessionNamedLikeAGroupedSessionIsListedAndNeverKilled() async throws {
+        let socket = "cmux-lab-grouped-\(UUID().uuidString.prefix(8).lowercased())"
+        defer { Self.tmux(socket, "kill-server") }
+        let session = "build-cmux-ios-demo"
+        Self.tmux(socket, "new-session", "-d", "-s", session, "-x", "80", "-y", "24")
+        let connection = try await connect()
+        defer { Task { await connection.close() } }
+        let provider = MobileSSHTmuxProvider(connection: connection, tmuxPath: Self.tmuxPath, socketName: socket)
+        let workspaces = try await provider.listWorkspaces()
+        #expect(workspaces.map(\.id) == [session])
+        #expect(Self.tmuxStatus(socket, "has-session", "-t", "=" + session) == 0, "the user's session was killed")
+    }
+
     // MARK: Helpers
 
     func connect() async throws -> SSHConnection {
