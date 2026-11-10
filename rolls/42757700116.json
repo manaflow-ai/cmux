@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42757700116",
+  "recorded_at": "2026-11-10T04:52:57Z",
+  "reason": "cmux-tui f82fc949db52 changes the image's cmux-tui (pinned 546305ef7889)",
+  "dry_run": false,
+  "cmux_tui": "f82fc949db5246c37aaca25701e41f96f7c9ad41",
+  "fixes": [
+    {
+      "sha": "f82fc949db5246c37aaca25701e41f96f7c9ad41",
+      "mergedAt": "2026-11-10T04:28:11Z",
+      "subject": "acpmux desktop link: every harness acpmux runs gets the cmux agent tools (#40051)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T04:52:57Z",
+    "snapshot_id": "sh-b1a757190acd41c5953f7daf9c6f5b48",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42757700116): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b605524f956a68dc52f4f2d1c1be078accec654a",
+    "image": "cloud-native-auto-f82fc949-42757700116-1",
+    "revision": "ci-42757700116-1",
+    "at": "2026-11-10T04:52:57Z"
+  },
+  "rolled_back": false
+}
