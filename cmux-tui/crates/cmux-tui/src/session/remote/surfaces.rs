@@ -219,6 +219,21 @@ impl RemoteSession {
         })
     }
 
+    /// When the earliest overflow retry falls due (the app loop's idle wait
+    /// ends there), or `None` when none is scheduled.
+    pub fn next_surface_overflow_retry(&self) -> Option<Instant> {
+        if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
+            return None;
+        }
+        self.surface_overflow_recovery
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|recovery| !recovery.stopped)
+            .filter_map(|recovery| recovery.retry_after)
+            .min()
+    }
+
     pub fn surface_overflow_retry_due(&self) -> bool {
         if self.surface_overflow_reconnect_required.load(Ordering::Acquire) {
             return false;
