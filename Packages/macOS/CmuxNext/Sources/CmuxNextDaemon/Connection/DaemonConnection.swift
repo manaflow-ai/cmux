@@ -142,6 +142,13 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// Drops the current socket only (app health's restart of a connection that stopped answering): the
+    /// close reaches ``transportClosed(serial:reason:)``, which reconnects. Unlike ``close()``, it never
+    /// stops the reconnect or finishes `events`.
+    public func dropTransport() {
+        if case .ready(let ready) = phase { ready.transport.close() }
+    }
+
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
     public func closeAndWait() async {
         let connect = connectTask
@@ -228,7 +235,12 @@ public actor DaemonConnection {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         } catch let refused as PaneNotReady {
             throw reported(refused)
+        } catch {
+            // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { configuration.health?.noteRequest(timedOut: true) }
+            throw error
         }
+        configuration.health?.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

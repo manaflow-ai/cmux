@@ -70,6 +70,13 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// A leading pin's glyph square (a pinned workspace row's, a pinned group header's): Home's glyph square,
+    /// `kindGlyphSize`, so the pin draws in the box Home's house draws in and centers on the same line under it
+    /// (https://github.com/manaflow-ai/cmux/issues/38061: at `leadingGlyphSide`, 4 pt smaller, its ink was 9 pt across
+    /// under the house's 14.5).
+    static var pinGlyphSide: CGFloat { kindGlyphSize }
+    /// The Debug `sidebar.pinnedRowLeading` look: a pinned row with its own icon or dot draws it in the pin's place.
+    static var pinnedRowLeadsWithOwnIcon: Bool { SidebarPinnedRowLeading.tunable.value == .ownIcon }
     /// A workspace or group icon's glyph square: the leading icon column it sits in, so the icon follows the sidebar
     /// density (16 compact, 20 comfortable, wider with the text size) instead of one size at every density. Leo
     /// 2026-11-03: "generally we can have stuff more dynamically sized for compact/etc rn i think it's just a one size
@@ -98,7 +105,8 @@ enum SidebarStyle {
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
-    static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    /// The +'s side: the top row's one button size, the toolbar band's too (`TopRowSpacing`).
+    static var toolbarButtonSize: CGFloat { TopRowSpacing.buttonSide }
     /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
     /// joined to the + as one split button, not a third square button beside Back and Forward.
     static var toolbarMenuSegmentWidth: CGFloat { (toolbarButtonSize * 0.55).rounded() }

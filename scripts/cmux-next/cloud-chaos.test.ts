@@ -6,27 +6,30 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
-const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
+const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
 
 describe("chaosProbeRow", () => {
-  test("ok only when every fault that ran passed; ms is the slowest recovery", () => {
-    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
+  test("ok only when every fault that ran passed; ms is the slowest felt time, network_ms the slowest connection", () => {
+    const row = chaosProbeRow("p", [ok("drop 5 s", 900), ok("drop 60 s", 2400), { ...ok("vault down", 0), outcome: "not run", felt_ms: null, recover_ms: null }], undefined, new Date("2026-11-08T09:00:00.123Z"));
     expect(row.outcome).toBe("ok");
     expect(row.ms).toBe(2400);
+    expect(row.network_ms).toBe(800);
     expect(row.at).toBe("2026-11-08T09:00:00Z");
     expect(row.error).toBeNull();
   });
 
   test("a failed fault fails the row and is named", () => {
-    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", recover_ms: null, detail: "no answer within 120 s" }]);
+    const row = chaosProbeRow("p", [ok("relay cut", 300), { ...ok("drop 60 s", 0), outcome: "fail", felt_ms: null, recover_ms: null, detail: "no answer within 120 s" }]);
     expect(row.outcome).toBe("fail");
     expect(String(row.error)).toContain("drop 60 s: no answer within 120 s");
   });
 
   test("a run where nothing ran is a failure, not a pass", () => {
-    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, recover_ms: null, carrier: "", turn: "", detail: n.why })));
+    const row = chaosProbeRow("p", NOT_INJECTED.map((n) => ({ fault: n.name, outcome: "not run" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why })));
     expect(row.outcome).toBe("fail");
     expect(row.error).toBe("no fault ran");
   });
@@ -279,6 +282,18 @@ describe("journalCommand", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+
+  test("an acp tail that fails is the exit the line reports, never an empty journal read as whole", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      writeFileSync(join(bin, "c"), "#!/bin/sh\necho partial\nexit 3\n");
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
+      expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 3");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("judgeTerminal", () => {
@@ -443,5 +458,141 @@ describe("the chat's surface after a restart", () => {
     await chat.prompt("hi");
     expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
     chat.stop();
+  });
+});
+
+describe("the felt time after a send", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  /** A chat on a fake dial whose first `refuse` prompts fail (the carrier still down), then answers and pushes `pushes`. */
+  const chatWith = async (refuse: number, pushes: Array<{ ms: number; record: any }>) => {
+    const prompts: any[] = [];
+    let push: (m: any) => void = () => undefined;
+    let onDial: () => void = () => undefined;
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any) {
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_felt" } };
+          case "agent-session-start": return { ok: true, data: { session: "s-felt" } };
+          case "list-workspaces": return { ok: true, data: { workspaces: [{ screens: [{ panes: [{ tabs: [{ surface: 7, tab_resource_id: "tab_felt" }] }] }] }] } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 4, events: [], hasMore: false } };
+          case "agent-session-prompt":
+            prompts.push(frame);
+            if (prompts.length <= refuse) throw new Error("the client has no dial");
+            for (const p of pushes) setTimeout(() => push({ surface: 7, event: "agent-session-record", record: p.record }), p.ms);
+            return { ok: true, data: {} };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (onLine, d) => { push = onLine; onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, prompts };
+  };
+
+  test("runs from the send to the first record of the agent's reply, not to the echo of the prompt", async () => {
+    const { chat, prompts } = await chatWith(0, [
+      { ms: 10, record: { seq: 5, kind: "user_message_chunk" } },
+      { ms: 200, record: { seq: 6, kind: "tool_call", msg: { params: { update: { sessionUpdate: "tool_call" } } } } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, `${chaos.feltMarker("t-0")} drop 5 s: reply.`, 5_000);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(190);
+    expect(felt.felt_ms).toBeLessThan(1_000);
+    expect(felt.tries).toBe(1);
+    expect(prompts[0].text).toStartWith("[chaos-felt t-0]");
+    chat.stop();
+  });
+
+  test("a send the dial cannot take yet is tried again with the same prompt_id, and the clock keeps the wait", async () => {
+    const { chat, prompts } = await chatWith(2, [{ ms: 0, record: { seq: 5, params: { update: { sessionUpdate: "agent_message_chunk" } } } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 10_000);
+    expect(felt.tries).toBe(3);
+    expect(new Set(prompts.map((p) => p.prompt_id)).size).toBe(1);
+    // Two refusals, each followed by a 500 ms pause: the person waited through them.
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
+    expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
+    chat.stop();
+  });
+
+  test("no reply within the deadline is null, with the last error", async () => {
+    const { chat } = await chatWith(1_000, []);
+    const felt = await chaos.feltAfterSend(chat, "hi", 1_200);
+    expect(felt.felt_ms).toBeNull();
+    expect(felt.ack_ms).toBeNull();
+    expect(felt.error).toContain("no dial");
+    chat.stop();
+  });
+
+  test("a replayed record the chat already held is not the reply", async () => {
+    const { chat } = await chatWith(0, [{ ms: 300, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    // A re-attach page after the send that repeats held seq 4 (take keeps it, so the loss judge sees the replay).
+    (chat as any).take({ events: [{ seq: 4, kind: "agent_message_chunk" }], hasMore: false });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
+    chat.stop();
+  });
+
+  test("a late record of the chat's previous turn is not the reply", async () => {
+    // The previous turn ended at journal seq 9; its seq 7 arrives late, after the send.
+    const { chat } = await chatWith(0, [
+      { ms: 20, record: { seq: 7, kind: "agent_message_chunk" } },
+      { ms: 300, record: { seq: 10, kind: "agent_message_chunk" } },
+    ]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 5_000, 9);
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(290);
+    chat.stop();
+  });
+
+  test("a reply received after the deadline does not count", async () => {
+    const { chat } = await chatWith(0, [{ ms: 900, record: { seq: 5, kind: "agent_message_chunk" } }]);
+    const felt = await chaos.feltAfterSend(chat, "hi", 400);
+    expect(felt.felt_ms).toBeNull();
+    chat.stop();
+  });
+
+  test("a live reply that a re-attach page also carries keeps its earlier arrival time", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    // A re-attach is paging: the live push of seq 5 is stashed at its arrival, then the page brings seq 5 later.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const pushedAt = c.stash[0].at;
+    await sleep(120);
+    const pageFrom = c.received.length;
+    c.take({ events: [{ seq: 5, kind: "agent_message_chunk" }], hasMore: false });
+    c.flushStash(pageFrom);
+    expect(chat.received.filter((r) => r.seq === 5)).toHaveLength(1);
+    expect(chat.received.find((r) => r.seq === 5)!.at).toBe(pushedAt);
+    chat.stop();
+  });
+
+  test("a reply still held behind a loading page counts at its own arrival", async () => {
+    const { chat } = await chatWith(0, []);
+    const c = chat as any;
+    const sending = chaos.feltAfterSend(chat, "hi", 5_000);
+    await sleep(100);
+    // A re-attach is paging: the live reply is stashed now; the page carrying it is still loading.
+    c.paging = true;
+    c.onLine({ surface: 7, event: "agent-session-record", record: { seq: 5, kind: "agent_message_chunk" } });
+    const felt = await sending;
+    expect(felt.felt_ms).toBeGreaterThanOrEqual(90);
+    expect(felt.felt_ms).toBeLessThan(400);
+    chat.stop();
+  });
+
+  test("only the agent's own output counts as the reply", () => {
+    expect(chaos.isReply({ seq: 1, kind: "agent_message_chunk" })).toBe(true);
+    expect(chaos.isReply({ params: { update: { sessionUpdate: "tool_call" } } })).toBe(true);
+    expect(chaos.isReply({ seq: 1, kind: "user_message_chunk" })).toBe(false);
+    expect(chaos.isReply({ seq: 1, kind: "turn_end" })).toBe(false);
+  });
+
+  test("the felt prompt never plays the counting turn", () => {
+    expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
   });
 });

@@ -65,6 +65,8 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     // `GOOGLE_*` stays: Claude Code on Vertex reads it on purpose (`login_env.rs`).
     LoginEnv { key: "GEMINI_API_KEY", family: "gemini", shared_with_others: true },
     LoginEnv { key: "GEMINI_CLI_HOME", family: "gemini", shared_with_others: false },
+    // xAI's grok CLI home (`~/.grok`, its `grok login` session): its own.
+    LoginEnv { key: "GROK_HOME", family: "grok", shared_with_others: false },
     // Muse Code's API key: no other harness signs in with it.
     LoginEnv { key: "META_API_KEY", family: "muse", shared_with_others: false },
 ];

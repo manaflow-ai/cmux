@@ -65,6 +65,8 @@ public final class DiffPageProvider: PageProvider {
     public var timeline: DiffOpenTimeline?
     /// The chat that takes the tab's review comments now (``DiffTabChat``); nil offers no send.
     public var chat: () -> DiffTabChat? = { nil }
+    /// Who writes the tab's hunk sentences (DiffPageProvider+Summaries.swift); nil serves none.
+    public var summarizer: () -> DiffHunkSummarizer? = { nil }
     /// The tab's first session, opened by the host while the page boots (DiffPageProvider+Preopen.swift).
     var preopen: Task<DiffPreopened, Never>?
     private var discards: [Task<Void, Never>] = []
@@ -130,6 +132,7 @@ public final class DiffPageProvider: PageProvider {
             if let value = try await storeCall(op, params: params) { return value }
             if let value = try await commentsCall(op, params: params, context: context) { return value }
             if let value = try await briefCall(op, params: params) { return value }
+            if let value = try await summariesCall(op, params: params) { return value }
             if let value = try await gitCall(op, params: params, context: context) { return value }
             if let value = try await revertCall(op, params: params, context: context) { return value }
             if let value = try await openFileCall(op, params: params, context: context) { return value }
@@ -167,7 +170,7 @@ public final class DiffPageProvider: PageProvider {
             // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
             let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
                 ? DiffPageConfig.offeringTurn(tab.config) : tab.config
-            var served = withBrief(withComments(withOpenFile(withGit(await withStores(config)))))
+            var served = withSummaries(withBrief(withComments(withOpenFile(withGit(await withStores(config))))))
             if remote { served = Self.withoutRemoteWhitespace(served) }
             return served
         } catch let failure as DiffTabFailure {

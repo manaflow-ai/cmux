@@ -55,6 +55,17 @@ const SHOWN_INK = 38;
 /// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
 const FADE_OUT_STRETCH = 4 / 3;
 
+/** The custom property a scroller's thumb takes its ink from, and that ink in full (percent). */
+export type ScrollerInk = { property: string; full: number };
+
+/**
+ * A sideways scroller's thumb ink (a wide table's, a Shell block's): percent of the thumb's color.
+ * `followShownScrollerFade(box, SIDEWAYS_INK)` steps it so the thumb fades in and out under the
+ * scrollbar fade instead of showing and hiding in one frame (user 2026-11-08: "this table thing
+ * needs better animation on appear/disappear").
+ */
+export const SIDEWAYS_INK: ScrollerInk = { property: "--cmux-sideways-ink", full: 100 };
+
 /** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
 function durationMs(element: Element, property: string): number {
   const value = element.ownerDocument.defaultView?.getComputedStyle(element).getPropertyValue(property).trim() ?? "";
@@ -71,22 +82,32 @@ function durationMs(element: Element, property: string): number {
  * transition there showed the thumb and hid it with nothing between. Between fades the stylesheet's
  * ink applies. Returns the stop function.
  */
-export function followShownScrollerFade(element: HTMLElement): () => void {
+export function followShownScrollerFade(
+  element: HTMLElement,
+  ink: ScrollerInk = { property: "--cmux-shown-scroller-ink", full: SHOWN_INK },
+): () => void {
+  const { property: INK_PROPERTY, full } = ink;
   const view = element.ownerDocument.defaultView;
-  // A view that draws no frames (a test page made without them) runs no fade.
-  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
+  // A view that draws no frames (a test page made without them, or one that stubs only
+  // requestAnimationFrame: the stop function cancels a frame) runs no fade.
+  if (
+    !view?.MutationObserver ||
+    typeof view.requestAnimationFrame !== "function" ||
+    typeof view.cancelAnimationFrame !== "function"
+  )
+    return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>
-    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : SHOWN_INK;
+    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full;
   /// The ink drawn now; a fade starts from it.
-  let ink = resting();
-  let target = ink;
+  let drawn = resting();
+  let target = drawn;
   let frame = 0;
   const settle = () => {
     view.cancelAnimationFrame(frame);
-    ink = target = resting();
-    element.style.removeProperty("--cmux-shown-scroller-ink");
+    drawn = target = resting();
+    element.style.removeProperty(INK_PROPERTY);
   };
   const fade = () => {
     const to = resting();
@@ -94,7 +115,7 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
     if (to === target) return;
     if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
     target = to;
-    const from = ink;
+    const from = drawn;
     const ms =
       to > from
         ? durationMs(element, "--cmux-scroller-fade-in")
@@ -110,8 +131,8 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
       // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
       // instantly").
       const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
-      ink = from + (to - from) * eased;
-      element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      drawn = from + (to - from) * eased;
+      element.style.setProperty(INK_PROPERTY, `${drawn.toFixed(2)}%`);
       frame = view.requestAnimationFrame(step);
     };
     step(start);
@@ -543,12 +564,19 @@ export const SIDEWAYS_SCROLLER_CSS = `
   min-width: 24px;
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size, 8px);
-  background: var(--cmux-sideways-rest, ${SIDEWAYS_THUMB}) padding-box;
+  background: color-mix(in srgb, ${SIDEWAYS_THUMB} var(--cmux-sideways-ink, 100%), transparent) padding-box;
 }
 :root[${SCROLLER_FADE_ATTRIBUTE}] {
   --cmux-sideways-rest: transparent;
 }
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+/* Under the scrollbar fade the thumb rests at no ink and has full ink while it scrolls; between
+   the two, followShownScrollerFade steps --cmux-sideways-ink inline, once a frame. */
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}] {
+  --cmux-sideways-ink: 0%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-sideways-ink: 100%;
+}
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: ${SIDEWAYS_THUMB};

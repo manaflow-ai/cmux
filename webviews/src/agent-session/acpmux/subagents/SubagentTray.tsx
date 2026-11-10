@@ -138,6 +138,7 @@ import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
+import { focusRingShown } from "../../../ui/focusModality";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -1238,10 +1239,10 @@ function withLeaving(cards: readonly TrayCard[], leaving: ReadonlyMap<string, Le
   return out;
 }
 
-/// Focus that arrived by keyboard (`:focus-visible`), which holds the hat; a click's focus does not.
+/// Focus a navigation key moved here (focusRingShown), which holds the hat; a click's focus does not.
 function focusVisible(event: FocusEvent<HTMLElement>): boolean {
   try {
-    return (event.target as Element).matches(":focus-visible");
+    return focusRingShown(event.target as Element);
   } catch {
     return false;
   }

@@ -49,7 +49,10 @@ describe("hover wave model", () => {
   test("the grow-in runs the rail's spring over the micro step", () => {
     expect(waveAmplitude(0)).toBe(0);
     expect(waveAmplitude(WAVE_IN_MS * 0.1)).toBeCloseTo(0.398, 3);
-    expect(waveAmplitude(WAVE_IN_MS * 0.7)).toBeCloseTo(1.008, 3);
+    expect(waveAmplitude(WAVE_IN_MS * 0.5)).toBeCloseTo(0.972, 3);
+    // At full size from 58.75% on, and never past it.
+    expect(waveAmplitude(WAVE_IN_MS * 0.6)).toBe(1);
+    expect(waveAmplitude(WAVE_IN_MS * 0.7)).toBe(1);
     expect(waveAmplitude(WAVE_IN_MS)).toBe(1);
     expect(waveAmplitude(WAVE_IN_MS * 4)).toBe(1);
   });

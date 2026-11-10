@@ -41,6 +41,8 @@ const COMMANDS: &[&str] = &[
     "agent-session-typing",
     "agent-session-view",
     "agent-session-context",
+    // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
+    "agent-session-btw",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -71,6 +73,7 @@ const COMMANDS: &[&str] = &[
     "rename-workspace",
     "rename-pane",
     "set-split-ratio",
+    "set-divider-visible",
     "set-viewport-pane-width",
     "set-row-heights",
     "undo-layout",
@@ -87,6 +90,10 @@ const COMMANDS: &[&str] = &[
     "clear-history",
     "terminal-clipboard-reply",
     "terminal-clipboard-subscribe",
+    // Shell mode of a chat on this machine (`shell_wire.rs`): the owner's `!` commands run here.
+    "shell-run",
+    "shell-read",
+    "shell-stop",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -107,6 +114,9 @@ const CAPABILITIES: &[&str] = &[
     VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
+    // Both ride commands this carrier already admits (`set-divider-visible`, `split`).
+    crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
+    split_kind::SPLIT_AROUND_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
     TERMINAL_ENV_CAPABILITY,
     TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -127,6 +137,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
@@ -152,6 +163,7 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    crate::shell_runs::CAPABILITY,
 ];
 
 /// Whether identify on this carrier lists `capability` (tests read the policy through this).
@@ -295,6 +307,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RenameWorkspace { .. }
         | Command::RenamePane { .. }
         | Command::SetSplitRatio { .. }
+        | Command::SetDividerVisible { .. }
         | Command::SetViewportPaneWidth { .. }
         | Command::SetRowHeights { .. }
         | Command::UndoLayout { .. }
@@ -310,7 +323,10 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RestartTab { .. }
         | Command::ClearHistory { .. }
         | Command::TerminalClipboardReply { .. }
-        | Command::TerminalClipboardSubscribe { .. } => true,
+        | Command::TerminalClipboardSubscribe { .. }
+        | Command::ShellRun(_)
+        | Command::ShellRead(_)
+        | Command::ShellStop(_) => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }

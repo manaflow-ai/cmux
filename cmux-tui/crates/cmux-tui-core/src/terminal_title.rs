@@ -10,8 +10,11 @@
 //!
 //! [`sanitize`] is the one way the daemon reads a title out of a terminal:
 //! no control characters, no bidi overrides, at most [`MAX_TITLE_CHARS`].
+//! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
+//! text without the leading status glyphs, and their [`TitleActivity`].
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 /// The longest title the daemon stores or sends, in characters.
 pub(crate) const MAX_TITLE_CHARS: usize = 256;
@@ -57,6 +60,144 @@ fn is_hidden_format(c: char) -> bool {
             | '\u{2066}'..='\u{2069}'
             | '\u{FEFF}'
     )
+}
+
+/// What a leading status glyph of a terminal title says about the program.
+///
+/// Agents animate their title: Claude Code writes `⠂ Fix the login bug`,
+/// `⠐ Fix the login bug`, … while it works and `✳ Fix the login bug` when it
+/// waits. [`TabTitle::terminal`] moves those glyphs into an activity, so a
+/// spinner frame changes nothing a tab shows and the daemon announces nothing
+/// for it (plans/cmux-next/main-thread-scheduling.md, D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TitleActivity {
+    /// A spinner frame (Braille dots, a turning circle): the program works.
+    Working,
+    /// A resting marker (`✳`, `●`, `⏺`): the program waits.
+    Idle,
+    /// A check mark: the program finished.
+    Done,
+    /// A cross: the program failed.
+    Failed,
+}
+
+impl TitleActivity {
+    /// The wire name (`title-changed`'s and a tab snapshot's `title_activity`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Idle => "idle",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// The activity a wire name names; `None` for an unknown name.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "working" => Some(Self::Working),
+            "idle" => Some(Self::Idle),
+            "done" => Some(Self::Done),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
+    fn of(c: char) -> Option<Self> {
+        match u32::from(c) {
+            // Braille patterns: every terminal spinner frame (`⠋⠙⠹`, Claude's `⠂⠐`).
+            0x2801..=0x28FF => Some(Self::Working),
+            // Turning circles and half blocks used as spinners.
+            0x25D0..=0x25D3 | 0x25F4..=0x25F7 | 0x2596..=0x259F => Some(Self::Working),
+            // Claude Code's resting asterisks, a filled or empty dot, a record mark.
+            0x2733 | 0x2736 | 0x273B | 0x273D | 0x2722 | 0x00B7 | 0x25CF | 0x25CB | 0x25C9
+            | 0x23FA => Some(Self::Idle),
+            0x2713 | 0x2714 | 0x2705 => Some(Self::Done),
+            0x2717 | 0x2718 | 0x274C => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// What a tab shows of a title: its text and what its leading glyphs said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTitle {
+    /// The title without its leading status glyphs; empty for none.
+    pub text: Arc<str>,
+    /// What the stripped glyphs said; `None` when the title had none.
+    pub activity: Option<TitleActivity>,
+}
+
+impl TabTitle {
+    /// A page's title: shown as is (a remote terminal tab uses the terminal rule).
+    pub fn page(raw: &str) -> Self {
+        Self { text: Arc::from(raw), activity: None }
+    }
+
+    /// A terminal's title (already [`sanitize`]d) split into its text and the
+    /// activity its leading glyphs name. `✳ ⠂ Task` reads as working (the last
+    /// glyph wins); a title of glyphs only keeps them as its text, so the tab
+    /// is not blank.
+    pub fn terminal(raw: &str) -> Self {
+        let mut rest = raw;
+        let mut activity = None;
+        loop {
+            let mut chars = rest.chars();
+            let Some(found) = chars.next().and_then(TitleActivity::of) else { break };
+            activity = Some(found);
+            rest = chars
+                .as_str()
+                // A variation selector (`✔︎`) belongs to the glyph before it.
+                .trim_start_matches(is_variation_selector)
+                .trim_start_matches(char::is_whitespace);
+        }
+        let words = rest.trim();
+        let text = if words.is_empty() { raw.trim() } else { words };
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+impl TabTitle {
+    /// What a tab of `kind` (a tree tab's `kind`) shows of `raw`: a local or a
+    /// remote terminal's title loses its status glyphs, any other shows as is.
+    pub(crate) fn of_kind(kind: Option<&str>, raw: &str) -> Self {
+        match kind {
+            Some("pty" | crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_KIND) => {
+                Self::terminal(raw)
+            }
+            _ => Self::page(raw),
+        }
+    }
+
+    /// What a `list-workspaces` tab shows: its `title_text` and
+    /// `title_activity`, or, from a daemon before them, the rule of its kind
+    /// over its raw `title`. Clients show this and never the raw title, which
+    /// keeps a spinner frame the daemon does not announce.
+    pub fn of_tree_tab(tab: &serde_json::Value) -> Self {
+        let field = |name| tab.get(name).and_then(serde_json::Value::as_str);
+        let Some(text) = field("title_text") else {
+            return Self::of_kind(field("kind"), field("title").unwrap_or_default());
+        };
+        let activity = field("title_activity").and_then(TitleActivity::from_wire);
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+/// Unicode's `Variation_Selector` property.
+fn is_variation_selector(c: char) -> bool {
+    matches!(c, '\u{180B}'..='\u{180D}' | '\u{180F}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+/// Stores `title` as the terminal's raw title. Returns it when what a tab
+/// shows of it ([`TabTitle::terminal`]) moved: a spinner frame, or a program
+/// that writes the same title again, announces nothing.
+pub(crate) fn store(stored: &mut String, title: String) -> Option<String> {
+    if *stored == title {
+        return None;
+    }
+    let moved = TabTitle::terminal(stored) != TabTitle::terminal(&title);
+    *stored = title;
+    moved.then(|| stored.clone())
 }
 
 /// How many pushed titles the stack keeps, as xterm does.
@@ -352,6 +493,48 @@ mod tests {
         let out = run(&mut tracker, &[&stream]);
         let pops = out.windows(4).filter(|w| *w == b"\x1b]2;").count() - 12;
         assert_eq!(pops, 10);
+    }
+
+    #[test]
+    fn leading_status_glyphs_become_the_activity() {
+        use TitleActivity::*;
+        let cases: [(&str, &str, Option<TitleActivity>); 11] = [
+            ("⠐ Fix the login bug", "Fix the login bug", Some(Working)),
+            ("⠂ Fix the login bug", "Fix the login bug", Some(Working)),
+            ("✳ Claude Code", "Claude Code", Some(Idle)),
+            ("● build", "build", Some(Idle)),
+            ("✔\u{fe0e} tests passed", "tests passed", Some(Done)),
+            ("✘ deploy", "deploy", Some(Failed)),
+            ("✳ ⠂ Task", "Task", Some(Working)),
+            ("vim notes.md", "vim notes.md", None),
+            ("~/src · main", "~/src · main", None),
+            ("⠂", "⠂", Some(Working)),
+            ("", "", None),
+        ];
+        for (raw, text, activity) in cases {
+            let title = TabTitle::terminal(raw);
+            assert_eq!((title.text.as_ref(), title.activity), (text, activity), "{raw:?}");
+        }
+        assert_eq!(TabTitle::page("● Slack | general").text.as_ref(), "● Slack | general");
+        assert_eq!(TabTitle::page("● Slack | general").activity, None);
+        for activity in [Working, Idle, Done, Failed] {
+            assert_eq!(TitleActivity::from_wire(activity.as_str()), Some(activity));
+        }
+    }
+
+    #[test]
+    fn store_announces_a_title_only_when_what_a_tab_shows_moved() {
+        let mut stored = String::new();
+        assert_eq!(store(&mut stored, "⠂ Fix it".into()).as_deref(), Some("⠂ Fix it"));
+        // A spinner frame: stored raw, not announced.
+        assert_eq!(store(&mut stored, "⠐ Fix it".into()), None);
+        assert_eq!(stored, "⠐ Fix it");
+        // The same title again: not announced.
+        assert_eq!(store(&mut stored, "⠐ Fix it".into()), None);
+        // The program waits now: the activity moved.
+        assert_eq!(store(&mut stored, "✳ Fix it".into()).as_deref(), Some("✳ Fix it"));
+        // New words.
+        assert_eq!(store(&mut stored, "✳ Run tests".into()).as_deref(), Some("✳ Run tests"));
     }
 
     #[test]

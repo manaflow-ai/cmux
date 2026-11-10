@@ -67,7 +67,7 @@
 .env-language { border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 12px; padding: 4px 8px; }
 .env-file { position: relative; margin-inline-start: auto; overflow: hidden; }
 .env-file input { position: absolute; inset: 0; opacity: 0; width: 100%; }
-.env-file:focus-within { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
+.env-file:is(:focus-visible, :has(:focus-visible)) { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
 .env-code { display: flex; height: min(34vh, 20em);
   min-height: 12em; }
 .env-code pre, .cloud-environment-sheet .env-code textarea { font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: var(--text-body); line-height: 1.6; }

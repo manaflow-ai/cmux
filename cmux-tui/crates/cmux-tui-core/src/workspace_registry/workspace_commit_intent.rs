@@ -207,7 +207,7 @@ impl WorkspaceCommitIntent {
             )
             .optional()?
         {
-            let ids = host_identity::StoredIds::load(tx)?;
+            let ids = StoredIds::load(tx)?;
             if ids.fingerprint(stored_fingerprint)? != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",

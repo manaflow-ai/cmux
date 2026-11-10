@@ -1608,6 +1608,24 @@
      "presence": "required",
      "nullable": false
     },
+    "title_text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "title_activity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "size": {
      "type": {
       "kind": "ref",
@@ -6492,17 +6510,26 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "disk": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDisk"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "schema is 1.",
     "journal_writer is null for ephemeral sessions without a durable journal.",
-    "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
+    "Counters accumulate since daemon start; reading them never touches SQLite or the journal, except the disk section.",
     "resource_projection is present only when the request names it in include.",
     "write_path is present only when the request names it in include.",
     "locks is present only when the request names it in include.",
-    "hook_queue is present only when the request names it in include and the session serves a socket."
+    "hook_queue is present only when the request names it in include and the session serves a socket.",
+    "disk is present only when the request names it in include and the session keeps its registry on disk."
    ]
   },
   "ServerStatsHookQueue": {
@@ -6964,6 +6991,422 @@
    "additional_properties": false,
    "constraints": [
     "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
+   ]
+  },
+  "ServerStatsDiskFile": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "files": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "name is an entry of the registry's directory; a directory's bytes and files count every file under it, and a file counts 1."
+   ]
+  },
+  "ServerStatsDiskJournalKind": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sample_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sample_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes_per_day": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "budget_bytes_per_day": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "over_budget": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "sample_bytes counts the kind's rows among the newest journal rows: every text and blob column plus 64 bytes a row.",
+    "bytes_per_day is the rate those rows were written at, null when the sample spans under a second.",
+    "budget_bytes_per_day is the kind's entry in the daemon's disk budget table; over_budget is true when bytes_per_day is above it."
+   ]
+  },
+  "ServerStatsDiskJournal": {
+   "kind": "object",
+   "fields": {
+    "first_sequence": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "head_sequence": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "live_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sample_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sample_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sample_span_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "estimated_live_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kinds": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsDiskJournalKind"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The live journal holds the rows not sealed yet; live_rows counts first_sequence through head_sequence.",
+    "The per-kind numbers come from the newest 1024 rows, not a scan; estimated_live_bytes is live_rows times their mean size.",
+    "kinds lists at most 16 kinds of the sample, by bytes."
+   ]
+  },
+  "ServerStatsDiskSegmentCodec": {
+   "kind": "object",
+   "fields": {
+    "codec": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "segments": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "records": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "compressed_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "uncompressed_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": []
+  },
+  "ServerStatsDiskSegmentKind": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "segments": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "segments counts the sealed segments that hold at least one record of kind."
+   ]
+  },
+  "ServerStatsDiskSegments": {
+   "kind": "object",
+   "fields": {
+    "segments": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "records": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "compressed_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "uncompressed_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "by_codec": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsDiskSegmentCodec"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kinds": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsDiskSegmentKind"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Sealed journal segments by codec; kinds lists at most 16 kinds by the number of segments that hold them."
+   ]
+  },
+  "ServerStatsDisk": {
+   "kind": "object",
+   "fields": {
+    "registry_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wal_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "shm_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "page_size": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "page_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "freelist_pages": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "files": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsDiskFile"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "files_unlisted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "files_truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskJournal"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "segments": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskSegments"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
+    "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
+    "journal and segments are null when the registry could not be read, and error says why.",
+    "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
   "GuestUrlOpenResult": {
@@ -9036,6 +9479,17 @@
      "nullable": true,
      "default": null,
      "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
+    },
+    "around": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "capability": "split-around-v1",
+     "description": "The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down."
     }
    },
    "additional_properties": false
@@ -14256,6 +14710,18 @@
        }
       ]
      },
+     "around": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-around-v1",
+      "description": "The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down."
+     },
      "before": {
       "type": {
        "kind": "scalar",
@@ -14383,6 +14849,50 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "set-divider-visible": {
+   "authority": "control",
+   "since": 12,
+   "capability": "split-divider-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The split must not be a viewport column or row boundary; the same value again changes nothing and sends no event."
+   ]
   },
   "set-viewport-pane-width": {
    "authority": "control",
@@ -17796,7 +18306,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -26772,6 +27282,138 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "shell-run": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "command": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Answers {run} or {refused}: too_many, folder_missing, spawn_failed, invalid.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "shell-read": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 0
+     },
+     "wait_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Waits at most 10 s (the default) for output after `after` or the command's end.",
+    "Answers {output, next, truncated?, exit?} or {refused}: unknown_run, busy.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "shell-stop": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Answers {} or {refused: unknown_run}."
+   ]
+  },
   "new-remote-terminal-tab": {
    "authority": "control",
    "since": 12,
@@ -29862,6 +30504,24 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "activity": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12
      }
     },
     "additional_properties": false
@@ -30896,6 +31556,77 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-view-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-view-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-reports-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-reports-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

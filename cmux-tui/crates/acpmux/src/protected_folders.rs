@@ -99,6 +99,15 @@ pub fn spare_refusal(cwd: &Path) -> Option<String> {
     spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
 }
 
+/// Why a daemon start may not go on by itself with a chat's restored work in `cwd` (its queued
+/// prompts, a cut turn, held agent messages: `hub/protected_hold.rs`), or `None` when it may. As
+/// `spare_refusal`: off macOS the home folder itself raises no privacy prompt, and a machine whose
+/// chats all run there (a fleet lane VM, a cmux Cloud machine) has no person to open each chat, so
+/// a hold there left every queue waiting for good after an update restarted the daemon.
+pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal(cwd)
+}
+
 /// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
 pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
     let refusal = refusal_in(cwd, home)?;

@@ -502,11 +502,12 @@ pub fn record_rules_in_transcript(meta: &mut SessionMeta, turn_seq: u64) {
     }
 }
 
-/// Whether a native fork of `parent` cut at `fork_seq` keeps a transcript that carries the
-/// rules: only when the turn that carried them is at or before the cut. A record with no seq
-/// (made before it was kept) counts as kept, as it did then.
-pub fn fork_keeps_rules(parent: &SessionMeta, fork_seq: u64) -> bool {
-    parent.cmux_rules_in_transcript && parent.cmux_rules_seq.is_none_or(|seq| seq <= fork_seq)
+/// Whether a native fork cut at `fork_seq` keeps a transcript that carries the rules its parent
+/// recorded (`cmux_rules_in_transcript`, `cmux_rules_seq`): only when the turn that carried them
+/// is at or before the cut. A record with no seq (made before it was kept) counts as kept, as
+/// it did then.
+pub fn fork_keeps_rules(recorded: bool, seq: Option<u64>, fork_seq: u64) -> bool {
+    recorded && seq.is_none_or(|seq| seq <= fork_seq)
 }
 
 /// The captured parts on the first-message channel ([`USER_CONTEXT`]), as hidden blocks.
@@ -967,17 +968,17 @@ mod tests {
     #[test]
     fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
         let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        assert!(!fork_keeps_rules(&meta, 100));
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
         record_rules_in_transcript(&mut meta, 40);
         // A later message does not move where they entered.
         record_rules_in_transcript(&mut meta, 90);
         assert_eq!(meta.cmux_rules_seq, Some(40));
-        assert!(fork_keeps_rules(&meta, 100));
-        assert!(fork_keeps_rules(&meta, 40));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 40));
         // Cut through an earlier turn: its transcript has neither the rules nor their record.
-        assert!(!fork_keeps_rules(&meta, 39));
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 39));
         // Recorded before the seq was kept: kept, as before.
         meta.cmux_rules_seq = None;
-        assert!(fork_keeps_rules(&meta, 0));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
     }
 }
