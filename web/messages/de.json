@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Deine Zahlungsmethode wurde aktualisiert und die offene Zahlung wurde ausgeführt.",
+        "payment_failed": "Deine neue Zahlungsmethode wurde gespeichert, aber die offene Zahlung wurde abgelehnt. Versuche es mit einer anderen Karte.",
         "team_admin_required": "Nur Team-Admins können die Abrechnung dieses Teams verwalten.",
         "team_not_found": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
         "authorization_unavailable": "Die Teamberechtigungen konnten nicht geprüft werden. Versuche es gleich noch einmal.",

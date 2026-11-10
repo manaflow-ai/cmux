@@ -19,6 +19,19 @@ const stripeModule = await import("../services/billing/stripe");
 let currentUser: ReturnType<typeof fixtureStackUser> | null = null;
 let dbRows: BillingDbRows = emptyBillingDbRows();
 const getUser = mock(async () => currentUser);
+// The payment method return token is signed with the Stripe secret.
+process.env.STRIPE_SECRET_KEY ||= "sk_test_unit";
+// A past-due team subscription on Stripe for the payment method return.
+let providerSubscriptions: Array<{ id: string; status: string; metadata: Record<string, string>; default_payment_method: string | null }> = [];
+let teamInvoices: Array<{ id: string; subscription: string; status: string; created: number }> = [];
+let teamInvoiceError: Error | null = null;
+const payTeamInvoice = mock(async (id: string, _params?: unknown) => {
+  if (teamInvoiceError) throw teamInvoiceError;
+  const invoice = teamInvoices.find((candidate) => candidate.id === id)!;
+  invoice.status = "paid";
+  providerSubscriptions.find((candidate) => candidate.id === invoice.subscription)!.status = "active";
+  return { id, status: "paid" };
+});
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
 const updateSubscription = mock(async (id: unknown, params: Record<string, unknown>) => ({
   id,
@@ -44,7 +57,21 @@ mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => true,
   stripe: () => ({
     billingPortal: { sessions: { create: createPortal } },
-    subscriptions: { update: updateSubscription },
+    customers: { retrieve: async () => ({ id: "cus_team_b", invoice_settings: { default_payment_method: "pm_new" } }) },
+    subscriptions: {
+      update: updateSubscription,
+      list: async (params: { status: string }) => ({
+        data: providerSubscriptions.filter((subscription) => subscription.status === params.status),
+      }),
+      retrieve: async (id: string) => ({ ...providerSubscriptions.find((subscription) => subscription.id === id) }),
+    },
+    invoices: {
+      list: async (params: { subscription: string; status: string }) => ({
+        data: teamInvoices.filter((invoice) => invoice.subscription === params.subscription && invoice.status === params.status),
+      }),
+      retrieve: async (id: string) => ({ ...teamInvoices.find((invoice) => invoice.id === id) }),
+      pay: payTeamInvoice,
+    },
   }),
 }));
 
@@ -62,6 +89,10 @@ beforeEach(() => {
   currentUser = fixtureStackUser({ id: USER_ID, teams: [teamA, teamB], adminTeamIds: ["team-b"], selectedTeam: teamA });
   createPortal.mockClear();
   updateSubscription.mockClear();
+  providerSubscriptions = [];
+  teamInvoices = [];
+  teamInvoiceError = null;
+  payTeamInvoice.mockClear();
 });
 
 describe("team portal", () => {
@@ -75,6 +106,90 @@ describe("team portal", () => {
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
     });
+  });
+
+  test("opens the team's card form for its admin; saving returns to the team through recovery", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+
+    const response = await portalGET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-b&flow=payment_method_update"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://billing.stripe.com/p/team");
+    const params = createPortal.mock.calls[0]?.[0] as {
+      customer: string;
+      return_url: string;
+      flow_data: { type: string; after_completion: { redirect: { return_url: string } } };
+    };
+    expect(params.customer).toBe("cus_team_b");
+    expect(params.return_url).toBe("https://cmux.test/dashboard/billing?team=team-b");
+    expect(params.flow_data.type).toBe("payment_method_update");
+    const completed = new URL(params.flow_data.after_completion.redirect.return_url);
+    expect(completed.searchParams.get("flow")).toBe("payment_method_return");
+    expect(completed.searchParams.get("scope")).toBe("team");
+    expect(completed.searchParams.get("teamId")).toBe("team-b");
+
+    // The team has nothing past due, so the return lands on its billing view.
+    const returned = await portalGET(new NextRequest(completed));
+    expect(returned.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b");
+  });
+
+  async function teamCompletionURL(): Promise<URL> {
+    await portalGET(new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-b&flow=payment_method_update"));
+    const params = createPortal.mock.calls.at(-1)?.[0] as { flow_data: { after_completion: { redirect: { return_url: string } } } };
+    return new URL(params.flow_data.after_completion.redirect.return_url);
+  }
+
+  function pastDueTeam() {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    providerSubscriptions = [{
+      id: "sub_team", status: "past_due", metadata: { app: "cmux", plan: "team", scope: "team" }, default_payment_method: "pm_declined",
+    }];
+    teamInvoices = [{ id: "in_team", subscription: "sub_team", status: "open", created: 1 }];
+  }
+
+  test("pays the team's past-due renewal on its admin's return and reports it on the team view", async () => {
+    pastDueTeam();
+
+    const response = await portalGET(new NextRequest(await teamCompletionURL()));
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b&billing=payment_updated");
+    expect(payTeamInvoice).toHaveBeenCalledWith("in_team", { payment_method: "pm_new" });
+  });
+
+  test("keeps a Stripe outage during the team's recovery on the team view", async () => {
+    pastDueTeam();
+    teamInvoiceError = Object.assign(new Error("Stripe is unavailable"), { type: "StripeAPIError" });
+
+    const response = await portalGET(new NextRequest(await teamCompletionURL()));
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b&billing=error");
+  });
+
+  test("refuses a token minted for another customer on the team return", async () => {
+    pastDueTeam();
+    const completed = await teamCompletionURL();
+    // A token signed for a different Stripe customer, such as the admin's personal one.
+    const { paymentReturnToken } = await import("../services/billing/paymentRecovery");
+    completed.searchParams.set("token", paymentReturnToken("cus_personal")!);
+
+    const response = await portalGET(new NextRequest(completed));
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b");
+    expect(payTeamInvoice).not.toHaveBeenCalled();
+  });
+
+  test("refuses a non-admin's payment method update for the team", async () => {
+    dbRows.customers = [{ id: "cus_team_a" }];
+
+    const response = await portalGET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-a&flow=payment_method_return"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?team=team-a&billing=team_admin_required",
+    );
+    expect(createPortal).not.toHaveBeenCalled();
   });
 
   test("returns non-admins to the team billing view with a banner and no session", async () => {
