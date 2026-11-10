@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42736829521",
+  "recorded_at": "2026-11-10T01:43:02Z",
+  "reason": "cmux-tui 0daf0bc080b6 changes the image's cmux-tui (pinned 5d318f1417fc)",
+  "dry_run": false,
+  "cmux_tui": "0daf0bc080b679038f5ef919a95b982e21c4db50",
+  "fixes": [
+    {
+      "sha": "fc4338256771a0b5396cad1ef5a5c8df0870f50f",
+      "mergedAt": "2026-11-10T01:01:34Z",
+      "subject": "acpmux: cmux's hosted MCP in every local session, signed as the person (off by default) (#39941)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T01:43:02Z",
+    "snapshot_id": "sh-807ae5e75d2e47da8576b925128446a6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42736829521): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0e38ff7b20f5892f9c79ce690c158f649c1d6ff4",
+    "image": "cloud-native-auto-0daf0bc0-42736829521-1",
+    "revision": "ci-42736829521-1",
+    "at": "2026-11-10T01:43:02Z"
+  },
+  "rolled_back": false
+}
