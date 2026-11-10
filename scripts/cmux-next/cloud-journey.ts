@@ -1609,6 +1609,27 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
   return result.failed.length ? 1 : 0;
 }
 
+/** `--delete-kept ID`: one machine a `--keep` run of this account made (`cloud journey jr-...`), read back first. */
+async function deleteKeptMode(id: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined, signIn: string): Promise<number> {
+  if (!/^vm_[a-z0-9]{20}$/.test(id)) throw new Error(`--delete-kept: not vm_<20 lowercase letters or digits>: ${JSON.stringify(id.slice(0, 60))}`);
+  const secrets: string[] = password ? [password] : [];
+  const api = new Api(backend.api, team);
+  if (signIn === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
+  else {
+    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    api.bearer = (await passwordSignIn(STACK[backend.stack], email, password)).access;
+  }
+  const m = await api.read("cloud.machine.get", { machine: id });
+  const name = String(m?.name ?? "");
+  if (!/^cloud journey jr-[a-z0-9]+$/.test(name)) {
+    console.log(JSON.stringify({ refused: id, reason: `named ${JSON.stringify(name.slice(0, 60))}, not a --keep journey's machine` }));
+    return 1;
+  }
+  await api.deleteMachine(id, `journey-delete-kept-${id}`);
+  console.log(JSON.stringify({ deleted: id, name }));
+  return 0;
+}
+
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -1655,6 +1676,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
+  // --delete-kept ID: delete one machine a --keep run of this account made (named `cloud journey jr-...`), and nothing else.
+  const kept = argValue("--delete-kept", argv);
+  if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   const cleanupTag = argValue("--cleanup-tag", argv);
   if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
@@ -2218,7 +2242,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
-    const lifecycle = provider && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
+    // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {

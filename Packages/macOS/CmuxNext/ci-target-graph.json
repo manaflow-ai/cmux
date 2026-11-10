@@ -361,6 +361,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -465,6 +466,7 @@
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
+        "CmuxNextKeepAwake",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextMobile",
@@ -486,6 +488,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminalGeometry",
         "CmuxNextTestExitTrace",
         "CmuxNextTestSupport",
@@ -1100,12 +1103,13 @@
         "CmuxTheme"
       ],
       "reads": [
-        "Packages/Shared/CmuxMessagesLab/Sources/",
-        "Packages/Shared/CmuxScreenKit/Sources/",
-        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/",
-        "Packages/macOS/CmuxNext/Sources/",
+        "Packages/Shared/CmuxMessagesLab/Sources/**/*.swift",
+        "Packages/Shared/CmuxScreenKit/Sources/**/*.swift",
+        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/**/*.swift",
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
+        "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
         "schemas/theme/orange-accent-allowlist.json",
         "schemas/theme/theme-ink-vectors.json"
       ]
@@ -2137,6 +2141,16 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextTaskManagerPage": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTaskManagerPage",
+      "targets": [
+        "CmuxNextPages",
+        "CmuxNextResources",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextTerminal": {
       "kind": "regular",
