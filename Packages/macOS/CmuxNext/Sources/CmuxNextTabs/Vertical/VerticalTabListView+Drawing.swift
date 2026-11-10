@@ -87,15 +87,31 @@ extension VerticalTabListView {
     // MARK: Tabs
 
     /// Fill behind a tab: the selection, the lighter fill of the other selected tabs, or hover.
-    private func fill(for item: TabItem, hovered: Bool) -> NSColor? {
+    private func fill(for item: TabItem, row: Row, hovered: Bool) -> NSColor? {
         // The selected tab is the foreground, in the content's surface (design/selected-is-foreground.md).
         // Off the folder tab the list draws no chrome of its own and sits on the content: the selection fill.
         if item.id == model.selectedID {
             guard chromeShade > 0 else { return Palette.selectionFill } // selected-surface-allow: no chrome under the list
-            return Palette.selectedSurface
+            return Palette.selectedSurface(over: surface(under: row))
         }
         if model.multiSelection.isMultiple, model.multiSelection.contains(item.id) { return Palette.secondarySelectionFill }
         return hovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
+    }
+
+    /// What a row sees under it, opaque: the panel (the content's surface, or the window's when hover-expanded)
+    /// under the chrome's shade, and a neutral group's pane over that when the row is in one, so the selected
+    /// row's contrast is checked against what is really painted there (Codex at eceb7833, F2). nil over a
+    /// see-through window, where ``Palette/selectedSurface`` already keeps the selection fill.
+    private func surface(under row: Row) -> NSColor? {
+        let panel = isHoverExpanded ? Palette.windowBackground : Palette.contentSurface
+        guard panel.alphaComponent >= 1 else { return nil }
+        // colour-allow: the chrome's shade, black at its alpha
+        var surface = Palette.composited(NSColor.black.withAlphaComponent(chromeShade), over: panel)
+        let look = VerticalNoColorGroupLook.tunable.value
+        if look != .plain, listLayout.groupPanes.contains(where: { $0.frame.intersects(row.frame) && model.group($0.group)?.tint.isNone == true }) {
+            surface = Palette.composited(Palette.sidebarStep, over: surface)
+        }
+        return surface
     }
 
     private func drawTab(_ item: TabItem, row: Row) {
@@ -103,7 +119,7 @@ extension VerticalTabListView {
         let isHovered = hovered == row.kind
         let dragged = drag?.isActive == true && drag?.id == item.id
         let alpha: CGFloat = dragged ? 0.45 : 1
-        if let fill = fill(for: item, hovered: isHovered) {
+        if let fill = fill(for: item, row: row, hovered: isHovered) {
             fill.withAlphaComponent(fill.alphaComponent * alpha).setFill()
             NSBezierPath(roundedRect: frame, xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()
         }

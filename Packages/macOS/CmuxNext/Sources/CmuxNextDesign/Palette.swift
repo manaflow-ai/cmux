@@ -125,6 +125,15 @@ public struct Palette {
         let panel = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
         return row.contrast(with: panel) >= ThemeTokens.minimumSelectedContrast ? selected : selectionFill
     }
+    /// `top` painted over `bottom`, in sRGB: the opaque colour a row sees under it when a panel lays a
+    /// fill (a neutral group's pane, the chrome's shade) over another. `bottom` counts as opaque.
+    public static func composited(_ top: NSColor, over bottom: NSColor) -> NSColor {
+        guard let t = top.usingColorSpace(.sRGB), let b = bottom.usingColorSpace(.sRGB) else { return bottom }
+        let a = t.alphaComponent
+        func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x * a + y * (1 - a) }
+        return NSColor(srgbRed: mix(t.redComponent, b.redComponent), green: mix(t.greenComponent, b.greenComponent),
+                       blue: mix(t.blueComponent, b.blueComponent), alpha: 1)
+    }
     public static var selectedFolderSurface: NSColor { contentSurface }
     /// The chrome's shade in the active theme: black at this alpha over the content's surface is the
     /// chrome (``Metrics/mainPaneChromeShade(isDark:)``). A list of tabs inside the content draws it

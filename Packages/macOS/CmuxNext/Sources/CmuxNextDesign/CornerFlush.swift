@@ -309,7 +309,11 @@ public final class CornerFlushChrome: NSView {
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
             guard strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor, strip.bounds.height > 0.5 else { continue }
             let frame = root.convert(strip.cornerFrameInWindow, from: nil)
-            if abs(frame.maxY - top) < 2, frame.width > 0.5 { spans.append((frame.minX, frame.maxX)) }
+            guard abs(frame.maxY - top) < 2, frame.width > 0.5 else { continue }
+            // The pane's whole header: the strip shares its row with the pane's trailing toolbar and chat
+            // controls, which the strip's own width leaves out (Codex at eceb7833, F1).
+            let pane = strip.superview.map { root.convert($0.bounds, from: $0) } ?? frame
+            spans.append((min(frame.minX, pane.minX), max(frame.maxX, pane.maxX)))
         }
         guard !spans.isEmpty else { return false }
         // Panes part by a divider or a gap of a few points at most.
