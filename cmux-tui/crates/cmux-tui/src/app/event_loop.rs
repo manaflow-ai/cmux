@@ -120,6 +120,12 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            // A pane holding a synchronized update is drawn live at the
+            // hold's end even when no output comes (synchronized_output.rs).
+            let held_until = self.synchronized_output.deadline();
+            let timeout = held_until.map_or(timeout, |until| {
+                timeout.min(until.saturating_duration_since(Instant::now()))
+            });
             let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
@@ -136,6 +142,11 @@ impl App {
                     }
                     if self.tick_sidebar_files() {
                         action = action.merge(RenderAction::Draw);
+                    }
+                    if held_until.is_some_and(|until| until <= Instant::now())
+                        && self.synchronized_output.release_expired(Instant::now())
+                    {
+                        action = action.merge(RenderAction::Paint);
                     }
                     None
                 }
