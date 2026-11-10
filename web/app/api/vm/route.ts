@@ -1145,10 +1145,7 @@ function createErrorResponders(entitlements: {
         limit: error.limit,
         activeMachines: error.activeMachines,
         planId: entitlements.planId,
-        // A paid plan's stop is the abuse guard, which no upgrade raises.
-        retryAction: isPaidVmPlan(entitlements.planId)
-          ? "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another."
-          : "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
+        retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),
     VmCreateCreditsInsufficientError: (error) => {
       const billsUser = entitlements.billingCustomerType === "user";
