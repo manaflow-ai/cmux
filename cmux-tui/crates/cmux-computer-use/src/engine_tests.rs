@@ -45,6 +45,7 @@ fn ctx(call: Option<&str>) -> CallContext {
         label: "Claude".into(),
         call_id: call.map(str::to_string),
         origin: OriginKind::Local,
+        tag: None,
     }
 }
 

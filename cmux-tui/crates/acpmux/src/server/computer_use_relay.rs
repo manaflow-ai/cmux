@@ -104,6 +104,8 @@ pub(super) struct CallParams {
     pub session: String,
     pub label: String,
     pub call_id: String,
+    /// The agent cursor's tag on the calling machine (`CallContext::tag`), empty for none.
+    pub tag: String,
 }
 
 pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
@@ -145,7 +147,15 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
     if session.is_empty() || call_id.is_empty() {
         return Err(refused("invalid_arguments", "session and call_id are required"));
     }
-    Ok(CallParams { machine, name, arguments, session, label: text("label", 120)?, call_id })
+    Ok(CallParams {
+        machine,
+        name,
+        arguments,
+        session,
+        label: text("label", 120)?,
+        call_id,
+        tag: text("tag", 240)?,
+    })
 }
 
 fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
@@ -197,6 +207,7 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 "session": call.session,
                 "label": call.label,
                 "call_id": call.call_id,
+                "tag": call.tag,
             });
             peer.request(method::MUX_COMPUTER_USE_CALL, onward).await.map_err(link_error)
         }
@@ -223,11 +234,9 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 format!("{} on {machine}", call.label)
             };
             let outcome = tokio::task::spawn_blocking(move || {
-                Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin).call(
-                    &call.name,
-                    &call.arguments,
-                    &call.call_id,
-                )
+                let caller = Caller::new(SocketDaemon::from_env(), session, label).with_origin(origin);
+                caller.set_cursor_tag(&call.tag);
+                caller.call(&call.name, &call.arguments, &call.call_id)
             })
             .await
             .map_err(|e| RpcError::internal(format!("the call stopped: {e}")))?;

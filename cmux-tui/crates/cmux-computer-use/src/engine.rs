@@ -53,6 +53,9 @@ pub struct CallContext {
     /// Set by the bridge per MCP request; a retry reuses it.
     pub call_id: Option<String>,
     pub origin: OriginKind,
+    /// The agent cursor's tag: the agent's `cursor_tag`, else its cmux workspace name; None
+    /// shows none (`computerUse.cursorTag` decides when it shows).
+    pub tag: Option<String>,
 }
 
 /// A tool's result.
@@ -336,10 +339,11 @@ impl Engine {
         // The label reaches the person (approval panel, cursor, notifications):
         // any caller with the socket secret sets it, so it is bounded here.
         let safe;
-        let ctx = if safe_label(&ctx.label) == ctx.label {
+        let tag = ctx.tag.as_deref().and_then(tools::safe_tag);
+        let ctx = if safe_label(&ctx.label) == ctx.label && tag == ctx.tag {
             ctx
         } else {
-            safe = CallContext { label: safe_label(&ctx.label), ..ctx.clone() };
+            safe = CallContext { label: safe_label(&ctx.label), tag, ..ctx.clone() };
             &safe
         };
         let Some(tool) = tools::find(name) else {

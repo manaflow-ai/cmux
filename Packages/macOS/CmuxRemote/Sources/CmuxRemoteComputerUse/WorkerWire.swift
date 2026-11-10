@@ -84,6 +84,8 @@ struct PolicyFlags: Equatable, Sendable {
     var mode: String = "fullAccess"
     var showCursor = true
     var pauseOnTakeover = true
+    /// When an agent cursor shows its tag (`computerUse.cursorTag`): `hover`, `always` or `never`.
+    var cursorTag = CursorTagMode.hover
 
     init() {}
 
@@ -92,6 +94,7 @@ struct PolicyFlags: Equatable, Sendable {
         if let mode = object["mode"] as? String { self.mode = mode }
         if let show = object["showCursor"] as? Bool { showCursor = show }
         if let pause = object["pauseOnTakeover"] as? Bool { pauseOnTakeover = pause }
+        if let tag = (object["cursorTag"] as? String).flatMap(CursorTagMode.init(rawValue:)) { cursorTag = tag }
     }
 
     var isOff: Bool { mode == "off" }
@@ -101,6 +104,12 @@ struct PolicyFlags: Equatable, Sendable {
         guard let object = value as? [String: Any] else { return nil }
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
+}
+
+/// `computerUse.cursorTag`: when an agent cursor shows its tag (the agent's workspace name, or the
+/// tag it set): while the person's pointer is over the cursor, always, or never.
+enum CursorTagMode: String, Equatable, Sendable {
+    case hover, always, never
 }
 
 /// An approvals edit (`cmux_cu_engine_edit_approvals`), or the saved list.

@@ -402,6 +402,7 @@ pub fn parse_request(v: &Value) -> Result<(CallContext, String, Value), String> 
             label: v.get("label").and_then(Value::as_str).unwrap_or("Agent").to_string(),
             call_id: v.get("call_id").and_then(Value::as_str).map(str::to_string),
             origin,
+            tag: v.get("tag").and_then(Value::as_str).filter(|t| !t.is_empty()).map(str::to_string),
         },
         name,
         v.get("arguments").cloned().unwrap_or(json!({})),

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
-import CmuxNextComputerUse
+import CmuxNextMacScreen
 import CmuxNextSettings
 
 extension AppServices: MenuBarExtraHost {
@@ -13,8 +13,14 @@ extension AppServices: MenuBarExtraHost {
     var menuBarShowsGlobalKey: Bool { settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyDefault }
 
     var menuBarComputerUseAvailable: Bool { onboarding.computerUseSetup.phase == .ready }
-    func menuBarComputerUseSession() async -> MenuBarMenuState.ComputerUse.Session? { await ComputerUseUserSessions.shared.menuBarSession() }
-    func menuBarSetComputerUsePaused(_ id: String, _ paused: Bool) async throws { try await ComputerUseUserSessions.shared.setPaused(id, paused) }
+    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] {
+        let now = Date()
+        return cmuxRemote.computerUse.sessions.map { session in
+            // Acting: it acted within the badge's window (2 s).
+            MenuBarMenuState.ComputerUse.Session(id: session.id, agent: session.agent, appName: session.appName, bundleID: session.appID,
+                                                 acting: now.timeIntervalSince(session.lastAction) < 2)
+        }
+    }
     var menuBarUnread: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: false) }
     var menuBarRunning: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: true) }
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }

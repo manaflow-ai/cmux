@@ -247,6 +247,28 @@ extension AppServices {
             return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
                                                cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
         }
+        followComputerUseActivity()
+    }
+
+    /// What cmux Remote's worker says its agent sessions do (the daemon's `computer-use-activity`,
+    /// pushed on change; no polling): the menu bar icon's dot while one acts, and an open menu's
+    /// Computer Use row.
+    private func followComputerUseActivity() {
+        let state = cmuxRemote.computerUse
+        _ = daemon.store.sideEvents.subscribe { [weak state] event in
+            guard case .unknown(name: "computer-use-activity", let payload) = event else { return }
+            state?.take(activityEvent: payload)
+        }
+        // task-owner: lives with the app; follows the activity state (Observation, no polling).
+        Task { [weak self, weak state] in
+            guard let state else { return }
+            for await (acting, sessions) in ObservationStream({ (state.acting, state.sessions) }) {
+                guard let self else { return }
+                _ = sessions
+                self.menuBarExtra.computerUseActive = acting
+                self.menuBarExtra.computerUseSessionsChanged()
+            }
+        }
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

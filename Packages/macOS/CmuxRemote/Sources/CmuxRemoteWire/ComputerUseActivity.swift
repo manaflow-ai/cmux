@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+public import Foundation
+
+/// What the Computer Use worker's agent sessions do now: which agent acts, on which app, and
+/// when it acted last. The worker sends one `activity` line per session when it acts (at most
+/// every ``ComputerUseActivity/minimumInterval`` unless what it shows changed) and one with
+/// `ended` when the session's cursor goes away; the host keeps the latest per session and reports
+/// them as `workers["computer-use"].activity`, which the cmux-tui daemon turns into its
+/// `computer-use-activity` event for the app (the menu bar badge and Computer Use row).
+///
+///     worker -> host  {"type":"activity","session":S,"label":L,"app":{"id","name"}?,"at_ms":T}
+///     worker -> host  {"type":"activity","session":S,"ended":true}
+public struct ComputerUseActivity: Equatable, Sendable {
+    /// One agent session that acted.
+    public struct Session: Equatable, Sendable {
+        /// The engine's session key.
+        public var session: String
+        /// The agent's name as the person sees it ("Claude Code").
+        public var label: String
+        /// The app it acted on last, when the worker knows it.
+        public var appID: String?
+        public var appName: String?
+        /// When it acted last (milliseconds since 1970, this Mac's clock).
+        public var lastActionMilliseconds: Int64
+
+        public init(session: String, label: String, appID: String? = nil, appName: String? = nil, lastActionMilliseconds: Int64) {
+            self.session = session
+            self.label = label
+            self.appID = appID
+            self.appName = appName
+            self.lastActionMilliseconds = lastActionMilliseconds
+        }
+
+        /// The status object (`{session, label, app?, last_action_ms}`).
+        public var fields: [String: Any] {
+            var fields: [String: Any] = ["session": session, "label": label, "last_action_ms": lastActionMilliseconds]
+            if appID != nil || appName != nil { fields["app"] = ["id": appID ?? "", "name": appName ?? ""] }
+            return fields
+        }
+    }
+
+    /// The worker sends a session's line at most this often while nothing it shows changes.
+    public static let minimumInterval: TimeInterval = 0.5
+    /// A session that has not acted for this long is dropped (its agent went quiet without ending).
+    public static let forgetAfter: TimeInterval = 15 * 60
+    /// The most sessions kept; the oldest go first.
+    public static let limit = 32
+
+    /// The sessions by key.
+    public private(set) var sessions: [String: Session] = [:]
+
+    public init() {}
+
+    /// The status list, newest action first.
+    public var fields: [[String: Any]] {
+        sessions.values.sorted { $0.lastActionMilliseconds > $1.lastActionMilliseconds }.map(\.fields)
+    }
+
+    /// Takes one `activity` line; returns whether anything the status shows changed.
+    public mutating func take(_ line: [String: Any], now: Date) -> Bool {
+        guard let session = line["session"] as? String, !session.isEmpty, session.count <= 256 else { return false }
+        let horizon = Self.milliseconds(now.addingTimeInterval(-Self.forgetAfter))
+        var changed = false
+        for (key, value) in sessions where value.lastActionMilliseconds < horizon {
+            sessions[key] = nil
+            changed = true
+        }
+        if line["ended"] as? Bool == true {
+            return sessions.removeValue(forKey: session) != nil || changed
+        }
+        let app = line["app"] as? [String: Any]
+        let next = Session(session: session, label: Self.bounded(line["label"] as? String) ?? "",
+                           appID: Self.bounded(app?["id"] as? String), appName: Self.bounded(app?["name"] as? String),
+                           lastActionMilliseconds: (line["at_ms"] as? NSNumber)?.int64Value ?? Self.milliseconds(now))
+        guard sessions[session] != next else { return changed }
+        sessions[session] = next
+        if sessions.count > Self.limit,
+           let oldest = sessions.values.min(by: { $0.lastActionMilliseconds < $1.lastActionMilliseconds }) {
+            sessions[oldest.session] = nil
+        }
+        return true
+    }
+
+    /// The worker's line for an action of `session`.
+    public static func line(session: String, label: String, appID: String?, appName: String?, at: Date) -> Data {
+        var fields: [String: Any] = ["type": "activity", "session": session, "label": label, "at_ms": milliseconds(at)]
+        if appID != nil || appName != nil { fields["app"] = ["id": appID ?? "", "name": appName ?? ""] }
+        return RemoteWire.line(fields)
+    }
+
+    /// The worker's line for a session whose cursor went away.
+    public static func endedLine(session: String) -> Data {
+        RemoteWire.line(["type": "activity", "session": session, "ended": true])
+    }
+
+    public static func milliseconds(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    /// One line of at most 80 characters, nil when empty: the label and app name reach the person.
+    private static func bounded(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let line = String(text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80).map(Character.init))
+        return line.isEmpty ? nil : line
+    }
+}

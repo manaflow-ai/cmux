@@ -30,6 +30,8 @@ pub const COMMAND: &str = "computer-use-mcp";
 pub const SESSION_ENV: &str = "ACPMUX_COMPUTER_USE_SESSION";
 /// What the person sees as the caller ("Claude Code", "Codex").
 pub const LABEL_ENV: &str = "ACPMUX_COMPUTER_USE_LABEL";
+/// The cmux workspace the agent runs in (a terminal pane's env, an agent chat's session env).
+pub const WORKSPACE_ENV: &str = "CMUX_WORKSPACE_ID";
 
 /// The session key when the env names none (a server started by hand): one
 /// per process, so two such servers never share approvals.
@@ -47,7 +49,9 @@ pub async fn run() -> Result<()> {
         .unwrap_or_else(fallback_session);
     let label = var(LABEL_ENV).unwrap_or_else(|| "An agent".to_owned());
     crate::parent_watch::exit_with_parent();
-    let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label));
+    // The agent's cmux workspace (its pane's or its chat's env): its name tags the agent's cursor.
+    let workspace = var(WORKSPACE_ENV);
+    let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label).with_workspace(workspace));
     serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 

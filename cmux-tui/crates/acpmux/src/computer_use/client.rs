@@ -94,6 +94,28 @@ pub trait Daemon: Send + Sync {
     fn remote_call(&self, params: Value) -> Result<Value, DaemonError>;
     /// The person's other machines (`_acpmux/computer_use_machines`).
     fn machines(&self) -> Result<Value, DaemonError>;
+    /// The name of the cmux workspace `id` (the daemon's `list-workspaces`), the agent cursor's
+    /// default tag; None when the daemon does not know it.
+    fn workspace_name(&self, _id: &str) -> Option<String> {
+        None
+    }
+}
+
+/// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
+pub fn workspace_name_in(tree: &Value, id: &str) -> Option<String> {
+    tree.get("workspaces")?
+        .as_array()?
+        .iter()
+        .find(|w| {
+            ["id", "uuid", "workspace_id"]
+                .iter()
+                .any(|key| w.get(*key).and_then(Value::as_str).is_some_and(|v| v.eq_ignore_ascii_case(id)))
+        })
+        .and_then(|w| w.get("name").or_else(|| w.get("title")))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +251,10 @@ impl Daemon for SocketDaemon {
 
     fn machines(&self) -> Result<Value, DaemonError> {
         acpmux_request(crate::rpc::method::MUX_COMPUTER_USE_MACHINES, json!({}))
+    }
+
+    fn workspace_name(&self, id: &str) -> Option<String> {
+        workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
     }
 }
 
@@ -415,6 +441,20 @@ pub struct Caller<D: Daemon> {
     sleep: fn(Duration),
     endpoint: Mutex<Option<Endpoint>>,
     next_id: std::sync::atomic::AtomicU64,
+    /// The agent cursor's tag: the one the agent set (`cursor_tag`, kept for the session's later
+    /// calls), else its cmux workspace's name, read from the daemon on the first call.
+    tag: Mutex<CursorTag>,
+}
+
+/// Where the agent cursor's tag comes from.
+#[derive(Default)]
+struct CursorTag {
+    /// Set by the agent (`cursor_tag` on a tool call).
+    agent: Option<String>,
+    /// The workspace the agent runs in (`CMUX_WORKSPACE_ID`), until its name is read.
+    workspace: Option<String>,
+    /// That workspace's name, once read (None after a read that found none).
+    workspace_name: Option<Option<String>>,
 }
 
 impl<D: Daemon> Caller<D> {
@@ -428,7 +468,43 @@ impl<D: Daemon> Caller<D> {
             sleep: std::thread::sleep,
             endpoint: Mutex::new(None),
             next_id: std::sync::atomic::AtomicU64::new(1),
+            tag: Mutex::new(CursorTag::default()),
         }
+    }
+
+    /// The cmux workspace the agent runs in: its name is the cursor's default tag.
+    pub fn with_workspace(self, id: Option<String>) -> Self {
+        if let Ok(mut tag) = self.tag.lock() {
+            tag.workspace = id.filter(|id| !id.trim().is_empty());
+        }
+        self
+    }
+
+    /// The agent's own cursor tag (a call's `cursor_tag`): kept for the session's later calls; an
+    /// empty one goes back to the workspace's name.
+    pub fn set_cursor_tag(&self, tag: &str) {
+        if let Ok(mut slot) = self.tag.lock() {
+            slot.agent = cmux_computer_use::tools::safe_tag(tag);
+        }
+    }
+
+    /// The tag a call carries now (reads the workspace's name once, on this blocking thread).
+    pub fn cursor_tag(&self) -> Option<String> {
+        let workspace = {
+            let tag = self.tag.lock().ok()?;
+            if let Some(agent) = &tag.agent {
+                return Some(agent.clone());
+            }
+            if let Some(name) = &tag.workspace_name {
+                return name.clone();
+            }
+            tag.workspace.clone()?
+        };
+        let name = self.daemon.workspace_name(&workspace).and_then(|n| cmux_computer_use::tools::safe_tag(&n));
+        if let Ok(mut tag) = self.tag.lock() {
+            tag.workspace_name = Some(name.clone());
+        }
+        name
     }
 
     /// The same caller for a call another machine sent: `origin` is
@@ -464,6 +540,12 @@ impl<D: Daemon> Caller<D> {
     /// `arguments.machine` through the daemon's machine route.
     pub fn call(&self, name: &str, arguments: &Value, call_id: &str) -> Outcome {
         let mut arguments = if arguments.is_object() { arguments.clone() } else { json!({}) };
+        // The agent's cursor tag is the bridge's, not the tool's: it stays for the later calls.
+        if let Some(tag) =
+            arguments.as_object_mut().and_then(|a| a.remove(cmux_computer_use::tools::CURSOR_TAG_ARG))
+        {
+            self.set_cursor_tag(tag.as_str().unwrap_or_default());
+        }
         let machine = arguments
             .as_object_mut()
             .and_then(|a| a.remove("machine"))
@@ -490,6 +572,7 @@ impl<D: Daemon> Caller<D> {
             session: self.session.clone(),
             label: self.label(),
             call_id: Some(call_id.to_owned()),
+            tag: self.cursor_tag(),
         };
         let mut request = serde_json::to_value(&request).unwrap_or(Value::Null);
         if let (Some(origin), Some(map)) = (&self.origin, request.as_object_mut()) {
@@ -636,6 +719,7 @@ impl<D: Daemon> Caller<D> {
             "session": self.session,
             "label": self.label(),
             "call_id": call_id,
+            "tag": self.cursor_tag(),
         });
         loop {
             match self.daemon.remote_call(params.clone()) {

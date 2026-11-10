@@ -54,6 +54,8 @@ final class ComputerUseSupervisor: Sendable {
         var restarts = 0
         var startAfterExit = false
         var generation = 0
+        /// What the worker's agent sessions do now (its `activity` lines), by session.
+        var activity = ComputerUseActivity()
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -115,6 +117,7 @@ final class ComputerUseSupervisor: Sendable {
             if let pid = state.child?.pid { fields["pid"] = Int(pid) }
             if let reason = state.reason { fields["reason"] = reason }
             if let started = state.startedAt { fields["stale"] = started < grantsChangedAt }
+            fields["activity"] = state.activity.fields
             return fields
         }
     }
@@ -281,6 +284,11 @@ final class ComputerUseSupervisor: Sendable {
             settle(.ready, reason: nil)
         case "unavailable":
             settle(.unavailable, reason: object["reason"] as? String ?? "the Computer Use engine could not start")
+        case "activity":
+            // A session acted or ended (the worker sends at most a few a second): the daemon
+            // hears it in the next status (`computer-use-activity`).
+            guard state.withLockUnchecked({ $0.activity.take(object, now: Date()) }) else { return }
+            onChange()
         case "request_permission":
             if let permission = (object["permission"] as? String).flatMap(RemotePermission.init(rawValue:)) {
                 requestPermission(permission)
@@ -342,6 +350,8 @@ final class ComputerUseSupervisor: Sendable {
             state.channel = nil
             state.endpoint = nil
             state.startedAt = nil
+            // Its sessions act no more (a new worker reports them again when they do).
+            state.activity = ComputerUseActivity()
             let startNow = state.startAfterExit && state.wanted
             state.startAfterExit = false
             if !state.wanted { state.phase = .off } else if state.phase != .unavailable { state.phase = .starting }

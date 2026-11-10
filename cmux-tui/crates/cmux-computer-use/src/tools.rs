@@ -11,6 +11,21 @@ pub const SERVER_NAME: &str = "cmux-computer-use";
 /// Tool names are prefixed with this in the folded `cmux` server (`cu_click`).
 pub const TOOL_PREFIX: &str = "cu";
 
+/// The acting tools' optional argument that sets the agent cursor's tag
+/// (`CallContext::tag`). The bridge takes it out of the arguments and keeps it
+/// for the session's later calls.
+pub const CURSOR_TAG_ARG: &str = "cursor_tag";
+
+/// An agent cursor tag fit to show the person: one line of at most
+/// [`crate::engine::LABEL_MAX_CHARS`] characters, as `safe_label` makes a
+/// label; None when nothing is left of it.
+pub fn safe_tag(tag: &str) -> Option<String> {
+    if tag.chars().all(|c| c.is_control() || c.is_whitespace()) {
+        return None;
+    }
+    Some(crate::engine::safe_label(tag))
+}
+
 /// The acting tools whose result carries the window's state after acting.
 pub const OBSERVES: &[&str] =
     &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action"];
@@ -37,6 +52,12 @@ impl Tool {
                 "machine".into(),
                 json!({"type": "string", "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine."}),
             );
+            if self.acts() {
+                props.insert(
+                    CURSOR_TAG_ARG.into(),
+                    json!({"type": "string", "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name."}),
+                );
+            }
         }
         schema
     }
@@ -270,5 +291,19 @@ mod tests {
         }
         let names: std::collections::HashSet<_> = TOOLS.iter().map(|t| t.name).collect();
         assert_eq!(names.len(), TOOLS.len(), "duplicate tool names");
+    }
+
+    /// An acting tool takes an optional `cursor_tag`; a look-only one does not.
+    #[test]
+    fn acting_tools_take_a_cursor_tag_and_it_is_kept_short_and_on_one_line() {
+        for t in TOOLS {
+            let s = t.schema();
+            assert_eq!(s["properties"][CURSOR_TAG_ARG].is_object(), t.acts(), "{}", t.name);
+            let required = s["required"].as_array().cloned().unwrap_or_default();
+            assert!(!required.contains(&serde_json::json!(CURSOR_TAG_ARG)), "{}", t.name);
+        }
+        assert_eq!(safe_tag("Fix\nthe\tbuild").as_deref(), Some("Fix the build"));
+        assert_eq!(safe_tag(" \u{7} "), None);
+        assert_eq!(safe_tag(&"y".repeat(61)).map(|t| t.chars().count()), Some(60));
     }
 }

@@ -8779,264 +8779,266 @@
         }
       }
     },
-    "menu.menuBar.computerUse.takeOver" : {
+    "menu.menuBar.computerUse.agentInApp" : {
+      "comment" : "Menu bar > Computer Use: an agent session and the app it uses. %1$@ is the agent (Claude Code), %2$@ the app (Notes).",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Take Over"
+            "value" : "%1$@ in %2$@"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تولي التحكم"
+            "value" : "%1$@ في %2$@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Preuzmi kontrolu"
+            "value" : "%1$@ u aplikaciji %2$@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Overtag"
+            "value" : "%1$@ i %2$@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Übernehmen"
+            "value" : "%1$@ in %2$@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tomar el control"
+            "value" : "%1$@ en %2$@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prendre la main"
+            "value" : "%1$@ dans %2$@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prendi il controllo"
+            "value" : "%1$@ in %2$@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "操作を引き継ぐ"
+            "value" : "%2$@ の %1$@"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "គ្រប់គ្រងវិញ"
+            "value" : "%1$@ ក្នុង %2$@"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "직접 조작"
+            "value" : "%2$@의 %1$@"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Overta"
+            "value" : "%1$@ i %2$@"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Przejmij"
+            "value" : "%1$@ w %2$@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Assumir controle"
+            "value" : "%1$@ em %2$@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Взять управление"
+            "value" : "%1$@ в %2$@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "รับช่วงควบคุม"
+            "value" : "%1$@ ใน %2$@"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kontrolü Al"
+            "value" : "%2$@ içinde %1$@"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перехопити керування"
+            "value" : "%1$@ у %2$@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tiếp quản"
+            "value" : "%1$@ trong %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "接管"
+            "value" : "%2$@ 中的 %1$@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "接管"
+            "value" : "%2$@ 中的 %1$@"
           }
         }
       }
     },
-    "menu.menuBar.computerUse.handBack" : {
+    "menu.menuBar.computerUse.anAgent" : {
+      "comment" : "Menu bar > Computer Use: a session whose agent and app are unknown.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hand Back"
+            "value" : "An agent"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "إعادة التحكم"
+            "value" : "وكيل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vrati kontrolu"
+            "value" : "Agent"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Giv tilbage"
+            "value" : "En agent"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zurückgeben"
+            "value" : "Ein Agent"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Devolver el control"
+            "value" : "Un agente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rendre la main"
+            "value" : "Un agent"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restituisci il controllo"
+            "value" : "Un agente"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "操作を戻す"
+            "value" : "エージェント"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ប្រគល់វិញ"
+            "value" : "ភ្នាក់ងារ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "다시 맡기기"
+            "value" : "에이전트"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gi tilbake"
+            "value" : "En agent"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Oddaj"
+            "value" : "Agent"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Devolver controle"
+            "value" : "Um agente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вернуть управление"
+            "value" : "Агент"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "คืนการควบคุม"
+            "value" : "เอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kontrolü Geri Ver"
+            "value" : "Bir ajan"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Повернути керування"
+            "value" : "Агент"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trả lại"
+            "value" : "Một tác nhân"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "交还"
+            "value" : "一个代理"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "交還"
+            "value" : "一個代理程式"
           }
         }
       }

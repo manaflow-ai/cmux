@@ -38,6 +38,8 @@ public struct ComputerUseWorker: Sendable {
 final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state is behind `lock`; the AppKit parts are touched on the main actor only
     let channel: LineChannel
     let tap = TakeoverTap()
+    /// Which agent sessions act, for the host (the app's menu bar badge and Computer Use row).
+    let activity: ComputerUseActivityReporter
     private let lock = NSLock()
     private var engine: ComputerUseEngine?
     private var server: ServerHandle?
@@ -52,6 +54,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     init(output: LineChannel) {
         channel = output
+        activity = ComputerUseActivityReporter(write: { line in output.write(line) })
     }
 
     @MainActor func start() {
@@ -180,6 +183,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     fileprivate func capture(_ target: Data, frame: UnsafeMutablePointer<CmuxCuFrame>, error: UnsafeMutablePointer<UInt8>?,
                              errorCapacity: Int) -> Int32 {
         guard let target = CaptureTarget(json: target) else { return Self.fail("bad capture target", error, errorCapacity) }
+        activity.noteCapture(target)
         switch ScreenCapture().capture(target) {
         case .failure(let failure):
             return Self.fail(failure.description, error, errorCapacity)
@@ -206,6 +210,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     }
 
     fileprivate func cursor(_ json: Data) {
+        activity.noteCursor(json)
         guard let event = AgentCursorEvent(json: json) else { return }
         DispatchQueue.main.async { MainActor.assumeIsolated { self.overlay?.show(event) } }
     }
@@ -214,6 +219,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     fileprivate func ask(_ json: Data) -> Int32 {
         guard let question = ApprovalQuestion(json: json),
               !lock.withLock({ stopping }) else { return ApprovalAnswer.unavailable.rawValue }
+        activity.noteQuestion(question)
         let box = OSAllocatedUnfairLock(initialState: ApprovalAnswer.unavailable)
         let answered = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {

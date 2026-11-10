@@ -463,7 +463,8 @@ final class AppServices {
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
-    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
+    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), badgedIcon: MenuBarIcon().image(badged: true),
+                                                      host: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.

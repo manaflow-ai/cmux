@@ -5,7 +5,7 @@
 /// and Quit.
 ///
 /// Every fixed row runs a registry action, so the palette, the Help menu and this menu share one
-/// path; a chat row and Take Over / Hand Back are ``Command``s the App runs on one session. A row
+/// path; a chat row is a ``Command`` the App runs on one chat. A row
 /// whose action the build does not bind is left out, and so is a section left with no row.
 /// The rows are values (``items(for:isBound:)``), so tests read them without AppKit;
 /// ``MenuBarMenuBuilder`` turns them into an `NSMenu`.
@@ -36,11 +36,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     public enum Command: Sendable, Hashable {
         /// Opens the chat (an acpmux session id) in its workspace.
         case openChat(String)
-        /// Takes the mouse and keyboard back from a Computer Use session (it pauses).
-        case takeOver(String)
-        /// Gives them back to the session (it resumes).
-        case handBack(String)
     }
+
+    /// The most Computer Use sessions the row's submenu names.
+    public static let computerUseSessionLimit = 5
 
     /// The most chats one list shows; the rest are behind More….
     public static let chatLimit = 8
@@ -154,8 +153,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         return rows
     }
 
-    /// The Computer Use row and its submenu: Take Over or Hand Back, the app and the terminal that
-    /// started the session, Stop, then Agent Activity. With no session: Agent Activity and setup.
+    /// The Computer Use row and its submenu: a line per agent session (who, on which app; acting now
+    /// or not), the app and the terminal that started the newest, Stop, then Agent Activity. With no
+    /// session: Agent Activity and setup. There is no Take Over: the person takes over by using the
+    /// mouse or keyboard (`computerUse.pauseOnTakeover`), and agents wait on their own.
     private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
         guard let session = state.session else {
             return .computerUse(app: nil, bundleID: nil, items: [
@@ -163,17 +164,28 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
                 .action("palette.computerUse.setup", title: nil, symbol: "gear"),
             ])
         }
-        let control: Item = session.paused
-            ? .command(.handBack(session.id), title: text("menu.menuBar.computerUse.handBack", "Hand Back"), symbol: "arrow.uturn.backward")
-            : .command(.takeOver(session.id), title: text("menu.menuBar.computerUse.takeOver", "Take Over"), symbol: "hand.raised")
-        return .computerUse(app: session.appName, bundleID: session.bundleID, items: [
-            control,
+        let lines: [Item] = state.sessions.prefix(computerUseSessionLimit).map { session in
+            .info(sessionLine(session), symbol: session.acting ? "cursorarrow.motionlines" : "cursorarrow", avatar: false)
+        }
+        return .computerUse(app: session.appName, bundleID: session.bundleID, items: lines + [
+            .separator,
             .action("computerUseFocus", title: nil, symbol: "cursorarrow.rays"),
             .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
             .action("computerUseStop", title: nil, symbol: "stop.circle"),
             .separator,
             .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
         ])
+    }
+
+    /// "Claude Code in Notes", or the one of them the worker knows.
+    static func sessionLine(_ session: MenuBarMenuState.ComputerUse.Session) -> String {
+        switch (session.agent, session.appName) {
+        case let (agent?, app?):
+            String(localized: "menu.menuBar.computerUse.agentInApp", defaultValue: "\(agent) in \(app)", table: "ProfileActions", bundle: .module)
+        case let (agent?, nil): agent
+        case let (nil, app?): app
+        case (nil, nil): text("menu.menuBar.computerUse.anAgent", "An agent")
+        }
     }
 
     static func agentsWorking(_ count: Int) -> String {

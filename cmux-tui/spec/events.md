@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -45,6 +45,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
+| `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
@@ -464,6 +465,27 @@ as it sent it (`seq`, `index`, `tx`, `at`, `actor`, `origin`, `kind`,
 `change`). When the link to the owner ends the payload is
 `{event:"tasks-changed", lost:true}`; the page then reads `tasks.snapshot`
 again. Only a page relay whose page lists it (the Tasks page) hears it.
+
+### computer-use-activity
+
+| Field | Value |
+| --- | --- |
+| event | `computer-use-activity` |
+| status | implemented |
+| since | capability `remote-host-v1` (macOS) |
+
+Published when what cmux Remote's Computer Use worker reports about its agent
+sessions changes (the host's `workers["computer-use"].activity`, which the
+worker updates at most every half second per session while it acts, and when
+a session's cursor goes away). The payload is
+`{event:"computer-use-activity", sessions:[{session:string, label:string,
+app?:{id:string, name:string}, last_action_ms:uint64}]}`, newest action first;
+an empty list when no session acted or the host is gone. `label` is the
+agent's name, `app` the app it acted on last when the worker knows it, and
+`last_action_ms` the wall-clock time of its last action on this machine. Only
+the person's own local Unix connections hear it (never a page relay or a
+remote device); the cmux app shows its menu bar badge and Computer Use row
+from it. `remote-host-status` carries the same list in `host.workers`.
 
 ### history-changed
 

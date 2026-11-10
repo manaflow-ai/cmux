@@ -18,12 +18,11 @@ public protocol MenuBarExtraHost: AnyObject {
     var menuBarUpdateReady: Bool { get }
     /// `app.globalHotKey` is on.
     var menuBarShowsGlobalKey: Bool { get }
-    /// Computer Use is on and its helper answered: the menu shows its row.
+    /// Computer Use is on and cmux Remote's worker runs: the menu shows its row.
     var menuBarComputerUseAvailable: Bool { get }
-    /// The newest live Computer Use session, asked of the CUA host; nil for none or no answer.
-    func menuBarComputerUseSession() async -> MenuBarMenuState.ComputerUse.Session?
-    /// Takes Computer Use session `id` over (`paused`) or hands it back.
-    func menuBarSetComputerUsePaused(_ id: String, _ paused: Bool) async throws
+    /// The agent sessions cmux Remote's worker reports (who acts, on which app), newest action
+    /// first: what the app already holds from the daemon's `computer-use-activity`, no request.
+    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] { get }
     /// The agent chats with a result nobody has read, newest first, from the unread index.
     var menuBarUnread: [MenuBarMenuState.Chat] { get }
     /// The agent chats running a turn, newest first, from the working index.

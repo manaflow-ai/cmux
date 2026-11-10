@@ -24,6 +24,16 @@ public final class CmuxRemoteComputerUseState {
     public internal(set) var workerPID: pid_t?
     /// The saved approvals (`computer-use-approvals list`): app id to "always" or "never", sorted by id.
     public internal(set) var approvals: [(appID: String, decision: String)] = []
+    /// The worker's agent sessions that acted, newest action first (`computer-use-activity`, the
+    /// daemon's event, or `workers["computer-use"].activity` of a status read).
+    public internal(set) var sessions: [CmuxRemoteComputerUseSession] = []
+    /// An agent acted through Computer Use within the last 2 s (the menu bar badge).
+    public internal(set) var acting = false
+    /// The pending end of ``acting``.
+    @ObservationIgnored var actingClear: Task<Void, Never>?
+    /// Now, and an intentional bounded wait (a test passes its own clock).
+    @ObservationIgnored var now: @Sendable () -> Date = { Date() }
+    @ObservationIgnored var sleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
 
     nonisolated init() {}
 
@@ -40,6 +50,10 @@ public final class CmuxRemoteComputerUseState {
         if workerState != state { workerState = state }
         let workerPID = (worker?["pid"] as? Int).map { pid_t($0) }
         if self.workerPID != workerPID { self.workerPID = workerPID }
+        // No host: no session acts. An answer without the worker's fields (a config reply) changes nothing.
+        if host == nil || worker != nil {
+            take(activity: CmuxRemoteComputerUseSession.sessions(from: worker?["activity"] as? [Any]))
+        }
     }
 
     /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}` (ids, or `{"app_id"|"id"}` objects).

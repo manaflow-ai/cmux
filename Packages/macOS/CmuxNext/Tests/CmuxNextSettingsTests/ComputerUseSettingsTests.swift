@@ -119,7 +119,7 @@ import Testing
         let keys = SettingsSchema.all.filter { $0.path.first == "computerUse" }
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
-                                         "computerUse.livePreview"])
+                                         "computerUse.cursorTag", "computerUse.settle", "computerUse.livePreview"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
@@ -140,11 +140,42 @@ import Testing
         settings.deniedApps = ["com.example.a"]
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
-        #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor", "cloudVm"])
+        #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
+                                     "cursorTag", "settle", "cloudVm"])
+        #expect(object["cursorTag"] as? String == "hover")
+        #expect(object["settle"] as? String == "adaptive")
         #expect(object["mode"] as? String == "approvedApps")
         #expect(object["deniedApps"] as? [String] == ["com.example.a"])
         #expect(object["allowForeground"] as? Bool == true)
         #expect(object["cloudVm"] as? Bool == false)
+    }
+
+    /// The agent cursor's tag (hover by default) and what agents wait for after each action
+    /// (adaptive by default): rows with their choices, read from the file, sent in the policy as
+    /// `cursorTag` and `settle`; an unknown value keeps the default and says so.
+    @Test func theCursorTagAndSettleRowsReachThePolicy() throws {
+        let defaults = computerUse(.object([:]))
+        #expect(defaults.cursorTag == .hover && defaults.settle == .adaptive)
+        let tag = try #require(SettingsSchema.descriptor(for: ComputerUseSettings.cursorTagPath))
+        #expect(tag.defaultValue == .string("hover"))
+        #expect(tag.title == "Agent Cursor Tag")
+        guard case .choice(let tags) = tag.kind else { throw CancellationError() }
+        #expect(tags.map(\.value) == ["hover", "always", "never"])
+        let settle = try #require(SettingsSchema.descriptor(for: ComputerUseSettings.settlePath))
+        #expect(settle.title == "After Each Action")
+        guard case .choice(let settles) = settle.kind else { throw CancellationError() }
+        #expect(settles.map(\.value) == ["adaptive", "anthropic", "openai"])
+        #expect(settles.map(\.title) == ["Wait for the change (adaptive)", "Fixed 2 s, then screenshot (Anthropic)",
+                                                    "Screenshot at once (OpenAI)"])
+        let picked = computerUse(.object(["computerUse": .object(["cursorTag": .string("always"), "settle": .string("openai")])]))
+        #expect(picked.cursorTag == .always && picked.settle == .openai)
+        let object = try #require(try JSONSerialization.jsonObject(with: picked.policyConfigJSON()) as? [String: Any])
+        #expect(object["cursorTag"] as? String == "always" && object["settle"] as? String == "openai")
+        let bad = CmuxConfigSnapshot.parse(.object(["computerUse": .object(["cursorTag": .string("blink"), "settle": .string("soon")])]),
+                                           validDensities: [], validMetrics: [])
+        #expect(bad.computerUse.cursorTag == .hover && bad.computerUse.settle == .adaptive)
+        #expect(bad.diagnostics.contains { $0.path == "computerUse.cursorTag" })
+        #expect(bad.diagnostics.contains { $0.path == "computerUse.settle" })
     }
 
     @Test func remoteEnabledIsRetired() {
