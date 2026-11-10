@@ -90,11 +90,13 @@ fn open_persistent_bench() {
     // Unit tests check each tree entity against the whole tree, which the daemon never
     // does; CMUX_OPEN_PERSISTENT_BENCH_ENTITY_CHECK=1 keeps it (to compare with a bench
     // that timed it).
-    let entity_check = std::env::var("CMUX_OPEN_PERSISTENT_BENCH_ENTITY_CHECK").is_ok_and(|v| v == "1");
+    let entity_check =
+        std::env::var("CMUX_OPEN_PERSISTENT_BENCH_ENTITY_CHECK").is_ok_and(|v| v == "1");
     if !entity_check {
         tree_json::skip_entity_check_on_this_thread_for_bench();
     }
-    let profile = if entity_check { format!("{profile} entity-check") } else { profile.to_string() };
+    let profile =
+        if entity_check { format!("{profile} entity-check") } else { profile.to_string() };
     let sizes = std::env::var("CMUX_OPEN_PERSISTENT_BENCH_SIZES").ok().map_or_else(
         || vec![1usize, 100, 1_000, 4_000],
         |sizes| sizes.split(',').filter_map(|size| size.trim().parse().ok()).collect(),
