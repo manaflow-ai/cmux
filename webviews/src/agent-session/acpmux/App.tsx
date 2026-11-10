@@ -6644,6 +6644,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "plan",
       "resume",
       "login",
+      "customize",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
@@ -9136,6 +9137,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
     // way any other prompt goes.
     if (command.action === "passThrough") return CMUX_PASS_THROUGH;
+    // `/customize …` goes to the chat's agent as the ask it stands for (customizeCommand.ts): the
+    // composer and New Tab rewrite it where the prompt leaves.
+    if (command.action === "customize") return CMUX_PASS_THROUGH;
     // GUI-native commands are available even when a harness does not advertise an ACP command.
     // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
     // to act on yet, so there they go to the harness as typed.

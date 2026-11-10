@@ -88,6 +88,8 @@ mod coderouter;
 mod codex_app_server;
 mod command;
 #[cfg(unix)]
+mod customize;
+#[cfg(unix)]
 mod dev;
 mod docs;
 mod event_match;
@@ -483,6 +485,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "remote-host",
     "chat",
     "vm",
+    "customize",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -804,6 +807,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
