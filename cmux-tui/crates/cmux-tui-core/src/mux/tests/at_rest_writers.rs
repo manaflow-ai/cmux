@@ -273,6 +273,68 @@ fn printing_terminals_at_rest_write_nothing_on_826_workspaces() {
     printing_terminals_at_rest(826);
 }
 
+/// A journal hook is delivered every row its filter matches. While an
+/// enabled hook's kinds match `terminal.progress`, each live fact of a
+/// terminal is one row again (the rate before live facts left the journal);
+/// a hook for other kinds changes nothing.
+#[cfg(unix)]
+#[test]
+fn a_journal_hook_for_terminal_progress_keeps_a_row_for_each_live_fact() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-at-rest-progress-hook-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("at-rest-progress-hook", &root);
+    mux.stop_journal_maintenance();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.publish_pending_directory();
+    surface.publish_pending_progress();
+    assert!(
+        mux.wait_for_terminal_publisher_for_test(Duration::from_secs(30)),
+        "the terminal publisher did not drain"
+    );
+    let hook = |id: &str, kind: &str| crate::JournalHookManifest {
+        hook_id: id.into(),
+        manifest_version: 1,
+        filter: crate::JournalHookFilter { kinds: vec![kind.into()], ..Default::default() },
+        exec: crate::JournalHookExec {
+            argv: vec!["/usr/bin/true".into()],
+            timeout_ms: 1000,
+            max_parallel: 1,
+        },
+        delivery: crate::JournalHookDeliveryPolicy {
+            start: "tail".into(),
+            retry: crate::JournalHookRetry { max_attempts: 1, backoff_ms: 0 },
+        },
+        permissions: vec!["journal.read".into()],
+    };
+    // Three live facts: the terminal prints and reports a new OSC 9;4 value,
+    // one output step (5 s) apart.
+    let start_ms = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    let mut tick = 0_u64;
+    let mut progress_rows = |mux: &Arc<Mux>| {
+        let before = journal_rows(mux);
+        for _ in 0..3 {
+            tick += 1;
+            let frame = format!("\x1b]9;4;1;{}\x07line {tick}\r\n", tick % 100);
+            surface.apply_stream_output_for_test(frame.as_bytes()).unwrap();
+            surface.note_output_at_for_test(start_ms + tick * TICK_MS);
+            surface.publish_pending_state();
+        }
+        rows_added(mux, &before).get("terminal.progress").copied().unwrap_or(0)
+    };
+    assert_eq!(progress_rows(&mux), 0, "no journal hook: no row");
+    mux.put_journal_hook(&hook("other_kinds", "agent.*"), "test", "progress-hook-1").unwrap();
+    assert_eq!(progress_rows(&mux), 0, "a hook for other kinds: no row");
+    mux.put_journal_hook(&hook("progress_kinds", "terminal.progress"), "test", "progress-hook-2")
+        .unwrap();
+    assert_eq!(
+        progress_rows(&mux),
+        3,
+        "a journal hook for `terminal.progress` got no row for each live fact of a terminal"
+    );
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn observation(last_used_ms: [u64; 3]) -> Value {
     json!([
         {"path": "/srv/cmux-at-rest/alpha", "last_used_ms": last_used_ms[0].to_string()},
