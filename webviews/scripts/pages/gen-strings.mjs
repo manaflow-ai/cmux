@@ -200,6 +200,12 @@ export const PAGES = {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
+  // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
+  // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
+  feed: {
+    out: "webviews/src/pages/feed/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/feed/Localizable.xcstrings" }],
+  },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.
   apps: {

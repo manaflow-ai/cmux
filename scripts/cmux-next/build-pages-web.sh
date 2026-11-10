@@ -37,6 +37,7 @@ cloud
 cloud-progress
 coderouter
 debug-settings
+feed
 files
 github
 group-editor
