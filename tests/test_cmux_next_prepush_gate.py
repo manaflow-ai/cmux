@@ -2100,6 +2100,33 @@ mod tests {
 
         self.assert_refused_like_ci("cmux-fixture-undeclared")
 
+    # A `#[cfg(test)] #[path]` that crosses crates (lead decision after the re-check of #39853): CI's ratchet tells test
+    # code from every crate, so a file another crate declares as a test module is test code. The gate's trees held only
+    # the touched crates: it refused a hit there that CI passes, and passed a lost `#[cfg(test)]` that CI refuses.
+    CROSS_DECLARER = "cmux-tui/crates/cmux-fixture-declarer/src/lib.rs"
+    CROSS_TARGET = "cmux-tui/crates/cmux-fixture-target/src/shared_helper.rs"
+    CROSS_DECL = '#[cfg(test)]\n#[path = "../../cmux-fixture-target/src/shared_helper.rs"]\nmod shared_helper;\n'
+
+    def cross_crate_base(self, helper):
+        self.write(self.CROSS_DECLARER, "pub fn d() {}\n" + self.CROSS_DECL)
+        self.write("cmux-tui/crates/cmux-fixture-target/src/lib.rs", "pub fn t() {}\n")
+        self.write(self.CROSS_TARGET, helper)
+        self.base_commit("base: crate declarer declares a test module in crate target")
+
+    def test_a_hit_in_a_file_another_crate_declares_as_a_test_module_passes(self):
+        self.cross_crate_base("pub fn h() {}\n")
+        self.write(self.CROSS_TARGET, "pub fn h(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.commit("an unwrap in the cross-crate test module")
+
+        self.assert_passes_like_ci()
+
+    def test_a_cross_crate_test_module_that_loses_its_cfg_test_is_refused(self):
+        self.cross_crate_base("pub fn h(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.write(self.CROSS_DECLARER, "pub fn d() {}\n" + self.CROSS_DECL.replace("#[cfg(test)]\n", ""))
+        self.commit("the declaring line loses #[cfg(test)]; only crate declarer changes")
+
+        self.assert_refused_like_ci("cmux-fixture-target")
+
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
     # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
