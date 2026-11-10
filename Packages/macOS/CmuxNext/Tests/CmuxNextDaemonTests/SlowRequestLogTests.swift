@@ -253,6 +253,22 @@ import Testing
         #expect(zip(totals, totals.dropFirst()).allSatisfy { $1 == $0 + 1 }, "the kept records are not the newest run")
     }
 
+    /// The rotated copy cannot be made here (its name is a folder): the file must still stay below the limit.
+    @Test func aRotationThatFailsDoesNotLetTheFilePassTheLimit() throws {
+        let fixture = try Fixture()
+        defer { fixture.stop() }
+        let current = fixture.directory.appendingPathComponent(SlowRequestLog.fileName)
+        try FileManager.default.createDirectory(atPath: current.path + ".1", withIntermediateDirectories: false)
+        try Data(repeating: 0x61, count: SlowRequestLog.maxFileBytes - 10).write(to: current)
+        let line = String(repeating: "b", count: 200)
+        for _ in 0..<3 {
+            SlowRequestLogFile(directory: fixture.directory).append(line)
+        }
+        let written = try Data(contentsOf: current)
+        #expect(written.count <= SlowRequestLog.maxFileBytes, "the file passed 1 MiB: \(written.count) bytes")
+        #expect(written.suffix(201) == Data((line + "\n").utf8), "the newest record is not the last line")
+    }
+
     @Test func aBlockedWriterNeverMakesTheRequestPathWaitAndTheDropCountGoesUp() async throws {
         let gate = WriterGate()
         let fixture = try Fixture(emit: { _ in gate.hold() })
