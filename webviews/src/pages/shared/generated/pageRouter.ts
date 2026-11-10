@@ -49,6 +49,21 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
+  "feed": {
+    "read": [
+      "feed.github.find_work",
+      "feed.item.get",
+      "feed.items.list",
+      "feed.reports.read",
+      "feed.view.read"
+    ],
+    "gesture": [
+      "feed.github.refresh",
+      "feed.intent",
+      "feed.reports.reply"
+    ],
+    "confirm": []
+  },
   "history": {
     "read": [
       "history.entries.list",
@@ -70,6 +85,24 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.list",
       "chief.profile.update",
       "palette.rank",
+      "participant.avatar.get"
+    ],
+    "gesture": [
+      "chief.profile.create",
+      "chief.profile.delete",
+      "chief.profile.undo",
+      "workspace.open_url"
+    ],
+    "confirm": []
+  },
+  "home-messages": {
+    "read": [
+      "chief.profile.avatar.get",
+      "chief.profile.avatar.set",
+      "chief.profile.get",
+      "chief.profile.history",
+      "chief.profile.list",
+      "chief.profile.update",
       "participant.avatar.get"
     ],
     "gesture": [
@@ -151,6 +184,25 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "bookmarks.apply",
       "bookmarks.import_html",
       "bookmarks.import_source"
+    ]
+  },
+  "feed": {
+    "owner": "feed",
+    "read": [
+      "feed.github.find_work",
+      "feed.item.get",
+      "feed.items.list",
+      "feed.reports.read",
+      "feed.view.read"
+    ],
+    "mutation": [
+      "feed.github.configure",
+      "feed.github.refresh",
+      "feed.intent",
+      "feed.post",
+      "feed.presence.set",
+      "feed.reports.reply",
+      "feed.withdraw"
     ]
   },
   "tasks": {

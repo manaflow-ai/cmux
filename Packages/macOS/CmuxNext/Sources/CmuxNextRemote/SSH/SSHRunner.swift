@@ -32,7 +32,8 @@ public struct SSHProcessRunner {
 
     /// `stop` ends the process on the deadline or a cancel (by default SIGTERM to it alone; a caller
     /// whose process leads a group passes one that signals the group).
-    public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
+    /// `@concurrent`: a main-actor caller's launch and stdin never run on the main thread.
+    @concurrent public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
                            deadline: Duration, label: String,
                            stop: @escaping @Sendable (Process) -> Void = { $0.terminate() }) async throws -> SSHProcessResult {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
@@ -84,16 +85,14 @@ public struct SSHProcessRunner {
         let exit = ExitLatch()
         process.terminationHandler = { exit.finish($0.terminationStatus) }
         try process.run()
-        if case .data(let data) = input, let inputPipe {
-            let writer = inputPipe.fileHandleForWriting
-            // Scripts are a few KiB, well under the pipe buffer.
-            try? writer.write(contentsOf: data)
-            try? writer.close()
-        }
-        if case .writer(let write) = input, let inputPipe {
-            let writer = inputPipe.fileHandleForWriting
-            write(writer.fileDescriptor)
-            try? writer.close()
+        // Stdin goes on the feed's own queue, never this task: even a few KiB can wait in `write`
+        // (a child that never reads, the kernel's pipe memory used up), and that wait would hold
+        // off the deadline below. The deadline's stop ends the child, which ends a waiting write.
+        if let inputPipe {
+            let feed = PipeFeed(inputPipe.fileHandleForWriting)
+            if case .data(let data) = input { feed.write(data) }
+            if case .writer(let write) = input { feed.write(with: write) }
+            feed.close()
         }
         let status: Int32
         do {
