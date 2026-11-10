@@ -1086,3 +1086,111 @@ select {
     align-self: center;
   }
 }
+
+/* Automatic cleanup (retention.ts): the row's quiet delete line, Keep, Archive and delete, the
+   one-time notice under a row, the archives and the cleanup settings. */
+.cloud-machine-deletes {
+  color: var(--cloud-text-2);
+}
+
+.cloud-machine-keep.on {
+  color: var(--cloud-text);
+  font-weight: 600;
+}
+
+.cloud-machine-keep,
+.cloud-machine-archive {
+  flex: none;
+}
+
+.cloud-machine-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--cloud-hover);
+  font-size: var(--text-caption);
+  white-space: normal;
+}
+
+.cloud-machine-notice-text {
+  flex: 1 1 200px;
+  color: var(--cloud-text);
+}
+
+.cloud-archives {
+  margin-top: 12px;
+}
+
+.cloud-archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cloud-archive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cloud-separator);
+}
+
+.cloud-archive-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-archive-name,
+.cloud-archive-until {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cloud-create-offer {
+  margin: 8px 0 0;
+}
+
+.cloud-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-detail);
+}
+
+.cloud-cleanup-policy {
+  margin: 0 0 8px;
+}
+
+.cloud-cleanup-team {
+  margin-top: 8px;
+  font-size: var(--text-detail);
+}
+
+.cloud-cleanup-team > summary {
+  cursor: default;
+  color: var(--cloud-text-2);
+}
+
+.cloud-cleanup-fields {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.cloud-cleanup-field .cloud-input {
+  width: 6em;
+}
+
+/* Live status lines are <output> (inline by default); they sit on their own line like the <p> notes. */
+.cloud-cleanup-admin,
+.cloud-create-waiting {
+  display: block;
+  margin: 8px 0;
+}

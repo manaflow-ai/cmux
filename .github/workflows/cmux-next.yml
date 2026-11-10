@@ -2169,6 +2169,18 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-motion-scale.py --check
 
+      # No new raw animation duration or raw colour outside the tokens, everywhere the other motion and
+      # design-token checks do not read (shrink-only baseline: motion-tokens-baseline.tsv), and the
+      # animation-token coverage figure (motion-coverage.py) for the nightly.
+      - name: Motion and colour tokens
+        id: motion-tokens
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+          python3 -I scripts/cmux-next/check-motion-tokens.py
+          python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json"
+          python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
+
       # The overlay surface roles (schemas/surface-roles/surface-roles.json): their Swift and CSS
       # copies match it (Glass, never opaque: one token set for every popover, menu, card, toast and sheet).
       - name: Surface roles
@@ -2603,6 +2615,7 @@ jobs:
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
+            ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
             ${{ steps.menu-metrics.outcome }}|Menu metrics
             ${{ steps.surface-roles.outcome }}|Surface roles
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
@@ -3590,17 +3603,17 @@ jobs:
           VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
           RESULT: ${{ needs.fast-tier-fleet.result }}
         run: |
-          if [[ "$VERDICT" == pass && "$RESULT" == success ]]; then
+          if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [[ "$VERDICT" == fail ]]; then
-            echo "::error title=cmux-next fast tier::a Swift suite failed on the build fleet; its log is in cmux-next fast tier (build fleet)."
+          if [[ $VERDICT == fail || $RESULT == failure ]]; then
+            echo "::error title=cmux-next fast tier::fleet $RESULT, verdict ${VERDICT:-none}; its log is in cmux-next fast tier (build fleet)"
             exit 1
           fi
-          echo "::error title=cmux-next fast tier: no verdict::the build fleet gave no verdict (fast-tier-fleet $RESULT, verdict '${VERDICT:-none}'), and no verdict is never a pass. Re-run the run once a Mac or the fleet is free."
-          exit 1
+          echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
+          exit 3
 
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -5756,14 +5769,9 @@ jobs:
   # an unavailable wrapper is a successful job but is not a Release compile.
   release-compile-fast:
     needs: [path_route, push-head-preflight, macos-placement]
-    # It submits the fleet compile check from a gateway runner macos-placement saw idle in this
-    # attempt (gateway_runner), like the other build-fleet gateway jobs. With none idle (or no
-    # reading from this attempt) it does not skip into the Mac queue: it runs on Linux and reads the
-    # build fleet's own Release (-Onone) compile of this push, the one compile-status publishes as
-    # cmux-next/compile (the controller compiles every feat-cmux-next push on the Linux pool). Only
-    # when that gives no verdict does release-compile run on a Mac. On 2026-11-02 from 09:39Z every
-    # gateway runner was busy, so pushes 622a6b75 and 0fa148c5 queued their Mac Release compile for
-    # over two hours while cmux-next/compile had passed both in three minutes.
+    # On a gateway runner macos-placement saw idle this attempt it submits the fleet check; else it
+    # runs on Linux and reads the fleet's own Release (-Onone) compile of this push (cmux-next/compile).
+    # Only no verdict sends release-compile to a Mac (2026-11-02: a busy gateway queued it 2 h).
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next Release compile (fleet fast check)
     concurrency:
@@ -5776,10 +5784,8 @@ jobs:
     outputs:
       verdict: ${{ steps.compile.outputs.verdict }}
     steps:
-      # A compile failure keeps this step red but not the job, and the admission
-      # job turns verdict=fail red under the gate name. Without a verdict (the
-      # job refused at runner setup or killed, or this step died before writing
-      # one) release-compile takes over instead.
+      # A compile failure reds this step, not the job; the admission job reds verdict=fail under the
+      # gate name. No verdict (refused, killed, died first): release-compile takes over.
       - name: Run the fast fleet compile check
         id: compile
         continue-on-error: true
@@ -5792,20 +5798,27 @@ jobs:
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
         run: |
           set -uo pipefail
-          # No idle gateway runner: read the fleet's own Release (-Onone) compile of this push,
-          # fail closed (only a result for this sha, repo, recipe 2 and release-onone counts).
-          # Pass and fail are verdicts; anything else hands the gate to the Mac fallback.
+          # No idle gateway: read the fleet's compile of this push, fail closed (only this sha, repo,
+          # recipe 2, release-onone). Pass and fail are verdicts; else the Mac fallback runs.
           if [[ -z "$GATEWAY" ]]; then
             [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
             reply="$RUNNER_TEMP/compile-check.json"
             deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
             state=""
+            # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
+            # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
+            # retrying the 530 for the whole deadline (20 min with the controller down, 2026-11-10).
+            for probe in 1 2; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
+                "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)" || true
+              [[ "$code" =~ ^(000|52[0-9]|530)$ ]] || break
+              (( probe == 2 )) && { state="results service down (HTTP $code)"; deadline=$SECONDS; } || sleep "${PROBE_GAP:-30}"
+            done
             for attempt in 1 2 3; do
               left=$((deadline - SECONDS))
               (( left > 60 )) || break
               wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
-              # One blocking read, bounded by what is left: a terminal state returns at once, and a
-              # 404 (no result yet) is retried by curl inside the same bound.
+              # One blocking read bounded by what is left; curl retries a 404 (no result yet) inside it.
               if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
                   --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
                   -o "$reply" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait"; then
@@ -7011,6 +7024,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
+              [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 

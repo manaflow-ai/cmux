@@ -3,12 +3,18 @@ import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook } from "./cloudStart.experiment";
 import { CloudStartAsk } from "./CloudStartAsk";
-import { CLOUD_START_STEPS, type CloudStartAsk as Ask, type CloudStartProgress } from "./cloudStartProgress";
+import {
+  CLOUD_START_STALL_MS,
+  CLOUD_START_STEPS,
+  type CloudStartAsk as Ask,
+  type CloudStartProgress,
+} from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
 import { Thinking } from "./conversation/Thinking";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
+import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
 function mark(step: ChecklistStep, t: Translate) {
@@ -91,6 +97,102 @@ function AskRow({ ask, onAnswer }: { ask?: Ask; onAnswer?: (id: string, button: 
   );
 }
 
+/// How the plan refusal in a team reads (gallery `agent-pane.cloud-plan-team` compares them):
+/// `notice` (shipped) says it under the message with no startup card, since nothing started;
+/// `card` keeps the failed startup card above the same words; `banner` puts the words and the
+/// buttons on one line.
+export type CloudPlanTeamLook = "notice" | "card" | "banner";
+
+/// "This team has no Cloud plan": a final state, no retry and no wait. It names the team the send
+/// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team,
+/// which switches and sends again, then the plans; Run on This Mac and Not now stay as before.
+function PlanTeamRefusal({
+  refusal,
+  look,
+  onSwitchTeam,
+  onUpgrade,
+  onRunHere,
+  onDismiss,
+  runHereLabel,
+}: {
+  refusal: CloudPlanTeamRefusal;
+  look: CloudPlanTeamLook;
+  onSwitchTeam?: (team: CloudPlanTeam) => void;
+  onUpgrade?: () => void;
+  onRunHere?: () => void;
+  onDismiss?: () => void;
+  runHereLabel: string;
+}) {
+  const t = useT();
+  const switchTo = refusal.switchTo;
+  const actions = (
+    <span className="acpmux-cloud-ask__actions acpmux-cloud-plan-team__actions">
+      {switchTo && onSwitchTeam && (
+        <button
+          type="button"
+          className="acpmux-cloud-ask__button"
+          data-role="default"
+          data-action="switch-team"
+          onClick={() => onSwitchTeam(switchTo)}
+        >
+          {t("cloudStart.planTeam.switch", { team: switchTo.name })}
+        </button>
+      )}
+      {onUpgrade && (
+        <button
+          type="button"
+          className="acpmux-cloud-ask__button"
+          data-role={switchTo && onSwitchTeam ? undefined : "default"}
+          data-action="see-plans"
+          onClick={() => onUpgrade()}
+        >
+          {t("cloudStart.planTeam.seePlans")}
+        </button>
+      )}
+      {onRunHere && (
+        <button type="button" className="acpmux-cloud-ask__button" data-action="run-here" onClick={() => onRunHere()}>
+          {runHereLabel}
+        </button>
+      )}
+      {onDismiss && (
+        <button type="button" className="acpmux-cloud-ask__button" data-action="dismiss" onClick={() => onDismiss()}>
+          {t("harness.notNow")}
+        </button>
+      )}
+    </span>
+  );
+  const title = <strong className="acpmux-cloud-plan-team__title">{t("cloudStart.planTeam.title")}</strong>;
+  const team = (
+    <span className="acpmux-cloud-plan-team__team">{t("cloudStart.planTeam.selected", { team: refusal.team })}</span>
+  );
+  return (
+    <div className="acpmux-cloud-plan-team" data-look={look} role="alert">
+      {look === "banner" ? (
+        <>
+          <div className="acpmux-cloud-plan-team__head">
+            <AlertCircle size={14} />
+            {title}
+            {actions}
+          </div>
+          {team}
+        </>
+      ) : (
+        <>
+          <div className="acpmux-cloud-plan-team__head">
+            <AlertCircle size={14} />
+            {title}
+          </div>
+          {team}
+          {actions}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Start refusals that name what to do in their own card, with no failed step for the checklist to show. */
+const POLICY_REFUSALS: ReadonlySet<string> = new Set(["cloud_plan_required", "cloud_spend_cap", "cloud_member_budget"]);
+
 export function CloudStartView({
   start,
   bubble = true,
@@ -102,6 +204,8 @@ export function CloudStartView({
   onUpgrade,
   onRunHere,
   onDismiss,
+  onSwitchTeam,
+  planTeamLook = "notice",
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
@@ -119,21 +223,32 @@ export function CloudStartView({
   onUpgrade?: () => void;
   onRunHere?: () => void;
   onDismiss?: () => void;
+  /// A plan refusal in a team: switch to the person's own team (the team picker's switch) and send again.
+  onSwitchTeam?: (team: CloudPlanTeam) => void;
+  /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
+  planTeamLook?: CloudPlanTeamLook;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
   const failed = start.state === "failed";
+  /// No word from the host for minutes (cloudStartProgress.ts `stalled`): the card opens on where it
+  /// stopped and says the composer is open again.
+  const stalled = !failed && start.stalled === true;
   // The chat shell is useful before the machine is ready, so keep the expensive startup
   // checklist out of the way until someone asks for it. A failure is the one time we open it
   // automatically: the failed row and its log tail explain what needs attention.
-  const [expanded, setExpanded] = useState(failed);
+  // A refusal by policy (the plan, the team's spending cap, the member's budget) has no failed step to explain, so the
+  // checklist stays shut and the card's actions stay in view in a short pane (#40036 review F1). A stalled start opens
+  // it, to name the step it stopped at.
+  const autoOpen = (failed && !POLICY_REFUSALS.has(start.code ?? "")) || stalled;
+  const [expanded, setExpanded] = useState(autoOpen);
   const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
-    if (failed) setExpanded(true);
+    if (autoOpen) setExpanded(true);
     else if (start.initialized) setExpanded(false);
-  }, [failed, start.initialized]);
+  }, [autoOpen, start.initialized]);
   const language = usePaneLanguage();
   const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
@@ -164,7 +279,32 @@ export function CloudStartView({
       <span>{t("cloudStart.waitingForSignIn")}</span>
     </output>
   );
-  if (!failed && !showSteps) {
+  const planTeam = failed && start.code === "cloud_plan_required" ? start.planTeam : undefined;
+  const planTeamRefusal = planTeam && (
+    <PlanTeamRefusal
+      refusal={planTeam}
+      look={planTeamLook}
+      runHereLabel={planLabels.runHere}
+      {...(onSwitchTeam ? { onSwitchTeam } : {})}
+      {...(onUpgrade ? { onUpgrade } : {})}
+      {...(onRunHere ? { onRunHere } : {})}
+      {...(onDismiss ? { onDismiss } : {})}
+    />
+  );
+  // Nothing started (the plan is checked before any machine), so the notice has no startup card.
+  if (planTeamRefusal && planTeamLook !== "card") {
+    return (
+      <section className="acpmux-cloud-start" data-state="failed" data-plan-team="true">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        {planTeamRefusal}
+      </section>
+    );
+  }
+  if (!failed && !stalled && !showSteps) {
     return (
       <section
         className="acpmux-cloud-start"
@@ -195,7 +335,17 @@ export function CloudStartView({
         </div>
       )}
       {waitingForSignIn && signInStatus}
-      {!failed && !waitingForSignIn && !start.initialized && (
+      {stalled && !start.ask && (
+        <output className="acpmux-cloud-start__status" data-stalled="true">
+          {t("cloudStart.stalled", {
+            minutes: String(Math.round(CLOUD_START_STALL_MS / 60_000)),
+            step:
+              (rows.find((row) => row.status === "running") ?? rows.find((row) => row.status === "pending") ?? rows[0])
+                ?.label ?? "",
+          })}
+        </output>
+      )}
+      {!failed && !stalled && !waitingForSignIn && !start.initialized && (
         <output className="acpmux-cloud-start__status">
           <Spinner size={14} loading />
           <span>{t("cloudStart.preparing")}</span>
@@ -289,7 +439,8 @@ export function CloudStartView({
           </div>
         )}
       </div>
-      {failed && (
+      {planTeamRefusal}
+      {failed && !planTeamRefusal && (
         <div className="acpmux-cloud-start__failure" role="alert">
           <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
           {signInRequired && (
@@ -305,7 +456,7 @@ export function CloudStartView({
           )}
         </div>
       )}
-      {failed && start.code === "cloud_plan_required" && (onUpgrade || onRunHere || onDismiss) && (
+      {failed && !planTeamRefusal && start.code === "cloud_plan_required" && (onUpgrade || onRunHere || onDismiss) && (
         <span className="acpmux-cloud-ask__actions">
           {onUpgrade && (
             <button type="button" className="acpmux-cloud-ask__button" data-role="default" onClick={() => onUpgrade()}>
@@ -324,6 +475,29 @@ export function CloudStartView({
           )}
         </span>
       )}
+      {/* The team's spending cap or the member's budget refused the machine (cloudStartProgress `spendRefusal`):
+          the card says an admin can raise it; This Mac runs the same prompt now, Not now leaves the draft. */}
+      {failed &&
+        (start.code === "cloud_spend_cap" || start.code === "cloud_member_budget") &&
+        (onRunHere || onDismiss) && (
+          <span className="acpmux-cloud-ask__actions">
+            {onRunHere && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-role="default"
+                onClick={() => onRunHere()}
+              >
+                {planLabels.runHere}
+              </button>
+            )}
+            {onDismiss && (
+              <button type="button" className="acpmux-cloud-ask__button" onClick={() => onDismiss()}>
+                {t("harness.notNow")}
+              </button>
+            )}
+          </span>
+        )}
       {failed && start.retryable && onRetry && (
         <span className="acpmux-cloud-ask__actions">
           <button

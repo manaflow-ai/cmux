@@ -76,6 +76,14 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // Cards the chat draws under a turn: the away recap (`away_recap.rs`), the memory inbox's
+    // offer and its answer (`memory_inbox.rs`) and the prompt coach's offer and rewrite
+    // (`prompt_coach.rs`). A record left off this list never reaches a chat client.
+    "recap",
+    "memory_offer",
+    "memory_resolved",
+    "coach_offer",
+    "coach",
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",

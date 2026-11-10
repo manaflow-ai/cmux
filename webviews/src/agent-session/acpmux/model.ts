@@ -1,5 +1,4 @@
 import { experimentArm } from "../../experiments/experiment";
-import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
@@ -45,6 +44,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
+import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
@@ -183,12 +183,13 @@ export type AcpmuxBackgroundTurn = {
   /// What started it, when acpmux knows: the background task that ended and whether that is worth
   /// a response (acpmux hub/background_cause.rs). A log from before acpmux said so has none.
   cause?: AcpmuxBackgroundCause;
-  /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
+  /// Its task's end went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
   /// transcript draws no line for it.
   attached?: true;
-  /// It ended with more to say than a note (backgroundTurns.ts `isReactionNote`): its rows draw as
-  /// the agent's own turn, at the reply column with a footer of its own, never inside the call that
-  /// started its task (Leo, 2026-11-08: "the text in this situation isn't from the subagent?").
+  /// Its task's end went onto a call and it said something (direct.ts `settleReaction`): its rows
+  /// draw as the agent's own turn, at the reply column with a footer of its own, never inside the
+  /// call or the subagent row that started it (Leo, 2026-11-08: "the text in this situation isn't
+  /// from the subagent?"; 2026-11-09: "your response was weirdly folded into the rende?").
   ownTurn?: true;
   /// Where its task came from, cited on its line (direct.ts `backgroundSource`; Leo, 2026-11-05:
   /// "cite the helper/add atribution ... and display the actual code in the raw").
@@ -216,13 +217,12 @@ export type AcpmuxBackgroundCause = {
   summary?: string;
 };
 
-/// What a background turn left on the call that started its task: the agent's reply, which the
-/// opened call shows under its output, and `fresh` for a final result the person has not seen
-/// (a small mark at the row's edge until their next prompt).
+/// What a background turn left on the call that started its task: `fresh` for a final result the
+/// person has not seen (a small mark at the row's edge until their next prompt). The turn's own words
+/// are never part of it: they draw as the agent's own message (direct.ts `settleReaction`).
 export type AcpmuxBackgroundReaction = {
   turn: string;
   weight: AcpmuxBackgroundWeight;
-  text?: string;
   fresh?: true;
   /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
   /// waiting on its own background work"): it has not given its final report yet. A later end of
@@ -483,6 +483,8 @@ export type AcpmuxRow = {
   planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
+  /// A prompt coach row's rewrite (conversation/promptCoach.ts): the chat's first prompt said at once.
+  coach?: PromptCoach;
   /// A no-prompt preset's approval card (conversation/presetApproval.ts): the preset an agent of
   /// this chat tried to start a chat on another machine from, and the person's answer.
   presetApproval?: PresetApproval;
@@ -1632,19 +1634,6 @@ function noteHeight(text: string | undefined, width: number): number {
   const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
   return Math.max(NOTE_LINE, lines) + 2 * noteGap();
 }
-/// The chat's reply to a subagent's end under its finished line (ReactionMark.tsx `ReactionReply`):
-/// its text on the notes' 20px lines at the rows' text column, with no margin of its own.
-const reactionPrepared = new Map<string, PreparedText | null>();
-const REACTION_INSET_PT = gridLength("transcript-text-gap");
-function reactionReplyHeight(text: string | undefined, width: number): number {
-  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
-  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
-  if (reactionPrepared.size > 256) reactionPrepared.clear();
-  return Math.max(
-    NOTE_LINE,
-    textHeight(text, Math.max(1, width - REACTION_INSET_PT * chromeScale), reactionPrepared, undefined, NOTE_LINE),
-  );
-}
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
@@ -2380,6 +2369,13 @@ function fallbackRowHeight(
         (card.error ? 22 : 0),
     );
   }
+  // A prompt coach card (conversation/PromptCoachCard.tsx): 12px padding, its 24px label line, 8px,
+  // the rewrite block's 16px padding and 20px lines (at most eight, then it scrolls), 12px padding.
+  // Off in Settings, it draws nothing.
+  if (row.kind === PROMPT_COACH && row.coach)
+    return finish(
+      promptCoachEnabled() ? 12 + 24 + 8 + 16 + coachLines(row.coach.rewrite, width) * COACH_LINE_PX + 12 : 0,
+    );
   // A preset approval card (conversation/PresetApprovalCard.tsx): open, its 8px padding around the
   // question, the preset's description, what it starts and the warning (20px lines, English
   // lengths), an error's line, and the 32px foot of buttons, in its 1px edges and 8px of row
@@ -2407,11 +2403,9 @@ function fallbackRowHeight(
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
-  // A finished subagent's line, and the chat's reply to its end under it on the reply's own lines
-  // (conversation.css `.cv-tools > .cv-reaction-reply`; ReactionMark.tsx), which the row draws in
-  // the default `background-reaction-look` arm.
-  if (row.kind === SUBAGENT_DONE)
-    return finish(toolRowHeight() + reactionReplyHeight(row.subagents?.[0]?.reaction?.text, width));
+  // A finished subagent's line: the chat's reply to its end is the chat's own message, never under it
+  // (direct.ts `settleReaction`).
+  if (row.kind === SUBAGENT_DONE) return finish(toolRowHeight());
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -3549,7 +3543,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
