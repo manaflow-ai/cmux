@@ -905,6 +905,30 @@ mod tests {
         assert_eq!(outbox.add(delivery(1)).unwrap().id, "d-1");
     }
 
+    /// A queued send's prompt id is a key for one message to one target, as the target's own
+    /// prompt ledger keys it (`Hub::prompt_with`): the same prompt id to another target is a
+    /// message of its own and is delivered too. Before, `add` answered it with the first
+    /// message's delivery (`delivered`, to the first target), and the second never went.
+    #[test]
+    fn a_queued_send_with_a_reused_prompt_id_to_another_target_is_its_own() {
+        let outbox = Outbox::default();
+        let first = delivery(1);
+        assert_eq!(outbox.add(first.clone()).unwrap().id, "d-1");
+        // The same message again (a CLI retry): the first delivery.
+        let mut again = first.clone();
+        again.id = "retry".into();
+        assert_eq!(outbox.add(again).unwrap().id, "d-1");
+        // The same prompt id to another target: its own delivery.
+        let mut other = first.clone();
+        other.id = "d-2".into();
+        other.target = "other".into();
+        other.request["sessionId"] = json!("other");
+        assert_eq!(outbox.add(other.clone()).unwrap().id, "d-2");
+        other.id = "retry-2".into();
+        assert_eq!(outbox.add(other).unwrap().id, "d-2");
+        assert_eq!(outbox.unsettled(), 2);
+    }
+
     #[test]
     fn provisional_duplicate_does_not_consume_acceptance_hooks() {
         use std::sync::atomic::{AtomicUsize, Ordering};
