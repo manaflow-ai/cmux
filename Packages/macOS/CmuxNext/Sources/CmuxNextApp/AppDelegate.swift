@@ -388,7 +388,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
-        services.cloud.signedIn = { [weak services] in services.map { CloudStartChat.warmSpare($0) } } // sign-in is intent too: a new person's first Send claims a warm spare
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)

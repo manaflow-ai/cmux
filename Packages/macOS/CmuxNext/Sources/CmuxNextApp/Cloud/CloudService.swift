@@ -50,7 +50,6 @@ final class CloudService {
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored let capability: CloudCapabilityHolder // the person's pre-approval (cmux-platform#1126)
-    @ObservationIgnored var signedIn: @MainActor () -> Void = {} // the app's own sign-in intent (a spare warm)
     /// The installs guest links' owner tokens come from, one per API the daemon's share room names (``shareOwnerToken(api:)``):
     /// ``installIdentity`` for its own, the others registered at their first share and revoked with it.
     @ObservationIgnored let shareInstalls: ShareInstalls
@@ -325,7 +324,7 @@ final class CloudService {
                     // The install first: the app server path's first list sends its token through the credential relay.
                     await self.capability.drop() // another account's or team's pre-approval never rides on this one's calls
                     await self.installSignedIn()
-                    if self.mayCallCloud { await self.capability.prefetch(self.installIdentity); self.signedIn() }
+                    if self.mayCallCloud { await self.capability.prefetch(self.installIdentity) }
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
