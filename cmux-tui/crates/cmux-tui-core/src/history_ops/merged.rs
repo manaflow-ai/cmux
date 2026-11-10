@@ -474,10 +474,11 @@ fn clear(
     let kinds = pages::kinds(fields)?;
     let wants = |kind| kinds.is_empty() || kinds.contains(&kind);
     let since = pages::range(fields, true)?.start(now_ms, day_start_ms);
+    let until = pages::until_ms(fields, now_ms)?;
     let profile = pages::text(fields, "profile")?;
     // Closed groups first, as in remove.
     let deleted = match profile {
-        None if wants(HistoryKind::Closed) => closed::clear(mux, key, actor, since)?,
+        None if wants(HistoryKind::Closed) => closed::clear(mux, key, actor, since, until)?,
         _ => 0,
     };
     let mut changed = Vec::new();
@@ -490,17 +491,17 @@ fn clear(
     }
     let mut others = 0;
     if profile.is_none() && wants(HistoryKind::Location) {
-        let removed =
-            trail::clear(mux, key, actor, since).map_err(|error| failed(OPERATION, &error))?;
+        let removed = trail::clear(mux, key, actor, since, until)
+            .map_err(|error| failed(OPERATION, &error))?;
         if removed > 0 {
             others += removed;
             changed.push(HistoryKind::Location);
         }
     }
     if profile.is_none() && wants(HistoryKind::Command) {
-        let selection = since.map_or(commands::Selection::All, |since| {
-            commands::Selection::StartedSince(u64::try_from(since).unwrap_or(0))
-        });
+        let since = since.map_or(0, |since| u64::try_from(since).unwrap_or(0));
+        let selection =
+            commands::Selection::StartedWithin(since, u64::try_from(until).unwrap_or(0));
         // The command worker announces the deleted rows (history-changed).
         others += commands::delete(mux, selection).map_err(|error| failed(OPERATION, &error))?;
     }
@@ -513,7 +514,7 @@ fn clear(
     if !hidden.is_empty() {
         hidden_doc::change(mux, key, actor, |document| {
             for kind in &hidden {
-                document.hide_range(since, now_ms, Some(kind.as_str()));
+                document.hide_range(since, until, Some(kind.as_str()));
             }
         })
         .map_err(|error| failed(OPERATION, &error))?;

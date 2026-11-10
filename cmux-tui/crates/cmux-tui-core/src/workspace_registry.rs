@@ -53,6 +53,7 @@ mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+pub(crate) mod premigrate;
 mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
@@ -2427,7 +2428,7 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
-fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
 
@@ -2605,7 +2606,7 @@ impl WorkspaceRegistry {
             };
         #[cfg(not(debug_assertions))]
         let first = open_once(&mut session_guard, &mut lease);
-        match first {
+        let registry = match first {
             Ok(mut registry) => {
                 // Also true on a later start when the swap start never got
                 // through a full start (killed during restore).
@@ -2622,7 +2623,10 @@ impl WorkspaceRegistry {
                 open_once(&mut session_guard, &mut lease)
             }
             Err(error) => Err(error),
-        }
+        }?;
+        // A roster the next build folded beside the previous owner.
+        premigrate::adopt(&registry);
+        Ok(registry)
     }
 
     /// Opens the registry and builds the owner from it with `load`. When this

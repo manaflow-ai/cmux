@@ -128,6 +128,17 @@ pub enum MuxEvent {
         revision: u64,
         kinds: Vec<String>,
     },
+    /// The feed client's view changed (`feed-client-v1`, feed_client.rs):
+    /// its revision and the items whose value moved. Readers re-read
+    /// `feed.view.read` (the page: `cmux.feed.view.changed`).
+    FeedViewChanged {
+        revision: u64,
+        changed: Arc<[String]>,
+    },
+    /// The Reports basket changed (`cmux.feed.reports.changed`).
+    FeedReportsChanged {
+        revision: u64,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),

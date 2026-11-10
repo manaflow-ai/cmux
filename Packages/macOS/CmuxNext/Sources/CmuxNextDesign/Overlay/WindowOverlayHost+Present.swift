@@ -26,8 +26,10 @@ public extension WindowOverlayHost {
             scrim = view
         }
         content.removeFromSuperview()
-        // Presented again while its close was fading out.
-        content.alphaValue = 1
+        // Presented again while its close was fading out. A content that keeps its own alpha keeps it
+        // here, before `syncPanel()` orders the panel in and commits a frame: set back by the caller
+        // after this call, it showed one frame at full opacity first.
+        if !options.keepsContentAlpha { content.alphaValue = 1 }
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
             clipView.addSubview(content)

@@ -723,6 +723,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Sealed segment sums `server-stats` `disk` keeps between requests.
+    disk_usage: Mutex<crate::diagnostics::DiskUsageCache>,
     /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
     output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
@@ -862,6 +864,9 @@ pub struct Mux {
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
+    /// Shell mode's commands on this machine (`shell-runs-v1`, `server/shell_wire.rs`).
+    #[cfg(unix)]
+    pub(crate) shell_runs: crate::shell_runs::ShellRuns,
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,

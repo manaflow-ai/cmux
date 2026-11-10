@@ -75,9 +75,24 @@
   {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='17' cy='6' r='2.25'/><circle cx='12' cy='18' r='2.25'/><path d='M7 8.25v1.25c0 1.4 1.1 2.5 2.5 2.5h5c1.4 0 2.5-1.1 2.5-2.5V8.25M12 12v3.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5v1c0 1.4 1.1 2.5 2.5 2.5h5c1.4 0 2.5-1.1 2.5-2.5v-1M12 12v3.5' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/><circle cx='12' cy='18' r='2.5' stroke='none'/></svg>",
    "alts": [
+    {
+     "label": "Before (Leo 2026-11-09: \"this fork symbol is so bad\"): the chat runs on as a straight arrow, the fork peels off up and right",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>"
+    },
+    {
+     "label": "Soft fork: the same three nodes, the tines curving straight into the stem",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='17' cy='6' r='2.25'/><circle cx='12' cy='18' r='2.25'/><path d='M7 8.25c0 3.75 5 3 5 7.5M17 8.25c0 3.75-5 3-5 7.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5c0 3.5 5 3 5 7.25M17 8.5c0 3.5-5 3-5 7.25' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/><circle cx='12' cy='18' r='2.5' stroke='none'/></svg>"
+    },
+    {
+     "label": "Sideways fork: one node left, two right (reads as the share glyph)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='12' r='2.25'/><circle cx='18' cy='7' r='2.25'/><circle cx='18' cy='17' r='2.25'/><path d='M15.75 7h-1.25c-1.4 0-2.5 1.1-2.5 2.5v5c0 1.4 1.1 2.5 2.5 2.5h1.25M12 12H8.25'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.5 7h-1c-1.4 0-2.5 1.1-2.5 2.5v5c0 1.4 1.1 2.5 2.5 2.5h1M12 12H8.5' fill='none' stroke-width='2'/><circle cx='6' cy='12' r='2.5' stroke='none'/><circle cx='18' cy='7' r='2.5' stroke='none'/><circle cx='18' cy='17' r='2.5' stroke='none'/></svg>"
+    },
     {
      "label": "Turned Y: the stem enters from the left and splits into two arrowheads right",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12h5c3 0 3.5-5.5 7-5.5H20M8 12c3 0 3.5 5.5 7 5.5H20'/><path d='M17 3.5 20 6.5l-3 3M17 14.5l3 3-3 3'/></svg>",
@@ -99,10 +114,14 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-agent-fork' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 14v-2.5L9 8M12 11.5 15 8'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-agent-fork)'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'/></g></svg>"
     }
    ],
-   "note": "The chat runs on as the straight arrow; the fork peels off up and right (Leo 2026-11-07: \"move it 90 deg\"). An arrow, never nodes, so it never reads as git.branch or the pull request mark.",
+   "note": "The fork mark Codex draws: two tines join into one stem, three nodes (Leo 2026-11-09, of the peel-off arrow: \"and this fork symbol is so bad\"). Distinct from git.branch (two nodes, one curve) and the pull request mark (three nodes in two columns, an arrow). The app's fork actions and menu rows name SF arrow.branch, which nothing else uses, and this entry overrides it, so the palette and hand-built menus draw this drawing too.",
    "replaces": [
     "TurnFork (sprite strip)",
+    "arrow.branch",
     "arrow.triangle.branch"
+   ],
+   "overrides": [
+    "arrow.branch"
    ]
   },
   {

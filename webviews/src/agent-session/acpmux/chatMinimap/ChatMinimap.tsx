@@ -52,6 +52,9 @@ type Props = {
   foot: number;
   /// The pane's width, for the right gutter.
   width: number;
+  /// The room the column keeps at its right (VirtualTranscript's endReserve): the minimap's own while it
+  /// is on (paint.ts MINIMAP_RESERVE), or the computer use preview's.
+  endReserve?: number;
   scrolls: boolean;
   /// Where these rows first differ from the last render's (App.tsx rowsChange), if the transcript knows.
   change?: RowsChange;
@@ -69,7 +72,7 @@ function ChatMinimapOn(props: Props) {
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const sizing = useChatSizing();
   const column = chatColumnOf(useChatDisplay(), sizing.scale);
-  const width = minimapWidth(transcriptColumn(props.width, column).inset);
+  const width = minimapWidth(transcriptColumn(props.width, column, props.endReserve).insetEnd);
   // The rows reach the map through a ref: a token renders nothing in it.
   const source = useRef<Source>({ rows: props.rows, layout: props.layout });
   source.current = { rows: props.rows, layout: props.layout };
