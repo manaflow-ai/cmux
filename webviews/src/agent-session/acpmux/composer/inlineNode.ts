@@ -380,8 +380,11 @@ export function inlinePlugin(views: InlineViews) {
   );
 }
 
-/// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
-/// code block) or the editor has no such node.
+/// Places attachments `ids` at the selection, the caret after them; false where the editor has no
+/// such node. Where the selection cannot take them (a code block) they go in a line of their own
+/// under that block, never in the strip above the text: in the inline view every attachment is in
+/// the text (Leo, 2026-11-09: "we have inline stuff, so why is this not inline? This one went above
+/// the whole thing.").
 ///
 /// `replace`: the person's own paste or drop, which takes the selection's place as a paste of text
 /// does, a selection across lines or the whole prompt (Select All) included. Their placeholder then
@@ -407,16 +410,43 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
   ) {
     // Not into a code block it would end in: the attachment could not go there.
     const lands = selection.$from.parent.inlineContent ? selection.$from.parent : selection.$to.parent;
-    if (lands.type.spec.code) return false;
+    if (lands.type.spec.code) return underBlock(view, tr, ids);
     tr.deleteSelection();
   }
   const { $from, $to, from, to } = tr.selection;
-  if (!$from.parent.inlineContent || $from.parent.type.spec.code || $from.parent !== $to.parent) return false;
+  if (!$from.parent.inlineContent || $from.parent.type.spec.code || $from.parent !== $to.parent)
+    return underBlock(view, tr, ids);
   const nodes = Fragment.from(ids.map((id) => type.create({ id })));
-  if (!$from.parent.canReplace($from.index(), $to.index(), nodes)) return false;
+  if (!$from.parent.canReplace($from.index(), $to.index(), nodes)) return underBlock(view, tr, ids);
   const placedAt = tr.steps.length;
   tr.replaceWith(from, to, nodes);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.slice(placedAt).map(to))));
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+/// Attachments `ids` the selection cannot take (its block is code, or it is no text at all): a line
+/// of their own right under the selection's top-level block, or the empty line already there, the
+/// caret after them. Nothing typed is replaced or split. False when the schema has no paragraph.
+function underBlock(view: EditorView, tr: Transaction, ids: readonly string[]): boolean {
+  const { schema } = view.state;
+  const type = schema.nodes[INLINE_NODE];
+  const paragraph = schema.nodes.paragraph;
+  if (!type || !paragraph) return false;
+  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
+  const $end = tr.doc.resolve(tr.selection.to);
+  const after = $end.depth >= 1 ? $end.after(1) : $end.pos;
+  const next = tr.doc.resolve(after).nodeAfter;
+  if (next && next.type === paragraph && next.content.size === 0) {
+    tr.insert(after + 1, nodes);
+    tr.setSelection(TextSelection.create(tr.doc, after + 1 + nodes.size));
+  } else {
+    const line = paragraph.createAndFill(null, nodes);
+    const $after = tr.doc.resolve(after);
+    if (!line || !$after.parent.canReplaceWith($after.index(), $after.index(), paragraph)) return false;
+    tr.insert(after, line);
+    tr.setSelection(TextSelection.create(tr.doc, after + 1 + nodes.size));
+  }
   view.dispatch(tr.scrollIntoView());
   return true;
 }
