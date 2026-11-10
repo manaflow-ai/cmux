@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d. */
+/* cmux-tui mux protocol 12, IR 239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d" as const;
+export const SDK_IR_SHA256 = "239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1502,6 +1502,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "machine-identity-v1"
       },
+      "restore_progress": {
+        "since": 12,
+        "capability": null
+      },
       "revisions": {
         "since": 12,
         "capability": null
@@ -2782,7 +2786,12 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "server-stats-v1",
-    "fields": {},
+    "fields": {
+      "restore_progress": {
+        "since": 12,
+        "capability": null
+      }
+    },
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
@@ -7754,6 +7763,67 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "IdentifyRestore": {
+    "additional_properties": false,
+    "fields": {
+      "done": {
+        "constraints": [
+          "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "elapsed_ms": {
+        "constraints": [
+          "Milliseconds since the owner bound its socket and began the restore."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_advance_ms": {
+        "constraints": [
+          "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "phase": {
+        "constraints": [
+          "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total": {
+        "constraints": [
+          "Units of the phase in all; null when unknown."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
@@ -7969,6 +8039,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "restore": {
+        "constraints": [
+          "Only with identify {restore_progress: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "IdentifyRestore"
         }
       },
       "session": {
@@ -21622,6 +21704,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "restore_progress": {
+          "constraints": [
+            "Answered while the owner restores its session too, at once, with lifecycle_ready false, placeholder session fields (registry_id and generation empty, revisions 0) and restore. Without it a restoring owner holds the request until the restore ends. A ready owner ignores it."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "revisions": {
           "constraints": [
             "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
@@ -26611,6 +26706,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "restore_progress": {
+          "constraints": [
+            "While the owner restores its session: refused at once with error_code server.restoring and error_details {lifecycle_ready: false, restore}, instead of held until the restore ends. A ready owner ignores it."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         }
       },

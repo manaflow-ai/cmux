@@ -56,6 +56,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
+    try expectExplicitNullRejected(protocol.IdentifyRequest, "restore_progress");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
@@ -77,6 +78,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SendRequest, "submit");
     try expectExplicitNullRejected(protocol.SendResult, "queued");
+    try expectExplicitNullRejected(protocol.ServerStatsRequest, "restore_progress");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.SetRowHeightsRequest, "fit");
@@ -222,6 +224,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_id");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "restore");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");

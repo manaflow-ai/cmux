@@ -390,8 +390,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
-    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions))
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, restore_progress: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, restore_progress=restore_progress, revisions=revisions))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -693,8 +693,8 @@ class GeneratedClientMixin:
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
 
-    def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING) -> ServerStatsResult:
-        return self._invoke_command('server-stats', ServerStatsRequest(include=include))
+    def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING, restore_progress: Union[bool, MissingType] = MISSING) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest(include=include, restore_progress=restore_progress))
 
     def set_attach_visibility(self, surface: Id, visible: bool) -> SetAttachVisibilityResult:
         return self._invoke_command('set-attach-visibility', SetAttachVisibilityRequest(surface=surface, visible=visible))

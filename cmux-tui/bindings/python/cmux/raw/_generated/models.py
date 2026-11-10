@@ -996,6 +996,16 @@ class IdMapping:
 
 
 @dataclass(frozen=True)
+class IdentifyRestore:
+    __cmux_schema_path__: ClassVar[str] = 'types/IdentifyRestore'
+    done: Union[int, None]
+    elapsed_ms: int
+    last_advance_ms: int
+    phase: str
+    total: Union[int, None]
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/IdentifyResult'
     app: Literal['cmux-tui']
@@ -1024,6 +1034,7 @@ class IdentifyResult:
     machine_name: Union[str, MissingType] = field(default=MISSING)
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    restore: Union[IdentifyRestore, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -3771,6 +3782,7 @@ class HomeInboxResult:
 class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
 
 
@@ -4733,6 +4745,7 @@ class SendKeyRequest:
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6480,6 +6493,7 @@ __all__ = [
     'HostSizePolicy',
     'HostSizePolicyRequest',
     'IdMapping',
+    'IdentifyRestore',
     'IdentifyResult',
     'IdsResult',
     'KittyGraphicsState',

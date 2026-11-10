@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d.
+// cmux-tui mux protocol 12, IR 239aee49551d283810d2a56bfd3b642f1d7530921b72b500ed2bb9ae05ad7ae2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1048,6 +1048,16 @@ pub struct IdMapping {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdentifyRestore {
+    pub done: Nullable<u64>,
+    pub elapsed_ms: u64,
+    pub last_advance_ms: u64,
+    pub phase: String,
+    pub total: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
@@ -1087,6 +1097,8 @@ pub struct IdentifyResult {
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restore: Option<IdentifyRestore>,
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,

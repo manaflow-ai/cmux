@@ -147,6 +147,8 @@ impl Mux {
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
+        use crate::restore_progress::{RestorePhase, enter};
+        enter(RestorePhase::Snapshot);
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
         // Warm the pages the adoption's terminal ends write while the restore
@@ -182,6 +184,7 @@ impl Mux {
             rebuild: agent_roster_rebuild,
             unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
+        enter(RestorePhase::MuxBuild);
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
@@ -504,9 +507,11 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
         timings.lap("mux.build");
+        enter(RestorePhase::Browsers);
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         timings.lap("restore.browsers");
+        enter(RestorePhase::HostAdoption);
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -515,6 +520,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         timings.lap("terminal.adopt_hosts");
+        enter(RestorePhase::Reconcile);
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -547,6 +553,7 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         timings.lap("restore.reconcile");
+        enter(RestorePhase::Finish);
         mux.close_ephemeral_workspaces()?;
         timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran
