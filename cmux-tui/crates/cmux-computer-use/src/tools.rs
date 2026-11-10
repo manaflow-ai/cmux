@@ -106,7 +106,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "get_ui_tree",
         access: Access::Observe,
-        description: "The window's accessibility tree: element ids, roles, names, values, frames (screenshot pixels) and actions. Prefer element_id targets over coordinates: they work in the background and survive layout changes.",
+        description: "The window's accessibility tree: element ids, roles, names, values, frames (screenshot pixels) and actions. Prefer element_id targets over coordinates: they work in the background and survive layout changes. On macOS the tree ends with the app's menu bar (role menu bar), every menu's items listed while the menus stay closed: click a menu item's element_id to run it (About, Save As..., Make Plain Text) without opening a menu.",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "max_nodes": {"type": "integer", "minimum": 1, "maximum": 5000}}),
@@ -282,7 +282,7 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Your actions never take the person's focus or pointer; a blue cmux cursor shows them where you act. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. App menu commands are in the tree's menu bar: click a menu item to run it. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Your actions never take the person's focus or pointer; a blue cmux cursor shows them where you act. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
 
 #[cfg(test)]
 mod tests {

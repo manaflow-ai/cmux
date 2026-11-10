@@ -422,6 +422,11 @@ impl Walk {
     }
 }
 
+/// The menu bar's own node budget in a tree, and its depth: bar, top menu,
+/// its menu, an item, a submenu, its items.
+const MENU_NODES: usize = 600;
+const MENU_DEPTH: usize = 6;
+
 struct WindowCache {
     generation: u64,
     elements: Vec<Ax>,
@@ -501,7 +506,22 @@ impl ElementCache {
             elements: Vec::new(),
             truncated: false,
         };
-        let root = walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
+        let pid = window.pid();
+        let mut root =
+            walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
+        // The app's menu bar, with every menu's items while the menus stay
+        // closed: an agent presses a menu item (click or perform_action) and it
+        // runs at once, with no menu opening over the person's screen. Its own
+        // node budget, so a large window never hides the menus.
+        if let Some(bar) = pid.and_then(Ax::application).and_then(|app| app.element("AXMenuBar")) {
+            let window_truncated = walk.truncated;
+            walk.options.max_nodes = walk.elements.len() + MENU_NODES;
+            walk.options.max_depth = MENU_DEPTH;
+            if let Ok(menus) = walk.node(bar, 0) {
+                root.children.push(menus);
+            }
+            walk.truncated = window_truncated;
+        }
         let truncated = walk.truncated;
         self.store(window_id, walk.generation, walk.elements);
         Ok(UiTree { window_id: window_id.to_string(), root, truncated })
