@@ -150,13 +150,9 @@ struct LargeSessionObservationTests {
     func o4SidebarFaviconsObserveEachWorkspacesTabsOnTheirOwn() async throws {
         let fixture = LargeSessionFixture()
         let doc = SidebarDocStore(remote: nil)
-        let byOrigin: @MainActor () -> [String: String] = { [store = fixture.store] in
-            var found: [String: String] = [:]
-            for tab in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
-                if let favicon = Self.favicon(tab), found[favicon.origin] == nil { found[favicon.origin] = favicon.address }
-            }
-            return found
-        }
+        let openTabs = OpenTabFavicons()
+        openTabs.start(workspaces: { [store = fixture.store] in store.workspaces }, favicon: { Self.favicon($0) })
+        let byOrigin: @MainActor () -> [String: String] = { openTabs.byOrigin }
         SidebarDocMachines.followFavicons(doc, revision: { nil }, byOrigin: byOrigin, faviconKey: BookmarkURL.faviconKey(for:))
         await LargeSessionFixture.drainMain()
 
@@ -171,13 +167,14 @@ struct LargeSessionObservationTests {
         let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
         #expect(wide.isEmpty, "favicon observers woken by more than one workspace: \(wide)")
         // The table still follows: the origin's first open tab (workspace 1) gives its favicon.
+        await LargeSessionFixture.until { byOrigin()["http://127.0.0.1:9"] != nil }
         #expect(byOrigin()["http://127.0.0.1:9"] == "http://127.0.0.1:9/1/icon.png")
     }
 
     /// The fixture's open tab favicon: a browser tab's site origin and favicon address (the app also skips incognito tabs).
-    static func favicon(_ tab: TabModel) -> (origin: String, address: String)? {
+    static func favicon(_ tab: TabModel) -> OpenTabFavicons.Favicon? {
         guard tab.kind == .browser, let address = tab.faviconURL,
               let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
-        return (origin, address)
+        return OpenTabFavicons.Favicon(origin: origin, address: address)
     }
 }
