@@ -176,11 +176,13 @@ extension ExternalTreeNode {
         case .pane:
             return 1
         case .split(let splitNode):
-            guard splitNode.orientation == orientation else {
-                return 1
-            }
             let firstSpanCount = splitNode.first.spanCount(along: orientation)
             let secondSpanCount = splitNode.second.spanCount(along: orientation)
+            // A cross-axis subtree stacks its children, so it is as wide as
+            // its widest child: a column holding two 2-pane rows spans 2.
+            guard splitNode.orientation == orientation else {
+                return max(firstSpanCount, secondSpanCount)
+            }
             return firstSpanCount + secondSpanCount
         }
     }
