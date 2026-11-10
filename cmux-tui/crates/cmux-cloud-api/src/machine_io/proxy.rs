@@ -76,12 +76,10 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
     let code =
         response.headers().get("x-cmux-vm-error").and_then(|v| v.to_str().ok()).map(str::to_owned);
     let body = match crate::http::bounded_body(response, crate::MAX_ANSWER_BYTES).await {
+        // Code `too_large`, naming this route's own limit: a read into a local file may come to
+        // more than a direct read can, but not through here.
         Err(crate::http::BodyError::TooLarge(limit)) => {
-            return Answer::error(
-                0,
-                "transport",
-                &format!("the cmux API's answer is larger than {limit} bytes"),
-            );
+            return Answer::too_large(u64::try_from(limit).unwrap_or(u64::MAX));
         }
         // A 2xx is an answer only when it arrived whole and reads as JSON (or is empty);
         // a refusal's body is kept as it reads, since its status already says what happened.

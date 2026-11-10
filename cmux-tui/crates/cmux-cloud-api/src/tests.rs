@@ -1233,6 +1233,22 @@ fn a_failed_read_leaves_no_destination_and_never_touches_an_existing_file() {
 }
 
 #[test]
+fn a_read_past_the_proxys_limit_says_so_and_leaves_no_destination() {
+    let big =
+        format!(r#"{{"path":"/a","size":1,"dataBase64":"{}"}}"#, "A".repeat(MAX_ANSWER_BYTES));
+    let (origin, _seen) = fake(move |_| ok(&big));
+    let (_root, dir) = transfer();
+    let destination = dir.join("download-big");
+    let failure = go_in(&file_call(&origin, "read", &destination), Some(&dir)).unwrap_err();
+    let limit = MAX_ANSWER_BYTES.to_string();
+    assert!(
+        matches!(&failure, Failure::Transport(m) if m.contains("larger than") && m.contains(&limit)),
+        "{failure:?}"
+    );
+    assert!(!destination.exists());
+}
+
+#[test]
 fn a_path_outside_the_transfer_folder_or_not_a_private_file_is_refused_before_any_request() {
     use std::os::unix::fs::PermissionsExt;
     let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));

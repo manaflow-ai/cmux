@@ -30,21 +30,6 @@ struct CloudDaemonTests {
         #expect(fake.sent.first?.mutation == true)
     }
 
-    @Test func aKeyGoesBase64InTheParams() async throws {
-        let fake = CloudDaemonFake()
-        let key = CloudSecretBytes(Array("person-key\n".utf8))
-        _ = try await fake.daemon.call("owner.acpmux_keyed_start", ["key_length": 11], as: .init(api: api, auth: .owner, credential: "a"),
-                                       key: key, wait: .seconds(1))
-        #expect(fake.sent.first?.params["key_base64"] as? String == Data("person-key\n".utf8).base64EncodedString())
-        for length in 0..<5 {
-            let bytes = Array("abcd".utf8.prefix(length))
-            let params = CloudSecretBytes(Array("{}".utf8))
-            params.appendField("k", base64Of: CloudSecretBytes(bytes))
-            let object = try #require(try JSONSerialization.jsonObject(with: Data(params.text.utf8)) as? [String: String])
-            #expect(object["k"] == Data(bytes).base64EncodedString())
-        }
-    }
-
     @Test(arguments: [
         (#"{"kind":"timed_out","path":"/api/runs"}"#, CloudAPIError.timedOut("/api/runs")),
         (#"{"kind":"transport","message":"offline"}"#, .transport("offline")),

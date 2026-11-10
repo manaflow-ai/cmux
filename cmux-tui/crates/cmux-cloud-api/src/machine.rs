@@ -153,7 +153,11 @@ pub(crate) fn read(line: &Value, path: &str, limit: u64) -> Result<Value, Failur
         0 if code == Some("no_backend") => Err(Failure::NoBackend),
         0 if code == Some("decoding") => Err(Failure::Decoding(format!("{path}: not JSON"))),
         0 if code == Some("too_large") => {
-            Err(Failure::Transport(format!("{path}: the answer is larger than {limit} bytes")))
+            // The route's own words name the limit it hit (a direct read's, or the proxy's).
+            let message = body.pointer("/error/message").and_then(Value::as_str);
+            let message = message
+                .map_or_else(|| format!("the answer is larger than {limit} bytes"), str::to_owned);
+            Err(Failure::Transport(format!("{path}: {message}")))
         }
         0 => Err(Failure::Transport(code.unwrap_or("no answer").to_owned())),
         200..=299 => Ok(body),

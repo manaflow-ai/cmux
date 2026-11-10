@@ -253,18 +253,21 @@ fn an_owner_read_sends_only_authorization_and_the_team() {
 }
 
 #[test]
-fn a_keyed_start_sends_the_decoded_key_as_the_body_only() {
+fn a_person_key_never_goes_through_the_daemon() {
     let (origin, seen) =
         fake(|_| (200, r#"{"ok":true,"value":{"personInstance":"run-2"}}"#.into()));
     let daemon = Daemon::start("keyed");
     let key = b"person-key-line\n";
     let mut request = params(&origin, "owner", json!({"machine": VM, "key_length": key.len()}));
     request["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(key));
-    let result = daemon.send("cloud.owner.acpmux_keyed_start", request, Some("keyed-1")).unwrap();
-    assert_eq!(result["value"], json!({"personInstance": "run-2"}));
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].body, key);
-    assert!(!seen[0].line.contains("person-key"));
+    let (code, message, details) =
+        daemon.send("cloud.owner.acpmux_keyed_start", request, Some("keyed-1")).unwrap_err();
+    assert_eq!(code, "validation.invalid");
+    assert!(!format!("{message} {details}").contains("person-key"));
+    // Without a key the keyed start has nothing to send: refused before any request too.
+    let bare = params(&origin, "owner", json!({"machine": VM, "key_length": key.len()}));
+    assert!(daemon.send("cloud.owner.acpmux_keyed_start", bare, Some("keyed-2")).is_err());
+    assert!(seen.lock().unwrap().is_empty(), "the app streams the key itself");
 }
 
 #[test]
@@ -391,7 +394,11 @@ fn no_record_or_log_of_the_daemon_holds_a_credential() {
     let mut keyed = params(&origin, "owner", json!({"machine": VM, "key_length": 10}));
     keyed["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(b"secret-key"));
     let _ = daemon.send("cloud.owner.acpmux_keyed_start", keyed, Some("records-2"));
-    assert_eq!(seen.lock().unwrap().len(), 3, "every call reached the API");
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        2,
+        "every call but the refused keyed start reached the API"
+    );
     let written = files(&daemon.state);
     assert!(!written.is_empty(), "the daemon keeps durable state");
     for (path, bytes) in written {
@@ -405,8 +412,9 @@ fn no_record_or_log_of_the_daemon_holds_a_credential() {
 /// The person key the log check sends, and its base64 as the request carries it.
 const LOG_CHECK_KEY: &str = "person-key-for-the-log-check";
 
-/// The log check's child (it returns at once unless the check started it): keyed starts whose
-/// answers echo the key, a refusal and a decoding failure, and then the daemon's store.
+/// The log check's child (it returns at once unless the check started it): keyed starts handed a
+/// person key (refused: no key goes through the daemon) to APIs that would echo it, and then the
+/// daemon's store.
 #[test]
 fn keyed_start_for_the_log_check() {
     if std::env::var_os("CMUX_CLOUD_API_LOG_CHECK_CHILD").is_none() {
@@ -437,8 +445,8 @@ fn keyed_start_for_the_log_check() {
     println!("log check: both keyed starts ran");
 }
 
-/// The person key is in no line the daemon logs (its stdout and stderr, every level), no file of
-/// its store and no refusal. The calls run in a child process of this test binary, so the check
+/// A person key handed to the daemon is in no line it logs (its stdout and stderr, every level),
+/// no file of its store and no refusal. The calls run in a child process of this test binary, so the check
 /// reads everything the daemon's threads print.
 #[test]
 fn the_person_key_is_in_no_log_line_store_or_refusal_of_the_daemon() {

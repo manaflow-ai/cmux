@@ -65,10 +65,8 @@ public struct CloudDaemon: Sendable {
     ]
 
     /// Runs `call` (one of `cmux_cloud_api::CALLS`) with `args` as `route`; answers its body as JSON.
-    /// `key` is a keyed start's person key: it goes base64 in the params, whose bytes are wiped after the send.
     /// `wait` bounds a daemon that does not answer; the call's own deadlines end first.
-    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, key: CloudSecretBytes? = nil,
-                     wait: Duration) async throws -> Data {
+    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, wait: Duration) async throws -> Data {
         var fields: [String: Any] = [
             "machine": "current", "session": "current", "api": route.api.absoluteString, "auth": route.auth.rawValue,
             "access_token": route.credential, "local_only": route.localOnly, "args": args,
@@ -82,7 +80,6 @@ public struct CloudDaemon: Sendable {
         } catch {
             throw CloudAPIError.transport("the call is not JSON")
         }
-        if let key { params.appendField("key_base64", base64Of: key) }
         let mutation = !Self.reads.contains(call)
         let envelope = try await send("cloud.\(call)", mutation, params, wait + .seconds(30))
         return try Self.answer(envelope, mutation: mutation, api: route.api)
@@ -204,58 +201,8 @@ public final class CloudSecretBytes: Sendable {
         bytes.withLock { $0.withUnsafeBufferPointer(body) }
     }
 
-    func withMutableBytes<R: Sendable>(_ body: (UnsafeMutableBufferPointer<UInt8>) -> R) -> R {
-        bytes.withLock { $0.withUnsafeMutableBufferPointer { buffer in body(buffer) } }
-    }
-
     /// The JSON text, for a test to read.
     public var text: String { withBytes { String(decoding: $0, as: UTF8.self) } }
-
-    /// Adds `"name":"<base64 of key>"` to this JSON object in place: no `String` or `Data` copy of the key.
-    func appendField(_ name: String, base64Of key: CloudSecretBytes) {
-        let encoded = key.withBytes { Self.base64($0) }
-        bytes.withLock { bytes in
-            guard bytes.last == UInt8(ascii: "}") else { return }
-            // One allocation for the whole field: a growth after the key is in would free a copy of it unwiped.
-            let added = encoded.withBytes { $0.count } + name.utf8.count + 6
-            if bytes.capacity < bytes.count + added {
-                var grown: [UInt8] = []
-                grown.reserveCapacity(bytes.count + added)
-                grown.append(contentsOf: bytes)
-                bytes.withUnsafeMutableBufferPointer { buffer in
-                    guard let base = buffer.baseAddress else { return }
-                    _ = memset_s(base, buffer.count, 0, buffer.count)
-                }
-                bytes = grown
-            }
-            bytes.removeLast()
-            if bytes.count > 1 { bytes.append(UInt8(ascii: ",")) }
-            bytes.append(contentsOf: Array("\"\(name)\":\"".utf8))
-            encoded.withBytes { bytes.append(contentsOf: $0) }
-            bytes.append(contentsOf: Array("\"}".utf8))
-        }
-    }
-
-    private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
-
-    /// The base64 of `input`, in bytes that are wiped in turn.
-    private static func base64(_ input: UnsafeBufferPointer<UInt8>) -> CloudSecretBytes {
-        var out: [UInt8] = []
-        out.reserveCapacity((input.count + 2) / 3 * 4)
-        var index = 0
-        while index < input.count {
-            let a = UInt32(input[index])
-            let b = index + 1 < input.count ? UInt32(input[index + 1]) : 0
-            let c = index + 2 < input.count ? UInt32(input[index + 2]) : 0
-            let triple = a << 16 | b << 8 | c
-            out.append(alphabet[Int(triple >> 18 & 63)])
-            out.append(alphabet[Int(triple >> 12 & 63)])
-            out.append(index + 1 < input.count ? alphabet[Int(triple >> 6 & 63)] : UInt8(ascii: "="))
-            out.append(index + 2 < input.count ? alphabet[Int(triple & 63)] : UInt8(ascii: "="))
-            index += 3
-        }
-        return CloudSecretBytes(out)
-    }
 }
 
 /// The first answer of an SDK call wins: its thread's, or a cancel's.

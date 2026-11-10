@@ -5,9 +5,9 @@
 //!
 //! Fields (spec/resource-operations-v2.json): `api` (the API's base URL), `auth`
 //! (`stack|owner|worker`), `access_token`, and optionally `refresh_token`, `team`, `app_version`,
-//! `local_only`, `args` (the call's object) and `key_base64` (`cloud.owner.acpmux_keyed_start`'s
-//! person key, decoded into a buffer the request body owns and wipes, never logged, stored or
-//! echoed in a refusal). `cloud.machine.io`'s `args` may name `local_path`, a file of the app's in
+//! `local_only` and `args` (the call's object). A `key_base64` (a person key) is refused: the app
+//! streams `cloud.owner.acpmux_keyed_start`'s key to the API Worker itself, so the key never enters
+//! a protocol line or this daemon. `cloud.machine.io`'s `args` may name `local_path`, a file of the app's in
 //! its transfer folder, for a read or write too large for one request or answer
 //! (`cmux_cloud_api::local_file`). The daemon keeps no
 //! credential and grants none: the call runs with the request's own. Only a local socket client
@@ -103,7 +103,6 @@ mod calls {
         MessageWriter, Mux, ResourceError, ResourceOperation, send_resource_response,
     };
     use crate::resource_router::ParsedResourceRequest;
-    use base64::Engine as _;
     use cmux_cloud_api::{Auth, Failure, Request};
     use serde_json::{Map, Value, json};
     use std::sync::Arc;
@@ -179,16 +178,20 @@ mod calls {
         fields.get(name).and_then(Value::as_str).map(str::to_owned)
     }
 
-    /// The library's request and the keyed start's key. Errors never echo a field's value.
+    /// The library's request and an empty key (no key comes through the daemon). Errors never
+    /// echo a field's value.
     pub(super) fn parse(
         operation: ResourceOperation,
         fields: &mut Map<String, Value>,
     ) -> Result<(Request, Zeroizing<Vec<u8>>), ResourceError> {
-        // The key leaves the fields (no copy of it stays there) into a buffer that is wiped.
-        let encoded = Zeroizing::new(match fields.remove("key_base64") {
-            Some(Value::String(text)) => text,
-            _ => String::new(),
-        });
+        // The person key never goes through the daemon: the app streams it to the Worker itself
+        // (review of #40104, F3). A key here is refused, and its text wiped.
+        if let Some(key) = fields.remove("key_base64") {
+            if let Value::String(text) = key {
+                drop(Zeroizing::new(text));
+            }
+            return Err(invalid("key_base64", "the person key never goes through the daemon"));
+        }
         let call = operation
             .wire_name()
             .strip_prefix("cloud.")
@@ -209,11 +212,6 @@ mod calls {
             Some(Value::Object(args)) => args.clone(),
             Some(_) => return Err(invalid("args", "args is an object")),
         };
-        let key = Zeroizing::new(
-            base64::engine::general_purpose::STANDARD
-                .decode(encoded.as_bytes())
-                .map_err(|_| invalid("key_base64", "key_base64 is not base64"))?,
-        );
         let request = Request {
             call: call.to_owned(),
             api: api.trim().to_owned(),
@@ -225,7 +223,7 @@ mod calls {
             local_only: fields.get("local_only").and_then(Value::as_bool).unwrap_or(false),
             args,
         };
-        Ok((request, key))
+        Ok((request, Zeroizing::new(Vec::new())))
     }
 
     /// Runs one call on this thread: its result, or its refusal scrubbed of both credentials.
