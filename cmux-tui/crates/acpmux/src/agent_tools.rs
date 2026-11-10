@@ -123,7 +123,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
     agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
-    acpmux_inbox_read,acpmux_inbox_reply";
+    acpmux_inbox_read,acpmux_inbox_reply,workspace_list,workspace_rename,workspace_move,\
+    workspace_place,workspace_group_list,workspace_group_create,workspace_group_update";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
