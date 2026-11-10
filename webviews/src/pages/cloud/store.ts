@@ -582,10 +582,16 @@ export class CloudStore {
       this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
-      if (!isGone(error)) {
+      // A machine that is gone, or one a pause finds already stopped, holds no slot: go on to the create.
+      const freed = isGone(error) || (offer.kind === "pause" && codeOf(error) === CloudErrors.notRunning);
+      if (!freed && offer.kind === "pause") {
+        // A pause that failed took nothing: the limit notice and the offer stay for another try, and
+        // the sheet says why.
+        return back({ refusal: draft.refusal, error: message(error), errorCode: codeOf(error) });
+      }
+      if (!freed) {
         this.fail(action, error);
-        // A pause that failed took nothing: the limit notice and the offer stay for another try.
-        return back(offer.kind === "pause" ? { refusal: draft.refusal } : { offer: undefined });
+        return back({ offer: undefined });
       }
     }
     if (offer.kind === "archive" && this.state.machines.some((machine) => machine.id === offer.machine)) {
