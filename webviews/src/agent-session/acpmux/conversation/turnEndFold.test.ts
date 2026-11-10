@@ -108,3 +108,34 @@ test("a long fold keeps every 120 Hz frame under the bound, at the duration cap 
     easing: MOTION_SETTLE,
   });
 });
+
+test("the fold's curve search keeps the timings it found before", async () => {
+  // Review of #40627 (F1): the search ran about 33k curve reads for 274 px. Made constant cost, it
+  // still picks the same length and curve.
+  const { turnEndFoldTiming } = await import("./turnEndFold");
+  const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
+  expect(timing(100)).toEqual({ ms: 372, easing: MOTION_SETTLE });
+  expect(timing(274)).toEqual({ ms: 720, easing: "cubic-bezier(0.198, 0.854, 0.38, 0.927)" });
+  expect(timing(800)).toEqual({ ms: 720, easing: "cubic-bezier(0.306, 0.437, 0.609, 0.719)" });
+  expect(timing(2000)).toEqual({ ms: 1222, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+});
+
+test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {
+  // Review of #40627 (F1): the search ran synchronously in the placement pass, 9.6 ms for 274 px and
+  // 12.9 ms for 800 px, past the 8.33 ms of a 120 Hz frame it protects. Each run is cold (the memo
+  // forgotten), after a warm-up; the median keeps a slow runner's stray pause out.
+  const fold = (await import("./turnEndFold")) as typeof import("./turnEndFold") & {
+    clearTurnEndFoldMemo?: () => void;
+  };
+  const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const run = (px: number) => {
+    fold.clearTurnEndFoldMemo?.();
+    const start = performance.now();
+    fold.turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
+    return performance.now() - start;
+  };
+  for (let index = 0; index < 5; index += 1) run(2000);
+  const runs = Array.from({ length: 21 }, () => run(2000)).sort((a, b) => a - b);
+  expect(runs[10]!).toBeLessThan(0.5);
+});
