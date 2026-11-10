@@ -193,9 +193,10 @@ pub fn gateway_fallback_on() -> bool {
     gateway_fallback(std::env::var(GATEWAY_FALLBACK_ENV).ok().as_deref())
 }
 
-/// How long [`Machine::gateway_access`] waits for the image's answer (its own request gives up
-/// after 5 s; an answer is kept 60 s).
-pub const GATEWAY_ACCESS_WAIT: Duration = Duration::from_secs(10);
+/// How long [`Machine::gateway_access`] waits for the image's answer: a hang breaker only. The
+/// image's own request gives up after 5 s (an answer is kept 60 s), so this fires only when the
+/// check itself hangs; a check slow on a busy machine is waited for, not read as "no gateway".
+pub const GATEWAY_ACCESS_WAIT: Duration = Duration::from_secs(30);
 
 /// Asks the image's own check (`cmux_agent_team_access`, the one every launcher and `cr use`
 /// run), with the model plane loaded the way `cr` loads it when this daemon's environment lacks

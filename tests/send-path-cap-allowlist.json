@@ -268,6 +268,7 @@
     "cmux-tui/crates/cmux-tui-cloud-conversations/src/host_replica.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/cmux-tui/src/link/machine_gate.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/cmux-tui/src/link/sync_cli/size_cap.rs": {"count": 2, "reason": "safe: the folder-copy budget of a Cloud chat (20 GiB or 500,000 files of a local folder streamed to a Cloud machine, #40496), not a message, prompt or attachment: past it the copy stops before anything is sent with copy.too_large, names the folder and the fix (pick the project folder, or push to GitHub so the machine clones it), and --allow-large sends the folder whole, so no send is refused for good"},
     "cmux-tui/crates/cmux-tui/src/link/sync_cli/remote.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "web/app/api/mcp/route.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "web/app/api/relay/allow/route.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
