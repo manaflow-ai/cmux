@@ -2905,9 +2905,10 @@ fn a_drill_send_whose_exec_stalls_is_killed_and_never_sends() {
     assert!(!dir.path().join("sent").exists(), "the stalled exec finished");
 }
 
-/// A runner with a deadline gives each `cloud exec` what is left of it as the remote command's own limit (the
-/// machine's `timeout`, which kills the script's whole group there), so nothing runs on the machine past it; past
-/// the deadline no exec is asked. A runner without one sends the script as it is.
+/// A runner with a deadline gives each `cloud exec` what is left of it, less the KILL grace and the exec's dispatch,
+/// as the remote command's own limit (the machine's `timeout`, which kills the script's whole group there), so
+/// nothing runs on the machine past it; with too little left no exec is asked. A runner without one sends the
+/// script as it is.
 #[test]
 fn a_remote_exec_gets_the_deadline_s_remaining_budget() {
     let mut fake = Fake::new(vec![exec_out("hi\n"), exec_out("hi\n")]);
@@ -2919,9 +2920,12 @@ fn a_remote_exec_gets_the_deadline_s_remaining_budget() {
     assert_eq!(command(&fake.ran[0]), "echo hi", "no deadline: the script as it is");
     fake.until = Some(fake.clock + Duration::from_millis(30_400));
     assert_eq!(exec(&mut fake, "vm-1", "echo hi"), Ok("hi\n".to_owned()));
-    assert_eq!(command(&fake.ran[1]), "timeout -k 1 30 sh -c 'echo hi'");
-    fake.until = Some(fake.clock + Duration::from_millis(400));
-    assert!(exec(&mut fake, "vm-1", "echo hi").is_err(), "under a second left: nothing is asked");
+    assert_eq!(command(&fake.ran[1]), "timeout -k 1 27 sh -c 'echo hi'");
+    fake.until = Some(fake.clock + Duration::from_millis(3_400));
+    assert!(
+        exec(&mut fake, "vm-1", "echo hi").is_err(),
+        "under a second left after the grace and the dispatch: nothing is asked"
+    );
     assert_eq!(fake.ran.len(), 2);
     // A send on such a runner bounds every exec of its run the same way.
     let mut fake = Fake::new(vec![exec_out("@@history\n{\"turns\":[]}\n@@send\nd-1\n@@exit 0\n")]);
@@ -2929,7 +2933,118 @@ fn a_remote_exec_gets_the_deadline_s_remaining_budget() {
     let asked = request(&["--prompt", "count"]);
     let _ = send_to(&mut fake, &asked, "vm-1", "sess-1");
     let first = command(&fake.ran[0]);
-    assert!(first.starts_with("timeout -k 1 60 sh -c "), "{first}");
+    assert!(first.starts_with("timeout -k 1 57 sh -c "), "{first}");
+}
+
+/// The remote limit holds even when the exec reaches the machine late and the script ignores TERM: run as the
+/// machine runs it, after a 0.7 s dispatch, a script that writes a timestamp every 50 ms never writes one past the
+/// deadline, and nothing after. A budget that only the grace and the dispatch would fill sends nothing (the
+/// reviewer's 1.1 s budget, whose marker landed at 1.402 s, and 1.502 s with TERM ignored).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_script_ends_by_the_deadline_when_it_starts_late_or_ignores_term() {
+    assert_eq!(internal::bounded::remote_script("true", Duration::from_millis(1_100)), None);
+    for (case, trap) in [("dispatch delay", ""), ("TERM ignored", "trap '' TERM; ")] {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("marker");
+        let budget = Duration::from_millis(4_500);
+        let deadline = std::time::SystemTime::now() + budget;
+        let script =
+            format!("{trap}while :; do date +%s%N >> '{}'; sleep 0.05; done", marker.display());
+        let wrapped = internal::bounded::remote_script(&script, budget).unwrap();
+        // The exec's way to the machine.
+        std::thread::sleep(Duration::from_millis(700));
+        let ran = cmux_process::Command::new("sh").arg("-c").arg(&wrapped).output().unwrap();
+        assert!(!ran.status.success(), "{case}: the limit ended it");
+        let stamps = std::fs::read_to_string(&marker).unwrap();
+        let last: u128 = stamps.lines().last().unwrap().trim().parse().unwrap();
+        let deadline = deadline.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        assert!(
+            last <= deadline,
+            "{case}: a stamp {} ms past the deadline",
+            (last - deadline) / 1_000_000
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), stamps, "{case}: it wrote on");
+    }
+}
+
+/// The drill's app requests (its `auth.token`) stop at its deadline, however long the app keeps answering the
+/// liveness ping the request asks between read windows; past the deadline none is asked. Without it the request
+/// waited as long as the app lived.
+#[cfg(unix)]
+#[test]
+fn a_drill_s_slow_auth_token_stops_at_its_deadline() {
+    use std::io::{BufRead as _, Write as _};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = std::io::BufReader::new(stream);
+                let mut line = String::new();
+                // The app is alive (it answers every ping) and never answers the request itself.
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    if line.trim() == "ping" {
+                        let _ = writer.write_all(b"PONG\n");
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    let global = GlobalArgs { app_socket: Some(path), ..GlobalArgs::default() };
+    let began = Instant::now();
+    let mut runner = SelfRunner::new(&global).until(began + Duration::from_secs(1));
+    let answer = runner.app("auth.token", json!({}), Duration::from_millis(200));
+    let took = began.elapsed();
+    assert!(matches!(answer, Some(Err(_))), "{answer:?}");
+    assert!(took < Duration::from_secs(4), "answered {took:?} after a 1 s deadline");
+    assert_eq!(
+        runner.app("auth.token", json!({}), Duration::from_secs(30)),
+        Some(Err(internal::bounded::past_deadline())),
+        "past the deadline nothing is asked"
+    );
+}
+
+/// Turns the test below into its own child process.
+#[cfg(target_os = "linux")]
+const EXIT_CHILD: &str = "CMUX_TEST_DRILL_EXIT_CHILD";
+
+/// A step a thread still runs when the drill ends (a send it gave up on) is killed on the drill's exit path, before
+/// the process exits: a real process starts the step on its own thread, takes that path and exits with the thread
+/// still waiting, and the step's child is gone. Without it the process exited first and the step ran on.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_drill_s_exit_kills_a_step_its_threads_still_run() {
+    if let Some(dir) = std::env::var_os(EXIT_CHILD) {
+        let dir = std::path::PathBuf::from(dir);
+        let cmux = stalling_cmux(&dir, "exec");
+        std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(600);
+            let mut runner = SelfRunner::new(&GlobalArgs::default()).running(cmux).until(until);
+            let _ = exec(&mut runner, "vm-1", "true");
+        });
+        let started = Instant::now();
+        while !dir.join("child.pid").exists() && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        internal::bounded::kill_steps();
+        std::process::exit(0);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let ran = cmux_process::Command::new(std::env::current_exe().unwrap())
+        .arg("the_drill_s_exit_kills_a_step_its_threads_still_run")
+        .arg("--nocapture")
+        .env(EXIT_CHILD, dir.path())
+        .output()
+        .unwrap();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    assert!(gone(&dir.path().join("child.pid")), "the step outlived the drill's exit");
+    assert!(!dir.path().join("sent").exists(), "the step finished after the drill's exit");
 }
 
 /// A promptless start answers the chat tab's number on the machine's daemon as `daemon_tab` (start-session's

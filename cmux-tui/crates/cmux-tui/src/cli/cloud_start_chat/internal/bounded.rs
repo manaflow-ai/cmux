@@ -1,10 +1,13 @@
 //! A deadline that holds past the async boundary, for a runner that has one (the carrier fault drill's,
 //! [`super::super::SelfRunner::until`]): a step's child process is killed at the deadline, by its own process group;
-//! a `cloud exec`'s remote script gets what is left of the deadline as its own limit, so it is killed on the
-//! machine there too; and a read of stdin stops waiting at the deadline. Runners without a deadline never come
-//! here: their steps run exactly as before.
+//! a `cloud exec`'s remote script gets what is left of the deadline, less the remote kill's grace and the exec's
+//! dispatch, as its own limit, so it ends on the machine before the deadline too; an app request stops at it; and a
+//! read of stdin stops waiting at it. Every step's group is recorded until it is gone, so the drill's exit kills
+//! what a step thread still runs ([`kill_steps`]). Runners without a deadline never come here: their steps run
+//! exactly as before.
 
 use std::io::Read;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -16,7 +19,11 @@ pub(in crate::cli::cloud_start_chat) const PAST_DEADLINE: i32 = 124;
 /// What a step the deadline ended says.
 const PAST_DEADLINE_SAID: &str = "--timeout ran out: the step was stopped";
 /// The grace the remote `timeout` gives its script after TERM, before KILL.
-const REMOTE_KILL_AFTER_SECONDS: u64 = 1;
+const REMOTE_KILL_GRACE: Duration = Duration::from_secs(1);
+/// How long a `cloud exec` may take from here to its script starting on the machine (the app's request, the
+/// exec's own connect). The remote limit leaves it out, so a script that started that late still ends, KILL
+/// included, by the deadline.
+const REMOTE_DISPATCH_MARGIN: Duration = Duration::from_secs(2);
 
 /// The app error a step answers when the deadline passed before it could start.
 pub(in crate::cli::cloud_start_chat) fn past_deadline() -> Value {
@@ -28,10 +35,34 @@ fn ran_past_deadline() -> Ran {
     Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: error.to_string() }
 }
 
+/// The process groups of the bounded steps still running (each step's leader is unreaped while its id is here, so
+/// the id is still that step's group), and whether the drill is ending ([`kill_steps`]): then no step starts.
+struct Steps {
+    groups: Vec<u32>,
+    closed: bool,
+}
+
+static STEPS: Mutex<Steps> = Mutex::new(Steps { groups: Vec::new(), closed: false });
+
+fn steps() -> std::sync::MutexGuard<'static, Steps> {
+    STEPS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The drill's exit path, before it answers: kills the group of every bounded step a thread still runs (a send the
+/// drill gave up on, say), since the process may exit before that thread's own kill. No step starts after it.
+pub(in crate::cli::cloud_start_chat) fn kill_steps() {
+    let mut steps = steps();
+    steps.closed = true;
+    for group in &steps.groups {
+        kill_group_id(*group);
+    }
+}
+
 /// `command`'s output, by `until`: a step past it is not started, and one still running at it is killed with its
 /// whole process group (it runs in a group of its own, so nothing it started outlives it) and answers
 /// [`PAST_DEADLINE`]. A step that exits leaves nothing behind either: what is left in its group (a backgrounded
 /// grandchild that may hold its output pipes open) is killed then, and its output is read by `until` at the latest.
+/// The group is killed before the step's leader is reaped, so the kill never reaches a reused id.
 pub(in crate::cli::cloud_start_chat) fn output_by(
     mut command: cmux_process::Command,
     until: Instant,
@@ -45,25 +76,30 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
         .stderr(cmux_process::Stdio::piped());
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return Ran { code: 127, stdout: String::new(), stderr: error.to_string() },
+    // Started and recorded under one lock: the drill's exit kills it, or it never starts.
+    let mut child = {
+        let mut steps = steps();
+        if steps.closed {
+            return ran_past_deadline();
+        }
+        match command.spawn() {
+            Ok(child) => {
+                steps.groups.push(child.id());
+                child
+            }
+            Err(error) => {
+                return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
+            }
+        }
     };
     let stdout = child.stdout.take().map(drain);
     let stderr = child.stderr.take().map(drain);
     let left = until.saturating_duration_since(Instant::now());
-    let status = match child.wait_timeout(left) {
-        Ok(Some(status)) => {
-            // The step is done; anything still in its group is its own leftover.
-            kill_group(&mut child);
-            Some(status)
-        }
-        Ok(None) | Err(_) => {
-            kill_group(&mut child);
-            let _ = child.wait();
-            None
-        }
-    };
+    // Unreaped either way: exited (a zombie) or still running at `until`.
+    let exited = child.exited_within(left).unwrap_or(false);
+    end_group(&mut child);
+    // After the kill the leader is gone or going: this reap returns at once.
+    let status = child.wait().ok().filter(|_| exited);
     // Each pipe ends once the group is gone; a reader still waiting at `until` (a process that left the group and
     // holds the pipe) is not waited for.
     let collect = |reader: Option<std::sync::mpsc::Receiver<Vec<u8>>>| match reader {
@@ -92,32 +128,47 @@ fn drain(mut pipe: impl Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<
     read
 }
 
-/// Kills the child this runner spawned, and its process group (its own, `process_group(0)`). After the child exited
-/// and was reaped, the group's id stays its own while any member is left, and with none left `killpg` finds nothing.
-fn kill_group(child: &mut cmux_process::Child) {
+/// Kills the group of `child` (its own, `process_group(0)`), leader included, and forgets it, under the registry's
+/// lock, so the drill's exit path never kills a group after this. The caller has not reaped `child` yet.
+fn end_group(child: &mut cmux_process::Child) {
+    let id = child.id();
+    let mut steps = steps();
+    kill_group_id(id);
+    let _ = child.kill();
+    steps.groups.retain(|group| *group != id);
+}
+
+/// SIGKILL to process group `id`, a bounded step's own while its leader is unreaped.
+fn kill_group_id(id: u32) {
     #[cfg(unix)]
-    if let Ok(pid) = libc::pid_t::try_from(child.id())
+    if let Ok(pid) = libc::pid_t::try_from(id)
         && pid > 0
     {
-        // SAFETY: killpg on the group this runner made for its own child; no memory is touched.
+        // SAFETY: killpg on a group this runner made for a child it has not reaped; no memory is touched.
         unsafe {
             libc::killpg(pid, libc::SIGKILL);
         }
     }
-    let _ = child.kill();
+    #[cfg(not(unix))]
+    let _ = id;
 }
 
-/// `script` for a `cloud exec` with `left` of the deadline: run under the machine's own `timeout`, so the remote
-/// side stops there too. `None` when nothing is left.
+/// `script` for a `cloud exec` with `left` of the deadline: run under the machine's own `timeout`, whose limit
+/// leaves out the KILL grace after TERM and the exec's dispatch, so even a script that ignores TERM and started
+/// late ends by the deadline. `None` when nothing is left after those.
 pub(in crate::cli::cloud_start_chat) fn remote_script(
     script: &str,
     left: Duration,
 ) -> Option<String> {
-    let seconds = left.as_secs();
+    let seconds = left
+        .checked_sub(REMOTE_KILL_GRACE)
+        .and_then(|left| left.checked_sub(REMOTE_DISPATCH_MARGIN))?
+        .as_secs();
     if seconds == 0 {
         return None;
     }
-    Some(format!("timeout -k {REMOTE_KILL_AFTER_SECONDS} {seconds} sh -c {}", shell_quote(script)))
+    let grace = REMOTE_KILL_GRACE.as_secs();
+    Some(format!("timeout -k {grace} {seconds} sh -c {}", shell_quote(script)))
 }
 
 /// All of `reader` (stdin), by `until`: past it the read stops waiting and is an error. The thread that reads stays
@@ -163,14 +214,14 @@ mod tests {
         assert_eq!(read, Ok("count".to_owned()));
     }
 
-    /// Under a second left, no remote script is sent; otherwise the machine's `timeout` holds the whole seconds
-    /// left, the script quoted whole.
+    /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
+    /// machine's `timeout` holds those whole seconds, the script quoted whole.
     #[test]
     fn a_remote_script_holds_the_seconds_left() {
-        assert_eq!(remote_script("true", Duration::from_millis(999)), None);
+        assert_eq!(remote_script("true", Duration::from_millis(3_999)), None);
         assert_eq!(
             remote_script("echo a b", Duration::from_millis(5_900)).as_deref(),
-            Some("timeout -k 1 5 sh -c 'echo a b'")
+            Some("timeout -k 1 2 sh -c 'echo a b'")
         );
     }
 }

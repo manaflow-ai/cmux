@@ -87,11 +87,17 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
     // The source's steps run on a runner bound to the drill's deadline: a step still running at it is killed, and
     // a remote script gets what is left of it as its own limit (internal/bounded.rs).
+    let sourced = std::cell::Cell::new(false);
     let source = |_: &mut dyn Runner, plan: &FaultPlan, caps: &Value, until| {
+        sourced.set(true);
         let mut bounded = SelfRunner::new(&global).until(until);
         drill_source(&mut bounded, &global, &request, stdin, (plan, caps, until))
     };
     let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None), source);
+    // The drill ends here: a step a thread still runs (a send it gave up on) goes now, before the process exits.
+    if sourced.get() {
+        internal::bounded::kill_steps();
+    }
     Some(report(&outcome, global.output))
 }
 

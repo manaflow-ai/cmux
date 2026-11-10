@@ -665,8 +665,13 @@ impl Runner for SelfRunner {
         params: Value,
         timeout: Duration,
     ) -> Option<Result<Value, Value>> {
+        // A runner with a deadline asks nothing past it, and its request stops there however long the app keeps
+        // answering its liveness ping (`request_by`).
+        if self.until.is_some_and(|until| Instant::now() >= until) {
+            return Some(Err(internal::bounded::past_deadline()));
+        }
         let mut stream = super::app::connect_command(&self.global).ok()?;
-        super::app::request(&mut stream, method, params, timeout).ok()
+        super::app::request_by(&mut stream, method, params, timeout, self.until).ok()
     }
 }
 
