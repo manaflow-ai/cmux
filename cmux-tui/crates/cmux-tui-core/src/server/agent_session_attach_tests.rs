@@ -376,6 +376,10 @@ fn serve(
             }
             "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" if params["agent"] == json!("grok") => {
+                Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                    "userCode": "WDJB-MJHT", "needsCode": false}))
+            }
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
@@ -1238,6 +1242,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             "_acpmux/agent_login/api_key",
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
+        ),
+        // Gemini saves a key; Grok runs its device flow (acpmux words each refusal).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "grok", "sessionId": SESSION}),
+            json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                   "userCode": "WDJB-MJHT", "needsCode": false}),
         ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",

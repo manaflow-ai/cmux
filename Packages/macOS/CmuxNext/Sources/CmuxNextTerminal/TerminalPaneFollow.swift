@@ -9,27 +9,22 @@ import Foundation
 public nonisolated struct TerminalPaneFollowSizes: Sendable, Equatable {
     /// The size the surface takes in its host now (``TerminalHostView/surfaceSize(forHostSize:)``): its pane's size.
     public var area: CGSize
-    /// The size the host asked of the surface: the frame it wants (its window's commit owns every terminal frame, cmux-ad
-    /// m19), else the surface view's frame. Not `area` while the surface is held.
+    /// The size the host gave the surface: the surface view's frame. Not `area` while the surface is held.
     public var asked: CGSize
     /// What shows: the last frame Ghostty showed on the surface layer (its present callback, ``TerminalPresents``), in
     /// points at the layer's scale; zero before the first frame.
     public var shown: CGSize
-    /// A size was asked of Ghostty and its frame is not shown yet (the frame owner keeps the old one meanwhile).
-    public var inFlight: Bool
 
-    public init(area: CGSize, asked: CGSize, shown: CGSize, inFlight: Bool = false) {
+    public init(area: CGSize, asked: CGSize, shown: CGSize) {
         self.area = area
         self.asked = asked
         self.shown = shown
-        self.inFlight = inFlight
     }
 }
 
 /// One terminal's frames against its pane over a run of `debug.terminal_display`: frames sampled, frames in which the
 /// host asked the surface for another size than its pane's (held), frames in which the layer showed another size than
-/// its pane's (lagging), frames with a size asked of Ghostty and not shown yet (in flight), and the first few held and
-/// lagging ones. A size differs when either axis is more than ``tolerance`` off.
+/// its pane's (lagging), and the first few held and lagging ones. A size differs when either axis is more than ``tolerance`` off.
 public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodable {
     /// One frame that differed: its index in the run (from 0) and its sizes, encoded as [width, height] in points.
     public nonisolated struct Mismatch: Sendable, Equatable, Encodable {
@@ -55,12 +50,11 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
     public private(set) var frames = 0
     public private(set) var held = 0
     public private(set) var lagging = 0
-    public private(set) var inFlight = 0
     public private(set) var firstHeld: [Mismatch] = []
     public private(set) var firstLagging: [Mismatch] = []
 
     nonisolated enum CodingKeys: String, CodingKey {
-        case frames, held, lagging, inFlight = "in_flight", firstHeld = "first_held", firstLagging = "first_lagging"
+        case frames, held, lagging, firstHeld = "first_held", firstLagging = "first_lagging"
     }
 
     public init() {}
@@ -68,7 +62,6 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
     /// Counts frame `frame` of the run.
     public mutating func record(_ sizes: TerminalPaneFollowSizes, frame: Int) {
         frames += 1
-        if sizes.inFlight { inFlight += 1 }
         if Self.differ(sizes.asked, sizes.area) {
             held += 1
             if firstHeld.count < Self.kept { firstHeld.append(Mismatch(frame: frame, sizes: sizes)) }
@@ -90,37 +83,11 @@ extension TerminalSession {
     var paneFollowSizes: TerminalPaneFollowSizes? {
         let surface = surfaceView
         guard surface.isShown, surface.superview === view else { return nil }
-        let ownership = surface.frameOwnership
-        let asked = ownership.embedderPresents ? (ownership.wanted?.size ?? surface.frame.size) : surface.frame.size
+        let asked = surface.frame.size
         let scale = max(surface.layer?.contentsScale ?? 1, 1)
         let shown = surface.bridge.takeUnretainedValue().presents.last
             .map { CGSize(width: CGFloat($0.widthPixels) / scale, height: CGFloat($0.heightPixels) / scale) } ?? .zero
-        return TerminalPaneFollowSizes(area: view.surfaceSize(forHostSize: view.bounds.size), asked: asked, shown: shown,
-                                       inFlight: ownership.inFlight != nil)
-    }
-}
-
-/// The frame presenters' counts over a run of the pane check, summed over the followed windows
-/// (``TerminalFramePresenter/Stats``): presented requests, passes that kept an old frame (its new one was not drawn
-/// yet), passes that waited for another of a group, and passes that kept a late frame past
-/// ``TerminalFramePresenter/longKeepTicks`` refreshes (S4 never shows bounds without their frame; a late one keeps).
-public nonisolated struct TerminalPaneFollowPresenterCounts: Sendable, Equatable, Encodable {
-    public var passes = 0
-    public var presented = 0
-    public var keeps = 0
-    public var groupWaits = 0
-    public var longKeeps = 0
-
-    nonisolated enum CodingKeys: String, CodingKey {
-        case passes, presented, keeps, groupWaits = "group_waits", longKeeps = "long_keeps"
-    }
-
-    mutating func add(from start: TerminalFramePresenter.Stats, to end: TerminalFramePresenter.Stats) {
-        passes += end.passes - start.passes
-        presented += end.presented - start.presented
-        keeps += end.keeps - start.keeps
-        groupWaits += end.groupWaits - start.groupWaits
-        longKeeps += end.longKeeps - start.longKeeps
+        return TerminalPaneFollowSizes(area: view.surfaceSize(forHostSize: view.bounds.size), asked: asked, shown: shown)
     }
 }
 
@@ -128,7 +95,7 @@ public nonisolated struct TerminalPaneFollowPresenterCounts: Sendable, Equatable
 /// drag or a key resize (scripts/cmux-next/bench-terminal-resize.py).
 ///
 /// From ``start(_:)`` to ``stop()``, each window that shows a followed terminal has a client on its own frame clock
-/// (``FrameScheduler/forWindow(_:)``, the clock its layout springs and its frame presenter tick on), which marks that
+/// (``FrameScheduler/forWindow(_:)``, the clock its layout springs tick on), which marks that
 /// window's frames. An observer of the main run loop, last after Core Animation's commit (`beforeWaiting`, order
 /// `CFIndex.max`), samples the terminals of each window whose frame ticked in that turn: a sample is the geometry that
 /// turn's commit carried for that window's frame. It samples only the terminals shown at ``start(_:)`` (a drag or a key
@@ -144,30 +111,27 @@ final class TerminalPaneFollowProbe {
         var tally = TerminalPaneFollowTally()
     }
 
-    /// One followed window: its frame client, whether a frame ticked since the last sample, its frames sampled, its
-    /// terminals (indices into ``followed``) and its presenter's counts at ``start(_:)``.
+    /// One followed window: its frame client, whether a frame ticked since the last sample, its frames sampled and its
+    /// terminals (indices into ``followed``).
     private struct WindowClock {
         weak var window: NSWindow?
         let client: FrameClient
         var pending = false
         var frames = 0
         var members: [Int] = []
-        let presenterAtStart: TerminalFramePresenter.Stats
     }
 
     private var followed: [Followed] = []
     private var clocks: [ObjectIdentifier: WindowClock] = [:]
     /// Frames sampled since ``start(_:)``, summed over the followed windows.
     private(set) var frames = 0
-    /// The presenters' counts from ``start(_:)`` to ``stop()``.
-    private(set) var presenter = TerminalPaneFollowPresenterCounts()
     private var observer: CFRunLoopObserver?
     private let expiry = DemandTimer(owner: "debug.terminal_display.follow.expiry")
 
     /// Clears the record and starts sampling the terminals of `terminals` shown now, each on its window's frames.
     func start(_ terminals: [(key: String, session: TerminalSession)]) {
         stop()
-        (frames, presenter, clocks) = (0, TerminalPaneFollowPresenterCounts(), [:])
+        (frames, clocks) = (0, [:])
         followed = terminals.filter { $0.session.paneFollowSizes != nil }.map { Followed(key: $0.key, session: $0.session) }
         for (index, entry) in followed.enumerated() {
             guard let window = entry.session?.view.window else { continue }
@@ -178,8 +142,7 @@ final class TerminalPaneFollowProbe {
                     self?.clocks[id]?.pending = true
                     return true
                 }
-                clocks[id] = WindowClock(window: window, client: client,
-                                         presenterAtStart: TerminalFramePresenter.forWindow(window).stats)
+                clocks[id] = WindowClock(window: window, client: client)
             }
             clocks[id]?.members.append(index)
         }
@@ -194,7 +157,7 @@ final class TerminalPaneFollowProbe {
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
     }
 
-    /// Stops sampling and adds up the presenters' counts; the record stays for ``tallies``.
+    /// Stops sampling; the record stays for ``tallies``.
     func stop() {
         expiry.cancel()
         if let observer { CFRunLoopObserverInvalidate(observer) }
@@ -202,9 +165,6 @@ final class TerminalPaneFollowProbe {
         for id in clocks.keys {
             guard let clock = clocks[id], clock.client.isActive else { continue }
             clock.client.deactivate()
-            if let window = clock.window {
-                presenter.add(from: clock.presenterAtStart, to: TerminalFramePresenter.forWindow(window).stats)
-            }
         }
     }
 

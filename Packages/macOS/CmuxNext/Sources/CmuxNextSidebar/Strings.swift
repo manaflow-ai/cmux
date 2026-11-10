@@ -20,6 +20,7 @@ enum Strings {
     }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
+    static var restoringDetails: String { String(localized: "sidebar.restoring.details", defaultValue: "Details", bundle: .module) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
     static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }

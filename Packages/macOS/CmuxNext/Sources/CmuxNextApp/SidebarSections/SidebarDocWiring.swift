@@ -52,7 +52,7 @@ extension SidebarDocument {
         // An open tab's favicon address is stored on its link item (each window's rows draw it, `SidebarModel.itemFavicon`).
         // The open tab favicons, by origin (`OpenTabFavicons`, main-thread-scheduling.md section 3, O4).
         let openTabs = OpenTabFavicons()
-        openTabs.start(workspaces: { local.store.workspaces }, favicon: { [weak services] tab in services?.openTabFavicon(tab) })
+        openTabs.start(workspaces: { local.store.workspaces }, favicons: { [weak services] workspace in services?.openTabFavicons(of: workspace) ?? [] })
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
                                           byOrigin: { openTabs.byOrigin }, faviconKey: BookmarkURL.faviconKey(for:))
         docMachines.follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
