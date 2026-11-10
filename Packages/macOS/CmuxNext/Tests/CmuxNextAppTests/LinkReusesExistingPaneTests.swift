@@ -17,7 +17,7 @@ import Testing
 
     /// What the faked `new-frontend-browser-tab` was asked.
     @MainActor private final class Creates {
-        var made: [(pane: PaneID, url: String, split: ConversationTabSplit?)] = []
+        var made: [(pane: CmuxNextDaemon.PaneID, url: String, split: ConversationTabSplit?)] = []
     }
 
     /// A window with a terminal on the left and a terminal on its right, on a daemon that makes a link's tab in its
