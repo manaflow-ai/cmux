@@ -100,9 +100,11 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     const still = parked.current;
     if (still) {
       if (!movedFrom(still, event)) return;
-      // The pointer itself moved on the trigger: hover intent starts here, as a fresh enter.
+      // The pointer itself moved on the trigger: the normal dwell starts here. Not through `enter`:
+      // the document's capture listener has already put this move's place in `last`, so the slide
+      // check would read it as still and park it again on every move (review of #40035, F1).
       parked.current = null;
-      enter("trigger", event);
+      start("trigger", event);
       return;
     }
     refresh();
@@ -116,6 +118,14 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
         parked.current = { x: event.clientX, y: event.clientY };
         return;
       }
+    }
+    start(region, event, immediate);
+  };
+  /// Hover intent on `region`, past the slide check: the trigger's data starts, and the dwell.
+  const start = (region: "trigger" | "card", event: PointerEvent<HTMLElement>, immediate = false) => {
+    if (region === "trigger") {
+      trigger.current = event.currentTarget;
+      onTrigger.current = true;
       parked.current = null;
       intent.current?.();
     }
