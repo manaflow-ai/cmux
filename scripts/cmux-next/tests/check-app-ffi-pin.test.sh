@@ -52,7 +52,7 @@ crate cmux-ws-only
 # Cargo.lock; the cmux-tui workspace's apply only when it is not (the guard test below).
 printf '\n[workspace]\n' >> "$repo/cmux-tui/crates/cmux-app-ffi/Cargo.toml"
 echo "lock" > "$repo/cmux-tui/Cargo.lock"
-# cmux-rd-core's files beside src/: what a library source, build script or Cargo.toml names is an input; the rest is not.
+# cmux-rd-core's files: the crate directory is an input whole, except tests/, benches/ and examples/ (fail-closed).
 core="$repo/cmux-tui/crates/cmux-rd-core"
 mkdir -p "$core/tests/vectors" "$core/scripts" "$core/benches" "$core/examples"
 printf 'pub const DATA: &str = include_str!("../data.json");\n' >> "$core/src/lib.rs"
@@ -67,6 +67,16 @@ for f in data.json ml.json br.json build-data.txt .descriptor.json README.md LIC
   scripts/sync.py benches/b.rs examples/e.rs; do
   echo "$f" > "$core/$f"
 done
+mkdir -p "$repo/cmux-tui/crates/cmux-rd-ffi/tests"
+echo "// a test" > "$repo/cmux-tui/crates/cmux-rd-ffi/tests/t.rs"
+# cmux-tui/bindings/rust, with the file app_ffi_pin.py TEST_ONLY lists (only its tests read it, #39027).
+bindings="$repo/cmux-tui/bindings/rust"
+mkdir -p "$bindings/src" "$bindings/tests"
+printf '[package]\nname = "cmux"\n\n[lib]\npath = "src/lib.rs"\n' > "$bindings/Cargo.toml"
+echo "// bindings" > "$bindings/src/lib.rs"
+echo '{}' > "$bindings/.cmux-resource-api.json"
+printf 'const API: &str = include_str!("../.cmux-resource-api.json");\n' > "$bindings/tests/catalog_manifest.rs"
+printf 'cmux = { path = "../../bindings/rust" }\n' >> "$repo/cmux-tui/crates/cmux-remote-browser/Cargo.toml"
 # The cmux-tui workspace manifest: cmux-rd-core inherits two [workspace.package] keys and two [workspace.dependencies]
 # entries (one in a target table) for its library, and one entry only for its tests.
 cat > "$repo/cmux-tui/Cargo.toml" <<'EOF'
@@ -138,17 +148,29 @@ echo "// changed" >> "$repo/cmux-tui/crates/cmux-unrelated/src/lib.rs"
 git -C "$repo" commit -qam unrelated
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "an unrelated crate made the pin stale: $out"
 
-# A file in an input crate that nothing the library build reads names is not an input: a test, a script, a bench, an
-# example, the README, the LICENSE, and a descriptor only a test reads (.cmux-resource-api.json, #39027).
-for f in tests/api.rs scripts/sync.py benches/b.rs examples/e.rs README.md LICENSE .descriptor.json; do
-  echo "changed" >> "$core/$f"
+# Not an input (fail-closed rule, lead decision 2026-11-10): an input crate's tests/, benches/ and examples/, and a
+# file on the reviewed app_ffi_pin.py TEST_ONLY list (.cmux-resource-api.json, which only a test reads, #39027).
+for f in cmux-tui/crates/cmux-rd-core/benches/b.rs cmux-tui/crates/cmux-rd-core/examples/e.rs \
+  cmux-tui/crates/cmux-rd-ffi/tests/t.rs cmux-tui/bindings/rust/tests/catalog_manifest.rs \
+  cmux-tui/bindings/rust/.cmux-resource-api.json; do
+  echo "changed" >> "$repo/$f"
 done
 git -C "$repo" commit -qam "test-only files"
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "a test-only file made the pin stale: $out"
 [[ "$out" == *"sources match $pinned"* ]] || fail "no match line after a test-only change: $out"
-# What the library build reads stays an input: a file a library source includes (include_str!), one its build script
-# reads, and a tests/ file that a library source of another input crate includes.
-for f in data.json ml.json br.json build-data.txt tests/vectors/lines.json; do
+# A library source that names a TEST_ONLY file refuses: the reviewed list holds only files that tests alone read.
+printf 'const API: &str = include_str!("../.cmux-resource-api.json");\n' >> "$bindings/src/lib.rs"
+git -C "$repo" commit -qam "a library source reads the test-only file"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a library source that names a TEST_ONLY file passed: $out"
+fi
+[[ "$out" == *"the app FFI inputs cannot be listed"*"TEST_ONLY"* ]] || fail "the TEST_ONLY read did not refuse: $out"
+git -C "$repo" reset -q --hard HEAD~1
+# Everything else in an input crate is an input: a file a library source includes (include_str!), one its build
+# script reads, the README, the LICENSE, a script, a descriptor only a test reads but no reviewed list names, and a
+# tests/ file that a library source of another input crate includes (that crate's tests/ is then an input whole).
+for f in data.json ml.json br.json build-data.txt README.md LICENSE scripts/sync.py .descriptor.json \
+  tests/vectors/lines.json tests/api.rs; do
   echo "changed" >> "$core/$f"
   git -C "$repo" commit -qam "input $f"
   if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
@@ -345,14 +367,24 @@ refuse() { # refuse FILE TEXT WHY
   [[ "$out" == *"the app FFI inputs cannot be listed"* ]] || fail "$3 did not refuse: $out"
   git -C "$repo" reset -q --hard HEAD~1
 }
-refuse cmux-tui/crates/cmux-rd-core/build.rs \
-  'fn more() { let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("x.txt"); std::fs::read_to_string(&p).unwrap(); }' \
-  "a build script that reads by a computed path"
-refuse cmux-tui/crates/cmux-rd-core/src/lib.rs 'pub const Q: &str = include_str!(concat!("../", "q.json"));' \
-  "an include by a computed path"
-refuse cmux-tui/crates/cmux-rd-core/src/lib.rs '#[path = "../shared/foo.rs"] mod foo;' \
-  "a #[path] module outside src/"
 refuse cmux-tui/Cargo.toml '[[[' "a workspace manifest that is not TOML"
+# Inside a crate, a path computed from the crate (a build script's CARGO_MANIFEST_DIR join, concat! in an include, a
+# #[path] module outside src/) reads a file of the crate directory, which is an input whole.
+for case in 'build.rs|fn more() { let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("x.txt"); std::fs::read_to_string(&p).unwrap(); }|x.txt' \
+  'src/lib.rs|pub const Q: &str = include_str!(concat!("../", "q.json"));|q.json' \
+  'src/lib.rs|#[path = "../shared/foo.rs"] mod foo;|shared/foo.rs'; do
+  IFS='|' read -r file text read_file <<<"$case"
+  printf '%s\n' "$text" >> "$core/$file"
+  mkdir -p "$(dirname "$core/$read_file")"
+  echo "$read_file" > "$core/$read_file"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "computed $read_file"
+  repin "pin computed $read_file"
+  echo "changed" >> "$core/$read_file"
+  git -C "$repo" commit -qam "change $read_file"
+  stale_after "a change to $read_file, read by a path computed from the crate" "cmux-rd-core/$read_file"
+  git -C "$repo" reset -q --hard HEAD~2
+done
 
 # The build script is read whole (review round 2 of #40095): the file that Cargo.toml's `build` names (build.rs by
 # default) and every module it reaches through `mod` or #[path]; only cmux-motion's two computed reads are allowed
@@ -384,10 +416,6 @@ echo '{"motion": {}}' > "$repo/plans/cmux-next/spec-proposals/visuals/design-tok
 git -C "$repo" commit -qam "design tokens"
 stale_after "a change to design-tokens.json, which cmux-motion's build script compiles in" \
   plans/cmux-next/spec-proposals/visuals/design-tokens.json
-refuse cmux-tui/crates/cmux-motion/build.rs 'fn more(other: &str) { let _ = std::fs::read_to_string(other); }' \
-  "a third computed read in cmux-motion's build script"
-refuse cmux-tui/crates/cmux-motion/build-support/json.rs 'fn read(p: &str) { let _ = std::fs::read_to_string(p); }' \
-  "a computed read in a module of the build script"
 printf 'fn data() { let _ = std::fs::read_to_string("json-data.txt"); }\n' >> "$motion/build-support/json.rs"
 git -C "$repo" commit -qam "the build script's module reads json-data.txt"
 repin "pin the module's read"
@@ -412,20 +440,6 @@ stale_after "a change to a file the named build script reads" cmux-tui/crates/cm
 echo "// changed" >> "$repo/cmux-tui/crates/cmux-sq/src/lib.rs"
 git -C "$repo" commit -qam "single-quoted dependency"
 stale_after "a change to a crate named by a single-quoted path" cmux-tui/crates/cmux-sq/src/lib.rs
-refuse_manifest() { # refuse_manifest FILE TEXT WHY: FILE becomes TEXT; the check must refuse
-  printf '%s\n' "$2" > "$repo/$1"
-  git -C "$repo" add -A
-  git -C "$repo" commit -qm "refuse $1"
-  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
-    fail "$3 passed: $out"
-  fi
-  [[ "$out" == *"the app FFI inputs cannot be listed"* ]] || fail "$3 did not refuse: $out"
-  git -C "$repo" reset -q --hard HEAD~1
-}
-refuse_manifest cmux-tui/crates/cmux-remote-browser/Cargo.toml "$(printf "[package]\nname = 'x'\nbuild = 'tools/b.rs'")" \
-  "a build script outside build.rs and build-support/, in single quotes"
-refuse_manifest cmux-tui/crates/cmux-remote-browser/Cargo.toml "$(printf 'lib.path = "lib/root.rs"\n[package]\nname = "x"')" \
-  "a library root outside src/lib.rs, as a dotted key"
 git -C "$repo" reset -q --hard "$before_build"
 
 # Review round 3 of #40095 (ffi-pin-rev-3): forms a fine scan of Rust and TOML missed. The rule now is fail-closed

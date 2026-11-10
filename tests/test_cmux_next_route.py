@@ -399,10 +399,10 @@ class PullRequestTiers(unittest.TestCase):
         import cmux_next_route as route_module
         listed = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"), "--list-inputs"],
                                 check=True, capture_output=True, text=True).stdout.split()
-        # The pin check lists what the build reads in each crate (src/, Cargo.toml, ...); the router routes whole crates.
-        # cmux-tui/crates/.cargo and rust-toolchain(.toml) are cargo's own files above the crates, not crates.
+        # The pin check lists each crate as its directory (and `:(exclude)` pathspecs for its tests); the router routes
+        # whole crates. cmux-tui/crates/.cargo and rust-toolchain(.toml) are cargo's own files above the crates.
         crates = {"/".join(p.split("/")[:3]) + "/" for p in listed
-                  if p.startswith("cmux-tui/crates/") and len(p.split("/")) > 3}
+                  if p.startswith("cmux-tui/crates/") and (ROOT / "/".join(p.split("/")[:3]) / "Cargo.toml").is_file()}
         self.assertTrue(crates)
         self.assertLessEqual(crates, set(route_module.app_ffi_inputs(ROOT)))
 

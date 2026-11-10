@@ -4,9 +4,8 @@
     python3 scripts/ci/app_ffi_pin.py read [Package.swift]               # prints "SOURCE_SHA CHECKSUM"
     python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift   # the JSON pin, same output
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
-    python3 scripts/ci/app_ffi_pin.py inputs ROOT CRATE_DIR...          # the files of those crates the FFI build reads
+    python3 scripts/ci/app_ffi_pin.py inputs ROOT                       # the FFI crates, "--", the input pathspecs
     python3 scripts/ci/app_ffi_pin.py workspace-view WORKSPACE.toml CRATE.toml...   # what the crates inherit of it
-    python3 scripts/ci/app_ffi_pin.py crate-paths WORKSPACE.toml CRATE.toml   # its paths, inherited ones included
     python3 scripts/ci/app_ffi_pin.py own-root CRATE.toml               # "yes" when it has its own [workspace]
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
@@ -32,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -242,253 +242,288 @@ def check_loader(text: str, checksum: str) -> None:
                                f"fixed reference shapes: {line[:160]!r}")
 
 
-# What `cargo build --release` of cmux-app-ffi reads in each crate it reaches, and what build-app-ffi.sh copies: the
-# manifest, the lock file, the build script and its support modules, the library sources, the C headers, the crate's
-# own cargo config and toolchain files, and every file a non-test source or build script names (inputs() below).
-# Tests, benches, examples, scripts, READMEs and a file only they read are not built into the archive, so a change to
-# them leaves the pin current (2026-11-09: #39027 changed cmux-tui/bindings/rust/.cmux-resource-api.json, which only
-# tests/catalog_manifest.rs reads, and staled the pin). The repository-level files (the cmux-tui workspace manifest the
-# crates inherit from, the cargo configs and toolchains above them) are check-app-ffi-pin.sh's own list.
-CRATE_INPUTS = ("Cargo.toml", "Cargo.lock", "build.rs", "build-support", "src", "include", ".cargo",
-                "rust-toolchain", "rust-toolchain.toml")
-SCANNED = ("build.rs", "build-support", "src")  # where a .rs input may live: inputs() reads these files
-# A build script that reads a file by a computed path: how many computed reads its build script and modules make
-# (exactly; one more refuses), and the files they read, relative to the crate. cmux-motion/build.rs reads its token
-# table through CARGO_MANIFEST_DIR joined with TOKENS (`rerun-if-changed={}` and `read_to_string(&path)`), and the
-# token values it compiles in are what cmux_motion_spring_base / cmux_motion_tween_base return to the app.
-BUILD_READS = {"cmux-tui/crates/cmux-motion": (2, ("../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json",))}
-MACRO = re.compile(r"\binclude(?:_str|_bytes)?!")
-PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"\\]+)"\s*\]')
-PATH_ATTR_ANY = re.compile(r"#\[path\b")
-BUILD_CALL = re.compile(r"(?:\brerun-if-changed=|\bread_to_string\(|\bfs::read\(|\bFile::open\(|\bread_dir\()")
-BUILD_LITERAL = re.compile(r'(?:\brerun-if-changed=([^"{}\\]+)"|(?:\bread_to_string|\bfs::read|\bFile::open|\bread_dir)'
-                           r'\(\s*"([^"\\]+)"\s*\))')
-INLINE_PATH = re.compile(r"""(?:^|[{,\s])path\s*=\s*("[^"\\]*"|'[^']*')""")
-MOD_DECL = re.compile(r'^(\s*)(?:pub(?:\([^)]*\))?\s+)?mod\s+(?:r#)?(\w+)\s*;', re.M)
-CFG_TEST = re.compile(r'#\[cfg\(\s*(?:all\(\s*)?test\b')
-CLOSE = {"(": ")", "[": "]", "{": "}"}
+# The app FFI inputs, fail-closed (lead decision, 2026-11-10). Three review rounds of a fine scan (include! forms,
+# #[path], build-script reads, test-only modules) each found new Rust or TOML forms that hid an input, so the rule no
+# longer reads the languages' grammar for what is built:
+#
+# - Each crate cmux-app-ffi reaches is an input as a whole directory (its git-tracked files), except its tests/,
+#   benches/ and examples/ (cargo builds them only for tests) and the reviewed TEST_ONLY files.
+# - Every string literal in the crate's source files (Rust, TOML, C) that names an existing path, relative to the file
+#   or to the crate, adds that path when the crate directory does not already hold it: a file outside the crate (an
+#   include_str! of a spec file, a build script's token table), or one in an excluded directory (then that directory
+#   is not excluded). A named directory that holds a Cargo.toml is a crate, and is walked the same way. Escapes are
+#   decoded first, and comments are not read, so neither can hide or invent a name.
+# - What cannot be read refuses: a symlink in a crate, a scanned file that names a TEST_ONLY file without being one of
+#   its readers, a manifest the line reader cannot read.
+#
+# What is left: a path outside the crate computed with no literal that names it (concat!("../../", NAME), or a build
+# script that walks up with .parent() and joins single names). A literal that names a directory holding the crate
+# ("..", "../") is ignored: runtime name checks spell it in every crate. No FFI crate computes such a path today; the
+# review of a change that does must catch it.
+EXCLUDED_DIRS = ("tests", "benches", "examples", "target")
+SCANNED_SUFFIXES = {".rs": "rust", ".toml": "toml", ".c": "c", ".h": "c", ".cc": "c", ".cpp": "c", ".hpp": "c",
+                    ".m": "c", ".mm": "c"}
+# Each test-only file and the only sources that may name it (all of them test code). A change to the file cannot change
+# the archive; another scanned file that names it refuses, so a library source cannot start to read it unnoticed.
+TEST_ONLY = {
+    # #39027 changed it and staled the pin on 2026-11-09.
+    "cmux-tui/bindings/rust/.cmux-resource-api.json": ("cmux-tui/bindings/rust/tests/catalog_manifest.rs",),
+    "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json":
+        ("cmux-tui/crates/cmux-layout-reducer/src/sidebar_layout_tests.rs",),
+    "schemas/remote-tab/client.json": ("cmux-tui/crates/cmux-rd-ffi/src/rb_client_tests.rs",),
+}
+FFI_ROOT_CRATE = "cmux-tui/crates/cmux-app-ffi"
 
 
 class Unresolved(ValueError):
-    """A non-test source or build script names a file in a way the scan cannot read: the inputs cannot be known, so the
-    check refuses rather than leave the file out."""
+    """The inputs cannot be known (a symlink, a literal naming a directory that holds the crate, a test-only file named
+    by a library source, a manifest the line reader cannot read): the check refuses rather than leave a file out."""
 
 
-def _code(text: str) -> list[str]:
-    """TEXT's lines, a whole-line `//` comment blanked (a doc comment may spell out `include_str!(...)`)."""
-    return ["" if line.lstrip().startswith("//") else line for line in text.split("\n")]
-
-
-def _includes(source: Path, root: Path) -> list[str]:
-    """The literal paths SOURCE's include!/include_str!/include_bytes! name. A macro whose argument is not one plain
-    string literal (with any delimiter, whitespace, line breaks and a trailing comma) refuses, except concat!(env!(
-    "OUT_DIR"), ...), the build script's own output."""
-    text = "\n".join(_code(source.read_text(encoding="utf-8", errors="replace")))
-    found = []
-    for match in MACRO.finditer(text):
-        at = match.end()
-        rest = text[at:].lstrip()
-        if not rest or rest[0] not in CLOSE:
-            raise Unresolved(f"{source.relative_to(root)}: {match.group(0)} with no argument list")
-        close = CLOSE[rest[0]]
-        body = rest[1:]
-        literal = re.match(r'\s*"([^"\\]*)"\s*,?\s*' + re.escape(close), body)
-        if literal:
-            found.append(literal.group(1))
+def _rust_unescape(body: str) -> str:
+    out, index = [], 0
+    simple = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", "'": "'", '"': '"'}
+    while index < len(body):
+        char = body[index]
+        if char != "\\" or index + 1 >= len(body):
+            out.append(char)
+            index += 1
             continue
-        head = body[:body.find(close) if close in body else 200]
-        if re.match(r'\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)', body):
-            continue
-        raise Unresolved(f"{source.relative_to(root)} includes a file by a path that is not one string literal "
-                         f"({head.strip()[:80]!r}): name it with a literal so the app FFI pin knows its inputs")
+        code = body[index + 1]
+        if code in simple:
+            out.append(simple[code])
+            index += 2
+        elif code == "x":
+            out.append(chr(int(body[index + 2:index + 4], 16)))
+            index += 4
+        elif code == "u":
+            end = body.index("}", index)
+            out.append(chr(int(body[index + 3:end], 16)))
+            index = end + 1
+        elif code == "\n":  # a line continuation drops the newline and the next line's leading whitespace
+            index += 2
+            while index < len(body) and body[index] in " \t\n\r":
+                index += 1
+        else:
+            out.append(body[index:index + 2])
+            index += 2
+    return "".join(out)
+
+
+def _toml_unescape(body: str) -> str:
+    def one(match: re.Match) -> str:
+        code = match.group(1)
+        if code[0] in "uU":
+            return chr(int(code[1:], 16))
+        return {"b": "\b", "t": "\t", "n": "\n", "f": "\f", "r": "\r", '"': '"', "\\": "\\"}.get(code, code)
+    return re.sub(r'\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)', one, body)
+
+
+def _rust_literals(text: str) -> list[str]:
+    """The string literals of Rust TEXT (plain, raw, byte and C strings), escapes decoded; comments, chars and
+    lifetimes skipped."""
+    found, index, size = [], 0, len(text)
+    while index < size:
+        char = text[index]
+        if text.startswith("//", index):
+            index = text.find("\n", index)
+            index = size if index < 0 else index
+        elif text.startswith("/*", index):
+            depth, index = 1, index + 2
+            while index < size and depth:
+                if text.startswith("/*", index):
+                    depth, index = depth + 1, index + 2
+                elif text.startswith("*/", index):
+                    depth, index = depth - 1, index + 2
+                else:
+                    index += 1
+        elif char in "rbc" and re.match(r'(?:br|cr|r)#*"', text[index:index + 260]) and \
+                (index == 0 or not (text[index - 1].isalnum() or text[index - 1] == "_")):
+            match = re.match(r'(?:br|cr|r)(#*)"', text[index:])
+            hashes = match.group(1)
+            start = index + match.end()
+            end = text.find('"' + hashes, start)
+            if end < 0:
+                raise Unresolved("a raw string that does not end")
+            found.append(text[start:end])
+            index = end + 1 + len(hashes)
+        elif char == '"' or (char in "bc" and text.startswith('"', index + 1) and
+                             (index == 0 or not (text[index - 1].isalnum() or text[index - 1] == "_"))):
+            start = index + (1 if char == '"' else 2)
+            end = start
+            while end < size and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            if end >= size:
+                raise Unresolved("a string that does not end")
+            found.append(_rust_unescape(text[start:end]))
+            index = end + 1
+        elif char == "'":
+            # A char literal ('x', '\n', '\u{2f}', '"') or a lifetime ('a): only a char literal ends with a quote.
+            match = re.match(r"'(?:\\(?:u\{[0-9A-Fa-f]+\}|x[0-9A-Fa-f]{2}|.)|[^\\'\n])'", text[index:])
+            index += match.end() if match else 1
+        else:
+            index += 1
     return found
 
 
-def _declarations(files: list[Path], crate: Path) -> tuple[dict[Path, list[tuple[Path, bool]]], bool]:
-    """For each module file, the files that declare it (`mod NAME;`) and whether that declaration is #[cfg(test)];
-    and whether any declaration is indented (inside an inline `mod outer { ... }`, whose path this scan does not
-    follow, so the caller marks nothing test-only)."""
-    found: dict[Path, list[tuple[Path, bool]]] = {}
-    roots = {crate / "src/lib.rs", crate / "src/main.rs", crate / "build.rs"}
-    indented = False
-    for file in files:
-        lines = _code(file.read_text(encoding="utf-8", errors="replace"))
-        for index, line in enumerate(lines):
-            match = MOD_DECL.match(line)
-            if not match:
-                continue
-            if match.group(1):
-                indented = True
-                continue
-            attrs, back = [], index - 1
-            while back >= 0 and (lines[back].strip().startswith("#[") or lines[back].strip() == ""):
-                if lines[back].strip():
-                    attrs.append(lines[back].strip())
-                back -= 1
-            name = match.group(2)
-            given = next((m.group(1) for m in (PATH_ATTR.search(attr) for attr in attrs) if m), None)
-            if given is not None:
-                targets = [file.parent / given]
-            elif file in roots or file.name == "mod.rs":
-                targets = [file.parent / f"{name}.rs", file.parent / name / "mod.rs"]
-            else:
-                targets = [file.parent / file.stem / f"{name}.rs", file.parent / file.stem / name / "mod.rs"]
-            test = any(CFG_TEST.match(attr) for attr in attrs)
-            for target in targets:
-                found.setdefault(Path(os.path.normpath(target)), []).append((file, test))
-    return found, indented
-
-
-def _test_only(files: list[Path], crate: Path) -> set[Path]:
-    """The files compiled only under cfg(test): every declaration of them is #[cfg(test)] or sits in such a file. A file
-    no source declares (a crate root, or one compiled nowhere) is not test-only, so a missed declaration only adds; a
-    crate with an indented declaration has none."""
-    declared, indented = _declarations(files, crate)
-    test: set[Path] = set()
-    if indented:
-        return test
-    changed = True
-    while changed:
-        changed = False
-        for file in files:
-            uses = declared.get(Path(os.path.normpath(file)))
-            if file in test or not uses:
-                continue
-            if all(is_test or by in test for by, is_test in uses):
-                test.add(file)
-                changed = True
-    return test
-
-
-def _string(value: str) -> str | None:
-    """The text of a one-line TOML string VALUE (basic with no escapes, or literal); None for anything else."""
-    match = re.fullmatch(r'"([^"\\]*)"|\'([^\']*)\'', value)
-    return None if match is None else (match.group(1) if match.group(1) is not None else match.group(2))
-
-
-def _manifest_paths(text: str) -> list[str]:
-    """Every `path` and `build` string of a Cargo.toml, in any TOML form: a key of its own (dotted or in a table, in
-    double or single quotes) or a key of an inline table. A `path` that is not one string refuses."""
-    found = []
-    for full, value in _toml_entries(text):
-        literal = _string(value)
-        if full[-1:] in (["path"], ["build"]) and literal is not None:
-            found.append(literal)
-        elif full[-1:] == ["path"]:
-            raise Unresolved(f"a Cargo.toml path that is not one string: {value}")
-        elif value.startswith("{"):
-            found += [match[1:-1] for match in INLINE_PATH.findall(value)]
+def _toml_literals(text: str) -> list[str]:
+    """The strings of TOML TEXT (basic, literal and multi-line), escapes decoded; comments skipped."""
+    found, index, size = [], 0, len(text)
+    while index < size:
+        char = text[index]
+        if char == "#":
+            index = text.find("\n", index)
+            index = size if index < 0 else index
+        elif text.startswith('"""', index) or text.startswith("'''", index):
+            quote = text[index:index + 3]
+            end = text.find(quote, index + 3)
+            if end < 0:
+                raise Unresolved("a TOML multi-line string that does not end")
+            body = text[index + 3:end]
+            found.append(_toml_unescape(body) if quote == '"""' else body)
+            index = end + 3
+        elif char in "\"'":
+            end = index + 1
+            while end < size and text[end] != char and text[end] != "\n":
+                end += 2 if (char == '"' and text[end] == "\\") else 1
+            if end >= size or text[end] != char:
+                raise Unresolved("a TOML string that does not end")
+            body = text[index + 1:end]
+            found.append(_toml_unescape(body) if char == '"' else body)
+            index = end + 1
+        else:
+            index += 1
     return found
 
 
-def _build_script(folder: Path, manifest: str, root: Path) -> Path | None:
-    """The build script cargo runs for the crate in FOLDER: Cargo.toml's `build` (true or absent: build.rs when it
-    exists; false: none). One outside build.rs and build-support/ refuses: the scan reads only those."""
-    value = None
-    for full, entry in _toml_entries(manifest):
-        if full == ["package", "build"]:
-            value = entry
-    if value in (None, "true"):
-        return folder / "build.rs" if (folder / "build.rs").is_file() else None
-    if value == "false":
-        return None
-    literal = _string(value)
-    path = Path(os.path.normpath(folder / literal)) if literal is not None else None
-    if path is None or not (path == folder / "build.rs" or folder / "build-support" in path.parents):
-        raise Unresolved(f"{(folder / 'Cargo.toml').relative_to(root)}: build = {value}: the scan reads a build script "
-                         "only as build.rs or under build-support/")
-    return path if path.is_file() else None
+def _c_literals(text: str) -> list[str]:
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    text = re.sub(r"//[^\n]*", " ", text)
+    return [_rust_unescape(m) for m in re.findall(r'"((?:[^"\\\n]|\\.)*)"', text)] + \
+        re.findall(r"#\s*(?:include|import)\s*<([^>\n]+)>", text)
 
 
-def _module_files(start: Path) -> list[Path]:
-    """START and every file it reaches through `mod NAME;` and #[path] (a build script's own modules)."""
-    seen: list[Path] = []
+LITERALS = {"rust": _rust_literals, "toml": _toml_literals, "c": _c_literals}
+
+
+def _tracked(root: Path, folder: str) -> list[str]:
+    """The git-tracked files under FOLDER (relative to ROOT), refusing a symlink."""
+    try:
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z", "--", folder], check=True,
+                                capture_output=True).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise Unresolved(f"git ls-files {folder} failed: {error}") from error
+    files = []
+    for entry in filter(None, listed.split("\0")):
+        mode, _, rest = entry.partition(" ")
+        path = rest.split("\t", 1)[1]
+        if mode == "120000":
+            raise Unresolved(f"{path} is a symlink: the app FFI pin cannot follow what it points to")
+        if mode != "160000":
+            files.append(path)
+    return files
+
+
+def walk(root: Path, start: str = FFI_ROOT_CRATE, workspace: str = "cmux-tui/Cargo.toml"
+         ) -> tuple[list[str], list[str]]:
+    """(the crates, the input pathspecs) of the FFI build: every crate START reaches, and each crate directory, every
+    path outside a crate that a crate's source names, then `:(exclude)` pathspecs for each crate's tests/, benches/,
+    examples/ and the TEST_ONLY files. Raises Unresolved (see above)."""
+    root = Path(os.path.realpath(root))
+    crates: list[str] = []
     queue = [start]
+    named: set[str] = set()
+    unexcluded: set[str] = set()
+    tracked_cache: dict[str, list[str]] = {}
+
+    def crate_of(relative: str) -> str | None:
+        """The innermost walked crate holding RELATIVE."""
+        holders = [c for c in crates if relative == c or relative.startswith(c + "/")]
+        return max(holders, key=len) if holders else None
+
+    def excluded_dir(crate: str, relative: str) -> str | None:
+        rest = relative[len(crate) + 1:].split("/", 1)[0] if relative != crate else ""
+        return f"{crate}/{rest}" if rest in EXCLUDED_DIRS else None
+
     while queue:
-        file = Path(os.path.normpath(queue.pop()))
-        if file in seen or not file.is_file():
+        crate = queue.pop()
+        if crate in crates:
             continue
-        seen.append(file)
-        text = "\n".join(_code(file.read_text(encoding="utf-8", errors="replace")))
-        queue += [file.parent / literal for literal in PATH_ATTR.findall(text)]
-        # A crate root or mod.rs declares its modules beside itself; another file in a folder named after it.
-        base = file.parent if file == start or file.name == "mod.rs" else file.parent / file.stem
-        for _, name in MOD_DECL.findall(text):
-            queue += [base / f"{name}.rs", base / name / "mod.rs"]
-    return seen
-
-
-def inputs(root: Path, crates: list[str]) -> list[str]:
-    """The repository paths (files, or directories as prefixes) the FFI build reads in CRATES, relative to ROOT: each
-    crate's CRATE_INPUTS, plus every file outside them that a non-test source, a build script or the manifest names.
-    Raises Unresolved when a source names a file in a way the scan cannot read, or names a Rust file outside SCANNED
-    (its own modules and includes would go unread)."""
-    root = Path(os.path.normpath(root))
-    found: set[str] = set()
-
-    def add(source: Path, path: Path) -> None:
-        path = Path(os.path.normpath(path))
-        if path == root or root not in path.parents:
-            raise Unresolved(f"{source.relative_to(root)} names {path}, outside the repository")
-        relative = path.relative_to(root).as_posix()
-        crate = next((c for c in crates if relative.startswith(c + "/")), None)
-        inside = crate is not None and any(relative == f"{crate}/{name}" or relative.startswith(f"{crate}/{name}/")
-                                           for name in SCANNED)
-        if path.suffix == ".rs" and not inside:
-            raise Unresolved(f"{source.relative_to(root)} names the Rust file {relative} outside a crate's "
-                             f"{', '.join(SCANNED)}: the app FFI pin cannot follow its modules")
-        found.add(relative)
-
-    for crate in crates:
-        folder = root / crate
-        for name in CRATE_INPUTS:
-            found.add(f"{crate}/{name}")
-        sources = sorted((folder / "src").rglob("*.rs")) + sorted((folder / "build-support").rglob("*.rs"))
-        if (folder / "build.rs").is_file():
-            sources.append(folder / "build.rs")
-        test = _test_only(sources, folder)
-        for source in sources:
-            if source in test:
+        if not (root / crate / "Cargo.toml").is_file():
+            continue
+        crates.append(crate)
+        files = tracked_cache.setdefault(crate, _tracked(root, crate))
+        manifest = (root / crate / "Cargo.toml").read_text(encoding="utf-8", errors="replace")
+        if any(full == ["package", "workspace"] for full, _ in _toml_entries(manifest)):
+            raise Unresolved(f"{crate}/Cargo.toml sets package.workspace: the app FFI pin reads only {workspace}")
+        for path in _workspace_paths(root / workspace, root / crate / "Cargo.toml"):
+            queue.append(Path(os.path.normpath(path)).relative_to(root).as_posix())
+        for file in files:
+            parts = file[len(crate) + 1:].split("/")
+            if parts[0] in EXCLUDED_DIRS:
                 continue
-            text = "\n".join(_code(source.read_text(encoding="utf-8", errors="replace")))
-            for literal in _includes(source, root):
-                add(source, source.parent / literal)
-            literals = PATH_ATTR.findall(text)
-            if len(PATH_ATTR_ANY.findall(text)) != len(literals):
-                raise Unresolved(f"{source.relative_to(root)} has a #[path] that is not one plain string literal")
-            for literal in literals:
-                add(source, source.parent / literal)
-        manifest = folder / "Cargo.toml"
-        text = manifest.read_text(encoding="utf-8", errors="replace") if manifest.is_file() else ""
-        build = _build_script(folder, text, root)
-        if build is not None:
-            # The build script and every module it reaches: a read there decides what the build compiles in. Their
-            # relative paths are the crate's (cargo runs the build script there).
-            computed = 0
-            for file in _module_files(build):
-                code = "\n".join(_code(file.read_text(encoding="utf-8", errors="replace")))
-                literals = BUILD_LITERAL.findall(code)
-                computed += len(BUILD_CALL.findall(code)) - len(literals)
-                for changed, read in literals:
-                    add(file, folder / (changed or read).strip())
-            expected, allowed = BUILD_READS.get(crate, (0, ()))
-            if computed != expected:
-                raise Unresolved(f"{build.relative_to(root)} and its modules read {computed} file(s) by a computed path "
-                                 f"where app_ffi_pin.py BUILD_READS allows {expected}: name each with a literal or "
-                                 "list it there")
-            for path in allowed:
-                add(build, folder / path)
-        for full, value in _toml_entries(text):
-            if full == ["lib", "path"] and _string(value) != "src/lib.rs":
-                raise Unresolved(f"{manifest.relative_to(root)}: lib.path {value}: the scan reads the library from "
-                                 "src/lib.rs only")
-        for literal in _manifest_paths(text):
-            target = folder / literal
-            if (target / "Cargo.toml").is_file():
-                continue  # a path dependency: a crate of its own, which ffi_crates follows
-            add(manifest, target)
-    prefixes = [f"{crate}/{name}/" for crate in crates for name in ("src", "build-support", "include", ".cargo")]
-    return sorted(path for path in found if not any(path.startswith(prefix) for prefix in prefixes))
+            kind = SCANNED_SUFFIXES.get(Path(file).suffix) or ("toml" if parts[-2:-1] == [".cargo"] else None)
+            if kind is None:
+                continue
+            text = (root / file).read_text(encoding="utf-8", errors="replace")
+            nearest = next((str(Path(file).parents[i]) for i in range(len(Path(file).parents) - 1)
+                            if (root / Path(file).parents[i] / "Cargo.toml").is_file()), crate)
+            for literal in LITERALS[kind](text):
+                for target in _resolve(root, literal, (root / file).parent, root / nearest):
+                    relative = target.relative_to(root).as_posix()
+                    if relative in TEST_ONLY:
+                        if file not in TEST_ONLY[relative]:
+                            raise Unresolved(f"{file} names {relative}, which app_ffi_pin.py TEST_ONLY lists as "
+                                             "read only by tests")
+                        continue
+                    if target.is_dir() and (target == root or target in (root / crate).parents):
+                        continue  # ".." or "../" (a socket name check, a path join): not a file the build reads
+                    if target.is_dir() and (target / "Cargo.toml").is_file():
+                        queue.append(relative)
+                        continue
+                    named.add(relative)
+    # A named path in a crate's tests/, benches/ or examples/ keeps that whole directory in (git's :(exclude) would
+    # win over the path); one elsewhere in a crate is already in it.
+    outside = set()
+    for path in named:
+        holder = crate_of(path)
+        if holder is None:
+            outside.add(path)
+        elif excluded_dir(holder, path) is not None:
+            unexcluded.add(excluded_dir(holder, path))
+    includes = sorted(set(crates) | outside)
+    excludes = set()
+    for crate in crates:
+        for file in tracked_cache[crate]:
+            top = excluded_dir(crate, file)
+            if top is not None and top not in unexcluded and crate_of(file) == crate:
+                excludes.add(top)
+    for path in TEST_ONLY:
+        if crate_of(path) is not None and (root / path).exists():
+            excludes.add(path)
+    return sorted(crates), includes + [f":(exclude){p}" for p in sorted(excludes)]
+
+
+def _resolve(root: Path, literal: str, folder: Path, crate: Path) -> list[Path]:
+    """The existing repository paths LITERAL may name, relative to FOLDER (an include!, #[path]) or to CRATE (a build
+    script, a manifest, CARGO_MANIFEST_DIR joined with it)."""
+    if not literal or "\n" in literal or len(literal) > 300 or "\0" in literal:
+        return []
+    variants = {literal, literal.split("=")[-1], literal.lstrip("/")}
+    if "../" in literal:
+        variants.add(literal[literal.find("../"):])
+    found = []
+    for variant in variants:
+        if not variant or variant.startswith("/"):
+            continue
+        for base in (folder, crate):
+            path = Path(os.path.normpath(base / variant))
+            try:
+                if (path == root or root in path.parents) and path.exists():
+                    found.append(path)
+            except OSError:  # a prose string that is no path (too long a name)
+                continue
+    return found
 
 
 # What the FFI build reads of the cmux-tui workspace manifest (cmux-tui/Cargo.toml). cmux-app-ffi has its own
@@ -588,6 +623,10 @@ def _toml_entries(text: str) -> list[tuple[list[str], str]]:
     for raw in text.splitlines():
         if any(quotes in raw for quotes in TRIPLE_QUOTES):
             raise Unresolved("a Cargo.toml with a multi-line string, which the line reader does not read")
+        # An escape could spell a key or a path the reader then misses (review round 3 of #40095); no manifest needs
+        # one.
+        if re.search(r"\\[uU]", raw):
+            raise Unresolved(f"a Cargo.toml line with a unicode escape, which the line reader does not read: {raw}")
         line = _strip_comment(raw).strip()
         if pending is not None:
             pending[1] += "\n" + line
@@ -606,6 +645,9 @@ def _toml_entries(text: str) -> list[tuple[list[str], str]]:
         if not equals or not value.strip():
             raise Unresolved(f"a Cargo.toml line the line reader cannot read: {raw}")
         full, value = table + _split_key(key), value.strip()
+        # A quoted key inside an inline table ({ "workspace" = true }) is not read by the patterns below.
+        if value.startswith("{") and re.search(r"""(?:^|[{,])\s*(?:"[^"]*"|'[^']*')\s*=""", value):
+            raise Unresolved(f"a Cargo.toml inline table with a quoted key, which the line reader does not read: {raw}")
         if _depth(value) > 0:
             pending = [full, value]
         else:
@@ -764,18 +806,13 @@ def main(argv: list[str]) -> int:
         if argv[:1] == ["workspace-view"] and len(argv) >= 2:
             print(workspace_view(_text(argv[1]), [_text(path) for path in argv[2:]]))
             return 0
-        if argv[:1] == ["crate-paths"] and len(argv) == 3:
-            crate = Path(argv[2])
-            for path in _manifest_paths(_text(str(crate))):
-                print(crate.parent / path)
-            for path in _workspace_paths(Path(argv[1]), crate):
-                print(path)
-            return 0
         if argv[:1] == ["own-root"] and len(argv) == 2:
             print("yes" if own_root(_text(argv[1])) else "no")
             return 0
-        if argv[:1] == ["inputs"] and len(argv) >= 2:
-            print("\n".join(inputs(Path(argv[1]), argv[2:])))
+        if argv[:1] == ["inputs"] and len(argv) == 2:
+            # The crates, a line "--", then the input pathspecs (walk above).
+            crates, paths = walk(Path(argv[1]))
+            print("\n".join(crates + ["--"] + paths))
             return 0
         if argv[:1] == ["rewrite"] and len(argv) in (3, 4):
             path = Path(argv[3]) if len(argv) == 4 else MANIFEST

@@ -50,53 +50,28 @@ asset="CCmuxAppFFI.xcframework.zip"
 # naming its first line that does not match.
 pin_reader="$code/scripts/ci/app_ffi_pin.py"
 workspace_manifest=cmux-tui/Cargo.toml
-# The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
-# dependencies (cmux-rd-ffi pulls cmux-remote-browser, which a hand list
-# missed on 2026-10-07), a path entry of [workspace.dependencies] that a crate
-# inherits with `workspace = true` included, then the toolchain and the build
-# script. Derived from the Cargo.toml files at HEAD, so a new path dependency
-# is never missed.
-ffi_crates() {
-  local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
-  while [[ -n "${queue// /}" ]]; do
-    dir="$(awk '{print $1}' <<<"$queue")"
-    queue=" ${queue#*" $dir "} "
-    [[ "$seen" == *" $dir "* || ! -f "$root/$dir/Cargo.toml" ]] && continue
-    seen+="$dir "
-    # app_ffi_pin.py crate-paths reads every `path` of the manifest in any TOML form, and the path entries it
-    # inherits from the workspace, as absolute paths; it refuses what it cannot read.
-    dep_paths="$(python3 -I "$pin_reader" crate-paths "$root/$workspace_manifest" "$root/$dir/Cargo.toml")" || return 1
-    while IFS= read -r dep; do
-      [[ -n "$dep" ]] || continue
-      # [lib] and [[bin]] paths name files; only a directory with a Cargo.toml is a crate.
-      resolved="$(cd "$dep" 2>/dev/null && pwd -P)" || continue
-      [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
-      queue+="${resolved#"$root"/} "
-    done <<<"$dep_paths"
-  done
-  tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
-}
-if ! crate_list="$(ffi_crates)"; then
-  echo "error: the app FFI inputs cannot be listed: the crates cmux-app-ffi reaches cannot be read (above)" >&2
-  exit 1
-fi
-crates=()
-while IFS= read -r crate; do [[ -n "$crate" ]] && crates+=("$crate"); done <<<"$crate_list"
-# Of each crate, only what the FFI build reads (app_ffi_pin.py inputs: the manifest, lock file, build script, library
-# sources, headers, and the files a non-test source or build script names). A test, script or README, or a file only
-# they read, is not built into the archive: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test
-# reads, and staled the pin on 2026-11-09.
+# The FFI sources (app_ffi_pin.py walk, fail-closed): cmux-app-ffi and every crate it reaches (cmux-rd-ffi pulls
+# cmux-remote-browser, which a hand list missed on 2026-10-07), each as a whole directory except its tests/, benches/
+# and examples/, plus every file outside a crate that a crate's source names (design-tokens.json, which cmux-motion's
+# build script compiles in). A file only tests read is left out only through the reviewed app_ffi_pin.py TEST_ONLY
+# list: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test reads, and staled the pin on
+# 2026-11-09. Derived from the tree at HEAD in one python3 call: the crates, a line "--", then the git pathspecs (an
+# excluded directory is a `:(exclude)` pathspec).
 listed_err="$(mktemp)"
-if ! listed="$(python3 -I "$pin_reader" inputs "$root" "${crates[@]}" 2>"$listed_err")"; then
-  echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$listed_err")" >&2
+if ! listed="$(python3 -I "$pin_reader" inputs "$root" 2>"$listed_err")"; then
+  echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$listed_err" | tail -1)" >&2
   rm -f "$listed_err"
   exit 1
 fi
 rm -f "$listed_err"
+crates=()
 paths=()
-while IFS= read -r input; do [[ -n "$input" ]] && paths+=("$input"); done <<<"$listed"
-# plans/cmux-next/spec-proposals/visuals/design-tokens.json is an input (app_ffi_pin.py BUILD_READS): cmux-motion's
-# build.rs compiles its token values in, and cmux_motion_spring_base / cmux_motion_tween_base return them to the app.
+section=crates
+while IFS= read -r input; do
+  [[ -n "$input" ]] || continue
+  if [[ "$input" == -- ]]; then section=paths; continue; fi
+  if [[ "$section" == crates ]]; then crates+=("$input"); else paths+=("$input"); fi
+done <<<"$listed"
 # Above the crates: the cargo configs and toolchain files cargo and rustup read in and above
 # cmux-tui/crates/cmux-app-ffi, where build-app-ffi.sh builds.
 paths+=(cmux-tui/.cargo cmux-tui/rust-toolchain cmux-tui/rust-toolchain.toml
