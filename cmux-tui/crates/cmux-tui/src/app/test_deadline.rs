@@ -25,12 +25,13 @@ impl TestDeadline {
     pub(super) fn arm() -> Self {
         let (disarm, disarmed) = mpsc::channel::<()>();
         let test = std::thread::current().name().unwrap_or("<unnamed test>").to_owned();
+        let watched = test.clone();
         let spawned =
             std::thread::Builder::new().name("app-test-deadline".into()).spawn(move || {
                 // The sender never sends: dropping it disconnects and disarms.
                 if disarmed.recv_timeout(APP_TEST_DEADLINE) == Err(RecvTimeoutError::Timeout) {
                     eprintln!(
-                        "app test `{test}` ran past its {} s deadline; ending the test binary \
+                        "app test `{watched}` ran past its {} s deadline; ending the test binary \
                          so the job does not wait for its timeout",
                         APP_TEST_DEADLINE.as_secs()
                     );
