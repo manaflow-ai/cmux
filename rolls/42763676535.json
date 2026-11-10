@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42763676535",
+  "recorded_at": "2026-11-10T05:48:17Z",
+  "reason": "cmux-tui 737e0e9bdab0 changes the image's cmux-tui (pinned bd4accdf1340)",
+  "dry_run": false,
+  "cmux_tui": "737e0e9bdab044fe5b44e8b47b061299e9758474",
+  "fixes": [
+    {
+      "sha": "737e0e9bdab044fe5b44e8b47b061299e9758474",
+      "mergedAt": "2026-11-09T21:24:33-08:00",
+      "subject": "cmux chat: the chat.on wait holds while the app answers pings (#40109)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T05:48:17Z",
+    "snapshot_id": "sh-6d969ebf76ef4a7db0c3771eb59fda0d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42763676535): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "faf8b505638e273db346ffbb49a9af0caec0c6ad",
+    "image": "cloud-native-auto-737e0e9b-42763676535-1",
+    "revision": "ci-42763676535-1",
+    "at": "2026-11-10T05:48:17Z"
+  },
+  "rolled_back": false
+}
