@@ -880,6 +880,65 @@ def rerun_fleet_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]
     return 0
 
 
+SCHEME_JOB = "cmux-scheme-compile"
+
+
+def rerun_scheme_env(env: Mapping[str, str]) -> dict[str, str]:
+    """`env` as attempt 1's cascade reads it, for the scheme compile alone (rerun_scheme())."""
+    return {**env, "GITHUB_RUN_ATTEMPT": "1", "GITHUB_TRIGGERING_ACTOR": "", "JOBS": SCHEME_JOB,
+            "CASCADE_RUNS": delimited((SCHEME_JOB,)), "CASCADE_JOBS": "", "FIRST_JOBS": "", "FRESH_JOBS": "",
+            "FLEET_CLIENT_JOBS": "", "PROMOTE_LABEL": ""}
+
+
+def rerun_scheme(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                 live: Mapping[str, int] | None, waiting: Mapping[str, int] | None,
+                 seen: Any) -> tuple[str, Any, str]:
+    """(the idle owned label, attempt 1's cascade placement, why) for a re-run of the scheme compile.
+
+    A re-run that macos-placement did not place (a person's re-run of failed jobs, or the rescue's attempt 3)
+    carries attempt 1's outputs, so `cmux app scheme compile (Debug)` skipped attempt 1's Blacksmith pick and
+    waited on the owned labels. With the owned pool down (cmux#38484, 2026-11-10: cmux-lawrence lost power)
+    it never started, so the red could not be re-run. cmux-next.yml's scheme-compile-rerun-placement reads the
+    runners now and places the compile as attempt 1 would: an idle SIDE_LABEL runner first (minis first),
+    else attempt 1's cascade (next_macos_cascade.place(): a free Blacksmith 12 vCPU, then 6 vCPU slot, or 6
+    vCPU's moving queue when no mini can take it). Anything that places nothing keeps the job's route.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt == "1":
+        return "", None, "attempt 1 is placed by macos-placement"
+    label = (env.get("SIDE_LABEL") or "").strip()
+    # The compatible side label attempt 1's decide() would take (side_route(): a wider class's idle runners too).
+    side = side_route(label, runners, 1)
+    if side and pool.idle_placement(runners, side, (SCHEME_JOB,)):
+        return side, None, f"idle `{side}` takes the scheme compile (a warm owned build first)"
+    route = route_label(label, runners, 1) or label
+    placed = cascade.place(rerun_scheme_env(env), (), live, waiting, seen, saturated=runners is not None,
+                           route_wait=route_wait(route, runners, seen))
+    owned = "owned runners unread" if runners is None else f"no idle `{label or 'side'}` runner"
+    return "", placed, f"{owned}; attempt 1's cascade: {placed.why}"
+
+
+def rerun_scheme_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write rerun_scheme()'s reading: idle_runner, then the cascade's blacksmith_12_jobs and blacksmith_6_jobs
+    (the workflow maps those to vars.RUNNER_POOLS, as it does macos-placement's)."""
+    live, waiting, seen = cascade.read(rerun_scheme_env(env), pool, now=dt.datetime.now(dt.timezone.utc))
+    label, placed, why = rerun_scheme(env, runners, live, waiting, seen)
+    print(f"scheme compile re-run placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"idle_runner={label}\n")
+            if placed is None:
+                handle.write("blacksmith_12_jobs=\nblacksmith_6_jobs=\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Scheme compile re-run placement\n\n{why}\n")
+    if placed is not None:
+        cascade.write(placed, env)
+    return 0
+
+
 def app_compile_gateway(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
     """(the gateway label a pull request's app-compile-fleet takes now, why), or ("", why).
 
@@ -984,6 +1043,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     runners = read_runners(env)
     if (env.get("PLACEMENT") or "").strip() == "rerun-fleet":
         return rerun_fleet_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "rerun-scheme":
+        return rerun_scheme_main(env, runners)
     if (env.get("PLACEMENT") or "").strip() == "handback":
         return handback_main(env, runners)
     if (env.get("PLACEMENT") or "").strip() == "app-compile":
