@@ -87,9 +87,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// Retry/Edit and Resend, the rail-owned Pin as chapter seam, Fork from Here and Open Link; the
 /// chat's menu (Change Background, zoom...) on empty space; and on selected text the combined
 /// Copy, Quote in Reply, Attach selection as context, Search the Web and Ask About This rows.
-/// While developer tools for cmux pages are on (`developerTools.appPages`), Inspect Element opens
-/// the page's Web Inspector or Chromium DevTools; the Labs UI pointer picker is its own row,
-/// Inspect UI Element.
+/// One inspect row: Point at Element… starts the UI pointer picker, and while developer tools for
+/// cmux pages are on (`developerTools.appPages`) holding Option turns it into Inspect Element, the
+/// page's Web Inspector or Chromium DevTools. With only one of the two on, that one shows alone.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
@@ -127,7 +127,7 @@ enum AgentPaneContextMenu {
         var page: (String, [String: String]) -> Void = { _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
         var pasteTarget: AnyObject?
-        /// The Labs pointer inspector, offered for every app-owned webview element (Inspect UI Element).
+        /// The UI pointer picker, offered for every app-owned webview element (Point at Element…).
         var inspectElement: (() -> Void)? = nil
         /// Inspect Element: the page's developer tools (``CmuxNextPages/PageDeveloperTools``). Nil
         /// keeps WebKit's own Inspect Element item, when WebKit offers one.
@@ -231,9 +231,10 @@ enum AgentPaneContextMenu {
             paste.target = target
             paste.action = #selector(NSText.paste(_:))
         }
-        // Developer tools (Inspect Element) and the Labs UI pointer picker (Inspect UI Element) are
-        // two rows: the picker once took the developer tools' title and removed their row, so with
-        // the picker on no menu opened them (Lawrence, 2026-11-07).
+        // "Why is there an Inspect Element AND a Inspect UI [Element]?" (Leo, 2026-11-09): the menu
+        // shows one inspect row. The UI pointer picker (Point at Element…) is the visible row, and
+        // developer tools (Inspect Element, Lawrence, 2026-11-07) are its Option alternate, so they
+        // stay one key away. Either shows alone while the other is off.
         let webKitInspect = devTools && actions.inspectWithDevTools == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let devToolsRow = devTools ? actions.inspectWithDevTools.map { handler in
             let item = AgentPaneMenuAction.item(PageDeveloperTools.title, symbol: "cursorarrow.rays", handler: handler)
@@ -242,9 +243,9 @@ enum AgentPaneContextMenu {
         } : nil
         let inspect = devToolsRow ?? webKitInspect
         let inspectElement = actions.inspectElement.map {
-            AgentPaneMenuAction.item(AgentPaneMenuStrings.inspectUIElement, symbol: "scope", handler: $0)
+            AgentPaneMenuAction.item(AgentPaneMenuStrings.pointAtElement, symbol: "scope", handler: $0)
         }
-        let inspectors = [inspect, inspectElement].compactMap { $0 }
+        let inspectors = inspectRows(picker: inspectElement, devTools: inspect)
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
         for item in edits + [webKitInspect, lookUp, copyImage].compactMap({ $0 }) where item.image == nil {
@@ -326,7 +327,7 @@ enum AgentPaneContextMenu {
                 })
             }
             if let seq = target.forkSeq {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.branch") { actions.fork(seq) })
                 // The chat menu's New side chat, through this turn (the page's `chat.side`).
                 if target.sideChat {
                     message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat, symbol: "sidebar.right") {
@@ -370,6 +371,17 @@ enum AgentPaneContextMenu {
     }
 
     /// Adds the non-empty groups, split by separators.
+    /// The inspect group: the picker row, then developer tools as its Option alternate (one visible
+    /// row); either alone while the other is off.
+    static func inspectRows(picker: NSMenuItem?, devTools: NSMenuItem?) -> [NSMenuItem] {
+        guard let picker, let devTools else { return [picker, devTools].compactMap { $0 } }
+        picker.keyEquivalentModifierMask = []
+        devTools.keyEquivalent = picker.keyEquivalent
+        devTools.keyEquivalentModifierMask = .option
+        devTools.isAlternate = true
+        return [picker, devTools]
+    }
+
     private static func add(_ groups: [[NSMenuItem]], to menu: NSMenu) {
         for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
@@ -408,9 +420,9 @@ enum AgentPaneContextMenu {
 
 /// The context menu's item titles.
 enum AgentPaneMenuStrings {
-    /// The Labs UI pointer picker's row (Inspect Element is the developer tools').
-    static var inspectUIElement: String {
-        String(localized: "agentPane.menu.inspectUIElement", defaultValue: "Inspect UI Element", bundle: .module)
+    /// The UI pointer picker's row; holding Option shows developer tools' Inspect Element instead.
+    static var pointAtElement: String {
+        String(localized: "agentPane.menu.pointAtElement", defaultValue: "Point at Element…", bundle: .module)
     }
 
     static var openImage: String {

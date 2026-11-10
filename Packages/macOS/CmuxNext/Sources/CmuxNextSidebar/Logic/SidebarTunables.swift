@@ -282,6 +282,7 @@ public nonisolated enum SidebarTunables {
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,
             updateCardAutomaticControl.descriptor,
+            updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
             workspaceHoverCardLeave.descriptor,
             workspaceHoverCardTitle.descriptor,

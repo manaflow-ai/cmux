@@ -770,7 +770,123 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
+/* The Debug looks of the changes (UpdatedNotesLooks.tsx; Lawrence 2026-11-09, "make and show me more
+   versions of this ui"). `sections` above ships until one is picked. */
+/* `digest`: one line per area; open, its pills under it. */
+.wn-notes-list[data-look="digest"] { display: flex; flex-direction: column; gap: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-digest-head:hover { background: var(--page-hover); }
+.wn-notes-digest-head .wn-notes-area-icon { padding-top: calc(var(--grid-base, 4px) / 2); }
+.wn-notes-digest-text { display: grid; min-width: 0; }
+.wn-notes-digest-name { display: flex; gap: var(--ds-space-2); align-items: baseline; font-weight: var(--weight-emphasis); }
+.wn-notes-digest-peek {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-digest-chevron { margin-top: calc(var(--grid-base, 4px) / 2); color: var(--page-text-3, var(--page-text-2)); transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.wn-notes-digest[data-open] .wn-notes-digest-chevron { transform: rotate(90deg); }
+.wn-notes-digest[data-open] .wn-notes-rows { padding-left: var(--ds-space-5); }
+@media (prefers-reduced-motion: reduce) { .wn-notes-digest-chevron { transition: none; } }
+/* `chips`: the areas as filter chips, held at the top while the list scrolls under them. */
+.wn-notes-chips {
+  position: sticky;
+  top: calc(-1 * var(--ds-space-1));
+  z-index: var(--layer-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  background: var(--composer-material-tint, var(--page-bg));
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.wn-notes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  cursor: default;
+}
+.wn-notes-chip:hover { background: var(--page-hover); color: var(--page-text); }
+.wn-notes-chip[aria-pressed="true"] { background: var(--page-selection, var(--page-hover)); color: var(--page-text); box-shadow: none; }
+.wn-notes-chip .wn-notes-area-icon svg { width: 12px; height: 12px; }
+/* `headline`: the first changes at full size, their details whole; then See all changes. */
+.wn-notes-list[data-look="headline"] { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.wn-notes-list[data-look="headline"] .wn-notes-row { gap: calc(var(--grid-base, 4px) / 2); padding-block: var(--ds-space-3); }
+.wn-notes-list[data-look="headline"] .wn-notes-row-title { font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: var(--weight-emphasis); }
+.wn-notes-headline-area {
+  color: var(--cmux-accent, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.wn-notes-headline-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.wn-notes-seeall {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-top: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-seeall:hover { background: var(--page-hover); }
+/* `ledger`: one line per change, the area a quiet label in its own column. */
+.wn-notes-list[data-look="ledger"] .wn-notes-row {
+  grid-template-columns: 84px minmax(0, 1fr);
+  column-gap: var(--ds-space-3);
+  padding-block: var(--ds-space-1);
+}
+.wn-notes-list[data-look="ledger"] li + li .wn-notes-row:has(.wn-notes-ledger-area:not(:empty)) {
+  margin-top: var(--ds-space-2);
+}
+.wn-notes-ledger-area {
+  color: var(--page-text-3, var(--page-text-2));
+  font-size: var(--text-detail);
+  line-height: var(--text-body--line-height);
+  overflow-wrap: anywhere;
+}
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew, .wn-notes-digest-head, .wn-notes-chip, .wn-notes-seeall):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }

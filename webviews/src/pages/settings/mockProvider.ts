@@ -332,7 +332,10 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
-      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.agents.run": async (params) => {
+        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
+        return this.agents.run(params as unknown as AgentsRun);
+      },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
         if (menus)
@@ -397,25 +400,45 @@ export class MockSettingsProvider {
         this.chiefs.push(made);
         return { value: made };
       },
-      "cmux.chief.backend.list": () => ({
-        harnesses: {
-          defaultHarness: "claude",
-          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
-        },
-        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
-        models: {
-          harnesses: [
-            {
-              harness: "codex",
-              models: [
-                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
-                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
-              ],
+      "cmux.chief.backend.list": async () => {
+        await this.agents.endpoint.holdList;
+        return {
+          harnesses: {
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { displayName: "Claude Code" },
+              codex: { displayName: "Codex" },
+              ...this.agents.endpointHarnesses(),
+              ...this.agents.terminalHarnesses(),
             },
-          ],
-        },
-      }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+          },
+          // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+          models: {
+            harnesses: [
+              {
+                harness: "codex",
+                models: [
+                  { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                  { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+                ],
+              },
+            ],
+          },
+        };
+      },
+      "cmux.chief.backend.add": async (params) => {
+        await this.agents.endpoint.holdAdd;
+        const before = this.agents.endpoint.addFails;
+        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const added = this.agents.addEndpoint(params);
+        const fail = this.agents.endpoint.addThenFail;
+        if (fail) throw new ProtocolError(fail, "the add did not answer in time");
+        return added;
+      },
+      "cmux.chief.backend.doctor": async () => {
+        await this.agents.endpoint.holdDoctor;
+        return this.agents.endpoint.doctor;
+      },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -640,6 +663,7 @@ export class MockSettingsProvider {
       "cmux.chief.profile.update",
       "cmux.chief.profile.create",
       "cmux.chief.backend.list",
+      "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
