@@ -86,14 +86,17 @@ import CmuxHomeCoreTestSupport
         mirror.apply(inbox: InboxSnapshot(me: me, conversations: [summary()], rev: 1))
         mirror.beginLoading(conv)
         #expect(mirror.windows[conv]?.firstPage == .loading)
-        #expect(mirror.markFirstPageFailed(conv))
+        let failed = mirror.markFirstPageFailed(conv)
+        #expect(failed)
         #expect(mirror.windows[conv]?.firstPage == .failed)
-        #expect(mirror.retryFirstPage(conv))
+        let retried = mirror.retryFirstPage(conv)
+        #expect(retried)
         #expect(mirror.windows[conv]?.firstPage == .loading)
         mirror.apply(page: ConversationPage(conversation: summary(), messages: []))
         #expect(mirror.windows[conv]?.firstPage == .loaded)
         #expect(mirror.windows[conv]?.messages.isEmpty == true)
         // A loaded window never turns failed.
-        #expect(!mirror.markFirstPageFailed(conv))
+        let failedAfterLoad = mirror.markFirstPageFailed(conv)
+        #expect(!failedAfterLoad)
     }
 }
