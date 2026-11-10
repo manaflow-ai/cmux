@@ -283,8 +283,10 @@ export function retainedEntries(root: object, depth = 3): Map<string, number> {
   const walk = (value: unknown, path: string, left: number) => {
     if (value === null || typeof value !== "object" || seen.has(value)) return;
     seen.add(value);
+    // A path met more than once (the values of one Map) sums, so a cache of growing lists shows its growth.
+    const add = (size: number) => out.set(path, (out.get(path) ?? 0) + size);
     if (value instanceof Map || value instanceof Set) {
-      out.set(path, value.size);
+      add(value.size);
       if (left > 0) {
         let index = 0;
         for (const item of value.values()) if (index++ < 64) walk(item, `${path}[]`, left - 1);
@@ -292,7 +294,7 @@ export function retainedEntries(root: object, depth = 3): Map<string, number> {
       return;
     }
     if (Array.isArray(value)) {
-      out.set(path, value.length);
+      add(value.length);
       return;
     }
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer || value instanceof Promise) return;
@@ -311,7 +313,16 @@ export function retainedEntries(root: object, depth = 3): Map<string, number> {
   return out;
 }
 
-export type Sample = { op: number; heapBytes: number; objects: number; entries: number; timers: number; byPath: Map<string, number> };
+export type Sample = {
+  op: number;
+  heapBytes: number;
+  objects: number;
+  entries: number;
+  timers: number;
+  byPath: Map<string, number>;
+  /// Live cells by type (bun:jsc's objectTypeCounts): a failure names the types that grew, the stores aside.
+  types: Record<string, number>;
+};
 
 /// One growth sample after a full collection.
 export function sample(op: number, client: object, clock: VirtualClock, skip: (path: string) => boolean = () => false): Sample {
@@ -320,7 +331,15 @@ export function sample(op: number, client: object, clock: VirtualClock, skip: (p
   const byPath = retainedEntries(client);
   let entries = 0;
   for (const [path, size] of byPath) if (!skip(path)) entries += size;
-  return { op, heapBytes: stats.heapSize, objects: stats.objectCount, entries, timers: clock.live, byPath };
+  return {
+    op,
+    heapBytes: stats.heapSize,
+    objects: stats.objectCount,
+    entries,
+    timers: clock.live,
+    byPath,
+    types: { ...stats.objectTypeCounts },
+  };
 }
 
 /// The noise bands a scenario's slopes are held to, per operation, after warm-up.
@@ -361,12 +380,21 @@ export function judge(scenario: string, scale: Scale, samples: Sample[], warm: n
     if (size > before) grew.push([path, (size - before) / span]);
   }
   grew.sort((a, b) => b[1] - a[1]);
+  const types: [string, number][] = [];
+  const typesBefore = kept[0]?.types ?? {};
+  for (const [type, count] of Object.entries(kept.at(-1)?.types ?? {})) {
+    const rate = (count - (typesBefore[type] ?? 0)) / span;
+    if (rate >= 0.5) types.push([type, rate]);
+  }
+  types.sort((a, b) => b[1] - a[1]);
   const failures: string[] = [];
   for (const key of ["entries", "timers", "objects", "heapBytes"] as const)
     if (perOp[key] > bands[key])
       failures.push(`${scenario}/${scale}: ${key} grow ${perOp[key].toFixed(2)} per op (band ${bands[key]})`);
   if (failures.length && grew.length)
     failures.push(`grew: ${grew.slice(0, 6).map(([path, rate]) => `${path} +${rate.toFixed(2)}/op`).join(", ")}`);
+  if (failures.length && types.length)
+    failures.push(`cells: ${types.slice(0, 6).map(([type, rate]) => `${type} +${rate.toFixed(1)}/op`).join(", ")}`);
   return { scenario, scale, ops: kept.at(-1)?.op ?? 0, ms, perOp, grew, failures };
 }
 
@@ -472,7 +500,9 @@ export async function sessionChurn(options: ScenarioOptions): Promise<Growth> {
     daemon.changed(summaryOf(id, at + 1, { status: "running", lane: { state: "working" } }));
     daemon.changed(summaryOf(id, at + 2, { status: "running", preview: `Working on ${index}` }));
     daemon.changed(summaryOf(id, at + 3, { status: "idle", preview: `Done ${index}`, unread: true }));
-    const other = `bg-${index % total}`;
+    // One of eight listed chats changes too: few enough that warm-up has read each ahead once (the read ahead keeps
+    // one entry per listed chat it read, bounded by the list, which a ring over all of them would count as growth).
+    const other = `bg-${index % Math.min(total, 8)}`;
     daemon.changed(summaryOf(other, at + 4, { preview: `Reply ${index}` }));
     daemon.purge(id);
     await clock.advance(250);

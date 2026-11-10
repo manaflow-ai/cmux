@@ -38,8 +38,12 @@ type Delivery = { events: EventRecord[]; lost: Set<number>; dropAt?: number; log
 /// A random delivery of `events`: each record may be lost, sent twice (the copy later), or swapped with the next
 /// one; the socket may drop once. Every turn's `turn_result` arrives (the pane repairs a turn when it ends), and the
 /// last record is the last one sent, so the whole log is owed back once the clock settles.
-function perturb(events: EventRecord[], seed: number): Delivery {
+type Kind = "lose" | "swap" | "dup" | "drop";
+const KINDS: readonly Kind[] = ["lose", "swap", "dup", "drop"];
+
+function perturb(events: EventRecord[], seed: number, kinds: readonly Kind[] = KINDS): Delivery {
   const random = prng(seed);
+  const on = (kind: Kind) => kinds.includes(kind);
   const out: EventRecord[] = [];
   const lost = new Set<number>();
   const later: EventRecord[] = [];
@@ -49,26 +53,28 @@ function perturb(events: EventRecord[], seed: number): Delivery {
     const final = index === events.length - 1;
     const ends = event.kind === "turn_result";
     const roll = random();
-    if (!final && !ends && roll < 0.08) {
+    if (!final && !ends && roll < 0.08 && on("lose")) {
       lost.add(event.seq);
       log.push(`lose ${event.seq}`);
       continue;
     }
-    if (!final && !ends && roll < 0.16 && index + 1 < events.length - 1) {
+    if (!final && !ends && roll >= 0.08 && roll < 0.16 && index + 1 < events.length - 1 && on("swap")) {
       out.push(events[index + 1]!, event);
       log.push(`swap ${event.seq}<>${events[index + 1]!.seq}`);
       index += 1;
       continue;
     }
     out.push(event);
-    if (roll > 0.9) {
+    if (roll > 0.9 && on("dup")) {
       later.push(event);
       log.push(`dup ${event.seq}`);
     }
     if (later.length && random() < 0.3) out.push(later.shift()!);
   }
   out.splice(out.length - 1, 0, ...later);
-  const dropAt = random() < 0.5 ? Math.floor(random() * out.length * 0.8) : undefined;
+  const dropRoll = random();
+  const dropSpot = Math.floor(random() * out.length * 0.8);
+  const dropAt = dropRoll < 0.5 && on("drop") ? dropSpot : undefined;
   if (dropAt !== undefined) log.push(`drop at ${dropAt}`);
   return { events: out, lost, dropAt, log };
 }
@@ -110,11 +116,52 @@ test("in-order live delivery draws what the stored log draws", async () => {
     [...events],
   );
   const stored = await connectClient(daemon, SESSION, clock);
+  // Attach reads the newest records; the rest page in as the reader scrolls up. Read all of them.
+  const whole = stored.client.loadThrough(events[0]!.seq);
   await clock.advance(120_000);
+  expect(await whole).toBe(true);
   const storedRows = drawn(stored.rows());
   stored.client.close();
   expect(JSON.stringify(storedRows)).toBe(JSON.stringify(inOrder.rows));
 });
+
+/// The first row that differs, both sides cut short, for a failure message.
+function firstDiff(got: unknown, want: unknown): string {
+  const [a, b] = [got as unknown[], want as unknown[]];
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const [x, y] = [JSON.stringify(a[index]) ?? "none", JSON.stringify(b[index]) ?? "none"];
+    if (x !== y) return `row ${index} of ${a.length} (want ${b.length}): got ${x.slice(0, 240)} want ${y.slice(0, 240)}`;
+  }
+  return "same";
+}
+
+/// Plays one perturbed delivery and reports what is wrong with the result ([] when it converged).
+async function converge(delivery: Delivery, reference: unknown): Promise<string[]> {
+  const result = await play(events, async (daemon) => {
+    // The daemon logs every record; the connection sees the perturbed stream.
+    for (const event of live) daemon.sessions.get(SESSION)!.history.push(event);
+    for (let index = 0; index < delivery.events.length; index++) {
+      if (index === delivery.dropAt) {
+        daemon.drop();
+        await clock!.advance(5_000);
+      }
+      const event = delivery.events[index]!;
+      if (!delivery.lost.has(event.seq)) daemon.deliver(event);
+      if (index % 7 === 0) await clock!.advance(16);
+    }
+  });
+  const problems: string[] = [];
+  const held = (result.client as unknown as { events: EventRecord[] }).events;
+  const seqs = held.map((event) => event.seq);
+  const unique = new Set(seqs).size === seqs.length;
+  const ordered = seqs.every((seq, index) => index === 0 || seqs[index - 1]! < seq);
+  if (!unique || !ordered) problems.push(`the held log is ${unique ? "" : "not unique "}${ordered ? "" : "not in order"}`);
+  if (JSON.stringify(result.rows) !== JSON.stringify(reference)) problems.push(firstDiff(result.rows, reference));
+  result.client.close();
+  clock!.uninstall();
+  clock = undefined;
+  return problems;
+}
 
 test("duplicate, reordered, lost and reconnected deliveries converge to the in-order rows", async () => {
   const reference = await play(events, async (daemon) => {
@@ -127,31 +174,21 @@ test("duplicate, reordered, lost and reconnected deliveries converge to the in-o
   const failures: string[] = [];
   for (let seed = FIRST_SEED; seed < FIRST_SEED + CASES; seed++) {
     const delivery = perturb(live, seed);
-    const result = await play(events, async (daemon) => {
-      // The daemon logs every record; the connection sees the perturbed stream.
-      for (const event of live) daemon.sessions.get(SESSION)!.history.push(event);
-      for (let index = 0; index < delivery.events.length; index++) {
-        if (index === delivery.dropAt) {
-          daemon.drop();
-          await clock!.advance(5_000);
-        }
-        const event = delivery.events[index]!;
-        if (!delivery.lost.has(event.seq)) daemon.deliver(event);
-        if (index % 7 === 0) await clock!.advance(16);
-      }
-    });
-    const held = (result.client as unknown as { events: EventRecord[] }).events;
-    const seqs = held.map((event) => event.seq);
-    const unique = new Set(seqs).size === seqs.length;
-    const ordered = seqs.every((seq, index) => index === 0 || seqs[index - 1]! < seq);
-    if (!unique || !ordered)
-      failures.push(`seed ${seed}: the held log is ${unique ? "" : "not unique "}${ordered ? "" : "not in order"}`);
-    if (JSON.stringify(result.rows) !== JSON.stringify(reference.rows))
-      failures.push(`seed ${seed}: rows differ after ${delivery.log.join(", ") || "plain delivery"}`);
-    result.client.close();
-    clock!.uninstall();
-    clock = undefined;
+    const problems = await converge(delivery, reference.rows);
+    if (!problems.length) continue;
+    // Which kind of fault alone breaks it: the same seed with one kind at a time.
+    const alone: string[] = [];
+    for (const kind of KINDS) {
+      const single = perturb(live, seed, [kind]);
+      const wrong = await converge(single, reference.rows);
+      if (wrong.length) alone.push(`${kind} alone (${single.log.join(", ")}): ${wrong.join("; ")}`);
+    }
+    failures.push(
+      `seed ${seed}: ${problems.join("; ")}\n  after ${delivery.log.join(", ") || "plain delivery"}` +
+        (alone.length ? `\n  ${alone.join("\n  ")}` : "\n  no single kind alone breaks it"),
+    );
   }
+  for (const failure of failures) console.log(failure);
   expect(failures).toEqual([]);
 });
 
