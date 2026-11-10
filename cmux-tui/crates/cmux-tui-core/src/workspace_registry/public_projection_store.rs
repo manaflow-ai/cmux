@@ -24,6 +24,18 @@ use cmux_json::JsonSet as _;
 
 const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
+#[cfg(test)]
+thread_local! {
+    static AGENT_PROJECTION_ROWS_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many agent projection rows this thread has read from the registry (test hook): a test
+/// counts the rows a reader pays for, with no clock (AGENT RECORDS, 2026-11-10).
+#[cfg(test)]
+pub(crate) fn agent_projection_rows_read_on_this_thread() -> usize {
+    AGENT_PROJECTION_ROWS_READ.with(std::cell::Cell::get)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryNotificationProjection {
     pub id: NotificationPublicId,
@@ -446,6 +458,8 @@ impl WorkspaceRegistry {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        #[cfg(test)]
+        AGENT_PROJECTION_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
             let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {

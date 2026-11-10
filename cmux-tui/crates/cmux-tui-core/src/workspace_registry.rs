@@ -142,6 +142,8 @@ pub use presentation_store::{
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
+pub(crate) use public_projection_store::agent_projection_rows_read_on_this_thread;
+#[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
