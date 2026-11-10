@@ -40,6 +40,7 @@ export interface UpstreamCall {
 export type UpstreamOperation =
   | "listFirewallRules"
   | "createFirewallRule"
+  | "deleteFirewallRule"
   | "create"
   | "get"
   | "list"
@@ -232,6 +233,11 @@ export function makeFakeUpstream(apiKey: string) {
         firewallRules.set(id, { vmId: ruleVm, rule });
         return Response.json(rule);
       }
+      case "deleteFirewallRule": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/firewall/rules/".length));
+        if (!firewallRules.delete(id)) return notFound();
+        return new Response(null, { status: 204 });
+      }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
         const offset = Number(url.searchParams.get("offset") ?? 0);
@@ -386,6 +392,7 @@ export function makeFakeUpstream(apiKey: string) {
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
     if (url.pathname === "/v5/firewall/rules" && method === "GET") return { operation: "listFirewallRules", vmId: null };
     if (url.pathname === "/v5/firewall/rules" && method === "POST") return { operation: "createFirewallRule", vmId: null };
+    if (url.pathname.startsWith("/v5/firewall/rules/") && method === "DELETE") return { operation: "deleteFirewallRule", vmId: null };
     if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };

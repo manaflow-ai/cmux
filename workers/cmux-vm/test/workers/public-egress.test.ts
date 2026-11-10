@@ -15,7 +15,7 @@ afterEach(async () => {
   current = undefined;
 });
 
-const egress = (t: Harness, vm: string, key: string, method: "GET" | "PUT" = "GET") =>
+const egress = (t: Harness, vm: string, key: string, method: "GET" | "PUT" | "DELETE" = "GET") =>
   t.request(`/v1/vms/${vm}/public-egress`, bearer(key), { method });
 const create = async (t: Harness, key: string, body: unknown) => {
   const response = await t.request("/v1/vms", bearer(key), { method: "POST", body });
@@ -100,5 +100,58 @@ describe("existing VM public egress", () => {
     t.upstream.fail("listFirewallRules", 500);
     expect((await egress(t, vm.vmId, key, "PUT")).status).toBe(503);
     expect(t.upstream.callsTo("POST", /^\/v5\/firewall\/rules$/)).toHaveLength(0);
+  });
+});
+
+describe("revoking a VM's public egress", () => {
+  it("deletes the VM's whole-Internet rules, keeps narrower ones, and reads back off", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT, ["vm:write", "vm:network"]);
+    const vm = await create(t, key, { initialNetwork: { publicEgress: true } });
+    const upstreamVm = [...t.upstream.vms.keys()][0]!;
+    // A second whole-Internet rule (an allow after create) and a narrower one that must stay.
+    expect((await t.request(`/v1/vms/${vm}/public-egress`, bearer(key), { method: "PUT" })).status).toBe(200);
+    t.upstream.firewallRules.set("narrow", { vmId: upstreamVm, rule: { id: "narrow", action: "allow", source: { vmId: upstreamVm }, destination: { cidr: "203.0.113.0/24" } } });
+    t.upstream.firewallRules.set("dup", { vmId: upstreamVm, rule: { id: "dup", action: "allow", source: { vmId: upstreamVm }, destination: { public: true } } });
+
+    const revoked = await egress(t, vm, key, "DELETE");
+    expect(revoked.status).toBe(200);
+    const body = await revoked.text();
+    expect(JSON.parse(body)).toEqual({ id: vm, publicEgress: false });
+    expect(body).not.toContain(upstreamVm);
+    expect(t.upstream.callsTo("DELETE", /^\/v5\/firewall\/rules\/.+$/)).toHaveLength(2);
+    expect([...t.upstream.firewallRules.keys()]).toEqual(["narrow"]);
+    expect(await (await egress(t, vm, key)).json()).toEqual({ id: vm, publicEgress: false });
+    expect(t.audit.map((row) => row.action)).toContain("vm.public_egress.revoke");
+
+    // Idempotent: nothing left to delete. Then allow again works.
+    expect((await egress(t, vm, key, "DELETE")).status).toBe(200);
+    expect((await egress(t, vm, key, "PUT")).status).toBe(200);
+    expect(await (await egress(t, vm, key)).json()).toEqual({ id: vm, publicEgress: true });
+  });
+
+  it("answers 503, not off, when a delete leaves a rule behind", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    const vm = t.addVm(TENANT);
+    t.upstream.firewallRules.set("open", { vmId: vm.upstreamId, rule: { id: "open", action: "allow", source: { vmId: vm.upstreamId }, destination: { public: true } } });
+    t.upstream.fail("deleteFirewallRule", 500);
+    expect((await egress(t, vm.vmId, key, "DELETE")).status).toBe(503);
+    expect(t.upstream.firewallRules.has("open")).toBe(true);
+  });
+
+  it("does not touch another VM's rule, and needs the network scope", async () => {
+    const t = await harness();
+    const vm = t.addVm(TENANT);
+    const other = t.addVm(TENANT);
+    t.upstream.firewallRules.set("other", { vmId: other.upstreamId, rule: { id: "other", action: "allow", source: { vmId: other.upstreamId }, destination: { public: true } } });
+    const weak = await t.addKey(TENANT, ["vm:write", "vm:read"]);
+    expect((await egress(t, vm.vmId, weak, "DELETE")).status).toBe(403);
+    expect(t.upstreamRequests).toHaveLength(0);
+    const key = await t.addKey(TENANT, ["vm:network"]);
+    expect((await egress(t, vm.vmId, key, "DELETE")).status).toBe(200);
+    expect(t.upstream.firewallRules.has("other")).toBe(true);
+    const hidden = t.addVm("team_bravo");
+    expect((await egress(t, hidden.vmId, key, "DELETE")).status).toBe(404);
   });
 });
