@@ -61,6 +61,50 @@ for f in data.json ml.json br.json build-data.txt .descriptor.json README.md LIC
   scripts/sync.py benches/b.rs examples/e.rs; do
   echo "$f" > "$core/$f"
 done
+# The cmux-tui workspace manifest: cmux-rd-core inherits two [workspace.package] keys and two [workspace.dependencies]
+# entries (one in a target table) for its library, and one entry only for its tests.
+cat > "$repo/cmux-tui/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/cmux-unrelated"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+libc = "0.2"
+criterion = "0.5"
+tokio = "1"
+
+[patch.crates-io]
+tokio = { path = "vendor/tokio" }
+
+[profile.release]
+opt-level = 3
+EOF
+cat > "$core/Cargo.toml" <<'EOF'
+[package]
+name = "x"
+edition.workspace = true
+license = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["std"] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+EOF
 git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
@@ -102,10 +146,10 @@ for f in data.json ml.json br.json build-data.txt tests/vectors/lines.json; do
   [[ "$out" == *"cmux-tui/crates/cmux-rd-core/$f"* ]] || fail "the stale report does not name $f: $out"
   git -C "$repo" reset -q --hard HEAD~1
 done
-# What cargo and rustup read above the crate files: the crate's own and its parents' cargo config and toolchain, and
-# the cmux-tui workspace manifest the crates inherit `workspace = true` keys from (review of #40095).
+# What cargo and rustup read above the crate files: the crate's own and its parents' cargo config and toolchain
+# (review of #40095).
 for f in cmux-tui/crates/cmux-app-ffi/.cargo/config.toml cmux-tui/crates/cmux-app-ffi/rust-toolchain.toml \
-  cmux-tui/crates/.cargo/config.toml cmux-tui/.cargo/config.toml .cargo/config.toml cmux-tui/Cargo.toml; do
+  cmux-tui/crates/.cargo/config.toml cmux-tui/.cargo/config.toml .cargo/config.toml; do
   mkdir -p "$(dirname "$repo/$f")"
   echo "changed" > "$repo/$f"
   git -C "$repo" add -A
@@ -116,6 +160,53 @@ for f in cmux-tui/crates/cmux-app-ffi/.cargo/config.toml cmux-tui/crates/cmux-ap
   [[ "$out" == *"$f"* ]] || fail "the stale report does not name $f: $out"
   git -C "$repo" reset -q --hard HEAD~1
 done
+# Of the cmux-tui workspace manifest, only what the FFI crates inherit for their library is an input: it changed 55
+# times on feat-cmux-next in the 14 days to 2026-11-10. cmux-app-ffi is its own workspace root, so the manifest's
+# members, lints, [patch] and [profile] do not reach the FFI build, nor do entries the crates do not inherit or
+# inherit only for tests.
+ws="$repo/cmux-tui/Cargo.toml"
+edit_ws() { # edit_ws FROM TO MESSAGE: replace FROM with TO in the workspace manifest and commit
+  python3 - "$ws" "$1" "$2" <<'EOF'
+import sys
+from pathlib import Path
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = path.read_text()
+assert text.count(old) == 1, old
+path.write_text(text.replace(old, new))
+EOF
+  git -C "$repo" commit -qam "$3"
+}
+edit_ws 'members = ["crates/cmux-unrelated"]' 'members = ["crates/cmux-unrelated", "crates/cmux-new"]' "ws members"
+edit_ws 'unsafe_code = "warn"' 'unsafe_code = "deny"' "ws lints"
+edit_ws 'criterion = "0.5"' 'criterion = "0.6"' "ws dev-only dependency"
+edit_ws 'tokio = "1"' 'tokio = "1.40"' "ws dependency no FFI crate inherits"
+edit_ws 'path = "vendor/tokio"' 'path = "vendor/tokio2"' "ws patch"
+edit_ws 'opt-level = 3' 'opt-level = 2' "ws profile"
+edit_ws 'rust-version = "1.80"' 'rust-version = "1.81"' "ws package key no FFI crate inherits"
+printf '\n[workspace.metadata.x]\ny = 1\n' >> "$ws"
+git -C "$repo" commit -qam "ws metadata"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
+  || fail "a workspace manifest change no FFI crate inherits made the pin stale: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "no match line after workspace manifest changes: $out"
+# What an FFI crate inherits for its library is an input: a [workspace.package] key in either form, and a
+# [workspace.dependencies] entry from [dependencies] or a target table.
+for change in 'edition = "2021"|edition = "2024"' 'license = "MIT"|license = "MIT OR Apache-2.0"' \
+  'features = ["derive"]|features = ["derive", "rc"]' 'libc = "0.2"|libc = "0.2.170"'; do
+  edit_ws "${change%%|*}" "${change#*|}" "inherited ${change%%|*}"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to the inherited ${change%%|*} kept the pin current: $out"
+  fi
+  [[ "$out" == *"cmux-tui/Cargo.toml"* ]] || fail "the stale report does not name cmux-tui/Cargo.toml: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
+# A crate that starts to inherit an entry is a changed input (its own Cargo.toml).
+printf 'tokio = { workspace = true }\n' >> "$core/Cargo.toml"
+git -C "$repo" commit -qam "inherit tokio"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a crate that starts to inherit an entry kept the pin current: $out"
+fi
+git -C "$repo" reset -q --hard HEAD~1
+
 # A name the scan cannot read refuses, never leaves the file out: a build script that reads by a computed path, an
 # include whose argument is not one string literal, and a #[path] module outside src/ (its own modules would go
 # unread).
@@ -136,6 +227,7 @@ refuse cmux-tui/crates/cmux-rd-core/src/lib.rs 'pub const Q: &str = include_str!
   "an include by a computed path"
 refuse cmux-tui/crates/cmux-rd-core/src/lib.rs '#[path = "../shared/foo.rs"] mod foo;' \
   "a #[path] module outside src/"
+refuse cmux-tui/Cargo.toml '[[[' "a workspace manifest that is not TOML"
 
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
