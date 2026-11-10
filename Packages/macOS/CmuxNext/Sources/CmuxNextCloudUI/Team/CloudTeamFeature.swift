@@ -48,6 +48,8 @@ public final class CloudTeamFeature {
                                  _ = registry?.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user))
                              }, open: { [weak self] row in
                                  self?.openLink(team: row.team, machine: row.vm, session: row.session, kind: row.kind, intent: .raise)
+                             }, menu: { [weak self] row, members in
+                                 self?.makeRowMenu(row, members: members)
                              })
     }
 
