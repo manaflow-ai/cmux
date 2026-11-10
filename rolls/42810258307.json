@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42810258307",
+  "recorded_at": "2026-11-10T11:57:06Z",
+  "reason": "cmux-tui 6656485330c2 changes the image's cmux-tui (pinned 2df8b6b8a5ea)",
+  "dry_run": false,
+  "cmux_tui": "6656485330c240c3e6f4c04491c9458928bb33c1",
+  "fixes": [
+    {
+      "sha": "65052eb211907ba37a91d2e8781b5b2b5694a40b",
+      "mergedAt": "2026-11-10T03:26:10-08:00",
+      "subject": "base red: cmux-tui clippy semicolons in cmux ext (#40242); a red file outside the change is named as the base's (#40406)"
+    },
+    {
+      "sha": "80e55bbaf78ff3805c942a4105201fc81a512eba",
+      "mergedAt": "2026-11-10T03:24:47-08:00",
+      "subject": "acpmux outbox: a message is queued only once it is on disk, and a peer back mid-attempt ends the retry wait (#40357)"
+    },
+    {
+      "sha": "b9bb102006fd28ef9888403a9840e8cdeb75b2df",
+      "mergedAt": "2026-11-10T03:24:04-08:00",
+      "subject": "cmux vm new --wait: one command from nothing to a configured Cloud VM (#40360)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T11:57:06Z",
+    "snapshot_id": "sh-7f5c869ba6c94c16a0fd3761d60ea8ab",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42810258307): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "089420a3273dd92cbc31fdbb7ce223dd3fe5ddf9",
+    "image": "cloud-native-auto-66564853-42810258307-1",
+    "revision": "ci-42810258307-1",
+    "at": "2026-11-10T11:57:06Z"
+  },
+  "rolled_back": false
+}
