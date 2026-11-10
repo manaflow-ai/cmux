@@ -367,6 +367,15 @@ fn build_stamp() -> String {
 
 /// True when an earlier attempt of this same build failed for a reason that
 /// would fail again. A marker of another build is removed.
+/// The retention floor of the registry at `db_path`, read beside its owner
+/// (`journal_retention::journal_retention_floor`). The cleanup worker
+/// resumes a staging file of an earlier start at this floor.
+pub(crate) fn registry_retention_floor(db_path: &Path) -> anyhow::Result<u64> {
+    let source = super::open_registry_database_read_only(db_path)?;
+    source.busy_timeout(std::time::Duration::from_secs(5))?;
+    super::journal_retention::journal_retention_floor(&source)
+}
+
 pub(crate) fn failed_for_this_build(db_path: &Path) -> bool {
     let marker = failed_path(db_path);
     let Ok(text) = std::fs::read_to_string(&marker) else { return false };
@@ -452,6 +461,13 @@ impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
     pub(crate) fn output_cleanup_done(&self) -> anyhow::Result<bool> {
         Ok(meta_value(&self.connection.get(), DONE_META_KEY)?.is_some())
+    }
+
+    /// True when the sealed segments at or below `floor` hold enough records
+    /// that the rebuild beside the file removes them, not the retention pass
+    /// (which would leave the file at its size).
+    pub(crate) fn journal_rebuild_owed(&self, floor: u64) -> anyhow::Result<bool> {
+        stage::rebuild_owed(&self.connection.get(), floor)
     }
 
     /// Records that this registry holds no stored terminal output.

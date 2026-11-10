@@ -1,9 +1,17 @@
-//! The owner's side of the one-time output cleanup
-//! (`workspace_registry::output_cleanup`): a low-priority thread that waits
-//! a while after start, stages the registry's sealed segments and builds the
-//! new registry from them (Phase A), keeps it current while the owner serves,
-//! and holds back journal sealing while a cleanup is pending. The swap itself
-//! runs at the next owner start, in `WorkspaceRegistry::open`.
+//! The owner's side of the output cleanup and of the rebuild at a retention
+//! floor (`workspace_registry::output_cleanup`): a low-priority thread that
+//! waits a while after start, stages the registry's sealed segments and
+//! builds the new registry from them (Phase A), keeps it current while the
+//! owner serves, and holds back journal sealing while a cleanup is pending.
+//! The swap itself runs at the next owner start, in `WorkspaceRegistry::open`.
+//!
+//! The join with retention (`mux/journal_segment_retention.rs`): a registry
+//! the one-time cleanup is done for is built again only for a floor. The
+//! retention pass names it ([`Mux::offer_rebuild_floor`]) when the sealed
+//! segments at or below it hold enough records that deleting them in place
+//! would leave the file at its size, and it deletes none of them while this
+//! worker can still rebuild ([`Mux::journal_rebuild_possible`]). A rebuild
+//! that is refused, skipped or fails ends that: the pass deletes in place.
 
 use super::*;
 use crate::workspace_registry::output_cleanup::{
@@ -28,15 +36,55 @@ pub(super) struct OutputCleanupState {
     /// Set while a registry is staged or being staged: journal maintenance
     /// seals no more live rows (they are almost all output to be removed).
     pending: Arc<AtomicBool>,
+    /// True while the worker of this start can still rebuild the registry
+    /// at a retention floor. False with no worker, and once a rebuild was
+    /// not needed, refused, skipped or failed.
+    rebuild_possible: Arc<AtomicBool>,
+    /// Retention ticks of this start that waited for the agent history fold
+    /// before they named a rebuild floor.
+    fold_waits: std::sync::atomic::AtomicU32,
     worker: Mutex<Option<OutputCleanupWorker>>,
 }
 
 struct Control {
     stopped: Mutex<bool>,
     changed: Condvar,
+    /// The retention floor of the rebuild of this start (0: the retention
+    /// pass named none yet). The first one stays.
+    floor: AtomicU64,
 }
 
 impl Control {
+    fn new() -> Self {
+        Self { stopped: Mutex::new(false), changed: Condvar::new(), floor: AtomicU64::new(0) }
+    }
+
+    /// Names the floor of this start's rebuild and wakes the worker.
+    fn offer_floor(&self, floor: u64) {
+        if floor > 0
+            && self.floor.compare_exchange(0, floor, Ordering::AcqRel, Ordering::Acquire).is_ok()
+        {
+            // Under the lock the worker waits on, so it cannot miss the wake.
+            let _stopped = self.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+            self.changed.notify_all();
+        }
+    }
+
+    /// Waits for a floor from the retention pass; `None` once stopped.
+    fn wait_for_floor(&self) -> Option<u64> {
+        let mut stopped = self.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if *stopped {
+                return None;
+            }
+            let floor = self.floor.load(Ordering::Acquire);
+            if floor > 0 {
+                return Some(floor);
+            }
+            stopped = self.changed.wait(stopped).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
     fn is_stopped(&self) -> bool {
         *self.stopped.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -61,11 +109,6 @@ impl Control {
         }
     }
 }
-
-/// The retention floor the daemon passes to the rebuild: none yet. The
-/// steady-state retention pass owns the floor; until it is wired here, a
-/// daemon rebuilds only for stored output and superseded session puts.
-const REBUILD_FLOOR: u64 = 0;
 
 struct OutputCleanupWorker {
     control: Arc<Control>,
@@ -100,6 +143,16 @@ impl OutputCleanupWorker {
     }
 }
 
+/// Ends [`OutputCleanupState::rebuild_possible`] when the worker thread ends,
+/// a panic included: the retention pass then deletes in place.
+struct NoRebuildAfter(Arc<AtomicBool>);
+
+impl Drop for NoRebuildAfter {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 fn env_duration(_name: &str) -> Option<Duration> {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var(_name).ok().and_then(|value| value.parse::<u64>().ok()) {
@@ -113,16 +166,39 @@ impl Mux {
         self.output_cleanup.pending.load(Ordering::Acquire)
     }
 
+    /// True while the cleanup worker of this start can still rebuild the
+    /// registry at a retention floor: the retention pass then leaves a run
+    /// that is worth a rebuild to it.
+    pub(super) fn journal_rebuild_possible(&self) -> bool {
+        self.output_cleanup.rebuild_possible.load(Ordering::Acquire)
+    }
+
+    /// Retention ticks that waited for the agent history fold so far.
+    pub(super) fn journal_rebuild_fold_waits(&self) -> u32 {
+        self.output_cleanup.fold_waits.load(Ordering::Acquire)
+    }
+
+    /// Counts one more such tick; the count with it.
+    pub(super) fn note_journal_rebuild_fold_wait(&self) -> u32 {
+        self.output_cleanup.fold_waits.fetch_add(1, Ordering::AcqRel).saturating_add(1)
+    }
+
+    /// Names the retention floor for the cleanup worker, which builds the
+    /// registry again without the records at or below it. The first floor
+    /// of a start is the one its rebuild uses.
+    pub(super) fn offer_rebuild_floor(&self, floor: u64) {
+        let worker = self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(worker) = worker.as_ref() {
+            worker.control.offer_floor(floor);
+        }
+    }
+
     pub(super) fn start_output_cleanup(self: &Arc<Self>) -> anyhow::Result<()> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(db_path) = registry.session_journal_database_path() else { return Ok(()) };
-        // The retention floor of this start. A registry the one-time cleanup
-        // is done for is staged again only for a floor.
-        let floor = REBUILD_FLOOR;
+        // A registry the one-time cleanup is done for is staged again only
+        // for a retention floor, which the retention pass names later.
         let done = registry.output_cleanup_done()?;
-        if floor == 0 && done {
-            return Ok(());
-        }
         drop(registry);
         if output_cleanup::failed_for_this_build(&db_path) {
             eprintln!(
@@ -133,43 +209,87 @@ impl Mux {
         }
         // A staged registry from an earlier start: no sealing during the
         // start delay either (Phase A would have to stage those segments).
-        if output_cleanup::staging_path(&db_path).is_file() {
+        let resume = output_cleanup::staging_path(&db_path).is_file();
+        if resume {
             self.output_cleanup.pending.store(true, Ordering::Release);
         }
-        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
+        let control = Arc::new(Control::new());
         let worker_control = control.clone();
         let pending = self.output_cleanup.pending.clone();
+        let rebuild_possible = self.output_cleanup.rebuild_possible.clone();
         let weak_mux = Arc::downgrade(self);
         let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
-        let thread =
+        // Before the thread runs: the retention pass must not delete in
+        // place what this worker is about to rebuild.
+        rebuild_possible.store(true, Ordering::Release);
+        let spawned =
             std::thread::Builder::new().name("cmux-output-cleanup".into()).spawn(move || {
                 let _exited = exited_sender;
+                // However the worker ends, no rebuild starts after it.
+                let _no_rebuild = NoRebuildAfter(rebuild_possible);
                 lower_thread_priority();
                 let delay =
                     env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS").unwrap_or(START_DELAY);
                 if !worker_control.wait(delay) {
                     return;
                 }
-                let not_needed = run_output_cleanup(&db_path, floor, &worker_control, &pending);
-                // A registry already marked keeps its mark: a swap's mark
-                // names the backup's registry until the backup is removed.
-                if not_needed
-                    && !done
-                    && !worker_control.is_stopped()
-                    && let Some(mux) = weak_mux.upgrade()
-                {
-                    let marked = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .mark_output_cleanup_done("not-needed");
-                    if let Err(error) = marked {
-                        eprintln!(
-                            "cmux-tui: output cleanup: could not record the result: {error:#}"
-                        );
+                let mut done = done;
+                let mut resume = resume;
+                loop {
+                    let floor = if resume {
+                        // The staging file of an earlier start: the retention
+                        // pass waits for it (it is pending), so its floor is
+                        // read here, from the registry alone.
+                        resume = false;
+                        output_cleanup::registry_retention_floor(&db_path).unwrap_or_else(|error| {
+                            eprintln!(
+                                "cmux-tui: output cleanup: the retention floor could not be \
+                                     read; resuming without one: {error:#}"
+                            );
+                            0
+                        })
+                    } else if done {
+                        let Some(floor) = worker_control.wait_for_floor() else { return };
+                        floor
+                    } else {
+                        // The one-time cleanup, at the floor the retention
+                        // pass named during the start delay (if any).
+                        worker_control.floor.load(Ordering::Acquire)
+                    };
+                    let not_needed = run_output_cleanup(&db_path, floor, &worker_control, &pending);
+                    if !not_needed || worker_control.is_stopped() {
+                        return;
                     }
+                    // A registry already marked keeps its mark: a swap's mark
+                    // names the backup's registry until the backup is removed.
+                    if !done && let Some(mux) = weak_mux.upgrade() {
+                        let marked = mux
+                            .workspace_registry
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .mark_output_cleanup_done("not-needed");
+                        if let Err(error) = marked {
+                            eprintln!(
+                                "cmux-tui: output cleanup: could not record the result: {error:#}"
+                            );
+                        }
+                    }
+                    if floor > 0 {
+                        // Nothing to rebuild at the floor of this start.
+                        return;
+                    }
+                    // No stored output: from here the worker waits for a
+                    // retention floor, as for a registry that was done.
+                    done = true;
                 }
-            })?;
+            });
+        let thread = match spawned {
+            Ok(thread) => thread,
+            Err(error) => {
+                self.output_cleanup.rebuild_possible.store(false, Ordering::Release);
+                return Err(error.into());
+            }
+        };
         *self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) =
             Some(OutputCleanupWorker { control, thread: Some(thread), exited });
         Ok(())
@@ -261,7 +381,7 @@ mod tests {
     use super::*;
 
     fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
-        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
+        let control = Arc::new(Control::new());
         let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
             let _exited = exited_sender;
@@ -283,6 +403,27 @@ mod tests {
             "a stop waited without a limit for a worker blocked on the registry lock"
         );
         drop(held);
+    }
+
+    #[test]
+    fn a_worker_that_waits_for_a_floor_takes_the_first_one_and_ends_at_a_stop() {
+        let control = Arc::new(Control::new());
+        control.offer_floor(0);
+        control.offer_floor(7);
+        control.offer_floor(9);
+        assert_eq!(control.wait_for_floor(), Some(7), "the first floor of a start stays");
+
+        let control = Arc::new(Control::new());
+        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
+        let worker_control = control.clone();
+        let thread = std::thread::spawn(move || {
+            let _exited = exited_sender;
+            assert_eq!(worker_control.wait_for_floor(), None);
+        });
+        let worker = OutputCleanupWorker { control, thread: Some(thread), exited };
+        let started = Instant::now();
+        worker.stop(Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(5), "a stop did not end the wait");
     }
 
     #[test]

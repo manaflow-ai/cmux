@@ -46,7 +46,8 @@ enum Swap {
     /// The staging file passed its size bound (`output_cleanup` module
     /// docs).
     Abandoned(String),
-    /// The tail since the background build is too long for a start.
+    /// Not at this start, and the staged work stays: the tail since the
+    /// background build is too long for a start, or a reader holds the log.
     Deferred(String),
     Done(SwapStats),
 }
@@ -546,7 +547,16 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         source.busy_timeout(Duration::from_secs(5))?;
         let busy: i64 =
             source.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
-        anyhow::ensure!(busy == 0, "the registry WAL could not be checkpointed");
+        if busy != 0 {
+            // A reader of the registry holds the log (another process, for
+            // at least the busy timeout). Nothing is wrong with the staged
+            // work: a later start swaps.
+            return Ok(Swap::Deferred(
+                "a reader of the registry holds its log, so the log could not be folded into \
+                 the registry file"
+                    .to_string(),
+            ));
+        }
     }
     steps.mark("checkpoint");
     // Nothing writes the registry file from here until the rename (the
@@ -934,6 +944,17 @@ fn build_in(
             "INSERT INTO main.meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [key, value],
+        )?;
+    }
+    // The records through the cut are gone, as the ones retention deletes
+    // in place are: the same `meta` floor says so to the readers that ask
+    // it (`journal_pruned_through`). It never goes down.
+    if cut > 0 {
+        tx.execute(
+            "INSERT INTO main.meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value
+             WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)",
+            [super::super::journal_retention::PRUNED_THROUGH_META_KEY, cut.to_string().as_str()],
         )?;
     }
     steps.mark("meta");

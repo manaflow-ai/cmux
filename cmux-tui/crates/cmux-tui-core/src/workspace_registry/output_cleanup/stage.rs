@@ -152,6 +152,18 @@ fn floor_cut(source: &Connection, floor: u64) -> anyhow::Result<(u64, u64)> {
     Ok((u64::try_from(cut)?, u64::try_from(records)?))
 }
 
+/// True when a rebuild at `floor` is worth its cost: the stage's own rule
+/// (the sealed segments at or below the floor hold at least
+/// [`PUT_RECORDS_WORTH_A_CLEANUP`] records). Below that, the retention pass
+/// deletes those segments in place.
+pub(super) fn rebuild_owed(source: &Connection, floor: u64) -> anyhow::Result<bool> {
+    if floor == 0 {
+        return Ok(false);
+    }
+    let (cut, below) = floor_cut(source, floor)?;
+    Ok(cut > 0 && below >= put_records_worth_a_cleanup())
+}
+
 /// The cut this staging file is built at: the one it recorded when that is
 /// at or below `cut` (leaving out less than the floor allows is safe), else
 /// `None`: the file left out records the caller now keeps.
@@ -187,6 +199,9 @@ fn stage_registry_until_stopped(
     let (cut, below) = floor_cut(&source, floor)?;
     let cut = if below >= put_records_worth_a_cleanup() { cut } else { 0 };
     if cut == 0 && !output_present(&source)? && !session_puts_present(&source)? {
+        // A staging file of an earlier start was built for a floor that
+        // this start does not have: the next open must not swap it in.
+        remove_staging(db_path)?;
         return Ok(StageOutcome::NotNeeded);
     }
     // A mixed segment counts as output here (the staged count checks it as

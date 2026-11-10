@@ -41,7 +41,7 @@ use crate::history_ops::{AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION};
 use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
 
 /// `meta` key of the sequence retention has deleted through.
-const PRUNED_THROUGH_META_KEY: &str = "journal_retention_floor";
+pub(crate) const PRUNED_THROUGH_META_KEY: &str = "journal_retention_floor";
 
 /// The newest records that always stay: one full segment
 /// (`JOURNAL_SEGMENT_RECORD_LIMIT`).
