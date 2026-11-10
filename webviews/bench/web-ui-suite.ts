@@ -99,6 +99,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // The pane's state layer kept per operation that should keep nothing (sessions made and closed, chats reopened,
+  // reconnects mid-stream, a shell's output streaming), small and god side by side: bytes, objects and entries per
+  // operation after warm-up (bench/stateGrowth.ts). Run with `--only state-growth`.
+  {
+    name: "state-growth",
+    file: "state-growth.bench.ts",
+    args: ["120", "--scale", "both"],
+    timeoutMs: 240_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
