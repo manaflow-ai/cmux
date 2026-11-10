@@ -15,7 +15,9 @@ extension LayoutRootView {
             // thumb gives or takes its occluder (`StripScrollbarView`). Neither is done again here.
             view.isHidden = hides
             if hides {
-                // No frame steps a hidden screen: its pane springs land now, not when it shows again.
+                // No frame steps a hidden screen: its cameras and its pane springs land now, not when it shows again
+                // (a switch shows a screen at rest).
+                view.settleCameras()
                 view.settleMotion()
                 // Nor does it land a resize drag: its pages lay out now.
                 view.finishResizeGesture()

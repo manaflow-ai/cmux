@@ -348,6 +348,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
+        let shown = lastSnapshot?.activeScreen
         context.holdsPresentations = true
         syncWithModel()
         context.holdsPresentations = held
@@ -356,6 +357,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         for view in snapped { view.applyPresentation() }
         if !snapped.isEmpty { flushOverlaySync() }
         if waiting.count > snapped.count { driver.start() }
+        // A change of screen in the held turn (a close that removes the shown screen): when no frame tick follows it,
+        // what follows the panes once per placed frame hears it here (`syncBatched` leaves it to the tick under a hold).
+        if lastSnapshot?.activeScreen != shown, !driver.isRunning, !held { onFramePlaced?() }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -436,6 +440,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             // or restored screen that comes with the change that shows it) was not shown before it either: a center or a
             // reveal request in the same change lands at once, not on a camera spring after the screen shows.
             let staysShown = isActive && !view.isHidden && !isNew
+            // The screen this sync shows lays out at the root's size first, when a resize while it was hidden left that
+            // for its show (`needsReconcileOnShow`): its scroll sync and a center or a reveal request below run on the
+            // geometry it shows with. Left to `viewDidUnhide`, that layout ran after them and moved the camera off
+            // the place the request put it.
+            if isActive, view.isHidden { view.reconcileIfDeferred() }
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
