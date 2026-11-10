@@ -36,15 +36,6 @@ function Callback() {
   useEffect(() => {
     if (!result.data?.ok || redirectScheduled.current) return
     redirectScheduled.current = true
-    const { configure, returnTo } = result.data
-    if (configure) {
-      window.location.assign(configure)
-      return
-    }
-    if (returnTo) {
-      window.location.assign(returnTo)
-      return
-    }
     // Completing an OAuth flow should not strand the user on an intermediate
     // page. Keep the team scope selected before the provider redirect.
     let team: string | null = null
@@ -56,6 +47,12 @@ function Callback() {
       if (key !== INTEGRATION_RETURN_TEAM_KEY) sessionStorage.removeItem(INTEGRATION_RETURN_TEAM_KEY)
     } catch {
       // Storage can be unavailable in private or embedded browser contexts.
+    }
+    // A connect from a chat goes on to GitHub's settings page (the repository is missing) or back to the chat.
+    const { configure, returnTo } = result.data
+    if (configure || returnTo) {
+      window.location.assign(configure ?? returnTo!)
+      return
     }
     const timer = window.setTimeout(() => window.location.replace(integrationReturnPath(team)), 350)
     return () => window.clearTimeout(timer)
