@@ -3248,6 +3248,10 @@ mod replay_layout_tests;
 #[path = "prompt_clear_tests.rs"]
 mod prompt_clear_tests;
 
+#[cfg(test)]
+#[path = "alternate_replay_tests.rs"]
+mod alternate_replay_tests;
+
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
