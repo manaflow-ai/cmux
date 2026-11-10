@@ -64,6 +64,21 @@ pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
         &mut early,
     )?;
     got.page(&page);
+    // A permission asked before the attach is in the attach's session summary (`session.pending`, as `acpmux
+    // run`'s permission read), not pushed again.
+    if got.ended.is_none()
+        && page.pointer("/session/pending").and_then(Value::as_array).is_some_and(|asks| !asks.is_empty())
+    {
+        got.ended = Some("permission");
+    }
+    // A waiter, not a viewer: the chat's unread state stays the person's (`agent-session-view`, acpmux
+    // `server/view.rs`). A daemon that refuses it still answers the wait.
+    let _ = ask(
+        "view",
+        json!({"id": "view", "cmd": "agent-session-view", "surface": surface, "visible": false}),
+        &mut lines,
+        &mut early,
+    );
     // A long log before the attach: the rest in pages, each after the newest seq read.
     let mut more = page.get("hasMore") == Some(&Value::Bool(true));
     while more && got.ended.is_none() {
@@ -76,8 +91,12 @@ pub(crate) fn observe(socket: &Path, surface: u64, after: u64, wait: Duration) -
         )?;
         let before = got.last_seq;
         got.page(&page);
-        // A page that read nothing new (one record over the page's cap) would be asked again forever: the pushes go on.
-        more = page.get("hasMore") == Some(&Value::Bool(true)) && got.last_seq > before;
+        more = page.get("hasMore") == Some(&Value::Bool(true));
+        // A page that reads nothing new (one record over the page's 8 MiB cap) cannot advance, and the turn's end
+        // may be behind it: the link cannot read this turn, so exec does.
+        if more && got.last_seq == before {
+            return Err(Failure::Link("a replay page made no progress".into()));
+        }
     }
     for line in early {
         if got.ended.is_none() {
@@ -204,6 +223,15 @@ mod tests {
 
     /// A daemon on a socket that answers `identify` and `agent-session-attach` (the page), then pushes `pushed`.
     fn daemon(capabilities: &[&str], page: Value, pushed: Vec<Value>) -> (tempfile::TempDir, std::path::PathBuf) {
+        serve(capabilities, page, json!({"events": [], "hasMore": false}), pushed)
+    }
+
+    /// A daemon whose attach page has more and whose every `agent-session-events` page is `events`.
+    fn daemon_paging(events: Value) -> (tempfile::TempDir, std::path::PathBuf) {
+        serve(&[ATTACH], json!({"events": [], "hasMore": true}), events, vec![])
+    }
+
+    fn serve(capabilities: &[&str], page: Value, events: Value, pushed: Vec<Value>) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("link.sock");
         let listener = UnixListener::bind(&path).unwrap();
@@ -220,7 +248,8 @@ mod tests {
                 let data = match request["cmd"].as_str() {
                     Some("identify") => json!({"capabilities": capabilities}),
                     Some("agent-session-attach") => page.clone(),
-                    _ => json!({"events": [], "hasMore": false}),
+                    Some("agent-session-events") => events.clone(),
+                    _ => json!({}),
                 };
                 writeln!(writer, "{}", json!({"id": id, "ok": true, "data": data})).unwrap();
                 if request["cmd"] == "agent-session-attach" {
@@ -283,6 +312,23 @@ mod tests {
         let answer = observe(&path, 7, 0, Duration::from_secs(5)).unwrap();
         assert_eq!(answer["ended"], "turn_end", "the push that came while the page was asked ends the wait");
         assert_eq!(answer["last_seq"], 2);
+    }
+
+    #[test]
+    fn a_permission_pending_at_the_attach_ends_the_wait() {
+        let page = json!({"session": {"pending": [{"permissionId": "p1"}]}, "events": [], "hasMore": false});
+        let (_dir, path) = daemon(&[ATTACH], page, vec![]);
+        assert_eq!(observe(&path, 7, 0, Duration::from_secs(5)).unwrap()["ended"], "permission");
+        let page = json!({"session": {"pending": []}, "events": [], "hasMore": false});
+        let (_dir, path) = daemon(&[ATTACH], page, vec![]);
+        assert_eq!(observe(&path, 7, 0, Duration::from_millis(200)).unwrap()["ended"], "timeout");
+    }
+
+    #[test]
+    fn a_replay_page_that_cannot_advance_hands_the_turn_to_exec() {
+        // The attach page has more; the fake's events answer reads nothing, again with more.
+        let (_dir, path) = daemon_paging(json!({"events": [], "hasMore": true}));
+        assert!(matches!(observe(&path, 7, 0, Duration::from_secs(5)), Err(Failure::Link(_))));
     }
 
     #[test]
