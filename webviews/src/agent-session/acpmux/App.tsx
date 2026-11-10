@@ -324,6 +324,8 @@ import {
 import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
+import { AttributionStore } from "./changes/attribution";
+import { useProvideAttribution, type AttributionSource } from "./changes/attributionContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import {
@@ -4062,6 +4064,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
   }, [endedEditTurn, requestTurnCheckpoint, turnKey]);
+  // Who wrote an edit's lines (changes/EditAttribution.tsx): one store for the pane, which every
+  // client it connects asks through and drops at a turn's end (direct.ts `attributions`).
+  const [attributionStore] = useState(
+    () => new AttributionStore((params) => directClient.current?.attribution(params) ?? Promise.reject(new Error())),
+  );
+  const attributionSource = useMemo<AttributionSource>(
+    () => ({
+      sessionId: shownSessionId,
+      store: attributionStore,
+      repo: () => directClient.current?.attributionRepo() ?? Promise.resolve(undefined),
+      reveal: (turnId) => revealRef.current(turnId),
+    }),
+    [shownSessionId, attributionStore],
+  );
+  useProvideAttribution(attributionSource);
   const turnCountsFor = useCallback<TurnCountsFor>(
     (rowId, toolFiles, pathsOnly) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId)), pathsOnly),
     [turnCheckpoint, turnKey],
@@ -7466,6 +7483,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         connectingClient = client;
         directClient.current = client;
         client.toastSink = notices.transient;
+        client.attributions = attributionStore;
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
         // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
@@ -8847,6 +8865,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox,
     cloudTypingPrewarm,
     notices,
+    attributionStore,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>

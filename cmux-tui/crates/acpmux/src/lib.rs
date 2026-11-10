@@ -31,6 +31,7 @@ pub mod agent_tools;
 mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
+pub mod attribution;
 pub mod author;
 pub mod beads;
 pub mod bg_hook;

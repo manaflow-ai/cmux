@@ -553,6 +553,9 @@ pub mod method {
     /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
     /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
     pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
+    /// Which chat, turn, model and prompt wrote the lines a diff shows (`attribution.rs`); the
+    /// local socket and the app only.
+    pub const MUX_ATTRIBUTION: &str = "_acpmux/attribution";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";

@@ -551,6 +551,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/attribution",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/review_verdict",
       "params": true,
       "result": true

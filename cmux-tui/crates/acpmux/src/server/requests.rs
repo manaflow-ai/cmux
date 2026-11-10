@@ -2612,6 +2612,17 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
+        // Who wrote a diff's lines: the person's own chats, the local socket and the app only.
+        method::MUX_ATTRIBUTION => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::method_not_found(method::MUX_ATTRIBUTION));
+            }
+            // It reads one file to check its lines: off the runtime.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.attribution(&params))
+                .await
+                .map_err(|e| RpcError::internal(format!("attribution stopped: {e}")))?
+        }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;

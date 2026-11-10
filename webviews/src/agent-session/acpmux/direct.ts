@@ -103,6 +103,13 @@ import {
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { readChangeSet } from "./changes/model";
+import {
+  ATTRIBUTION_CAPABILITY,
+  type AttributionParams,
+  type AttributionRepo,
+  type AttributionStore,
+} from "./changes/attribution";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
@@ -5360,6 +5367,39 @@ export class AcpmuxDirectClient {
     return this.git("git.diff", { scope, include_patch: false });
   }
 
+  /// Which chats and turns wrote lines of a file (`_acpmux/attribution`, changes/attribution.ts).
+  /// Refused without asking by a daemon that does not serve it.
+  attribution(params: AttributionParams): Promise<unknown> {
+    if (!this.capabilities?.has(ATTRIBUTION_CAPABILITY)) return Promise.reject(new Error());
+    return this.request("_acpmux/attribution", { ...params });
+  }
+
+  /// The selected session's repository top level and commit, read once per turn from the counts
+  /// of its uncommitted changes (`gitDiffCounts`); undefined for a daemon without attributions or a
+  /// folder git could not read (a remote machine's chat).
+  attributionRepo(): Promise<AttributionRepo | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.capabilities?.has(ATTRIBUTION_CAPABILITY)) return Promise.resolve(undefined);
+    const known = this.attributionRepos.get(sessionId);
+    if (known) return known;
+    const repo = this.gitDiffCounts("uncommitted").then(
+      (value) => {
+        const changes = readChangeSet(value, "uncommitted");
+        return changes?.root && changes.head ? { root: changes.root, head: changes.head } : undefined;
+      },
+      () => undefined,
+    );
+    if (this.attributionRepos.size >= 32) this.attributionRepos.delete(this.attributionRepos.keys().next().value!);
+    this.attributionRepos.set(sessionId, repo);
+    return repo;
+  }
+
+  /// Each session's `attributionRepo`, until its turn ends.
+  private readonly attributionRepos = new Map<string, Promise<AttributionRepo | undefined>>();
+  /// The pane's attribution answers (App.tsx); a turn's end drops them, since its edits may have
+  /// changed the lines they name.
+  attributions: AttributionStore | undefined;
+
   /// The selected session's branch, upstream and how far it is ahead and behind.
   gitStatus(): Promise<unknown> {
     return this.git("git.status", {});
@@ -7563,6 +7603,8 @@ export class AcpmuxDirectClient {
     }
     if (sessionId && event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
       clearPlanScope(sessionId);
+      this.attributionRepos.delete(sessionId);
+      this.attributions?.forget();
     }
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
@@ -12931,6 +12973,7 @@ export class AcpmuxDirectClient {
     this.fedMode = false;
     this.closed = true;
     this.toastSink = undefined;
+    this.attributions = undefined;
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);

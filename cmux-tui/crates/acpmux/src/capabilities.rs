@@ -132,6 +132,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // Which chat, turn, model and prompt wrote a diff's lines (`attribution.rs`).
+    Capability { id: "attribution-v1", wire: &[method::MUX_ATTRIBUTION] },
     // What turns cost, indexed by day and session (`hub/ledger`).
     Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).

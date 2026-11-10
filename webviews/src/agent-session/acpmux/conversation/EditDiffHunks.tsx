@@ -7,6 +7,7 @@ import type { TurnFile } from "../diff";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { useT } from "../i18n";
+import { useEditAttribution } from "../changes/EditAttribution";
 import { paneHighlightPool } from "./highlightPool";
 import { PIERRE_BLOCK_CSS } from "./sideways";
 
@@ -59,9 +60,14 @@ export function EditDiffHunks({ file, patches, wrap }: { file: TurnFile; patches
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => theme.disconnect();
   }, []);
+  // Who wrote a hovered added line (changes/EditAttribution.tsx): numbered edits only.
+  const attribution = useEditAttribution(file);
   const options = useMemo(
-    () => ({ numbered: diffOptions(true, themeType, wrap), fragment: diffOptions(false, themeType, wrap) }),
-    [themeType, wrap],
+    () => ({
+      numbered: { ...diffOptions(true, themeType, wrap), ...attribution.options },
+      fragment: diffOptions(false, themeType, wrap),
+    }),
+    [themeType, wrap, attribution.options],
   );
   // A tool call's update (its status, say) rebuilds the file; compared by text, an unchanged
   // edit keeps its parsed diff and does not paint again.
@@ -77,15 +83,25 @@ export function EditDiffHunks({ file, patches, wrap }: { file: TurnFile; patches
       }),
     [patchText, highlighted],
   );
-  return file.edits.map((edit, index) =>
+  const edits = file.edits.map((edit, index) =>
     edit.hunks.length ? (
       <WorkerPoolContext.Provider key={edit.toolId + index} value={workerPool}>
-        <FileDiff fileDiff={diffs[index]!} options={edit.numbered ? options.numbered : options.fragment} />
+        <FileDiff
+          fileDiff={diffs[index]!}
+          options={edit.numbered ? options.numbered : options.fragment}
+          renderGutterUtility={edit.numbered ? attribution.renderGutterUtility : undefined}
+        />
       </WorkerPoolContext.Provider>
     ) : (
       <div key={edit.toolId + index} className="cv-edit-diff__empty">
         {t("changes.noLineChanges")}
       </div>
     ),
+  );
+  return (
+    <>
+      {edits}
+      {attribution.card}
+    </>
   );
 }
