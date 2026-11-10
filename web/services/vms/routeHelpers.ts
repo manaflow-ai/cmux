@@ -705,7 +705,9 @@ export async function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} Cloud VM${plural} in total, including paused machines.${counted}`,
+      // A paid plan has no machine allowance: this is the abuse guard (PAID_MACHINE_GUARD), so the
+      // message names a safety limit, not the plan, and its number stays in `details.limit`.
+      message: `This team keeps too many Cloud VMs at once (a safety limit, not your plan), including paused machines.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
       details: { limit: input.limit, ...countedDetails },

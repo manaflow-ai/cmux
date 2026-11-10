@@ -570,6 +570,23 @@ jobs:
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
           {
             echo "### iOS E2E"
             echo "- route: $ROUTE_RESULT (run_e2e=${RUN_E2E:-<unset>}, backend tag=${BACKEND_TAG:-<unset>})"
@@ -579,25 +596,16 @@ jobs:
             echo "- conclusion: neutral skip (fork PR; secret-fenced job cannot run)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ "$ROUTE_RESULT" != "success" ]; then
-            echo "::error::route job did not succeed ($ROUTE_RESULT)"
-            exit 1
-          fi
-          if [ "$RUN_E2E" != "true" ]; then
-            echo "- conclusion: pass (route skipped the lane)" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          fail=0
-          if [ "$BACKEND_RESULT" != "success" ]; then
-            echo "::error::backend: $BACKEND_RESULT (needed because route said run)"
-            fail=1
-          fi
-          if [ "$RUN_CLIENTS" = "true" ] && [ "$MAC_IOS_RESULT" != "success" ]; then
-            echo "::error::mac-ios-e2e: $MAC_IOS_RESULT (needed because route said run)"
-            fail=1
-          fi
-          if [ "$fail" -ne 0 ]; then
-            echo "- conclusion: FAIL" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "- conclusion: pass" >> "$GITHUB_STEP_SUMMARY"
+          # One verdict over the route, backend and client jobs (scripts/ci/needs_verdict.py): a job that judged nothing
+          # (cancelled, abandoned, skipped though the route said run) is no verdict, never a pass and never this change's red,
+          # and any failure wins. A job the route did not ask for may skip ("job?="); with no route verdict nothing is asked for.
+          backend=backend mac=mac-ios-e2e
+          if [ "$RUN_E2E" != "true" ]; then backend+="?"; mac+="?"; elif [ "$RUN_CLIENTS" != "true" ]; then mac+="?"; fi
+          verdict=0
+          needs_verdict "iOS E2E" "route=$ROUTE_RESULT" "$backend=$BACKEND_RESULT" "$mac=$MAC_IOS_RESULT" || verdict=$?
+          case "$verdict" in
+            0) echo "- conclusion: pass$([ "$RUN_E2E" != "true" ] && echo ' (route skipped the lane)')" ;;
+            3) echo "- conclusion: no verdict" ;;
+            *) echo "- conclusion: FAIL" ;;
+          esac >> "$GITHUB_STEP_SUMMARY"
+          exit "$verdict"

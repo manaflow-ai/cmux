@@ -879,6 +879,7 @@ struct StreamingMarkdown: View {
                      animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
             }
     }
@@ -905,7 +906,6 @@ struct UserBubble: View {
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
     var polish: ChatPolishMenuButtons?
-    @State private var selecting = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -920,7 +920,7 @@ struct UserBubble: View {
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
+                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
                         if isLast {
                             Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
                         } else if let editEarlier {
@@ -933,17 +933,6 @@ struct UserBubble: View {
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .sheet(isPresented: $selecting) {
-            NavigationStack {
-                ScrollView {
-                    Text(prompt).textSelection(.enabled).padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .navigationTitle("Select text")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
-            }
-            .presentationDetents([.medium, .large])
-        }
     }
 }
 
