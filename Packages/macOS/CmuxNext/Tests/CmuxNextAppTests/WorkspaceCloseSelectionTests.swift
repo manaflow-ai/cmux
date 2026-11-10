@@ -1,0 +1,221 @@
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextAppCore
+import CmuxNextBridge
+@testable import CmuxNextDesign
+import CmuxNextLayout
+import CmuxNextSettings
+@testable import CmuxNextSidebar
+import Testing
+
+/// Lawrence 2026-11-10: closing a workspace "lowkey focuses the wrong workspace afterwards, we need to copy how
+/// google chrome does it". The one close-selection rule (plans/cmux-next/close-focus.md, "One close-selection
+/// rule"), driven through the state the window manager owns (`WindowCloseSelection`), the window's pick
+/// (`WindowRegistry.repairedSelection`), the window state's feed, the create's gate and the sidebar model's own close.
+struct WorkspaceCloseSelectionTests {
+    private let window = "w"
+
+    /// A person's New Workspace: `window` showed `old` and now shows `new`. `quick`: placed at the end or the top.
+    private func make(_ new: String, from old: String, quick: Bool, in rule: WindowCloseSelection) {
+        rule.expect(new, in: window, quick: quick)
+        rule.shown(new, after: old, in: window, gesture: true)
+    }
+
+    /// The person selects `new` in the window (a click, a shortcut).
+    private func go(_ new: String, from old: String, in rule: WindowCloseSelection) {
+        rule.shown(new, after: old, in: window, gesture: true)
+    }
+
+    /// Closes `closed` while the window shows `shown`: the pick, then the workspace leaves the state.
+    private func close(_ closed: String, shown: String, rows: [String], rule: WindowCloseSelection) -> String? {
+        let pick = WindowRegistry.repairedSelection(current: shown, previous: rows, members: rows.filter { $0 != closed }, orders: [rows], rule: rule)
+        rule.left(closed)
+        return pick
+    }
+
+    // MARK: The default placement (after the current row): Chrome 156's observed middle-tab rows
+
+    @Test func aNewWorkspaceAfterTheCurrentRowClosedAtOnceReturnsToTheOneHeCameFrom() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c", "d"]
+        make("n", from: "b", quick: false, in: rule)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
+    }
+
+    @Test func aVisitToItsOpenerAndBackStillReturnsToTheOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c", "d"]
+        make("n", from: "b", quick: false, in: rule)
+        go("b", from: "n", in: rule)
+        go("n", from: "b", in: rule)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
+    }
+
+    @Test func aVisitToAnUnrelatedWorkspaceAndBackSelectsTheNextRow() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c", "d"]
+        make("n", from: "b", quick: false, in: rule)
+        go("d", from: "n", in: rule)
+        go("n", from: "d", in: rule)
+        #expect(rule.isEmpty)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "c")
+    }
+
+    // MARK: Placed at the end: the quick look-up
+
+    @Test func aNewWorkspaceAtTheEndClosedAtOnceReturnsToTheOneHeCameFrom() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c", "n"]
+        make("n", from: "a", quick: true, in: rule)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "a")
+    }
+
+    @Test func anyVisitEndsTheQuickOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c", "n"]
+        make("n", from: "a", quick: true, in: rule)
+        go("a", from: "n", in: rule)
+        go("n", from: "a", in: rule)
+        #expect(rule.isEmpty)
+        // The last row, with no opener: the row above it.
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "c")
+    }
+
+    // MARK: No relation: by position
+
+    @Test func closingAMiddleRowSelectsTheNextRow() {
+        #expect(close("b", shown: "b", rows: ["a", "b", "c"], rule: WindowCloseSelection()) == "c")
+    }
+
+    @Test func closingTheLastRowSelectsThePreviousRow() {
+        #expect(close("c", shown: "c", rows: ["a", "b", "c"], rule: WindowCloseSelection()) == "b")
+    }
+
+    @Test func aWorkspaceAScriptMadeHasNoOpener() {
+        // Nothing expected it (the CLI, the socket, MCP, a restore, a move): the window showing it makes no relation.
+        let rule = WindowCloseSelection(), rows = ["a", "n", "b", "c"]
+        rule.shown("n", after: "a", in: window, gesture: false)
+        #expect(rule.isEmpty)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
+    }
+
+    @Test func closingAWorkspaceThatIsNotShownKeepsTheSelectionAndTheRelation() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c", "d"]
+        make("n", from: "b", quick: false, in: rule)
+        #expect(close("c", shown: "n", rows: rows, rule: rule) == "n")
+        #expect(close("n", shown: "n", rows: ["a", "b", "n", "d"], rule: rule) == "b")
+    }
+
+    /// A row's group is not read (decision 2026-11-10, Chrome 156 as observed): "g2" is the last row of a group
+    /// and "b", outside it, is the next row.
+    @Test func theLastRowOfAGroupSelectsTheNextRowNotItsGroupsRow() {
+        #expect(close("g2", shown: "g2", rows: ["a", "g1", "g2", "b"], rule: WindowCloseSelection()) == "b")
+    }
+
+    /// A move gets no opener: a tab moved to a new workspace (`TabMoves.toNewWorkspace`) is made by the daemon and
+    /// its window shows it with no create reported, so closing it selects the next row, not the one it came from.
+    @Test func aTabMovedToANewWorkspaceGetsNoOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "moved", "c"]
+        rule.shown("moved", after: "b", in: window, gesture: true)
+        #expect(rule.isEmpty)
+        #expect(close("moved", shown: "moved", rows: rows, rule: rule) == "c")
+    }
+
+    /// Only a person's own New Workspace reports a create (`WorkspaceSpawner.start`): a duplicate, a template, a
+    /// session transfer and an import build a spawn with no New Tab page; the CLI, the socket, MCP and a run that
+    /// may not change the view are not the person's foreground create.
+    @Test func onlyAPersonsOwnNewWorkspaceReportsACreate() {
+        let after = NewWorkspaceDefaultSlot(placement: .afterCurrent), end = NewWorkspaceDefaultSlot(placement: .bottom)
+        let new = WorkspaceSpawn(newTabPage: true)
+        #expect(new.quickOpener(setting: after) == false)
+        #expect(new.quickOpener(setting: end) == true)
+        #expect(WorkspaceSpawn(cwd: "/tmp", name: "copy").quickOpener(setting: after) == nil)
+        ActionRunScope.carrying(ActionRunScope(origin: .cli, allowsViewChange: true)) { #expect(new.quickOpener(setting: after) == nil) }
+        ActionRunScope.carrying(ActionRunScope(origin: .user, allowsViewChange: false)) { #expect(new.quickOpener(setting: after) == nil) }
+    }
+
+    @Test func aRelationDoesNotCrossWindows() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        make("n", from: "b", quick: false, in: rule)
+        // "n" moved to window "v"; the selection repair of "w" settles the state after its pick.
+        rule.settle(window, previous: rows, members: ["a", "b", "c"], owner: { $0 == "n" ? "v" : "w" }, exists: { _ in true }, claimed: { _ in false })
+        #expect(rule.isEmpty)
+        #expect(close("n", shown: "n", rows: ["x", "n", "y"], rule: rule) == "y")
+    }
+
+    // MARK: Cost (Lawrence's session: 826 workspaces)
+
+    /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
+    /// members and read no rows; with one held, the repair asks about that relation's two workspaces only.
+    @Test(arguments: [3, 60, 826]) func aSwitchAndACloseNeverWalkTheMembers(count: Int) {
+        final class Counter { var asked = 0, reads = 0 }
+        let rows = (0..<count).map { "w\($0)" }, counter = Counter(), rule = WindowCloseSelection()
+        func orders() -> [[String]] { counter.reads += 1; return [rows] }
+        func settle(_ members: [String]) {
+            rule.settle("w", previous: rows, members: members, owner: { _ in counter.asked += 1; return "w" },
+                        exists: { _ in counter.asked += 1; return true }, claimed: { _ in counter.asked += 1; return false })
+        }
+        rule.shown(rows[1], after: rows[0], in: window, gesture: true)
+        rule.left(rows[2])
+        settle(rows)
+        #expect(WindowRegistry.repairedSelection(current: rows[1], previous: rows, members: rows.filter { $0 != rows[2] }, orders: orders(), rule: rule) == rows[1])
+        #expect(counter.asked == 0)
+        #expect(counter.reads == 0)
+        make("n", from: rows[1], quick: false, in: rule)
+        go(rows[1], from: "n", in: rule)
+        settle(rows + ["n"])
+        #expect(counter.asked == 2)
+        #expect(!rule.isEmpty)
+    }
+
+    // MARK: The feed (WindowState through `WindowCloseSelection.watch`) and the sidebar model's own close
+
+    @Test func aPersonsNewWorkspaceGetsItsOpenerFromTheWindowsSelection() {
+        let services = MachineIconTests.services(), windows = services.windows
+        _ = windows.registry.apply { $0.openWindow(id: window, workspaceIDs: ["a", "b", "n", "c"]) }
+        let state = windows.state(for: window), rule = windows.registry.closeSelection
+        state.showWorkspace("b")
+        rule.expect("n", in: window, quick: false)
+        #expect(rule.isEmpty)
+        state.showWorkspace("n")
+        #expect(!rule.isEmpty)
+        #expect(close("n", shown: "n", rows: ["a", "b", "n", "c"], rule: rule) == "b")
+    }
+
+    /// A selection a script, the CLI or MCP makes is not the person's gesture: it does not end the relation.
+    @Test func aScriptsSelectionIsNoGesture() {
+        let services = MachineIconTests.services(), windows = services.windows
+        _ = windows.registry.apply { $0.openWindow(id: window, workspaceIDs: ["a", "b", "n", "c", "d"]) }
+        let state = windows.state(for: window), rule = windows.registry.closeSelection
+        state.showWorkspace("b")
+        rule.expect("n", in: window, quick: false)
+        state.showWorkspace("n")
+        ActionRunScope.carrying(ActionRunScope(origin: .cli, allowsViewChange: true)) {
+            state.showWorkspace("d")
+            state.showWorkspace("n")
+        }
+        #expect(close("n", shown: "n", rows: ["a", "b", "n", "c", "d"], rule: rule) == "b")
+    }
+
+    /// The window's selection repair (every close entry point) picks, selects and settles in one call.
+    @Test func theRepairSelectsTheOpenerAndEndsTheClosedWorkspacesRelation() {
+        let store = WindowRegistryStore(), rows = ["a", "b", "n", "c"]
+        _ = store.apply { $0.openWindow(id: window, workspaceIDs: rows) }
+        make("n", from: "b", quick: false, in: store.closeSelection)
+        var selected: String??
+        store.repairSelection(of: window, shown: "n", previous: rows, members: ["a", "b", "c"], orders: [rows]) { selected = $0 }
+        #expect(selected == .some("b"))
+        #expect(store.closeSelection.isEmpty)
+    }
+
+    /// The sidebar's own close (`SidebarModel.apply(.close)`) and the window's repair give one answer for one close.
+    @Test func theSidebarsCloseAndTheWindowsRepairAgree() {
+        let rows = ["a", "b", "n", "c"], ids = rows.map { CmuxNextSidebar.WorkspaceID($0) }
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: ids.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })],
+                                 activeWorkspaceID: ids[2])
+        let rule = WindowCloseSelection()
+        model.drawnWorkspaceOrder = { ids }
+        model.closeSuccessor.pick = { rule.pick(shown: $0, previous: $1, members: $2, orders: $3) }
+        make("n", from: "b", quick: false, in: rule)
+        let repaired = WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c"], orders: [rows], rule: rule)
+        model.apply(.close([ids[2]]))
+        #expect(repaired == "b")
+        #expect(model.activeWorkspaceID?.rawValue == repaired)
+    }
+}
