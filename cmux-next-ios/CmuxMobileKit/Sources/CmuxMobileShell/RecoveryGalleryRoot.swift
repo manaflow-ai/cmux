@@ -42,6 +42,8 @@ public struct RecoveryGalleryRoot: View {
                 cloud
             case "home":
                 home
+            case "signedout":
+                signedOut
             default:
                 states
             }
@@ -126,9 +128,18 @@ public struct RecoveryGalleryRoot: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
     }
 
+    /// The signed-out banner where the Workspaces list shows it (`-cmux-mobile-recovery-gallery signedout`).
+    private var signedOut: some View {
+        List {
+            ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }
+        }
+        .cmuxMobileBanner(.signedOut, retry: {})
+    }
+
     private var cards: some View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
+            ConnectionBanner(.signedOut, retry: {})
             FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {
