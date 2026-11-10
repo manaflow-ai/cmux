@@ -2091,7 +2091,6 @@ pub struct ResourceEventBatch {
 pub struct ResourceEventPage {
     pub generation: String,
     pub head_revision: u64,
-    pub oldest_revision: Option<u64>,
     pub batches: Vec<ResourceEventBatch>,
 }
 
