@@ -187,7 +187,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/placement"
-          git --work-tree="$RUNNER_TEMP/placement" restore --source="$BASE_SHA" --worktree -- scripts/ci
+          # scripts/ci is outside this job's sparse checkout: without the flag restore finds no path.
+          git --work-tree="$RUNNER_TEMP/placement" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/ci
 
       - name: Mint the owned-pool routing token
         id: route-token

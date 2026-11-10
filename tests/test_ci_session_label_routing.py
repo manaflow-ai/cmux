@@ -135,6 +135,12 @@ class AutofixActionExports(unittest.TestCase):
                               if name == "cmux-next-pr-autofix.yml" else
                               "cmux_next_media_runner.py --same-repo true --idle-now --gui-only", pick["run"])
                 self.assertTrue(pick.get("continue-on-error"))
+                if name == "cmux-next-pr-autofix.yml":
+                    # The job's sparse checkout leaves scripts/ci out; restore needs the flag to find it
+                    # (review of #40722 at 449788fc, F1).
+                    placement = next(step for step in steps if step.get("id") == "placement")
+                    self.assertIn("restore --ignore-skip-worktree-bits", placement["run"])
+                    self.assertNotIn("scripts/ci", workflow["jobs"][job]["steps"][0]["with"]["sparse-checkout"])
                 self.assertEqual(workflow["jobs"][job]["outputs"]["mac_runner"],
                                  "${{ steps.mac-runner.outputs.runs_on }}")
 
