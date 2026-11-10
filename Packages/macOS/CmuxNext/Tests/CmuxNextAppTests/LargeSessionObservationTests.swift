@@ -140,4 +140,100 @@ struct LargeSessionObservationTests {
         let moved = feed.workspaces(showing: ["s-7-moved", "s-7"])
         #expect(moved == [SidebarWorkspaceID(fixture.store.workspaces[6].id): "s-7-moved"])
     }
+
+    /// O9, the waits until a match (`ChiefInspectorHandlers.swift:191`, `SessionTransferService.swift:258`,
+    /// `HomeService+Workspace.swift:171`, `CloudMachineCreation.swift:421`; `DurableTabLink.swift:73` reads the index
+    /// already): each re-ran a walk of every workspace (and its panes and tabs) on any change while it was open. Each
+    /// reads the one id it waits for now: a change in another workspace wakes none, and the wait still ends when its
+    /// tab or workspace comes. The probe writes the tab order and the key in place, which moves no store counter; in the
+    /// app every tab add, move or close bumps `tabListRevision`, which the chief inspector and transfer waits still read
+    /// (each such wake is O(1) or O(one workspace), not a walk). The home wait reads its own id's cell only.
+    @Test(.timeLimit(.minutes(2)))
+    func o9WaitsReadTheOneIDTheyWaitFor() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        // A tab, a keyed workspace and a public workspace id no tree lists yet: the four waits stay open.
+        let surface = SurfaceID(rawValue: 9_999)
+        let found = WaitHits()
+        func wait(_ name: String, _ lookup: @escaping @MainActor @Sendable () -> Bool) -> Task<Void, Never> {
+            Task { for await hit in ObservationStream({ lookup() }) where hit { found.names.insert(name); return } }
+        }
+        let waits = [
+            wait("chief inspector tab") { store.locatedTab(surface: surface) != nil },
+            wait("transfer chat tab") { store.listsConversationTab(inWorkspace: "o9-key") },
+            wait("home workspace") { store.listedWorkspace(resourceID: ResourceID(rawValue: "ws_o9")) != nil },
+            wait("cloud workspace") { store.workspace(id: "o9-key") != nil },
+        ]
+        defer { waits.forEach { $0.cancel() } }
+        await LargeSessionFixture.drainMain()
+        #expect(found.names.isEmpty, "fixture: a wait matched before its tab or workspace came: \(found.names)")
+
+        // The probe: each workspace gets a new public id the way the app sets one (a `workspace-changed` event:
+        // `WorkspaceModel.update` writes `resourceID` in place and the store indexes the workspace again), moves its
+        // terminals and gets a key (what the walks read of every workspace).
+        let snapshots = LargeSessionFixture.tree().workspaces
+        let changes = store.workspaces.enumerated().map { offset, workspace -> (workspace: Int, change: @MainActor () -> Void) in
+            (offset + 1, {
+                var entity = snapshots[offset]
+                entity.resourceID = ResourceID(rawValue: "ws_\(offset + 1)-moved")
+                store.apply(.workspaceChanged(WorkspaceDelta(workspace: entity.id, index: nil, entity: entity,
+                                                             workspaceRevision: store.workspaceRevision + 1)))
+                workspace.screens[0].panes[0].tabs.reverse()
+                workspace.key = WorkspaceKey(rawValue: "k-\(offset + 1)")
+            })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAppTests/LargeSessionObservationTests", changes: changes)
+        #expect(store.workspaces[6].resourceID == ResourceID(rawValue: "ws_7-moved"), "fixture: the event did not set the public id")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "waits woken by more than one workspace: \(wide)")
+
+        // The tab and the workspace come (one apply): every wait ends.
+        var tree = LargeSessionFixture.tree()
+        var chat = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: "tab_o9"), kind: .conversation, title: "o9",
+                               browserRenderer: "frontend")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: LargeSessionFixture.host, session: "s-o9", harness: nil))
+        let pane = PaneSnapshot(id: PaneID(rawValue: 9_001), resourceID: ResourceID(rawValue: "pane_o9"), tabs: [chat])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 9_001), layout: .leaf(pane.id), panes: [pane])
+        tree.workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9_001), key: WorkspaceKey(rawValue: "o9-key"),
+                                                 resourceID: ResourceID(rawValue: "ws_o9"), name: "o9", screens: [screen]))
+        store.apply(snapshot: tree)
+        await LargeSessionFixture.until { found.names.count == waits.count }
+        #expect(found.names == ["chief inspector tab", "transfer chat tab", "home workspace", "cloud workspace"])
+    }
+
+    /// O9, the home wait (`HomeService+Workspace.swift:171`) when the tree lists its workspace already, under another
+    /// public id: a `workspace-changed` event sets the id in place (`WorkspaceModel.update`) and the store indexes the
+    /// workspace again under it. The set of workspaces does not change. The wait must end then (the base walk read every
+    /// workspace's `resourceID` and heard it); it has no time limit, so a missed wake leaves the home unshown until
+    /// the next connection. Red on 3622a166994: its `listedWorkspace(resourceID:)` read only `workspaces` and
+    /// `workspaceSetRevision`, and neither changes.
+    @Test(.timeLimit(.minutes(2)))
+    func o9HomeWaitHearsAWorkspaceIndexedAgainUnderItsID() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        let home = ResourceID(rawValue: "ws_o9-home")
+        let found = WaitHits()
+        let wait = Task {
+            for await workspace in ObservationStream({ store.listedWorkspace(resourceID: home) }) where workspace != nil {
+                found.names.insert("home workspace")
+                return
+            }
+        }
+        defer { wait.cancel() }
+        await LargeSessionFixture.drainMain()
+        #expect(found.names.isEmpty, "fixture: the home wait matched before its workspace came")
+
+        var entity = LargeSessionFixture.tree().workspaces[6]
+        entity.resourceID = home
+        store.apply(.workspaceChanged(WorkspaceDelta(workspace: entity.id, index: nil, entity: entity,
+                                                     workspaceRevision: store.workspaceRevision + 1)))
+        try #require(store.workspaces[6].resourceID == home, "fixture: the event did not set workspace 7's public id")
+        await LargeSessionFixture.until { !found.names.isEmpty }
+        #expect(found.names == ["home workspace"], "the home wait did not hear workspace 7 indexed again under its id")
+    }
+}
+
+/// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
+@MainActor final class WaitHits {
+    var names = Set<String>()
 }
