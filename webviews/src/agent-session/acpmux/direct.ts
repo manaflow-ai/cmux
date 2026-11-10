@@ -10466,12 +10466,15 @@ export class AcpmuxDirectClient {
   }
   /// `promptUnseen` that rejects as the prompt does: `/side <prompt>`'s prompt to its side chat,
   /// whose caller says when the host refused it (a `transport.` code: it never reached acpmux).
-  /// The reply comes when the side chat's turn ends.
-  async promptSide(sessionId: string, text: string): Promise<void> {
+  /// The reply comes when the side chat's turn ends. `attachments`: `/side`'s staged files, in the
+  /// prompt as a send puts them (#40066); past one message's budget, the largest image previews go
+  /// as links to their saved originals (promptBudget.ts).
+  async promptSide(sessionId: string, text: string, attachments: ComposerAttachment[] = []): Promise<void> {
+    const carried = attachments.length ? fitPromptBudget(text, attachments) : attachments;
     await this.offerChildren.prompting(sessionId, () =>
       this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(text, []),
+        prompt: promptBlocks(text, carried),
         _meta: { acpmux: { promptId: crypto.randomUUID() } },
       }),
     );
