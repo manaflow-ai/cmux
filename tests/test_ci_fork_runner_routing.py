@@ -8,12 +8,13 @@ import re
 import unittest
 from pathlib import Path
 
+import workflow_jobs
 from job_lists_routing import (
     NIGHTLY,
-    load_jobs,
     merge_gating_jobs,
     release_environment_jobs,
     required_checks,
+    unresolved_environment_jobs,
     workflow_texts,
 )
 
@@ -118,8 +119,10 @@ RELEASE_JOBS_FORK_GATED = {
 
 
 def unclassified_release_jobs(jobs: dict) -> set[str]:
-    """Release-environment jobs neither exempt nor named as fork-gated."""
-    return release_environment_jobs(jobs) - RELEASE_PUBLICATION_JOBS - set(RELEASE_JOBS_FORK_GATED)
+    """Release-environment jobs neither exempt nor named as fork-gated. A job whose environment
+    cannot be resolved counts too: it may be a release job."""
+    candidates = release_environment_jobs(jobs) | unresolved_environment_jobs(jobs)
+    return candidates - RELEASE_PUBLICATION_JOBS - set(RELEASE_JOBS_FORK_GATED)
 
 
 def stale_release_classifications(jobs: dict) -> set[str]:
@@ -201,15 +204,13 @@ def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], 
     errors: dict[tuple[str, str], str] = {}
     for workflow, job in sorted(trusted_runner_jobs(texts)):
         text = texts.get(workflow)
-        block = text and re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", text)
-        if not block:
+        body = workflow_jobs.jobs(text).get(job) if text else None
+        if body is None:
             errors[(workflow, job)] = f"{workflow} has no job {job}"
             continue
-        runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
-        if len(runs_on) != 1:
-            errors[(workflow, job)] = f"{len(runs_on)} runs-on lines"
-        elif not TRUSTED_RUNNER_LINE.match(runs_on[0]):
-            errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on[0].strip()}"
+        runs_on = workflow_jobs.runs_on(body)
+        if not TRUSTED_RUNNER_LINE.match(f"runs-on: {runs_on}"):
+            errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on}"
     return errors
 
 
@@ -1348,15 +1349,40 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(set(errors), {("fixture.yml", "build-fixture")})
         self.assertIn(("fixture.yml", "gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
 
+    def test_a_merge_gating_job_whose_header_carries_a_comment_is_checked(self) -> None:
+        """`  gate-x: # note` is a job to GitHub; it must be route-checked, not reported missing or
+        folded into the job above it."""
+        texts = workflow_texts()
+        fixture = (
+            "on:\n  pull_request:\njobs:\n"
+            "  build-fixture: # split out of gate-fixture\n    runs-on: ${{ vars.LINUX_RUNNER }}\n"
+            "    steps:\n      - run: echo \"${{ secrets['SENTRY_AUTH_TOKEN'] }}\"\n"
+            "  gate-fixture: # the required context\n    name: backend migrations applied\n"
+            f"    needs: build-fixture\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n"
+        )
+        errors = trusted_runner_route_errors({**texts, "fixture.yml": fixture})
+        self.assertEqual(set(errors), {("fixture.yml", "build-fixture")})
+        self.assertIn("runs-on is not the trusted selector", errors[("fixture.yml", "build-fixture")])
+
+    def test_a_listed_merge_gating_job_on_the_trusted_route_stays_green(self) -> None:
+        texts = workflow_texts()
+        fixture = (
+            "on:\n  pull_request:\njobs:\n"
+            "  gate-fixture: # the required context\n    name: backend migrations applied\n"
+            f"    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n"
+        )
+        self.assertIn(("fixture.yml", "gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
+        self.assertEqual(trusted_runner_route_errors({**texts, "fixture.yml": fixture}), {})
+
     def test_every_release_environment_job_is_classified(self) -> None:
-        jobs = load_jobs(NIGHTLY.read_text(encoding="utf-8"))
+        jobs = workflow_jobs.jobs(NIGHTLY)
         self.assertIn("publish-nightly", release_environment_jobs(jobs))
         self.assertEqual(RELEASE_PUBLICATION_JOBS & set(RELEASE_JOBS_FORK_GATED), set())
         self.assertEqual(unclassified_release_jobs(jobs), set())
         self.assertEqual(stale_release_classifications(jobs), set())
 
     def test_a_new_release_environment_job_must_be_classified(self) -> None:
-        jobs = load_jobs(NIGHTLY.read_text(encoding="utf-8"))
+        jobs = workflow_jobs.jobs(NIGHTLY)
         for env in ("release-next", "${{ needs.decide.outputs.environment }}",
                     "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"):
             with self.subTest(env=env):
@@ -1364,6 +1390,33 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertEqual(unclassified_release_jobs(fixture), {"publish-fixture"})
         other = {**jobs, "reel-fixture": {"environment": "pr-media"}}
         self.assertEqual(unclassified_release_jobs(other), set())
+
+    def test_a_release_environment_from_a_matrix_or_an_unknown_expression_is_unclassified(self) -> None:
+        """`environment: ${{ matrix.environment }}` with release in the matrix is a release job, and an
+        environment nothing can resolve might be one: neither may pass as non-release."""
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        bracket = {"run": "gh release upload", "env": {"TOKEN": "${{ secrets['CMUX_RELEASE_APP_KEY'] }}"}}
+        for name, job in (
+            ("matrix-fixture", {"environment": "${{ matrix.environment }}",
+                                "strategy": {"matrix": {"environment": ["staging", "release"]}}, "steps": [bracket]}),
+            ("matrix-include-fixture", {"environment": {"name": "${{ matrix.env }}"},
+                                        "strategy": {"matrix": {"include": [{"env": "release-next"}]}}, "steps": [bracket]}),
+            ("matrix-json-fixture", {"environment": "${{ matrix.environment }}",
+                                     "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.matrix) }}"}, "steps": [bracket]}),
+            ("input-fixture", {"environment": "${{ inputs.environment }}", "steps": [bracket]}),
+        ):
+            with self.subTest(job=name):
+                self.assertEqual(unclassified_release_jobs({**jobs, name: job}), {name})
+        staging = {"environment": "${{ matrix.environment }}", "strategy": {"matrix": {"environment": ["staging"]}}}
+        self.assertEqual(unclassified_release_jobs({**jobs, "staging-fixture": staging}), set())
+
+    def test_a_listed_release_job_with_a_matrix_environment_stays_green(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        listed = {**jobs["publish-release-notes"], "environment": "${{ matrix.environment }}",
+                  "strategy": {"matrix": {"environment": ["release", "release-next"]}}}
+        fixture = {**jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_release_jobs(fixture), set())
+        self.assertEqual(stale_release_classifications(fixture), set())
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])

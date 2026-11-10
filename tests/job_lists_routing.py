@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-import yaml
+import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -26,33 +26,31 @@ NIGHTLY = WORKFLOWS / "nightly.yml"
 RELEASE_ENVIRONMENT_NAMES = frozenset({"release", "release-next"})
 # nightly.yml's decide job sets this output to 'release' or 'release-next'.
 RELEASE_ENVIRONMENT_OUTPUT = re.compile(r"\bneeds\.decide\.outputs\.environment\b")
-QUOTED = re.compile(r"'([^']*)'")
 
 
-def load_jobs(text: str) -> dict[str, dict[str, Any]]:
-    """A workflow's jobs, with YAML aliases resolved (nightly.yml shares steps by alias)."""
-    return (yaml.safe_load(text) or {}).get("jobs") or {}
-
-
-def environment_values(job: Mapping[str, Any]) -> set[str]:
-    """Every environment name a job's `environment:` can resolve to."""
-    env = job.get("environment")
-    if isinstance(env, Mapping):
-        env = env.get("name")
-    if not env:
-        return set()
-    env = str(env).strip()
-    if "${{" not in env:
-        return {env}
-    values = set(QUOTED.findall(env))
-    if RELEASE_ENVIRONMENT_OUTPUT.search(env):
-        values |= RELEASE_ENVIRONMENT_NAMES
-    return values
+def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
+    """Every environment name a job's `environment:` can resolve to, and the parts that cannot be
+    resolved. workflow_jobs expands matrix values and reads an expression's literal branches; the
+    one extra resolution here is nightly.yml's decide output, which is 'release' or 'release-next'."""
+    values, unresolved = workflow_jobs.environment_values(job)
+    remaining = set()
+    for term in unresolved:
+        if RELEASE_ENVIRONMENT_OUTPUT.fullmatch(term.strip()):
+            values |= RELEASE_ENVIRONMENT_NAMES
+        else:
+            remaining.add(term)
+    return values, remaining
 
 
 def release_environment_jobs(jobs: Mapping[str, Mapping[str, Any]]) -> set[str]:
     """Jobs that can run under a release environment, so they can read its secrets."""
-    return {name for name, job in jobs.items() if environment_values(job) & RELEASE_ENVIRONMENT_NAMES}
+    return {name for name, job in jobs.items() if environment_values(job)[0] & RELEASE_ENVIRONMENT_NAMES}
+
+
+def unresolved_environment_jobs(jobs: Mapping[str, Mapping[str, Any]]) -> set[str]:
+    """Jobs whose environment has a part nothing here can resolve (`${{ inputs.env }}`, a matrix
+    from fromJSON). They may be release jobs, so a guard counts them unclassified."""
+    return {name for name, job in jobs.items() if environment_values(job)[1]}
 
 
 def required_checks() -> tuple[str, ...]:
@@ -80,7 +78,7 @@ def merge_gating_jobs(workflow_texts: Mapping[str, str], contexts: Iterable[str]
     contexts = set(contexts)
     found: set[tuple[str, str]] = set()
     for workflow, text in workflow_texts.items():
-        jobs = load_jobs(text)
+        jobs = workflow_jobs.jobs(text)
         pending = [name for name, job in jobs.items() if str(job.get("name", name)) in contexts]
         while pending:
             name = pending.pop()

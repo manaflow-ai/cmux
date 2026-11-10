@@ -13,7 +13,8 @@ import re
 import unittest
 from pathlib import Path
 
-from job_lists_routing import load_jobs, release_environment_jobs
+import workflow_jobs
+from job_lists_routing import release_environment_jobs, unresolved_environment_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -43,12 +44,15 @@ APP_TOKEN_EXEMPT = {
         "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
     ),
 }
-RELEASE_APP_SECRET = re.compile(r"secrets\.CMUX_RELEASE_APP_(?:ID|KEY)\b")
+RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 
 
 def release_app_jobs(jobs: dict) -> set[str]:
-    """Jobs that can hold the release App's credentials: a release environment, or a direct read."""
-    return release_environment_jobs(jobs) | {name for name, job in jobs.items() if RELEASE_APP_SECRET.search(str(job))}
+    """Jobs that can hold the release App's credentials: a release environment (or one that cannot
+    be resolved), or a read of the credentials in any form (secrets.X, secrets['X'], any case,
+    toJSON(secrets), secrets: inherit)."""
+    return (release_environment_jobs(jobs) | unresolved_environment_jobs(jobs)
+            | {name for name, job in jobs.items() if workflow_jobs.reads_secret(job, *RELEASE_APP_SECRETS)})
 
 
 def unclassified_app_jobs(jobs: dict) -> set[str]:
@@ -62,8 +66,7 @@ BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wai
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import yaml
-        cls.jobs = yaml.safe_load(NIGHTLY.read_text(encoding="utf-8"))["jobs"]
+        cls.jobs = workflow_jobs.jobs(NIGHTLY)
 
     def test_every_release_app_job_is_classified(self) -> None:
         self.assertLessEqual({"publish-nightly", "promote-nightly-next"}, release_app_jobs(self.jobs))
@@ -78,9 +81,24 @@ class WorkflowTests(unittest.TestCase):
             ("publish-env-fixture", {"environment": tail, "steps": [{"run": "gh release upload"}]}),
             ("publish-secret-fixture", {"environment": "pr-media",
                                         "steps": [{"with": {"app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}"}}]}),
+            ("publish-bracket-fixture", {"environment": "pr-media",
+                                         "steps": [{"with": {"private-key": "${{ secrets['CMUX_RELEASE_APP_KEY'] }}"}}]}),
+            ("publish-double-bracket-fixture", {"steps": [{"with": {"app-id": '${{ secrets["CMUX_RELEASE_APP_ID"] }}'}}]}),
+            ("publish-lowercase-fixture", {"steps": [{"with": {"private-key": "${{ secrets.cmux_release_app_key }}"}}]}),
+            ("publish-tojson-fixture", {"steps": [{"env": {"ALL": "${{ toJSON(secrets) }}"}}]}),
+            ("publish-inherit-fixture", {"uses": "./.github/workflows/publish.yml", "secrets": "inherit"}),
+            ("publish-matrix-fixture", {"environment": "${{ matrix.environment }}",
+                                        "strategy": {"matrix": {"environment": ["release"]}}}),
+            ("publish-unknown-env-fixture", {"environment": "${{ inputs.environment }}"}),
         ):
             with self.subTest(job=name):
                 self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
+
+    def test_a_listed_release_app_job_reading_the_key_by_bracket_stays_green(self) -> None:
+        listed = {**self.jobs["publish-release-notes"]}
+        listed["steps"] = [*listed["steps"], {"with": {"private-key": "${{ secrets['cmux_release_app_key'] }}"}}]
+        fixture = {**self.jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_app_jobs(fixture), set())
 
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
