@@ -170,7 +170,9 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
       const pill = document.querySelector<HTMLElement>(".acpmux-since-jump")!.getBoundingClientRect();
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       return {
+        rowTop: Math.round(row.top),
         rowBottom: Math.round(row.bottom),
+        scrollerBottom: Math.round(scroller.bottom),
         pillTop: Math.round(pill.top),
         pillBottom: Math.round(pill.bottom),
         scrollerTop: Math.round(scroller.top),
@@ -184,6 +186,31 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
     expect(at.scrollerTop).toBeGreaterThanOrEqual(at.rowBottom);
     expect(at.pillTop).toBeGreaterThanOrEqual(at.rowBottom);
     expect(at.pillTop).toBeGreaterThanOrEqual(at.scrollerTop);
+    await page.close();
+  });
+
+  test("as tabs open and close and the row resizes, Jump to new never draws over the tab row", async () => {
+    // https://github.com/manaflow-ai/cmux/issues/40065: the pill sat over the tab strip's + beside a tab.
+    // Each change of the row (a second tab, the last tab closed, a taller row) moves the transcript's
+    // top under it; the pill follows, inside the transcript, below the row's bottom.
+    const page = await openChat({ height: 32, trailingInset: 40, soloTab: true });
+    const rows = [
+      { height: 32, trailingInset: 40, soloTab: false },
+      { height: 32, trailingInset: 40, soloTab: true },
+      { height: 44, trailingInset: 40, soloTab: true },
+      { height: 44, trailingInset: 40, soloTab: false },
+      { height: 28, trailingInset: 40, soloTab: false },
+      { height: 28, trailingInset: 40, soloTab: true },
+    ];
+    for (const row of rows) {
+      await page.evaluate((row) => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyTabRow!(row), row);
+      const at = await placement(page);
+      const where = `${JSON.stringify(row)} -> ${JSON.stringify(at)}`;
+      expect(at.rowBottom - at.rowTop, where).toBe(row.height);
+      expect(at.pillTop, where).toBeGreaterThanOrEqual(at.rowBottom);
+      expect(at.pillBottom, where).toBeLessThanOrEqual(at.scrollerBottom);
+      if (!row.soloTab) expect(at.pillTop, where).toBeGreaterThanOrEqual(at.scrollerTop);
+    }
     await page.close();
   });
 
