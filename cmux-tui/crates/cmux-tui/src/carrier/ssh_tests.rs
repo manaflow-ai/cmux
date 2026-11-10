@@ -725,7 +725,7 @@ async fn a_killed_route_fails_its_links_and_the_reconnect_goes_on_without_it() {
     let source = endpoints("10.20.0.7", super::now_unix() + 900);
     let route =
         ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
-    let relay_group = CachedGroup::new(Arc::new(QuietGroup));
+    let relay_group = CachedGroup::killable(Arc::new(QuietGroup), true);
     let current = Arc::new(CurrentRoute::default());
     current.set("relay:0");
     let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
@@ -761,6 +761,34 @@ async fn a_killed_route_fails_its_links_and_the_reconnect_goes_on_without_it() {
     // The kill is of that carrier only: ssh's own route stays.
     assert_eq!(routes.kill(super::super::fault::Route::Ssh).await, 1);
     assert!(routes.connect(1, ssh_request(&route), AuthKind::Grant).await.is_err());
+}
+
+/// A dial that is not a drill's has no kill switch (`CachedGroup::new`: its links are the route's own, with no
+/// wrapper on any send or receive), and a kill does nothing to it.
+#[tokio::test]
+async fn a_dial_that_is_not_a_drill_s_cannot_be_killed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let relay_group = CachedGroup::new(Arc::new(QuietGroup));
+    let current = Arc::new(CurrentRoute::default());
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    let routes = CarrierRoutes::new(set, 0, relay_group.clone(), SessionId([7; 16]), current);
+    let request = LinkRequest { lane: Lane::Interactive, generation: 0 };
+    let link: Arc<dyn cmux_remote::link::FrameLink> =
+        Arc::from(relay_group.open(request).await.unwrap());
+    let reading = tokio::spawn({
+        let link = link.clone();
+        async move { link.receive().await }
+    });
+    assert_eq!(routes.kill(super::super::fault::Route::Relay).await, 0);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!reading.is_finished(), "nothing was cut");
+    assert!(relay_group.open(request).await.is_ok(), "the group still opens");
+    reading.abort();
 }
 
 /// Carrier keys made at once, in one process, all end as the one key: each

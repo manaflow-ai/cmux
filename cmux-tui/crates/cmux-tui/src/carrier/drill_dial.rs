@@ -162,6 +162,7 @@ pub(crate) async fn dial(spec: DialSpec) -> Result<Arc<dyn CarrierSession>, Stri
         progress: None,
         ssh: Arc::new(ssh::SshSetup::from_env(None)),
         ssh_refusal: ssh::SshRefusal::default(),
+        drill: true,
     };
     let dialed = client::dial(&plan)
         .await

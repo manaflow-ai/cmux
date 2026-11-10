@@ -20,7 +20,9 @@
 //! carrier does (its links fail, [`CachedGroup::kill`]) and the session's
 //! own reconnect leaves the route out from then on, so it resumes on the
 //! next one. Nothing else calls it, and only the drill's gates reach it
-//! (`carrier::fault`).
+//! (`carrier::fault`). Only a drill's dial makes killable groups
+//! ([`CachedGroup::killable`]): every other dial's links are the route's own,
+//! with nothing between them and the session.
 //!
 //! [`select_initial_route`]: crate::remote_runtime::select_initial_route
 
@@ -139,17 +141,30 @@ impl CurrentRoute {
 /// A group the route cache holds. Closing it (the connection retires the
 /// group it moved off, `reconnect_once`) takes it out of the cache for
 /// good, so no route resumes on a closed group, whatever kind it is.
-/// Killing it ([`Self::kill`]) closes it and fails every link it opened.
+/// Killing a killable one ([`Self::kill`]) closes it and fails every link
+/// it opened.
 pub(super) struct CachedGroup {
     inner: Arc<dyn LinkGroup>,
     closed: AtomicBool,
-    killed: tokio::sync::watch::Sender<bool>,
+    /// The fault drill's kill switch, on a drill dial's groups only: their
+    /// links are [`GroupLink`]s. `None`: links are the route's own.
+    killed: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl CachedGroup {
     pub(super) fn new(inner: Arc<dyn LinkGroup>) -> Arc<Self> {
-        let (killed, _) = tokio::sync::watch::channel(false);
+        Arc::new(Self { inner, closed: AtomicBool::new(false), killed: None })
+    }
+
+    /// A group the fault drill can kill ([`Self::kill`]); `killable: false`
+    /// is [`Self::new`].
+    pub(super) fn killable(inner: Arc<dyn LinkGroup>, killable: bool) -> Arc<Self> {
+        let killed = killable.then(|| tokio::sync::watch::channel(false).0);
         Arc::new(Self { inner, closed: AtomicBool::new(false), killed })
+    }
+
+    fn is_killable(&self) -> bool {
+        self.killed.is_some()
     }
 
     fn is_open(&self) -> bool {
@@ -161,7 +176,9 @@ impl CachedGroup {
     /// included, as a carrier that died under them would.
     pub(super) async fn kill(&self) {
         self.closed.store(true, Ordering::Release);
-        self.killed.send_replace(true);
+        if let Some(killed) = &self.killed {
+            killed.send_replace(true);
+        }
         let _ = self.inner.close().await;
     }
 }
@@ -236,7 +253,10 @@ impl LinkGroup for CachedGroup {
             return Err(ProviderError::Link(LinkError::Closed));
         }
         let inner = self.inner.open(request).await?;
-        Ok(Box::new(GroupLink { inner, killed: self.killed.subscribe() }))
+        Ok(match &self.killed {
+            Some(killed) => Box::new(GroupLink { inner, killed: killed.subscribe() }),
+            None => inner,
+        })
     }
     async fn close(&self) -> Result<(), ProviderError> {
         self.closed.store(true, Ordering::Release);
@@ -253,6 +273,8 @@ pub(super) struct CarrierRoutes {
     groups: Mutex<Vec<Option<Arc<CachedGroup>>>>,
     /// The routes the fault drill killed, by index: left out from then on.
     killed: Mutex<Vec<bool>>,
+    /// The session's groups are killable (a drill's dial): new ones are too.
+    killable: bool,
     session: SessionId,
     next: AtomicUsize,
     current: Arc<CurrentRoute>,
@@ -272,11 +294,13 @@ impl CarrierRoutes {
         let groups =
             (0..routes.len()).map(|index| (index == selected).then(|| group.clone())).collect();
         let killed = vec![false; routes.len()];
+        let killable = group.is_killable();
         Self {
             routes,
             dialers,
             groups: Mutex::new(groups),
             killed: Mutex::new(killed),
+            killable,
             session,
             next: AtomicUsize::new(selected.saturating_add(1)),
             current,
@@ -293,8 +317,11 @@ impl CarrierRoutes {
     /// group dies under the session ([`CachedGroup::kill`]), which resumes
     /// through [`ReconnectGroupSource::next_group`] on another route, and
     /// the session never connects it again. Answers how many routes it
-    /// killed (0: the session has no such route).
+    /// killed (0: the session has no such route, or is not a drill's).
     pub(super) async fn kill(&self, route: Route) -> usize {
+        if !self.killable {
+            return 0;
+        }
         let indexes: Vec<usize> = (0..self.dialers.len())
             .filter(|index| self.dialers.get(*index).is_some_and(|d| d.route() == route))
             .collect();
@@ -361,7 +388,7 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
         let group = match self.cached(index) {
             Some(group) => group,
             None => {
-                let group = CachedGroup::new(dialer.connect(request).await?);
+                let group = CachedGroup::killable(dialer.connect(request).await?, self.killable);
                 // The kill's flag and the cache under one lock: a route killed
                 // while this group was connecting never carries the session.
                 let killed = {

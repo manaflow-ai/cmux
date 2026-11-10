@@ -236,6 +236,9 @@ cmux vm start-session --name dev --agent codex                          # take m
 answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`
 and `follow_up`, the `cloud exec` commands that send, wait and read on
 that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
+With no prompt it answers `sent: false`, `ready_ms` and, when `start-session` named
+one, `daemon_tab` (the chat tab's number on the machine's daemon: `start-session`'s
+`surface_id`, what `agent-session-attach` takes).
 
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's

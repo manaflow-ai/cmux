@@ -28,7 +28,7 @@
 use serde_json::{Value, json};
 
 use std::io::Read as _;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::internal::fault_routes;
 use super::{
@@ -84,25 +84,29 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
     };
     let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
-    let source = |runner: &mut dyn Runner, plan: &FaultPlan, caps: &Value, deadline| {
-        drill_source(runner, &global, &request, stdin, (plan, caps, deadline))
+    let source = |runner: &mut dyn Runner, plan: &FaultPlan, caps: &Value, until| {
+        drill_source(runner, &global, &request, stdin, (plan, caps, until))
     };
     let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None), source);
     Some(report(&outcome, global.output))
 }
 
-/// The drill's event source for `request` (`stdin`: its prompt is `--prompt -`): the chat started without its
-/// prompt, the app's credential, and the routes over one Cloud dial that send the prompt once attached. A start
-/// that failed answers as it would without the drill.
-fn drill_source(
+/// The drill's event source for `request` (`stdin`: its prompt is `--prompt -`), all of it inside the drill's one
+/// deadline `until` (from `--timeout`, on `runner`'s clock): the chat started without its prompt, the app's
+/// credential, and the routes over one Cloud dial that send the prompt once attached. A start that failed, or
+/// answered past `until`, answers as it would without the drill; nothing is sent after `until`.
+pub(super) fn drill_source(
     runner: &mut dyn Runner,
     global: &GlobalArgs,
     request: &Request,
     stdin: bool,
-    (plan, caps, deadline): (&FaultPlan, &Value, tokio::time::Instant),
+    (plan, caps, until): (&FaultPlan, &Value, Instant),
 ) -> Result<Box<dyn EventRoutes>, Outcome> {
     let refuse = |code: &str, message: String| {
         failed(code, message, Drill::new(plan.spec, caps.clone()).json(), 2)
+    };
+    let out_of_time = || {
+        refuse("carrier_fault.timeout", "--timeout ran out before the drill's turn started".into())
     };
     let prompt = if stdin {
         let mut text = String::new();
@@ -113,11 +117,18 @@ fn drill_source(
     } else {
         request.prompt.clone().unwrap_or_default()
     };
-    let started = match run(runner, &Request { prompt: None, wait: false, ..request.clone() }) {
+    // The start's own steps are bounded by the drill's deadline, prompt or not (`Request::until`).
+    let bounded = Request { prompt: None, wait: false, until: Some(until), ..request.clone() };
+    let started = match run(runner, &bounded) {
         Outcome::Done(answer) => answer,
         refused => return Err(refused),
     };
-    let token = match runner.app("auth.token", json!({}), TOKEN_TIMEOUT) {
+    let left = |runner: &mut dyn Runner| until.saturating_duration_since(runner.now());
+    if left(runner).is_zero() {
+        return Err(out_of_time());
+    }
+    let asked = left(runner).min(TOKEN_TIMEOUT);
+    let token = match runner.app("auth.token", json!({}), asked) {
         Some(Ok(token)) => token,
         Some(Err(error)) => {
             return Err(refuse(
@@ -129,13 +140,38 @@ fn drill_source(
             return Err(refuse("carrier_fault.no_credential", "no app answered auth.token".into()));
         }
     };
+    let left = left(runner);
+    if left.is_zero() {
+        return Err(out_of_time());
+    }
     let text = |key: &str| started.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let (machine, session) = (text("machine_id"), text("session_id"));
-    let send_request = Request { prompt: Some(prompt), wait: false, ..request.clone() };
+    let send =
+        prompt_send(global, request, prompt, (text("machine_id"), text("session_id")), until);
+    let dial_deadline = tokio::time::Instant::now() + left;
+    match fault_routes::cloud_routes(&started, &token, dial_deadline, send) {
+        Ok(routes) => Ok(Box::new(routes)),
+        Err(why) => Err(refuse("carrier_fault.no_event_source", why)),
+    }
+}
+
+/// The turn's prompt to `session` on `machine` (`cmux chat send`'s run), bounded by `until`: past it nothing is
+/// sent, and every step of the send is bounded by it (`Request::until`).
+pub(super) fn prompt_send(
+    global: &GlobalArgs,
+    request: &Request,
+    prompt: String,
+    (machine, session): (String, String),
+    until: Instant,
+) -> fault_routes::SendPrompt {
+    let request =
+        Request { prompt: Some(prompt), wait: false, until: Some(until), ..request.clone() };
     let global = global.clone();
-    let send = Box::new(move || {
+    Box::new(move || {
+        if Instant::now() >= until {
+            return Err("--timeout ran out before the prompt was sent".into());
+        }
         let mut runner = self_runner(&global);
-        match send_to(&mut runner, &send_request, &machine, &session) {
+        match send_to(&mut runner, &request, &machine, &session) {
             Outcome::Done(_) => Ok(()),
             Outcome::Failed { error, .. } => Err(error
                 .get("message")
@@ -143,11 +179,7 @@ fn drill_source(
                 .unwrap_or("the send failed")
                 .to_owned()),
         }
-    });
-    match fault_routes::cloud_routes(&started, &token, deadline, send) {
-        Ok(routes) => Ok(Box::new(routes)),
-        Err(why) => Err(refuse("carrier_fault.no_event_source", why)),
-    }
+    })
 }
 
 /// `words` without `--carrier-fault SPEC` (or `--carrier-fault=SPEC`), and the spec. The flag is
@@ -202,7 +234,8 @@ fn account_email(runner: &mut dyn Runner) -> Option<String> {
 /// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value,
 /// `carriers` this device's ([`this_device`]), and `source` the turn's events over the plan's
 /// carriers (given the plan, the capabilities and the drill's deadline; `Err`: the answer), both
-/// asked only once the gates passed.
+/// asked only once the gates passed. One deadline, `--timeout` from this call on `runner`'s clock,
+/// bounds the source (the start, the credential, the dial, the send) and the drill.
 pub(super) fn start(
     runner: &mut dyn Runner,
     request: &Request,
@@ -213,9 +246,11 @@ pub(super) fn start(
         &mut dyn Runner,
         &FaultPlan,
         &Value,
-        tokio::time::Instant,
+        Instant,
     ) -> Result<Box<dyn EventRoutes>, Outcome>,
 ) -> Outcome {
+    let began = runner.now();
+    let until = began.checked_add(request.timeout).unwrap_or(began);
     let not_probe = || failed("carrier_fault.not_probe", NOT_PROBE, json!({}), 2);
     if !probe_run(env) {
         return not_probe();
@@ -238,11 +273,12 @@ pub(super) fn start(
         Ok(plan) => plan,
         Err(refused) => return failed(refused.code, refused.message, refused.record, 2),
     };
-    let deadline = tokio::time::Instant::now() + request.timeout;
-    let mut events = match source(runner, &plan, &caps, deadline) {
+    let mut events = match source(runner, &plan, &caps, until) {
         Ok(events) => events,
         Err(outcome) => return outcome,
     };
+    // The same deadline on the drill's clock: what is left of it now.
+    let deadline = tokio::time::Instant::now() + until.saturating_duration_since(runner.now());
     // The dial's own runtime, as `cmux carrier dial` runs it.
     let Ok(runtime) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
         return failed(

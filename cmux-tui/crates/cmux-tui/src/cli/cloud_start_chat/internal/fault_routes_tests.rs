@@ -40,6 +40,9 @@ pub(crate) struct FakeSession {
     pub(crate) kills: Mutex<Vec<Route>>,
     /// The stream's lines opened over each carrier, killed with it.
     streams: Mutex<Vec<(Route, tokio::sync::watch::Sender<bool>)>>,
+    /// A bad server: on a resume over ssh, it pushes the record of this seq (one the client had over the relay)
+    /// again, right after its page.
+    pub(crate) replays_on_ssh: Mutex<Option<u64>>,
 }
 
 impl FakeSession {
@@ -51,6 +54,7 @@ impl FakeSession {
             attaches: Arc::default(),
             kills: Mutex::default(),
             streams: Mutex::default(),
+            replays_on_ssh: Mutex::default(),
         })
     }
 
@@ -72,6 +76,7 @@ impl CarrierSession for FakeSession {
         let (killed, mut dead) = tokio::sync::watch::channel(false);
         self.streams.lock().unwrap().push((on, killed));
         let (log, page, attaches) = (self.log.clone(), self.page, self.attaches.clone());
+        let replay = (on == Route::Ssh).then(|| *self.replays_on_ssh.lock().unwrap()).flatten();
         let daemon = tokio::spawn(async move {
             let (reader, mut writer) = tokio::io::split(theirs);
             let mut lines = BufReader::new(reader).lines();
@@ -94,6 +99,11 @@ impl CarrierSession for FakeSession {
                         let answer = json!({"id": id, "ok": true,
                                             "data": {"events": paged, "hasMore": false}});
                         writer.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        if let Some(old) = replay.and_then(|seq| log.get(seq as usize - 1)) {
+                            let push = json!({"event": "agent-session-record", "surface": SURFACE,
+                                              "record": old});
+                            writer.write_all(format!("{push}\n").as_bytes()).await.unwrap();
+                        }
                         // Live records, from the page's last one again, one at a time until the carrier dies.
                         for record in rest.iter().skip(page.saturating_sub(1)) {
                             tokio::time::sleep(Duration::from_millis(2)).await;
@@ -225,4 +235,21 @@ async fn a_session_that_moves_carrier_before_the_kill_ends_the_stream() {
     session.move_to(Route::Ssh);
     let moved = opened.stream.next().await.unwrap().unwrap_err();
     assert!(moved.contains("on ssh, not relay"), "{moved}");
+}
+
+/// A resumed carrier that pushes a record the client had from the old carrier again (after its page of 5-6, a
+/// push of 4): that push is not the attach's own overlap, so it is delivered and the record shows it twice, the
+/// judge's `failover.repeated`. Only the page's own seqs, once each, are taken as the overlap.
+#[tokio::test]
+async fn a_record_the_resumed_carrier_sends_again_is_a_repeat_in_the_record() {
+    let sent = Arc::new(AtomicUsize::new(0));
+    let session = FakeSession::new(9, Route::Relay);
+    *session.replays_on_ssh.lock().unwrap() = Some(4);
+    let mut routes = routes_over(&session, &sent);
+    let record = run_drill(&plan(4), &mut routes, caps(), deadline()).await.unwrap();
+    assert_eq!(seqs(&record), vec![1, 2, 3, 4, 5, 6, 4, 7, 8, 9]);
+    let routes: Vec<&str> =
+        record["events"].as_array().unwrap().iter().map(|e| e["route"].as_str().unwrap()).collect();
+    assert_eq!(routes, [vec!["relay"; 4], vec!["ssh"; 6]].concat());
+    assert_eq!(record["resumes"][1]["from_seq"], 5, "the page's first record");
 }

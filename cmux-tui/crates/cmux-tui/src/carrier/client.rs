@@ -112,6 +112,11 @@ pub(super) struct DialPlan {
     /// The platform's refusal of the ssh carrier for good, once one came:
     /// every later attempt of this dial leaves the route out.
     pub ssh_refusal: SshRefusal,
+    /// A probe's fault drill dial (only after its gate, `carrier::fault`):
+    /// its routes can be killed inside the session
+    /// ([`CarrierRoutes::kill`]). Every other dial is `false`, and its links
+    /// are the routes' own.
+    pub drill: bool,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -518,7 +523,7 @@ impl RouteAttempt<'_> {
         };
         // The connection and the routes hold the same cached group, so the
         // routes see it retired once the session moves off it.
-        let cached = CachedGroup::new(tracked);
+        let cached = CachedGroup::killable(tracked, plan.drill);
         let tracked: Arc<dyn LinkGroup> = cached.clone();
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let config = ClientConnectionConfig {

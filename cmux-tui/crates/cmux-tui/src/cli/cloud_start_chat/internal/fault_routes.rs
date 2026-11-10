@@ -14,11 +14,12 @@
 //!   whose reconnect resumes on the next route. The next open attaches again on that same session, after the
 //!   client's last seq, and checks the session is on the next route.
 //!
-//! Within one stream, a pushed record the attach page already held is not delivered twice: the attachment
-//! subscribes before it reads its page, so the overlap is the attach protocol's own. Across carriers nothing is
-//! dropped: a record a resume sends again is in the drill's record, for its judge.
+//! Within one stream, the one push of a record its own attach page held is not delivered twice: the attachment
+//! subscribes before it reads its page, so that overlap is the attach protocol's own. Only those exact seqs, once
+//! each: any other record, one the client had from the old carrier included, is delivered as it came and is in
+//! the drill's record, for its judge.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,15 +65,18 @@ impl SessionRoutes {
     }
 }
 
-/// Puts the chat tab's handle from `started` (`cloud start-session`'s answer) into a start's `answer`, where
-/// [`cloud_routes`] reads it.
+/// The key of a promptless start's answer that holds the chat tab's number on the machine's daemon.
+pub(crate) const DAEMON_TAB: &str = "daemon_tab";
+
+/// Puts the chat tab's handle from `started` (`cloud start-session`'s answer, its `surface_id`) into a start's
+/// `answer` as [`DAEMON_TAB`], where [`cloud_routes`] reads it.
 pub(crate) fn keep_chat_tab(answer: &mut Value, started: &Value) {
     if let (Some(tab), Some(fields)) = (super::chat_tab(started), answer.as_object_mut()) {
-        fields.insert("surface_id".into(), json!(tab));
+        fields.insert(DAEMON_TAB.into(), json!(tab));
     }
 }
 
-/// The routes of a chat `cloud start-chat` just started (`started`: its answer, `machine_id` and `surface_id`) over
+/// The routes of a chat `cloud start-chat` just started (`started`: its answer, `machine_id` and [`DAEMON_TAB`]) over
 /// a dial with the signed-in app's credential (`token`: `auth.token`'s answer), by `deadline`.
 pub(crate) fn cloud_routes(
     started: &Value,
@@ -85,8 +89,10 @@ pub(crate) fn cloud_routes(
         .and_then(Value::as_str)
         .ok_or("the chat's start named no machine")?
         .to_owned();
-    let surface =
-        super::chat_tab(started).ok_or("the chat's start named no chat tab to attach to")?;
+    let surface = started
+        .get(DAEMON_TAB)
+        .and_then(Value::as_u64)
+        .ok_or("the chat's start named no chat tab to attach to")?;
     let text = |key: &str| token.get(key).and_then(Value::as_str).map(str::to_owned);
     let api = text("api_origin").ok_or("the app's token names no cmux API")?;
     let token_text = text("access_token").ok_or("the app gave no access token")?;
@@ -127,10 +133,7 @@ impl EventRoutes for SessionRoutes {
             match attach(session.clone(), route, self.surface, after_seq.unwrap_or(0)).await {
                 Ok(opened) => {
                     if let Some(send) = self.send.take() {
-                        tokio::task::spawn_blocking(send)
-                            .await
-                            .map_err(|error| format!("the prompt's send did not run: {error}"))?
-                            .map_err(|why| format!("the prompt was not sent: {why}"))?;
+                        send_off(send).await?;
                     }
                     return Ok(opened);
                 }
@@ -140,6 +143,22 @@ impl EventRoutes for SessionRoutes {
         }
         Err(last)
     }
+}
+
+/// Runs the prompt's send (a blocking run of this binary's steps) on a thread of its own. The drill's deadline drops
+/// the wait for it, and nothing waits for that thread after: the runtime's shutdown never blocks on a send, which
+/// itself sends nothing past the deadline (`prompt_send`).
+async fn send_off(send: SendPrompt) -> Result<(), String> {
+    let (done, sent) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("carrier-drill-send".into())
+        .spawn(move || {
+            let _ = done.send(send());
+        })
+        .map_err(|error| format!("the prompt's send did not start: {error}"))?;
+    sent.await
+        .map_err(|_| "the prompt's send ended without an answer".to_owned())?
+        .map_err(|why| format!("the prompt was not sent: {why}"))
 }
 
 /// One stream: a line stream on the session, `identify`, then the attach after `after`, on `route`.
@@ -157,7 +176,8 @@ async fn attach(
         lines,
         queued: VecDeque::new(),
         early: VecDeque::new(),
-        paged: 0,
+        newest: 0,
+        overlap: HashSet::new(),
         more: false,
     };
     let identity = stream.ask("identify", json!({"id": "identify", "cmd": "identify"})).await?;
@@ -192,8 +212,12 @@ struct Stream {
     queued: VecDeque<Value>,
     /// Lines pushed while a page was awaited: read after the pages.
     early: VecDeque<Value>,
-    /// The newest seq the attach pages held (a push at or before it is the attach's overlap).
-    paged: u64,
+    /// The newest seq the attach pages held: where the next page starts.
+    newest: u64,
+    /// The seqs the pages held that no push has repeated yet: the attach subscribes before it reads its page, so
+    /// the push of exactly one of these is the attach's own overlap, and only that one push is not delivered again.
+    /// Any other push is delivered as it came, a seq the client already had included (the judge's repeat).
+    overlap: HashSet<u64>,
     /// The last page said there is more.
     more: bool,
 }
@@ -245,7 +269,8 @@ impl Stream {
     fn page(&mut self, page: &Value) {
         for record in page.get("events").and_then(Value::as_array).into_iter().flatten() {
             if let Some(seq) = record.get("seq").and_then(Value::as_u64) {
-                self.paged = self.paged.max(seq);
+                self.newest = self.newest.max(seq);
+                self.overlap.insert(seq);
             }
             self.queued.push_back(record.clone());
         }
@@ -272,7 +297,7 @@ impl Stream {
             Some("agent-session-record") => {
                 if let Some(record) = line.get("record") {
                     let seq = record.get("seq").and_then(Value::as_u64);
-                    if seq.is_none_or(|seq| seq > self.paged) {
+                    if !seq.is_some_and(|seq| self.overlap.remove(&seq)) {
                         self.queued.push_back(record.clone());
                     }
                 }
@@ -302,15 +327,15 @@ impl EventStream for Stream {
                 return Some(self.event(&record));
             }
             if self.more {
-                let id = format!("events-{}", self.paged);
+                let id = format!("events-{}", self.newest);
                 let request = json!({"id": id, "cmd": "agent-session-events", "surface": self.surface,
-                                     "after_seq": self.paged, "limit": PAGE});
-                let before = self.paged;
+                                     "after_seq": self.newest, "limit": PAGE});
+                let before = self.newest;
                 match self.ask(&id, request).await {
                     Ok(page) => self.page(&page),
                     Err(why) => return Some(Err(why)),
                 }
-                if self.more && self.paged == before {
+                if self.more && self.newest == before {
                     return Some(Err("a replay page made no progress".into()));
                 }
                 continue;

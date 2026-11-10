@@ -119,6 +119,9 @@ pub(super) struct Request {
     /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
     /// and start again once.
     pub make_room: bool,
+    /// A deadline a caller already holds (the carrier fault drill's one `--timeout`): every step is bounded by it,
+    /// with or without a prompt and `--wait`. `None`: [`Deadline::of`] reads `--timeout` from the run's start.
+    pub until: Option<Instant>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -190,6 +193,7 @@ pub(super) fn send_existing(
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
         make_room: false,
+        until: None,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -437,6 +441,7 @@ pub(super) fn parse(
         wait,
         timeout,
         make_room,
+        until: None,
     }))
 }
 
@@ -753,6 +758,9 @@ pub(super) struct Deadline(Option<Instant>);
 
 impl Deadline {
     pub(super) fn of(request: &Request, began: Instant) -> Self {
+        if let Some(until) = request.until {
+            return Self(Some(until));
+        }
         let bounded = request.wait && request.prompt.is_some();
         Self(bounded.then(|| began.checked_add(request.timeout).unwrap_or(began)))
     }

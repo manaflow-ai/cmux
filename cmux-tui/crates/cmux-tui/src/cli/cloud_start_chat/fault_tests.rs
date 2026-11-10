@@ -63,7 +63,7 @@ fn unreached(
     _: &mut dyn Runner,
     _: &crate::carrier::fault::FaultPlan,
     _: &Value,
-    _: tokio::time::Instant,
+    _: Instant,
 ) -> Result<Box<dyn EventRoutes>, Outcome> {
     panic!("the drill's source was asked before its gates passed")
 }
