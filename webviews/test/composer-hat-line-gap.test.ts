@@ -60,7 +60,7 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
           (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
         ),
     );
-  const open = async (variant: string, theme: string): Promise<Page> => {
+  const open = async (variant: string, theme: string, hat = true): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 640, height: 260 }, deviceScaleFactor: SCALE });
     for (;;) {
       await page.goto(stageURL(variant, theme));
@@ -75,7 +75,7 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
     }
     await page.evaluate(() => document.fonts.ready);
     await page.mouse.move(1, 1);
-    await page.waitForSelector(".acpmux-tray-pull__hat");
+    if (hat) await page.waitForSelector(".acpmux-tray-pull__hat");
     await eased(page);
     return page;
   };
@@ -212,4 +212,29 @@ await requireBrowserLane("composer-hat-line-gap.test.ts", async () => {
       await page.close();
       clean(seen, `${from} to ${to}`);
     });
+
+  // Tucking the hat while work runs mounts the pill already at its count's width: the gap is that
+  // width from the first frame, never growing into it while the line shows through the count.
+  test("tucked while twelve run: the gap is the pill's width from its first frame", async () => {
+    const page = await open("line-tuck", "Catppuccin Mocha", false);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          document.querySelector<HTMLElement>('[data-stage="tuck"]')!.click();
+          requestAnimationFrame(() => {
+            for (const animation of document.getAnimations()) {
+              const duration = Number(animation.effect?.getTiming().duration ?? 0);
+              if (animation.playState !== "running" || !(duration > 0)) continue;
+              animation.pause();
+              animation.currentTime = duration * 0.4;
+            }
+            resolve();
+          });
+        }),
+    );
+    await page.waitForSelector(".acpmux-tray-pull__count");
+    const seen = await measureOn(page);
+    await page.close();
+    clean(seen, "tucked while twelve run");
+  });
 });

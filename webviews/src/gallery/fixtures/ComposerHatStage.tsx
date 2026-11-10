@@ -21,6 +21,7 @@ export function ComposerHatStage({
   side = "middle",
   surface = "card",
   narrow = false,
+  tucked = true,
 }: {
   start?: number;
   waits?: boolean;
@@ -33,9 +34,12 @@ export function ComposerHatStage({
   /** A pane under the composer's narrow step (under 298 px of column, composerLocation.css): the
    *  card and the queue reach 8 px past the column the tab sits in. */
   narrow?: boolean;
+  /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
+  tucked?: boolean;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
+  const [isTucked, setTucked] = useState(tucked);
   const set = (next: number, wait = 0) => {
     setRunning(next);
     setWaiting(wait);
@@ -70,6 +74,9 @@ export function ComposerHatStage({
           <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
             One waits on you
           </button>
+          <button type="button" data-stage="tuck" onClick={() => setTucked(!isTucked)}>
+            Tuck the hat
+          </button>
         </div>
         <main
           className="acpmux-main"
@@ -81,7 +88,9 @@ export function ComposerHatStage({
             className="acpmux-dock"
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
-            <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+            {isTucked && (
+              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+            )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
                 line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}

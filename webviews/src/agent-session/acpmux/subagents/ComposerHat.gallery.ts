@@ -16,6 +16,7 @@ type Props = {
   side?: "left" | "middle" | "right";
   surface?: "card" | "queue" | "codex-strip";
   narrow?: boolean;
+  tucked?: boolean;
 };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
@@ -132,6 +133,10 @@ export default componentEntry<Props>({
     "line-queue-narrow-left": {
       note: "A queue in a narrow pane, the handle at the left: the queue reaches 8 px past the column too.",
       props: { start: 7, surface: "queue", narrow: true, side: "left" },
+    },
+    "line-tuck": {
+      note: "Twelve run and the hat is out: Tuck the hat, and the gap is the pill's whole width from its first frame.",
+      props: { start: 12, tucked: false },
     },
     "line-before": {
       note: "Before: the card's top line ran through the middle of the pill's glass.",

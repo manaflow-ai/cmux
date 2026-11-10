@@ -2092,6 +2092,10 @@ button.cv-subagent > :last-child {
   /* The pill's centre in the column: `along` of the column's width, plus `shift`. */
   --acpmux-tray-pull-gap-along: 0.5;
   --acpmux-tray-pull-gap-shift: 0px;
+}
+/* Only once the pill is drawn (TrayPullTab.tsx data-drawn): a tab that mounts showing a count, or
+   the composer that meets it, takes the pill's width at once, as the slot does. */
+.acpmux-tray-pull[data-drawn] + .acpmux-composer {
   transition:
     --acpmux-tray-pull-gap-pad var(--agent-motion-move) var(--agent-ease-out),
     --acpmux-tray-pull-gap-digits var(--agent-motion-move) var(--agent-ease-out);
@@ -2102,7 +2106,7 @@ button.cv-subagent > :last-child {
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-tray-pull + .acpmux-composer {
+  .acpmux-tray-pull[data-drawn] + .acpmux-composer {
     transition: none;
   }
 }
