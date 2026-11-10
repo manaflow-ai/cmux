@@ -163,6 +163,14 @@ Claude Code 2.1 reads under any config directory and beside any
   delays the event. At `SessionStart` the journal hook and the
   `agent session-context` hook each make it (two reads at most); a
   `UserPromptSubmit` makes it only when messages are queued.
+
+  The `SessionStart` hook writes the claim whether or not the daemon took
+  the event, so a Claude that starts while no daemon takes it still claims
+  its terminal (its read fails, so it counts as the agent). Claude Code
+  kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s and
+  never past 4.5 s after the hook started, and the read ends no later than 4.5 s after
+  the hook started. With no time left the hook makes no read and acts as
+  when the read fails.
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then
   counts as another agent's and gets no messages, banner or context until
@@ -176,6 +184,13 @@ Claude Code 2.1 reads under any config directory and beside any
   server that starts one at once), or one that outlives its parent, holds
   the row; the terminal's own Claude then counts as another agent's until
   that session ends.
+- Limit: a claim on a tmux or ancestor route names the terminal that showed
+  the session at `SessionStart`. After the tmux session is attached in
+  another terminal, the agent's events report there, but its claim still
+  names the first terminal. A Claude that a tool command then starts is not
+  claimed for the new terminal: only the agent check and the first live
+  session keep the terminal the agent's. The agent's next `SessionStart`
+  (`/clear`, `/resume`, compaction) writes a claim for the new terminal.
 - A Claude started with `cmux agent start` from a tool command runs in its
   own terminal and reports there. The shim's fallback when no hook helper is
   found (`cmux-tui agent hook emit`) records events only, delivers no

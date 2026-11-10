@@ -13,7 +13,9 @@
 //! - Else one `agent.list` read of the terminal: a live hook session other
 //!   than this one means this Claude is another agent's. A read that fails or
 //!   times out means it is the terminal's agent, so the agent is never
-//!   silenced by a daemon that does not answer in time. Only a read that
+//!   silenced by a daemon that does not answer in time. At `SessionStart`
+//!   the read ends inside the hook's time budget; with no time left it is
+//!   not made, with the same result as a failed read. Only a read that
 //!   shows this session as the terminal's (or no live session) records this
 //!   process, at its start or at a later prompt.
 //!
@@ -50,6 +52,9 @@ pub(super) struct Run<'a> {
     pub(super) start_source: Option<&'a str>,
     /// `CLAUDE_PID`, digits only.
     pub(super) pid: Option<&'a str>,
+    /// When the hook's time budget ends (a `SessionStart`): the read ends by
+    /// then, and none is made with no time left. `None`: the read's own bound.
+    pub(super) budget_end: Option<Instant>,
 }
 
 impl Run<'_> {
@@ -88,7 +93,8 @@ impl Run<'_> {
     fn read_roster(&self) -> anyhow::Result<Value> {
         let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
         let now = Instant::now();
-        let deadline = read_deadline(now + DEADLINE, now).context("no time left to read")?;
+        let budget_end = self.budget_end.unwrap_or(now + DEADLINE);
+        let deadline = read_deadline(budget_end, now).context("no time left to read")?;
         inbox::request(self.socket, "agent.list", params, false, deadline)
     }
 
@@ -109,8 +115,8 @@ impl Run<'_> {
 /// the end of the hook's time budget (`budget_end`). `None` when no time is
 /// left, and the hook then makes no read.
 fn read_deadline(budget_end: Instant, now: Instant) -> Option<Instant> {
-    let _ = budget_end;
-    Some(now + DEADLINE)
+    let deadline = (now + DEADLINE).min(budget_end);
+    (deadline > now).then_some(deadline)
 }
 
 /// The verdict of [`nested_in`].
@@ -233,6 +239,7 @@ mod tests {
             session: Some(session),
             start_source: start,
             pid,
+            budget_end: None,
         }
     }
 
@@ -345,6 +352,7 @@ mod tests {
                 session: Some(session),
                 start_source: start,
                 pid: Some(pid),
+                budget_end: None,
             }
         }
         let failed = || Err(anyhow::anyhow!("timed out"));

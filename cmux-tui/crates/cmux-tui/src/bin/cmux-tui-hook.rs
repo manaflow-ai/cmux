@@ -117,6 +117,7 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    let started = Instant::now();
     let native = payload()?;
     let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let session = session.as_deref();
@@ -148,7 +149,7 @@ fn run_reading(
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
     }
-    let result = run_after_ready(&args, exe_prefix, native);
+    let result = run_after_ready(&args, exe_prefix, native, started);
     if result.is_err()
         && args.native_event == "PreToolUse"
         && matches!(args.source.as_str(), "claude" | "codex")
@@ -161,7 +162,12 @@ fn run_reading(
     result
 }
 
-fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
+fn run_after_ready(
+    args: &Args,
+    exe_prefix: &[&str],
+    native: Value,
+    started: Instant,
+) -> anyhow::Result<()> {
     let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let session = session.as_deref();
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event).or_else(|| {
@@ -203,18 +209,16 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event, live)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => {}
-        Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
-        Handoff::TimedOut => {
-            bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
-        }
-    }
-    // Messages for this terminal's agent ride on the hook's own output. A
-    // failed handoff means the daemon is not answering, so the helper fails
-    // without output and the installed command prints the empty object.
-    //
+    let claude = args.source == "claude";
+    let banner = inbox == Some(inbox::Delivery::SessionBanner);
+    // Claude Code kills the hook at 5 s: the `SessionStart` handoff and the
+    // claim's read both end inside `CLAUDE_HOOK_BUDGET` from the hook's start.
+    let budget_end = (claude && banner).then_some(started + CLAUDE_HOOK_BUDGET);
+    let handoff = match budget_end {
+        Some(end) => claude_start_handoff_wait(end, Instant::now()),
+        None => handoff_wait(&args.source, &args.native_event),
+    };
+    let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
     // A Claude that is not the terminal's agent (started by its hook, MCP
     // server or teammate, so with no claim in its environment) claims
     // nothing and gets no messages or banner (terminal_agent.rs). The check
@@ -225,24 +229,39 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         socket: &socket,
         terminal: terminal.as_deref(),
         session,
-        start_source: (inbox == Some(inbox::Delivery::SessionBanner))
-            .then_some(start_source.as_str()),
+        start_source: banner.then_some(start_source.as_str()),
         pid: pid.as_deref(),
+        budget_end,
     };
-    let claude = args.source == "claude";
+    // The claim is written whatever the handoff did: a Claude that starts
+    // while no daemon takes its event still claims its terminal (its read
+    // fails, so it counts as the terminal's agent).
+    let start_nested = claude && banner && agent.start_is_nested();
+    if banner && !start_nested {
+        plugin_copy::claim_terminal(
+            &args.source,
+            &args.native_event,
+            terminal.as_deref(),
+            session,
+            |name| env::var_os(name),
+        );
+    }
+    // Messages for this terminal's agent ride on the hook's own output. A
+    // failed handoff means the daemon is not answering, so the helper fails
+    // without output and the installed command prints the empty object.
+    match sent? {
+        Handoff::Sent => {}
+        Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
+        Handoff::TimedOut => {
+            bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
+        }
+    }
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
-            if claude && agent.start_is_nested() {
+            if start_nested {
                 inbox::print_nothing(inbox);
                 return Ok(());
             }
-            plugin_copy::claim_terminal(
-                &args.source,
-                &args.native_event,
-                terminal.as_deref(),
-                session,
-                |name| env::var_os(name),
-            );
             inbox::session_banner(terminal.as_deref(), &start_source);
         }
         Some(inbox::Delivery::SessionContext) => {
@@ -293,8 +312,15 @@ pub(crate) fn claude_is_nested(
 ) -> bool {
     let pid = plugin_copy::claude_pid(&|name: &str| env::var_os(name));
     plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
-        || terminal_agent::Run { socket, terminal, session, start_source, pid: pid.as_deref() }
-            .is_nested()
+        || terminal_agent::Run {
+            socket,
+            terminal,
+            session,
+            start_source,
+            pid: pid.as_deref(),
+            budget_end: None,
+        }
+        .is_nested()
 }
 
 /// One agent's queue of hook events on disk.
@@ -466,11 +492,11 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
 }
 
 /// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
-/// whose time budget ends at `budget_end`.
-#[allow(dead_code, reason = "W5-N3 red: the fix calls it")]
+/// whose time budget ends at `budget_end`: at most 4.25 s and never past the
+/// budget, so the claim's read still fits. The child keeps the event queued
+/// and sends it anyway (journal_append.rs).
 fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
-    let _ = (budget_end, now);
-    HANDOFF_WAIT
+    Duration::from_millis(4250).min(budget_end.saturating_duration_since(now))
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
