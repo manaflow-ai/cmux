@@ -784,6 +784,82 @@ fn agents_at_rest_a_retried_report_gets_its_first_answer_while_a_projection_wait
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The hook helper sends a report again, with the same idempotency key, when
+/// it got no answer. A tool completion that was answered at rest has no
+/// receipt in the registry. When the agent became blocked after the first
+/// answer, the retry must still get that answer: as a row it is a second
+/// report, and a tool call that ended before the block resumes the agent.
+#[test]
+fn agents_at_rest_a_retried_tool_completion_gets_its_first_answer_after_a_block() {
+    let (mux, agent, root) = one_agent("retried-after-block");
+    let tool = json!({ "tool_name": "Bash" });
+    settled(&mux);
+    let first = send_with_key(&mux, &agent, "PostToolUse", tool.clone(), "retried-completion");
+    assert!(first.replayed, "setup: the completion is answered at rest: {first:?}");
+    send(&mux, &agent, "PermissionRequest", tool.clone());
+    assert_eq!(
+        settled(&mux).agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+        Some("blocked"),
+        "setup: the permission request blocks the agent"
+    );
+
+    let head = mux.session_journal_head().unwrap();
+    let again = send_with_key(&mux, &agent, "PostToolUse", tool, "retried-completion");
+    assert_eq!(
+        (again.sequence, again.event_id.as_str(), again.replayed),
+        (first.sequence, first.event_id.as_str(), true),
+        "the retry of a completion answered at rest must get its first answer"
+    );
+    assert_eq!(
+        settled(&mux).session_journal_head().unwrap(),
+        head,
+        "the retry of a completion answered at rest became a new journal row"
+    );
+    assert_eq!(
+        settled(&mux).agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+        Some("blocked"),
+        "a tool call that ended before the block resumed the agent"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The same for a reader of the rows that came after the first answer: the
+/// retry is not a second row for it.
+#[test]
+fn agents_at_rest_a_retried_report_gets_its_first_answer_after_a_follower_came() {
+    let (mux, agent, root) = one_agent("retried-after-follower");
+    let tool = json!({ "tool_name": "Read" });
+    let first = send_with_key(&mux, &agent, "PreToolUse", tool.clone(), "retried-followed");
+    assert!(first.replayed, "setup: the report is answered at rest: {first:?}");
+    let follower = mux.follow_journal(
+        JournalFollowerFilter {
+            client: 0,
+            stream_id: "stream_test".into(),
+            remote: false,
+            kinds: vec!["agent.*".into()],
+            max_sensitivity: Some(crate::JournalSensitivity::Sensitive),
+        },
+        |kind, _| kind.starts_with("agent."),
+    );
+
+    let head = settled(&mux).session_journal_head().unwrap();
+    let again = send_with_key(&mux, &agent, "PreToolUse", tool, "retried-followed");
+    assert_eq!(
+        (again.sequence, again.event_id.as_str(), again.replayed),
+        (first.sequence, first.event_id.as_str(), true),
+        "the retry of a report answered at rest must get its first answer"
+    );
+    assert_eq!(
+        settled(&mux).session_journal_head().unwrap(),
+        head,
+        "the retry of a report answered at rest became a new journal row"
+    );
+    drop(follower);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The append of a row of the hook producer that is no hook helper's report
 /// (a socket report's echo) ends with an unknown result: the row can still
 /// commit, with its projection waiting and nobody to note it. The table must

@@ -242,6 +242,43 @@ fn equal_plugin_refreshes_control_a_new_state_or_child_is_one_row() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A plugin that got no answer sends its report again with the same
+/// idempotency key. The registry holds no receipt of a report answered at
+/// rest, so a reader of the rows that came since must not make the retry a
+/// second row: it gets its first answer.
+#[test]
+fn equal_plugin_refreshes_a_retry_gets_its_first_answer_after_a_follower_came() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-plugin-refresh-retry-{}", crate::workspace_registry::new_uuid_v4()));
+    let (mux, agents) = session_with_a_visible_dialog(1, &root);
+    let agent = &agents[0];
+    tick();
+    let first = screen_with_key(&mux, agent, "blocked", 1, "refresh-retried");
+    assert!(first.replayed, "setup: the refresh is answered at rest: {first:?}");
+    let follower = mux.follow_journal(
+        JournalFollowerFilter {
+            client: 0,
+            stream_id: "stream_test".into(),
+            remote: false,
+            kinds: vec!["agent.report".into()],
+            max_sensitivity: Some(crate::JournalSensitivity::Sensitive),
+        },
+        |kind, _| kind == "agent.report",
+    );
+
+    let before = written(&mux);
+    let again = screen_with_key(&mux, agent, "blocked", 1, "refresh-retried");
+    assert_eq!(
+        (again.sequence, again.event_id.as_str(), again.replayed),
+        (first.sequence, first.event_id.as_str(), true),
+        "the retry of a refresh answered at rest must get its first answer"
+    );
+    assert_eq!(written(&mux), before, "the retry of a refresh answered at rest wrote a row");
+    drop(follower);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A live journal follower whose kind filter matches the plugin's kind or
 /// `agent.report` reads the journal and nothing else: while it lives, and
 /// for the grace after it left, each refresh is a plugin row and its
