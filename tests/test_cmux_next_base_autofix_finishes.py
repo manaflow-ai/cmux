@@ -32,6 +32,7 @@ SNAPSHOT = "schemas/defaults/cmux-next.json"
 SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SETTINGS_REF = "web/data/next-docs/settings-reference.generated.json"
 CLI_REF = "web/data/next-docs/cli-reference.generated.json"
+DOCS_GENERATOR = "web/scripts/export-next-docs.ts"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
@@ -112,7 +113,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -252,6 +253,13 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1, out)
         self.assertEqual((landed[EXPORT], landed[SETTINGS_REF]), ("old", "old"))
         self.assertEqual(landed[CLI_REF], "new")
+
+    def test_the_docs_references_wait_when_their_generator_moved(self):
+        # Codex review of #39919: a new export-next-docs.ts on the tip moved only the shortcuts area, so
+        # references the old generator wrote still landed over it.
+        done, landed, out = self.push({DOCS_GENERATOR: "g2"}, repair={SETTINGS_REF: "new", CLI_REF: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual((landed[SETTINGS_REF], landed[CLI_REF]), ("old", "old"))
 
     def test_an_output_no_area_claims_is_never_reapplied(self):
         done, landed, out = self.push({"README.md": "r2"}, repair={"unlisted/output.txt": "new"})

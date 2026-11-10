@@ -25,7 +25,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.cloud.fork",
                 title: String(localized: "action.palette.cloud.fork", defaultValue: "Fork Cloud Machine", bundle: .module),
-                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.triangle.branch", surfaces: [.palette],
+                keywords: ["vm", "clone"], category: .cloud, symbol: "arrow.branch", surfaces: [.palette],
                 requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud fork-machine"
             ),
             ActionDescriptor(
