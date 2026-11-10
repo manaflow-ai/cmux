@@ -1,19 +1,18 @@
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 import os
 
-/// Agent sessions from each connected machine's session journal
-/// (plans/cmux-next/history.md 2, `agent`) for the vault, the agents palette
-/// page and resume by id: every machine, with each session's tab and
-/// terminal, which the local daemon's merged history (`history.entries.list`)
-/// does not carry. The History page reads agents from the daemon. This keeps
-/// one `AgentSessionFold` per machine and reads only the records after its
-/// cursor when a caller asks (`refresh`), so nothing polls.
+/// Agent sessions of each connected machine (plans/cmux-next/history.md 2,
+/// `agent`) for the vault, the agents palette page and resume by id: every
+/// machine, each session with its tab and terminal. A daemon lists its
+/// sessions whole (`history-agent-sessions-v1`), also those whose journal
+/// records retention deleted; only an older daemon's journal is folded here
+/// (`MachineAgentSessions`). A caller asks (`refresh`), so nothing polls.
 final class AgentHistory {
     private unowned let services: AppServices
-    var folds: [String: AgentSessionFold] = [:] // per machine (tests fill one)
-    private var generations: [String: String] = [:]
+    var machines: [String: MachineAgentSessions] = [:] // per machine (tests fill one)
     private var refreshing: Task<Void, Never>?
     /// Hidden by Clear History or Remove from History (the journal is
     /// append-only); the daemon history module writes the hides.
@@ -25,8 +24,7 @@ final class AgentHistory {
         self.hidden = hidden
     }
 
-    /// Reads new agent records from every connected machine that serves the
-    /// session journal. Concurrent calls share one read.
+    /// Reads the agent sessions of every connected machine. Concurrent calls share one read.
     func refresh() async {
         if let refreshing { return await refreshing.value }
         // The owner's daemons are read before the first suspension, so a weak capture is enough.
@@ -37,38 +35,24 @@ final class AgentHistory {
     }
 
     private func readAll() async {
-        for daemon in services.machines.daemons where daemon.supports("session-journal-v1") {
-            guard case .connected = daemon.store.connectionState, let endpoint = try? await daemon.endpoint() else { continue }
+        for daemon in services.machines.daemons {
+            guard case .connected = daemon.store.connectionState else { continue }
             let machine = daemon.machineID
-            let fold = folds[machine] ?? AgentSessionFold(machine: machine)
-            let cursor = generations[machine].map { (generation: $0, sequence: fold.cursor) }
-            do {
-                let result = try await SessionJournalRead.shared.read(socketPath: endpoint.socketPath, kinds: AgentSessionFold.journalKinds,
-                                                               cursor: fold.cursor > 0 ? cursor : nil)
-                apply(result, machine: machine)
-            } catch {
-                logger.info("agent history: journal read on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                // A new daemon session (restart) invalidates the cursor.
-                generations[machine] = nil
-                folds[machine] = nil
-            }
+            var sessions = machines[machine] ?? MachineAgentSessions(machine: machine)
+            if daemon.supports(DaemonHistoryClient.agentSessionsCapability), let connection = daemon.connection {
+                await sessions.read(list: DaemonHistoryClient(connection: connection))
+            } else if daemon.supports("session-journal-v1"), let endpoint = try? await daemon.endpoint() {
+                do { try await sessions.read(journal: endpoint.socketPath) } catch {
+                    logger.info("agent history: journal read on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                }
+            } else { continue }
+            machines[machine] = sessions
         }
-    }
-
-    private func apply(_ result: SessionJournalRead.Result, machine: String) {
-        var fold = folds[machine] ?? AgentSessionFold(machine: machine)
-        if let generation = result.generation, let known = generations[machine], known != generation {
-            fold = AgentSessionFold(machine: machine)
-        }
-        let decoder = JSONDecoder()
-        fold.apply(result.records.compactMap { try? decoder.decode(AgentJournalRecord.self, from: $0) })
-        folds[machine] = fold
-        if let generation = result.generation { generations[machine] = generation }
     }
 
     /// Every known session, newest activity first, minus hidden ones.
     var sessions: [AgentSession] {
-        folds.values.flatMap(\.ordered)
+        machines.values.flatMap(\.sessions)
             .filter { !hidden.document.hides($0.qualifiedID, activeAt: $0.lastActivityAt, kind: "agent") }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }

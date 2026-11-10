@@ -32,6 +32,14 @@ public struct DaemonHistoryClient: Sendable {
         return try await Self.decode(DaemonHistoryList.self, from: result).entries
     }
 
+    /// The daemon lists each agent session whole (`history-agent-sessions-v1`).
+    public static let agentSessionsCapability = DaemonCapability.historyAgentSessions.rawValue
+
+    /// Every agent session the daemon lists, as sessions of `machine` (the daemon keeps at most 500).
+    public func agentSessions(machine: String) async throws -> [AgentSession] {
+        try await list(kinds: [.agent], text: "", range: .all, limit: 5_000).compactMap { $0.agentSession(machine: machine) }
+    }
+
     /// Runs `read` up to `attempts` times, spaced by `backoff` (a busy daemon times out once, then
     /// answers). nil when no attempt answered, never an empty list in its place.
     public static func retrying<T>(attempts: Int = 3, backoff: Backoff = Backoff(initial: .milliseconds(150), maximum: .seconds(1)),

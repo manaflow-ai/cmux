@@ -25,10 +25,18 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     /// Location rows: the window of the step and the place as recorded (cx-hnmbt.12).
     public var window: String?
     public var location: HistoryTrailLocation?
+    /// Agent rows of a daemon with `history-agent-sessions-v1`: the session's terminal and tab, and its start
+    /// and end in Unix milliseconds. With the row's own fields that is the whole session (``agentSession(machine:)``).
+    public var terminal: String?
+    public var tab: String?
+    public var startedAtMS: Double?
+    public var endedAtMS: Double?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, detail, machine, workspace, available, current, running, url, profile, cwd, command, provider
-        case window, location
+        case window, location, terminal, tab
+        case startedAtMS = "started_at_ms"
+        case endedAtMS = "ended_at_ms"
         case atMS = "at_ms"
         case closedKind = "closed_kind"
         case exitCode = "exit_code"
@@ -59,6 +67,10 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         window = try c.decodeIfPresent(String.self, forKey: .window)
         location = try c.decodeIfPresent(HistoryTrailLocation.self, forKey: .location)
+        terminal = try c.decodeIfPresent(String.self, forKey: .terminal)
+        tab = try c.decodeIfPresent(String.self, forKey: .tab)
+        startedAtMS = try c.decodeCatalogNumberIfPresent(forKey: .startedAtMS)
+        endedAtMS = try c.decodeCatalogNumberIfPresent(forKey: .endedAtMS)
     }
 
     public init(id: String, kind: HistoryEntry.Kind, atMS: Double, title: String, available: Bool) {
@@ -99,10 +111,8 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
             payload = .closed(ClosedItem(id: itemID, kind: itemKind, title: title, machine: machine ?? "local",
                                          workspace: workspace, cwd: cwd, url: url, agentSession: closedAgent))
         case .agent:
-            guard let sessionID, let provider else { return nil }
-            payload = .agent(AgentSession(machine: machine ?? "local", provider: provider, sessionID: sessionID, cwd: cwd,
-                                          workspace: workspace, startedAt: time, lastActivityAt: time,
-                                          endedAt: running == true ? nil : time))
+            guard let session = agentSession(machine: machine ?? "local") else { return nil }
+            payload = .agent(session)
         case .command:
             // Commands come from the daemons' command rows (CommandHistory), not the history module.
             return nil
@@ -163,6 +173,21 @@ nonisolated extension KeyedDecodingContainer {
 }
 
 nonisolated extension DaemonHistoryEntry {
+    /// An agent row as the session of `machine` it lists. A daemon with `history-agent-sessions-v1` sends the
+    /// session's terminal, tab, start and end, so this is the session as a fold of the daemon's whole journal
+    /// has it. A row of an older daemon has only its last activity: that time is also its start, and its end
+    /// when the session does not run.
+    public func agentSession(machine: String) -> AgentSession? {
+        guard kind == .agent, let sessionID, let provider else { return nil }
+        let date = { (ms: Double) in Date(timeIntervalSince1970: ms / 1_000) }
+        guard let startedAtMS else {
+            return AgentSession(machine: machine, provider: provider, sessionID: sessionID, cwd: cwd, workspace: workspace,
+                                startedAt: time, lastActivityAt: time, endedAt: running == true ? nil : time)
+        }
+        return AgentSession(machine: machine, provider: provider, sessionID: sessionID, cwd: cwd, terminal: terminal, tab: tab,
+                            workspace: workspace, startedAt: date(startedAtMS), lastActivityAt: time, endedAt: endedAtMS.map(date))
+    }
+
     /// A location row's place as the app's location.
     public var trailLocation: HistoryLocation? {
         guard kind == .location, let location else { return nil }
