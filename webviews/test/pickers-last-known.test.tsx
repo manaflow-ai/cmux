@@ -67,7 +67,7 @@ afterEach(async () => {
 function mount(node: React.ReactNode): HTMLElement {
   const host = document.getElementById("root")!;
   root = createRoot(host);
-  act(() => root!.render(node));
+  void act(() => root!.render(node));
   return host;
 }
 
@@ -165,7 +165,7 @@ test("the base picker opened after a base change lists the last refs at once and
   );
   let host = mount(render("main"));
   const open = () => act(() => host.querySelector<HTMLButtonElement>("button")!.click());
-  open();
+  await open();
   expect(document.body.textContent).toContain("branchPickerLoading");
   await act(async () => answers[0]!.resolve({ type: "branches", value: { groups: groups(["main", "dev"], "main") } }));
   expect(document.body.textContent).toContain("dev");
@@ -173,7 +173,7 @@ test("the base picker opened after a base change lists the last refs at once and
 
   // The base moved to dev: the picker mounts again (its key names the base).
   host = mount(render("dev"));
-  open();
+  await open();
   expect(document.body.textContent).not.toContain("branchPickerLoading");
   expect(document.body.textContent).toContain("main");
   expect(answers.length).toBe(2);
@@ -229,7 +229,7 @@ const editable = (user: string) => ({
 
 function typeInto(field: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-  act(() => {
+  void act(() => {
     setter.call(field, value);
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
@@ -285,16 +285,18 @@ test("the base picker's highlight stays on its ref when the refreshed rows move 
   );
   let host = mount(render("main"));
   const open = () => act(() => host.querySelector<HTMLButtonElement>("button")!.click());
-  open();
+  await open();
   await act(async () => answers[0]!.resolve({ type: "branches", value: { groups: groups(["main", "dev", "feat"], "main") } }));
   await unmount();
 
   host = mount(render("dev"));
-  open();
+  await open();
   const input = document.body.querySelector<HTMLInputElement>("input[aria-activedescendant]")!;
   const highlighted = () => document.getElementById(input.getAttribute("aria-activedescendant")!)?.textContent ?? "";
   for (let i = 0; i < 2; i += 1)
-    act(() => input.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    void act(() =>
+      input.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+    );
   expect(highlighted()).toContain("feat");
   // The refresh adds a Suggested group on top: every row moves down one.
   await act(async () =>
