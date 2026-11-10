@@ -224,6 +224,8 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
             .arg(&first)
             .arg("--sync-remote")
             .arg(&second)
+            .arg("--sync-seed-local")
+            .arg(&repo)
             .arg("--state-dir")
             .arg(root.join("pump")),
     );
@@ -250,7 +252,28 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     let there = two_acpmux.summary(&session).expect("the chat is on VM two");
     assert_eq!(there["cwd"], json!(fs::canonicalize(&second).unwrap()), "{there}");
 
-    // 4. On VM one: the chat moved away and its queue never ran there.
+    // 4. Bring Back Local from VM two merges into the Mac's folder against the seed the Mac sent
+    // VM one: its record followed the chat.
+    let (ok, back) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(["link", "seed", "pull", "--socket"])
+            .arg(&two.socket)
+            .arg(&repo)
+            .arg(&second)
+            .arg("--or-copy"),
+    );
+    assert!(ok && back["ok"] == json!(true), "bring back from VM two: {back}");
+    assert_eq!(back["mode"], json!("seed"), "{back}");
+    assert_eq!(
+        fs::read_to_string(repo.join("src/turn.txt")).unwrap(),
+        "written by the running turn\n",
+        "the turn's change did not come back from VM two"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), git(&second, &["rev-parse", "HEAD"]));
+
+    // 5. On VM one: the chat moved away and its queue never ran there.
     let left = one_acpmux.summary(&session);
     assert!(left.as_ref().is_none_or(|s| s["status"] == "closed"), "still open: {left:?}");
     let events = one_acpmux.events(&session);

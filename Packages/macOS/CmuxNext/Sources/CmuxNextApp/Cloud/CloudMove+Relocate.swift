@@ -43,7 +43,7 @@ extension CloudMove {
         services.cloud.moveRetries[tab.id] = again
         let owner = await Self.ownerAnswer(target), moved: CloudMoveCLI.Answer
         do {
-            let sync = CloudMoveCLI.FrozenSync(pull: false, socket: toSocket, local: folder.root, remote: folder.root, fromSocket: fromSocket)
+            let sync = CloudMoveCLI.FrozenSync(pull: false, socket: toSocket, local: folder.root, remote: folder.root, fromSocket: fromSocket, seedLocal: entry?.localRoot)
             moved = try await cli.agentMove(from: fromSocket, surface: tab.surface.rawValue, to: toSocket, cwd: folder.chat, sync: sync,
                                             vmKind: owner.vmKind, toPID: owner.toPID)
         } catch {

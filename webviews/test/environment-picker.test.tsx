@@ -647,7 +647,7 @@ test("Move to…: a chat on this Mac with two Cloud machines lists them, and a p
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
-test("Move to…: a Cloud chat lists This Mac and the other machines; one This Mac alone stays Bring Back Local", async () => {
+test("Move to…: a Cloud chat lists This Mac and the other machines", async () => {
   const moved: string[] = [];
   await mount(true, {
     ...startedOn("cloud"),
@@ -663,7 +663,9 @@ test("Move to…: a Cloud chat lists This Mac and the other machines; one This M
   expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "gpu-box"]);
   await act(async () => newRows()[0]!.click());
   expect(moved).toEqual(["local"]);
-  // This Mac as the only target is the move the row already names.
+});
+
+test("Move to…: a Cloud chat whose only target is This Mac keeps the Bring Back Local row it already names", async () => {
   await mount(true, {
     ...startedOn("cloud"),
     onOffload: () => undefined,

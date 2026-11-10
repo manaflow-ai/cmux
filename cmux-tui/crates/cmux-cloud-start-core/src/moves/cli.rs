@@ -321,6 +321,10 @@ pub struct FrozenSync {
     /// `local` is then the folder on that machine, and the copy is `cmux link sync relay`.
     #[serde(default)]
     pub from_socket: Option<String>,
+    /// With `from_socket`: the folder on this Mac a Move to Cloud seeded the source from. Its
+    /// seed record follows the chat to the new machine, so Bring Back Local still merges there.
+    #[serde(default)]
+    pub seed_local: Option<String>,
 }
 
 /// One CLI call: its verb and the facts its arguments carry.
@@ -467,6 +471,9 @@ pub fn agent_move_flags(
             "--sync-remote",
             &sync.remote,
         ]));
+        if let (Some(_), Some(seed_local)) = (&sync.from_socket, &sync.seed_local) {
+            flags.extend(words(&["--sync-seed-local", seed_local]));
+        }
     }
     if ask_first {
         flags.push("--ask-first".to_owned());

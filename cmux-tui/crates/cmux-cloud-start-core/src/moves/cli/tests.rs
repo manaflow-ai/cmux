@@ -190,7 +190,7 @@ fn each_verb_carries_its_arguments() {
         json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
         "cwd": "/home/cmux/work/app",
         "sync": {"pull": false, "socket": "/two.sock", "local": "/home/cmux/work/app", "remote": "/home/cmux/work/app",
-                 "fromSocket": "/one.sock"}, "vmKind": "owner"}),
+                 "fromSocket": "/one.sock", "seedLocal": "/Users/me/app"}, "vmKind": "owner"}),
     );
     assert_eq!(
         relayed.args[11..],
@@ -206,6 +206,8 @@ fn each_verb_carries_its_arguments() {
             "/home/cmux/work/app",
             "--sync-remote",
             "/home/cmux/work/app",
+            "--sync-seed-local",
+            "/Users/me/app",
             "--vm-kind",
             "owner"
         ]

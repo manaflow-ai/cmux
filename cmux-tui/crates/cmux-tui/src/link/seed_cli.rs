@@ -346,6 +346,30 @@ impl<'a> Machine<'a> {
     }
 }
 
+/// A seeded folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
+/// (`from_root`) to the one at `to` (`to_root`; `cmux link agent move --sync relay`): this Mac's
+/// record of `local` follows, so Bring Back Local from the new machine merges against the same
+/// seed. False when there is no record, or it is of another machine than `from`.
+pub(in crate::link) fn follow(
+    local: &Path,
+    from_root: &str,
+    to_root: &str,
+    from: &Path,
+    to: &Path,
+) -> anyhow::Result<bool> {
+    let local = std::fs::canonicalize(local)?;
+    let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
+    let id = |socket: &Path| {
+        machine_gate::identify(socket)?.get("session_id")?.as_str().map(str::to_owned)
+    };
+    if kept.machine.is_some() && kept.machine != id(from) {
+        return Ok(false);
+    }
+    kept.machine = id(to);
+    record::save(&local, to_root, &kept)?;
+    Ok(true)
+}
+
 /// A full push: the seed, else the copy (module docs). With `head_first` (the
 /// chat's folder below `local`, empty for `local` itself) a seed answers once
 /// the machine has the head in place, `filling` while it fills the rest.

@@ -345,3 +345,174 @@ fn link_push_bench() {
     });
     println!("{line}");
 }
+
+/// An origin shaped like GitHub for `repo`: every commit is on it, and a machine
+/// clones from it (`CMUX_TEST_GIT_SEED_GITHUB`) as a Cloud VM clones from GitHub,
+/// off this Mac's link.
+fn publish(repo: &Path, github: &Path) {
+    let bare = github.join("acme/app.git");
+    fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "--bare"]);
+    git(&bare, &["config", "uploadpack.allowFilter", "true"]);
+    git(repo, &["remote", "add", "origin", "https://github.com/acme/app.git"]);
+    let local = format!("url.file://{}/.insteadOf", github.display());
+    git(repo, &["config", &local, "https://github.com/"]);
+    git(repo, &["-c", "protocol.file.allow=always", "push", "-q", "-u", "origin", "main"]);
+}
+
+/// A VM that serves `fs-v1` and seeds from the `github` origin.
+fn seeding_vm(root: &Path, name: &str, github: &Path) -> Machine {
+    Machine::start(
+        root,
+        name,
+        vec![
+            ("CMUX_TEST_CLOUD_ETC", cloud_etc(root).to_string_lossy().into_owned()),
+            ("CMUX_TEST_GIT_SEED_GITHUB", github.to_string_lossy().into_owned()),
+            ("CMUX_VM_ID", format!("vm-relay-bench-{name}")),
+            ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
+        ],
+    )
+}
+
+/// Runs one `cmux link ...` as this Mac; its summary and wall time.
+fn timed(root: &Path, args: &[&std::ffi::OsStr]) -> (Value, Duration) {
+    let started = Instant::now();
+    let (ok, summary) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", root.join("mac-state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .arg("link")
+            .args(args),
+    );
+    let wall = started.elapsed();
+    assert!(ok && summary["ok"] == json!(true), "{args:?}: {summary}");
+    (summary, wall)
+}
+
+fn wire_total(wires: &[&Arc<Wire>]) -> u64 {
+    wires.iter().map(|w| w.up.load(Ordering::Relaxed) + w.down.load(Ordering::Relaxed)).sum()
+}
+
+/// Move a chat's folder from one Cloud VM to another, before and after `cmux link
+/// sync relay`, through the same two links (one per machine, each `CMUX_BENCH_RATE_MBPS`
+/// each way with `CMUX_BENCH_LATENCY_MS`): before, Bring Back Local (`seed pull
+/// --or-copy` into this Mac's folder) then Move to Cloud (`seed push`, the machine cloning
+/// from the origin); after, one relay VM to VM through this Mac, nothing landing here.
+/// Run with `cargo test -p cmux-tui --test link_push_bench link_relay_bench -- --ignored
+/// --nocapture`; it prints one JSON line (`{"bench":"link_relay",...}`).
+#[test]
+#[ignore = "benchmark: run with --ignored --nocapture"]
+fn link_relay_bench() {
+    let files = usize::try_from(env_number("CMUX_BENCH_FILES", 3000)).unwrap();
+    let blob_mb = usize::try_from(env_number("CMUX_BENCH_BLOB_MB", 160)).unwrap();
+    let link = Link {
+        rate: env_number("CMUX_BENCH_RATE_MBPS", 8) * 1_000_000,
+        latency: Duration::from_millis(env_number("CMUX_BENCH_LATENCY_MS", 30)),
+    };
+    let (root, _cleanup) = scratch("lrb");
+    let github = root.join("github");
+    let one = seeding_vm(&root, "one", &github);
+    let two = seeding_vm(&root, "two", &github);
+    let three = seeding_vm(&root, "three", &github);
+    let repo = fixture(&root.join("mac"), files, blob_mb);
+    publish(&repo, &github);
+    let (local_bytes, local_files) = tree_size(&repo);
+    let (git_bytes, _) = tree_size(&repo.join(".git"));
+    let os = |text: &str| std::ffi::OsString::from(text);
+
+    // Move to Cloud put the folder on VM one (set up, not measured), and the chat worked there.
+    let first = one.home().join("work/app");
+    timed(
+        &root,
+        &[
+            &os("seed"),
+            &os("push"),
+            &os("--socket"),
+            one.socket.as_os_str(),
+            repo.as_os_str(),
+            first.as_os_str(),
+        ],
+    );
+    let mut noise = Noise(7);
+    let mut written = vec![0u8; 2 << 20];
+    noise.fill(&mut written);
+    fs::write(first.join("assets/vm-output.bin"), &written).unwrap();
+    let edited = first.join("src/m01/f1.rs");
+    let text = fs::read_to_string(&edited).unwrap() + "// edited on vm one\n";
+    fs::write(&edited, text).unwrap();
+
+    // Before: Bring Back Local, then Move to Cloud on VM two.
+    let (one_before, two_link) = (root.join("one-before.sock"), root.join("two.sock"));
+    let wire_one_before = proxy(&one_before, one.socket.clone(), link);
+    let wire_two = proxy(&two_link, two.socket.clone(), link);
+    let second = two.home().join("work/app");
+    let (pulled, pull_wall) = timed(
+        &root,
+        &[
+            &os("seed"),
+            &os("pull"),
+            &os("--socket"),
+            one_before.as_os_str(),
+            repo.as_os_str(),
+            first.as_os_str(),
+            &os("--or-copy"),
+        ],
+    );
+    let (pushed, push_wall) = timed(
+        &root,
+        &[
+            &os("seed"),
+            &os("push"),
+            &os("--socket"),
+            two_link.as_os_str(),
+            repo.as_os_str(),
+            second.as_os_str(),
+        ],
+    );
+    let before_wire = wire_total(&[&wire_one_before, &wire_two]);
+
+    // After: one relay, VM one to VM three.
+    let (one_after, three_link) = (root.join("one-after.sock"), root.join("three.sock"));
+    let wire_one_after = proxy(&one_after, one.socket.clone(), link);
+    let wire_three = proxy(&three_link, three.socket.clone(), link);
+    let third = three.home().join("work/app");
+    let (relayed, relay_wall) = timed(
+        &root,
+        &[
+            &os("sync"),
+            &os("relay"),
+            &os("--from-socket"),
+            one_after.as_os_str(),
+            &os("--socket"),
+            three_link.as_os_str(),
+            first.as_os_str(),
+            third.as_os_str(),
+        ],
+    );
+    let after_wire = wire_total(&[&wire_one_after, &wire_three]);
+
+    // Both land the same folder.
+    let status = ["status", "--porcelain=v2", "--branch"];
+    assert_eq!(git(&second, &status), git(&first, &status), "VM two differs");
+    assert_eq!(git(&third, &status), git(&first, &status), "VM three differs");
+    assert_eq!(fs::read(third.join("assets/vm-output.bin")).unwrap(), written);
+
+    let line = json!({
+        "bench": "link_relay",
+        "rate_bytes_per_s": link.rate,
+        "latency_ms": link.latency.as_millis() as u64,
+        "local_files": local_files,
+        "local_bytes": local_bytes,
+        "git_bytes": git_bytes,
+        "before_ms": (pull_wall + push_wall).as_millis() as u64,
+        "before_pull_ms": pull_wall.as_millis() as u64,
+        "before_push_ms": push_wall.as_millis() as u64,
+        "before_wire_bytes": before_wire,
+        "before_pull_mode": pulled["mode"],
+        "before_push_mode": pushed["mode"],
+        "after_ms": relay_wall.as_millis() as u64,
+        "after_wire_bytes": after_wire,
+        "after_written": relayed["written"],
+    });
+    println!("{line}");
+}

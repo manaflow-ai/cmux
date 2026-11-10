@@ -224,6 +224,8 @@ pub(in crate::link) fn relay(
         target.mkdir_all(&join(to_root, dir))?;
     }
     let mut jobs = Vec::new();
+    // Made once the files are there: the target refuses a symlink whose target is missing.
+    let mut links = Vec::new();
     let mut totals = Progress::default();
     for (relative, item) in &items {
         match item {
@@ -245,19 +247,8 @@ pub(in crate::link) fn relay(
                 }
             }
             Item::Link { target: text } => {
-                if record.links.get(relative) == Some(text) {
-                    continue;
-                }
-                let path = join(to_root, relative);
-                target.delete(std::slice::from_ref(&path))?;
-                match target.symlink(&path, text) {
-                    Ok(()) => {
-                        record.links.insert(relative.clone(), text.clone());
-                    }
-                    Err(error) if remote::lacks_symlinks(&error) => {
-                        skipped.add(relative, "symlink", "the target machine takes no symlinks");
-                    }
-                    Err(error) => return Err(error),
+                if record.links.get(relative) != Some(text) {
+                    links.push((relative.clone(), text.clone()));
                 }
             }
         }
@@ -272,6 +263,26 @@ pub(in crate::link) fn relay(
         totals.bytes_done += job.size;
         progress(totals);
         record.files.insert(job.relative, (job.revision, revision));
+    })
+    .and_then(|()| {
+        for (relative, text) in links {
+            let path = join(to_root, &relative);
+            target.delete(std::slice::from_ref(&path))?;
+            match target.symlink(&path, &text) {
+                Ok(()) => {
+                    record.links.insert(relative, text);
+                }
+                Err(error) if remote::lacks_symlinks(&error) => {
+                    skipped.add(&relative, "symlink", "the target machine takes no symlinks");
+                }
+                // It points at something the copy left out (a dependency folder, say).
+                Err(error) if format!("{error:#}").contains("symlink's target is not there") => {
+                    skipped.add(&relative, "symlink", "it points at something left out");
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
     });
     if let Some(path) = &record_path {
         // A cut relay keeps what landed, so the next one skips it.

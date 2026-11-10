@@ -150,6 +150,9 @@ struct Sync {
     remote: String,
     /// `--sync relay`: the source machine's link socket.
     from_socket: Option<PathBuf>,
+    /// `--sync relay --sync-seed-local`: this Mac's folder a seed put on the source machine.
+    /// Once the move commits its seed record follows to the target ([`super::seed_cli::follow`]).
+    seed_local: Option<PathBuf>,
 }
 
 /// Which way `--sync` copies.
@@ -266,7 +269,7 @@ fn parse(args: &[String]) -> Option<Args> {
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
     let (mut vm_kind, mut to_pid) = (None, None);
     let (mut sync, mut sync_socket, mut sync_local, mut sync_remote) = (None, None, None, None);
-    let mut sync_from_socket = None;
+    let (mut sync_from_socket, mut sync_seed_local) = (None, None);
     let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -293,6 +296,7 @@ fn parse(args: &[String]) -> Option<Args> {
             "--sync-local" => sync_local = Some(PathBuf::from(rest.next()?)),
             "--sync-remote" => sync_remote = Some(rest.next()?.clone()),
             "--sync-from-socket" => sync_from_socket = Some(PathBuf::from(rest.next()?)),
+            "--sync-seed-local" => sync_seed_local = Some(PathBuf::from(rest.next()?)),
             _ => return None,
         }
     }
@@ -303,7 +307,10 @@ fn parse(args: &[String]) -> Option<Args> {
         (Some(way), Some(socket), Some(local), Some(remote)) if remote.starts_with('/') => {
             // A relay names both machines and two absolute folders; no other way has a source socket.
             let relay = way == Way::Relay;
-            if relay != sync_from_socket.is_some() || (relay && !local.is_absolute()) {
+            if relay != sync_from_socket.is_some()
+                || (relay && !local.is_absolute())
+                || (!relay && sync_seed_local.is_some())
+            {
                 return None;
             }
             Some(Sync {
@@ -312,6 +319,7 @@ fn parse(args: &[String]) -> Option<Args> {
                 local,
                 remote: remote.trim_end_matches('/').to_owned(),
                 from_socket: sync_from_socket,
+                seed_local: sync_seed_local,
             })
         }
         _ => return None,
@@ -754,6 +762,13 @@ fn commit(
         return Err(unresolved(record, error));
     }
     records.clear();
+    // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
+    if let Some(sync) = &args.sync
+        && let (Some(seed_local), Some(from)) = (&sync.seed_local, &sync.from_socket)
+    {
+        let local_root = sync.local.to_string_lossy();
+        let _ = super::seed_cli::follow(seed_local, &local_root, &sync.remote, from, &sync.socket);
+    }
     Ok(Moved {
         session_id: record.session_id.clone().unwrap_or_default(),
         transfer_id: record.transfer_id.clone(),
