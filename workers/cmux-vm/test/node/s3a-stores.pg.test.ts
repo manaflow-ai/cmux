@@ -202,3 +202,23 @@ describe("API key management store", () => {
     expect(rows.rows).toEqual([{ cmux_id: id }]);
   });
 });
+
+describe("classic imports", () => {
+  it("lists only rows labelled classic.migration_id that carry every asked label, live or also deleted", async () => {
+    const imported = await run(record(TENANT_A, 1, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform" }));
+    const other = await run(record(TENANT_A, 2, { "classic.vm_id": "cvm-2", "classic.migration_id": "mig-1", role: "platform" }));
+    await run(record(TENANT_A, 3, { "classic.vm_id": "cvm-1", role: "platform" }));
+    await run(record(TENANT_B, 4, { "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1", role: "platform" }));
+    const list = (labels: Record<string, string>, includeDeleted = false) =>
+      run(Effect.flatMap(SnapshotStore, (store) => store.listClassicImports(TENANT_A, { labels, includeDeleted, limit: 10 })));
+
+    expect((await list({ role: "platform" })).map((row) => row.id)).toEqual([other, imported]);
+    const [row] = await list({ "classic.vm_id": "cvm-1", "classic.migration_id": "mig-1" });
+    expect(row).toMatchObject({ id: imported, createdBy: "key:test", deleted: false });
+    expect(row?.upstreamId).toMatch(/^sc-/);
+
+    await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, imported, new Date())));
+    expect(await list({ "classic.vm_id": "cvm-1" })).toEqual([]);
+    expect(await list({ "classic.vm_id": "cvm-1" }, true)).toEqual([expect.objectContaining({ id: imported, deleted: true })]);
+  });
+});

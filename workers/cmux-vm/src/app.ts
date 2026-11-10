@@ -21,6 +21,7 @@ import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
+import { classicImportsHandlers } from "./handlers/classic-imports.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
 import { agentsHandlers } from "./handlers/agents.ts";
@@ -105,6 +106,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(execHandlers)),
     Layer.provide(authenticated(filesHandlers)),
     Layer.provide(authenticated(snapshotsHandlers)),
+    Layer.provide(authenticated(classicImportsHandlers)),
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
     Layer.provide(authenticated(agentsHandlers)),

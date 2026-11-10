@@ -4,7 +4,8 @@
  * lets only src/upstream/, src/proofs/ and src/index.ts import it. Only the
  * live upstream client modules call this, and only with an upstream id taken from a minted
  * TenantOwnsResource proof (or returned by a create the caller was proven to
- * be allowed). The key never leaves this closure.
+ * be allowed, or, for a classic import, a provider VM id named by a service key
+ * holding a ClassicImportAllowed proof). The key never leaves this closure.
  */
 import { Effect, Redacted } from "effect";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";

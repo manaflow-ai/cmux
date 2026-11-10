@@ -4531,6 +4531,404 @@
         "summary": "Delete a snapshot permanently"
       }
     },
+    "/v1/imports/classic-vm-snapshots": {
+      "post": {
+        "tags": [
+          "classicImports"
+        ],
+        "operationId": "classicImports.importClassicVmSnapshot",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A classic VM copied into a NEXT tenant as a snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassicVmImport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Import a classic VM as a snapshot. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. Snapshots the classic VM's provider VM and registers the snapshot under tenant_id, labelled classic.vm_id and classic.migration_id (plus the key's labels). Idempotent: the same (tenant_id, classic_vm_id, migration_id) answers the existing import with state ready and never snapshots twice; an Idempotency-Key reused with a different request is 409. 404 with code import.upstream_vm_not_found: this service's provider account has no such VM (a classic VM in a different provider account shows up this way). The classic VM itself is never changed.",
+        "summary": "Import a classic VM as a snapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassicVmImportRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "get": {
+        "tags": [
+          "classicImports"
+        ],
+        "operationId": "classicImports.listClassicVmSnapshotImports",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[A-Za-z0-9_-]+$",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "required": true,
+            "description": "a string matching the pattern ^[A-Za-z0-9_-]+$"
+          },
+          {
+            "name": "classic_vm_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$",
+              "pattern": "^[A-Za-z0-9._:/@-]{1,63}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$"
+          },
+          {
+            "name": "migration_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$",
+              "pattern": "^[A-Za-z0-9._:/@-]{1,63}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClassicVmImportList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassicVmImportList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List classic VM imports, newest first, rolled-back ones included. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. For dry runs and status. Never contacts the provider.",
+        "summary": "List classic VM imports, newest first, rolled-back ones included"
+      }
+    },
+    "/v1/imports/classic-vm-snapshots/{snapshotId}": {
+      "delete": {
+        "tags": [
+          "classicImports"
+        ],
+        "operationId": "classicImports.rollbackClassicVmSnapshotImport",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Roll back a classic VM import. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. Deletes the provider snapshot and marks the snapshot deleted, only when it carries classic.migration_id (a snapshot not made by an import is 409 and is never deleted here). Deleting an already rolled-back import succeeds. VMs already created from it keep running.",
+        "summary": "Roll back a classic VM import"
+      }
+    },
     "/v1/vms/{vmId}/terminal": {
       "get": {
         "tags": [
@@ -10508,7 +10906,8 @@
               "mesh:join",
               "acl:read",
               "acl:write",
-              "admin"
+              "admin",
+              "import:classic"
             ]
           },
           "_tag": {
@@ -10561,6 +10960,13 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "import.upstream_vm_not_found"
+            ],
+            "description": "import.upstream_vm_not_found: the provider account this service uses has no such VM (a classic VM in a different provider account shows up this way)."
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
@@ -12188,6 +12594,121 @@
         },
         "additionalProperties": false
       },
+      "ClassicVmImportRequest": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "created_by",
+          "classic_vm_id",
+          "upstream_vm_id",
+          "migration_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "The NEXT VM API tenant to import into. Must equal X-Cmux-Team-Id.",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "The Stack user id that owns the copy; it becomes the snapshot's creator (user:<id>).",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "classic_vm_id": {
+            "type": "string",
+            "description": "The classic VM's id (cloud_vms.id). Stored as label classic.vm_id.",
+            "pattern": "^[A-Za-z0-9._:/@-]{1,63}$"
+          },
+          "upstream_vm_id": {
+            "type": "string",
+            "description": "The classic VM's provider VM id (cloud_vms.provider_vm_id).",
+            "pattern": "^[A-Za-z0-9._-]{1,128}$"
+          },
+          "migration_id": {
+            "type": "string",
+            "description": "The migration run. Stored as label classic.migration_id.",
+            "pattern": "^[A-Za-z0-9._:/@-]{1,63}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClassicVmImport": {
+        "type": "object",
+        "required": [
+          "id",
+          "upstream_snapshot_id",
+          "state",
+          "tenant_id",
+          "classic_vm_id",
+          "migration_id",
+          "created_by",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "upstream_snapshot_id": {
+            "type": "string",
+            "description": "The provider snapshot id, for the migration ledger. Returned to the importing service only."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "created",
+              "ready",
+              "deleted"
+            ],
+            "description": "created: this request took and registered the snapshot. ready: an earlier import answered (nothing was snapshotted). deleted: rolled back."
+          },
+          "tenant_id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9_-]+$",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "classic_vm_id": {
+            "type": "string"
+          },
+          "migration_id": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "The creator reference, user:<Stack user id>."
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A classic VM copied into a NEXT tenant as a snapshot."
+      },
+      "ClassicVmImportList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClassicVmImport"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "BooleanFromString": {
         "type": "string",
         "enum": [
@@ -12355,7 +12876,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "import:classic"
               ]
             },
             "description": "an array of at most 32 item(s)",
@@ -12436,7 +12958,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "import:classic"
               ]
             }
           },
@@ -12530,7 +13053,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "import:classic"
               ]
             }
           },
@@ -12611,7 +13135,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "import:classic"
               ]
             },
             "description": "an array of at most 3 item(s)",
@@ -12690,7 +13215,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "import:classic"
               ]
             }
           },
@@ -14206,6 +14732,9 @@
     },
     {
       "name": "snapshots"
+    },
+    {
+      "name": "classicImports"
     },
     {
       "name": "terminals"

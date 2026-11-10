@@ -641,6 +641,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/imports/classic-vm-snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List classic VM imports, newest first, rolled-back ones included
+         * @description List classic VM imports, newest first, rolled-back ones included. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. For dry runs and status. Never contacts the provider.
+         */
+        get: operations["classicImports.listClassicVmSnapshotImports"];
+        put?: never;
+        /**
+         * Import a classic VM as a snapshot
+         * @description Import a classic VM as a snapshot. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. Snapshots the classic VM's provider VM and registers the snapshot under tenant_id, labelled classic.vm_id and classic.migration_id (plus the key's labels). Idempotent: the same (tenant_id, classic_vm_id, migration_id) answers the existing import with state ready and never snapshots twice; an Idempotency-Key reused with a different request is 409. 404 with code import.upstream_vm_not_found: this service's provider account has no such VM (a classic VM in a different provider account shows up this way). The classic VM itself is never changed.
+         */
+        post: operations["classicImports.importClassicVmSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/imports/classic-vm-snapshots/{snapshotId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Roll back a classic VM import
+         * @description Roll back a classic VM import. Requires the import:classic scope. Service keys with the import:classic scope only (sessions and API keys never hold it); X-Cmux-Team-Id names the tenant, and the key's teams and labels apply. Deletes the provider snapshot and marks the snapshot deleted, only when it carries classic.migration_id (a snapshot not made by an import is 409 and is never deleted here). Deleting an already rolled-back import succeeds. VMs already created from it keep running.
+         */
+        delete: operations["classicImports.rollbackClassicVmSnapshotImport"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/terminal": {
         parameters: {
             query?: never;
@@ -1493,6 +1537,11 @@ export interface components {
         VmCreationKey: string;
         NotFound: {
             message: string;
+            /**
+             * @description import.upstream_vm_not_found: the provider account this service uses has no such VM (a classic VM in a different provider account shows up this way).
+             * @enum {string}
+             */
+            code?: "import.upstream_vm_not_found";
             creationKey?: components["schemas"]["VmCreationKey"];
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;
@@ -2014,6 +2063,49 @@ export interface components {
             /** @enum {string} */
             _tag: "InvalidRequest";
         };
+        ClassicVmImportRequest: {
+            /**
+             * maxLength(128)
+             * @description The NEXT VM API tenant to import into. Must equal X-Cmux-Team-Id.
+             */
+            tenant_id: string;
+            /**
+             * maxLength(128)
+             * @description The Stack user id that owns the copy; it becomes the snapshot's creator (user:<id>).
+             */
+            created_by: string;
+            /** @description The classic VM's id (cloud_vms.id). Stored as label classic.vm_id. */
+            classic_vm_id: string;
+            /** @description The classic VM's provider VM id (cloud_vms.provider_vm_id). */
+            upstream_vm_id: string;
+            /** @description The migration run. Stored as label classic.migration_id. */
+            migration_id: string;
+        };
+        /** @description A classic VM copied into a NEXT tenant as a snapshot. */
+        ClassicVmImport: {
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @description The provider snapshot id, for the migration ledger. Returned to the importing service only. */
+            upstream_snapshot_id: string;
+            /**
+             * @description created: this request took and registered the snapshot. ready: an earlier import answered (nothing was snapshotted). deleted: rolled back.
+             * @enum {string}
+             */
+            state: "created" | "ready" | "deleted";
+            /**
+             * maxLength(128)
+             * @description a string matching the pattern ^[A-Za-z0-9_-]+$
+             */
+            tenant_id: string;
+            classic_vm_id: string;
+            migration_id: string;
+            /** @description The creator reference, user:<Stack user id>. */
+            created_by: string;
+            created_at: string;
+        };
+        ClassicVmImportList: {
+            items: components["schemas"]["ClassicVmImport"][];
+        };
         /**
          * @description a string to be decoded into a boolean
          * @enum {string}
@@ -2052,7 +2144,7 @@ export interface components {
              * maxItems(32)
              * @description an array of at most 32 item(s)
              */
-            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin" | "import:classic")[];
             /**
              * maxItems(100)
              * @description an array of at most 100 item(s)
@@ -2096,7 +2188,7 @@ export interface components {
              * maxItems(3)
              * @description an array of at most 3 item(s)
              */
-            scopes?: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes?: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin" | "import:classic")[];
             /**
              * between(60, 86400)
              * @description a number between 60 and 86400
@@ -5569,6 +5661,261 @@ export interface operations {
         };
     };
     "snapshots.deleteSnapshot": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "classicImports.listClassicVmSnapshotImports": {
+        parameters: {
+            query: {
+                /** @description a string matching the pattern ^[A-Za-z0-9_-]+$ */
+                tenant_id: string;
+                /** @description a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$ */
+                classic_vm_id?: string;
+                /** @description a string matching the pattern ^[A-Za-z0-9._:/@-]{1,63}$ */
+                migration_id?: string;
+                /** @description a string to be decoded into a number */
+                limit?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ClassicVmImportList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassicVmImportList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "classicImports.importClassicVmSnapshot": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClassicVmImportRequest"];
+            };
+        };
+        responses: {
+            /** @description A classic VM copied into a NEXT tenant as a snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassicVmImport"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "classicImports.rollbackClassicVmSnapshotImport": {
         parameters: {
             query?: never;
             header?: {

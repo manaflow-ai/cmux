@@ -565,6 +565,50 @@ Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
 
+## Import a classic VM (classic -> NEXT migration)
+
+A classic VM is copied into a NEXT tenant, never moved: the import snapshots the
+classic VM's provider VM and registers that snapshot under the tenant. The classic
+VM, its row and its billing are untouched. Only a service key holding the
+`import:classic` scope can call these routes. That scope is service-only
+(`SERVICE_ONLY_SCOPES` in `src/domain/scopes.ts`): no session gets it, no API key
+can be issued with it (400), and a stored API key that names it gets nothing from it. Grant it
+by adding it to a service key's entry in `CMUX_VM_SERVICE_KEYS` (or
+`service-key-grants.json`). The key's `teams` and `labels` still apply, and
+every import carries the key's labels. To let cmux-platform boot an import,
+give the scope to its key, or give the importing key the same labels.
+
+- `POST /v1/imports/classic-vm-snapshots` (`X-Cmux-Team-Id` names the tenant;
+  optional `Idempotency-Key`), body
+  `{tenant_id, created_by, classic_vm_id, upstream_vm_id, migration_id}`.
+  `tenant_id` must equal the header (400 otherwise). `created_by` is the Stack
+  user id that owns the copy, recorded as `user:<id>`. It answers
+  `{id: "snap_...", upstream_snapshot_id, state, tenant_id, classic_vm_id,
+  migration_id, created_by, created_at}`, where `state` is `created` (this request took
+  the snapshot) or `ready` (an earlier import answered). The row is labelled
+  `classic.vm_id` and `classic.migration_id`, plus `classic.import_key` (a digest,
+  never the key) when a key was sent. The same tenant, classic VM and migration always
+  answer the first import and never snapshot again. A per-tenant lock makes a concurrent
+  request 409 ("retry shortly"). The provider snapshot is named after a digest of the
+  import, so a retry after a lost reply adopts the first send's snapshot. An
+  `Idempotency-Key` reused for a different classic VM or migration is 409. 404 with
+  `code: import.upstream_vm_not_found` means this service's provider account has
+  no such VM: a classic VM in a different provider account shows up this way.
+  409 means the VM cannot be snapshotted in its current state.
+- `GET /v1/imports/classic-vm-snapshots?tenant_id=&classic_vm_id=&migration_id=&limit=`
+  lists imports newest first (at most `limit`, default 100, max 500), rolled-back ones
+  with `state: deleted`. It is for dry runs and status, and never contacts the provider.
+- `DELETE /v1/imports/classic-vm-snapshots/{snap_id}` rolls back an import: it deletes the
+  provider snapshot, then marks the row deleted. It works only on a snapshot
+  labelled `classic.migration_id`; any other snapshot is 409 and is never deleted
+  here. A second delete answers 204.
+
+Imports and rollbacks are audited as `snapshot.import_classic` and
+`snapshot.rollback_classic_import`. These routes return the provider snapshot id,
+which no other route does, because the migration ledger records it. The routes need
+no migration: imports are `cmux_vm.resources` snapshot rows identified by
+labels. Imports count toward the tenant's live-snapshot quota but are not refused by it.
+
 ## Layout
 
 | path | what |

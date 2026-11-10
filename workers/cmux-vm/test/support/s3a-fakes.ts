@@ -43,6 +43,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   const deleted = new Set<string>();
   const tombstones = new Map<string, { readonly row: SnapshotRow; readonly tenantId: string; readonly createdBy: string }>();
   const meta = new Map<string, SnapshotMeta>();
+  const tombstoneUpstream = new Map<string, string>();
   /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
   const requests: Request[] = [];
   const ptySessions = new Map<string, FakePtySession[]>();
@@ -63,6 +64,22 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   };
 
   const snapshotStore = Layer.succeed(SnapshotStore, {
+    listClassicImports: (tenantId, query) =>
+      Effect.sync(() =>
+        [
+          ...resources.filter((row) => row.tenantId === tenantId && row.kind === "snapshot").map((row) => ({ row, deleted: deleted.has(row.cmuxId) })),
+          ...[...tombstones].filter(([, old]) => old.tenantId === tenantId).map(([id, old]) => ({
+            row: { tenantId: TenantId.make(old.tenantId), kind: "snapshot" as const, cmuxId: id, upstreamId: UpstreamId.make(tombstoneUpstream.get(id) ?? "gone"),
+              createdBy: old.createdBy, createdAt: old.row.createdAt, displayName: old.row.displayName, labels: old.row.labels },
+            deleted: true,
+          })),
+        ]
+          .filter(({ row, deleted: gone }) => (query.includeDeleted || !gone) && typeof row.labels["classic.migration_id"] === "string"
+            && Object.entries(query.labels).every(([key, value]) => row.labels[key] === value))
+          .sort((a, b) => b.row.createdAt.getTime() - a.row.createdAt.getTime() || (a.row.cmuxId < b.row.cmuxId ? 1 : -1))
+          .slice(0, query.limit)
+          .map(({ row, deleted: gone }) => ({ id: SnapshotId.make(row.cmuxId), upstreamId: row.upstreamId, labels: row.labels, createdBy: row.createdBy, createdAt: row.createdAt, deleted: gone })),
+      ),
     record: (snapshot) =>
       Effect.suspend(() => {
         if (!state.failSnapshotRecord) {
@@ -123,7 +140,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
       Effect.sync(() => {
         const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === "snapshot" && row.cmuxId === id);
         const row = resources[index];
-        if (row !== undefined) { tombstones.set(id, { row: rowOf(row), tenantId, createdBy: row.createdBy }); deleted.add(id); resources.splice(index, 1); }
+        if (row !== undefined) { tombstoneUpstream.set(id, row.upstreamId); tombstones.set(id, { row: rowOf(row), tenantId, createdBy: row.createdBy }); deleted.add(id); resources.splice(index, 1); }
       }),
   });
 

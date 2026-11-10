@@ -22,6 +22,7 @@ import {
 import { SnapshotId, VmId } from "./lib/ids.ts";
 import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
+import { ClassicImportsGroupDefinition } from "./api/classic-imports.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { AgentsGroupDefinition } from "./api/agents.ts";
@@ -549,6 +550,8 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(ExecGroup)
   .add(FilesGroup)
   .add(SnapshotsGroupDefinition.middleware(Authentication))
+  // Classic -> NEXT migration: service keys with import:classic only.
+  .add(ClassicImportsGroupDefinition.middleware(Authentication))
   .add(TerminalsGroupDefinition.middleware(Authentication))
   .add(ApiKeysGroupDefinition.middleware(Authentication))
   .add(AgentsGroupDefinition.middleware(Authentication))
