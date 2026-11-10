@@ -385,7 +385,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "move-to-machine",
-                "[--machine machine:MACHINE_ID]",
+                "[--machine vm:VM_ID]",
                 "Move a moved chat on to another Cloud machine",
                 "移したチャットを別の Cloud マシンに移す",
             ),
