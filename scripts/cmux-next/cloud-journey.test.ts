@@ -1148,6 +1148,32 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("an escaped key in JSON and a process name cut to 15 bytes never leave in the answer", () => {
+    const ESCAPED = "opaqueRefresh7Kv92Npx5Rq8Lm3Dz";
+    const root = plant({
+      // Linux keeps a process's name to 15 bytes: the start of the key it was named after.
+      "proc/5/comm": `${ESCAPED.slice(0, 15)}\n`,
+      "proc/5/environ": `CODEX_AUTH_JSON={"refresh_token":"${ESCAPED}"}\0`,
+      "proc/5/cmdline": "tool\0",
+      "proc/6/comm": `${MISTRAL.slice(0, 15)}\n`,
+      "proc/6/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/6/cmdline": "tool\0",
+      // The same token, its first letter escaped in the file and spelled plainly in the file's name.
+      [`home/cmux/cache/${ESCAPED}`]: `{"refresh_token":"\\u006f${ESCAPED.slice(1)}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [ESCAPED, ESCAPED.slice(0, 15), ESCAPED.slice(1), MISTRAL, MISTRAL.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a piece of a secret] (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
+        "env process [a piece of a secret] (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",

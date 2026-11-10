@@ -31,6 +31,7 @@ import re
 import stat
 import sys
 import time
+import urllib.parse
 
 # The kinds of value a model provider issues, by shape. Each pattern is long enough that prose, a
 # variable's name or this file's own source never matches it.
@@ -135,10 +136,38 @@ SECRET_MIN = 6
 
 
 def found(value):
-    """Records a value the probe judged a key, for redaction."""
+    """Records a value the probe judged a key, for redaction, as found and as decoded: a value read from JSON or a
+    URL may be escaped there (`\\u006f`, `%6F`) and spelled plainly in a path or a process name."""
     v = value.strip().strip("'\"")
-    if len(v) >= SECRET_MIN:
-        FOUND.add(v)
+    variants = {v, urllib.parse.unquote(v)}
+    try:
+        variants.add(json.loads(f'"{v}"'))
+    except ValueError:
+        pass
+    for variant in variants:
+        if isinstance(variant, str) and len(variant) >= SECRET_MIN:
+            FOUND.add(variant)
+
+
+# A word of a report string (a path's part, a process name) that shares this many characters in a row with a found
+# key is replaced whole: Linux cuts a process name to 15 bytes, and any other cut copy of a key is a piece of it.
+PIECE = 8
+WORD = re.compile(r"[^/\s()\[\],;:=]+")
+
+
+_PIECES = (0, set())
+
+
+def pieces():
+    """Every PIECE-long run of every found key (the whole key, if shorter), kept until another key is found."""
+    global _PIECES
+    if _PIECES[0] != len(FOUND):
+        out = set()
+        for value in FOUND:
+            n = min(PIECE, len(value))
+            out.update(value[i:i + n] for i in range(len(value) - n + 1))
+        _PIECES = (len(FOUND), out)
+    return _PIECES[1]
 
 
 # The shapes for redaction: the same, without the word boundaries detection uses to keep prose out, so a key glued to
@@ -153,7 +182,15 @@ def redact(text):
         text = text.replace(value, "[a secret]")
     for kind, pattern in REDACT_SHAPES:
         text = pattern.sub(f"[{kind}]", text)
-    return text
+    keys = pieces()
+    lengths = {len(k) for k in keys}
+
+    def piece_of_key(m):
+        word = m.group(0)
+        hit = any(word[i:i + n] in keys for n in lengths for i in range(len(word) - n + 1))
+        return "[a piece of a secret]" if hit else word
+
+    return WORD.sub(piece_of_key, text)
 
 
 def redacted(value):
