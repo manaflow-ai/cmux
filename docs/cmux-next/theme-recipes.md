@@ -48,7 +48,7 @@ A theme file is a pit of success: it can only set how cmux looks, never what it 
 For more than a look, write a view of your own: a sidebar or Session Info section (the skill's "Make
 a view"). A view whose script fails shows its error in its own place with a Reload button, and the
 rest of the app keeps working. If a code change of your own breaks the app, go back a build from the
-palette with **Roll Back to Previous Version**, or run `cmux update rollback`.
+palette with **Roll Back to Previous Version**, or run `cmux settings rollback-update --confirm`.
 
 ## Keep it fast
 

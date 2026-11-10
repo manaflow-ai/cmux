@@ -6,7 +6,7 @@
   "description": "A charcoal page, a darker sidebar, gray accents, no borders.",
 
   // The terminal theme, and its own colors.
-  "appearance.theme": "Vercel",
+  "appearance.theme": "Builtin Dark",
   "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#424242", "accent": "#b4b4b4" },
   "appearance.accent": "neutral",
 
