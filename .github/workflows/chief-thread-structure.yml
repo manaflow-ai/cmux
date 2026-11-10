@@ -101,6 +101,7 @@ jobs:
           sparse-checkout: |
             scripts/ci
             scripts/select-ci-xcode.sh
+            .xcode-version
             tests/ui-structure
           sparse-checkout-cone-mode: false
       - name: Select pinned Xcode
