@@ -111,8 +111,11 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
-    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
+    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant
+    /// and until the grant is on for the first time in this pane's life (``showActAsMe(_:)``).
     var actAsMeBadge: AgentPaneActAsMeBadge?
+    /// Follows the grant until it is on, then makes the pill and ends.
+    var actAsMeWait: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -437,6 +440,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             actAsMeBadge?.stop()
+            actAsMeWait?.cancel()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }
