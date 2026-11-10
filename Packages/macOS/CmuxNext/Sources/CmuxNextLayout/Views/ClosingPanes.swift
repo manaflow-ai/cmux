@@ -213,6 +213,13 @@ struct ClosingPanes {
     /// live frames' way left, so the motion lands a few frames later, never not at all: a side the frames do not move is
     /// the same in both. The cameras are taken at rest (the strip's view shift `restStrip`, no row travel): they land on
     /// their own springs, and a side they move does not hold the panes' landing.
+    ///
+    /// What it bounds is the way from this frame's step, which is not shown, to the landing. The frame shown before is
+    /// one step further away: with `snap` a quarter point, a side moves up to about 0.44 pt on the screen in the
+    /// landing's frame at 120 Hz (about 0.8 pt at 60 Hz), under the one point the ground rule allows. It does not see a
+    /// side the rules gave no travel (a pane like that keeps its place; `hasTravel` and
+    /// `ScreenContentView.settleClosing` are what keep one from being made), and it needs the rules to be a value: the
+    /// two placements run on copies.
     func landingMovesAClosingPane(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
         guard !entries.isEmpty else { return false }
         var stepped = rules, landed = rules
