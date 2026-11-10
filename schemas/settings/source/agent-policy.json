@@ -751,6 +751,7 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement",

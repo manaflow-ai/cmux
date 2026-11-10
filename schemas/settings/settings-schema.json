@@ -1199,6 +1199,7 @@
             "rows" : [
               "agentPane.display.transcriptView",
               "agentPane.display.presentation",
+              "agentPane.display.promptCoach",
               "agentPane.display.statusVerbs.mode",
               "agentPane.display.statusVerbs.custom",
               "agentPane.needsYou.enabled",
@@ -48600,6 +48601,147 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.promptCoach.help",
+        "text" : "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.promptCoach",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "prompt",
+        "coach",
+        "rewrite",
+        "corrections",
+        "tips",
+        "one shot",
+        "first prompt",
+        "copy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "promptCoach"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.promptCoach"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.promptCoach",
+        "text" : "Prompt Coach"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "thinking",
         "rotate",
         "custom"
@@ -61299,7 +61441,8 @@
       "accepts" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -61324,6 +61467,13 @@
             "text" : "Solid"
           },
           "value" : "solid"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundSections",
+            "text" : "Sections"
+          },
+          "value" : "sections"
         }
       ],
       "consumers" : [
@@ -61337,7 +61487,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."
+        "text" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -61352,7 +61502,11 @@
         "opaque",
         "translucent",
         "fill",
-        "header"
+        "header",
+        "sections",
+        "section",
+        "heading",
+        "plain"
       ],
       "kind" : "choice",
       "page_hidden" : false,

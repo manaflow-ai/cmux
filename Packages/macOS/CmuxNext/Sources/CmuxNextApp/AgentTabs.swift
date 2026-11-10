@@ -351,9 +351,9 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
     var gitLinkScoped: (@MainActor (AgentTabKey) -> AgentPaneGitLink?)?
     var openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
-    /// Cloud destinations exposed to a started chat's title menu. The page receives only the
-    /// current live list; it never invents or persists machine ids.
-    var machineTargets: @MainActor () -> [AgentPaneMoveTarget] = { [] }
+    /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
+    /// receives only the current live list; it never invents or persists machine ids.
+    var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }
     /// Runs the existing CloudMove action for a validated target machine.
     var moveAgentToMachine: @MainActor (_ tab: AgentTabKey, _ machine: String) -> Bool = { _, _ in false }
 
