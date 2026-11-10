@@ -57,6 +57,8 @@ final class ConversationHistoryDatabase {
     deinit { sqlite3_close(handle) }
 
     private func migrate() throws {
+        // Set before the first table exists: trimmed pages go back to the file system.
+        try exec("PRAGMA auto_vacuum=INCREMENTAL")
         try exec("PRAGMA journal_mode=WAL")
         try exec("PRAGMA synchronous=NORMAL")
         let version = try queryInt("PRAGMA user_version") ?? 0
@@ -79,7 +81,8 @@ final class ConversationHistoryDatabase {
                 me_id TEXT,
                 oldest_seq INTEGER,
                 newest_seq INTEGER,
-                complete INTEGER NOT NULL DEFAULT 0
+                complete INTEGER NOT NULL DEFAULT 0,
+                written_at REAL NOT NULL DEFAULT 0
             )
             """)
             // Delete for me: the row never comes back, not from a later sync either.
@@ -150,6 +153,8 @@ final class ConversationHistoryDatabase {
                range: SyncedRange?? = nil, deleting deleted: Set<String> = []) throws {
         try transaction {
             try exec("INSERT OR IGNORE INTO conversations (conversation) VALUES (?)", [.text(conversation)])
+            try exec("UPDATE conversations SET written_at = ? WHERE conversation = ?",
+                     [.real(Date().timeIntervalSince1970), .text(conversation)])
             if case let .some(info) = info {
                 try exec("UPDATE conversations SET info = ? WHERE conversation = ?",
                          [info.flatMap { try? encoder.encode($0) }.map(Value.blob) ?? .null, .text(conversation)])
@@ -214,6 +219,50 @@ final class ConversationHistoryDatabase {
         try write(conversation, messages: messages, range: .some(merged))
     }
 
+    /// The database's size in bytes (pages in use).
+    func byteCount() throws -> Int {
+        let pages = try queryInt("PRAGMA page_count") ?? 0
+        let free = try queryInt("PRAGMA freelist_count") ?? 0
+        let size = try queryInt("PRAGMA page_size") ?? 4096
+        return (pages - free) * size
+    }
+
+    /// Over `byteLimit`: the conversations written longest ago lose their oldest messages first,
+    /// half of what is above their newest `keepingNewest` at a time, until the rest fit. Each
+    /// trimmed conversation's synced range moves up to its oldest kept message and is no longer
+    /// complete, so scrolling past it asks the server again. Never trims below `keepingNewest`.
+    func trim(to byteLimit: Int, keepingNewest: Int) throws {
+        guard try byteCount() > byteLimit else { return }
+        let statement = try prepare("SELECT conversation FROM conversations ORDER BY written_at ASC")
+        var order: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW { order.append(String(cString: sqlite3_column_text(statement, 0))) }
+        sqlite3_finalize(statement)
+        var trimmedAny = true
+        while try byteCount() > byteLimit, trimmedAny {
+            trimmedAny = false
+            for conversation in order {
+                let total = try count(conversation)
+                let excess = total - keepingNewest
+                guard excess > 0 else { continue }
+                let drop = max(1, excess / 2)
+                try transaction {
+                    try exec("""
+                    DELETE FROM messages WHERE conversation = ?1 AND id IN
+                    (SELECT id FROM messages WHERE conversation = ?1 ORDER BY seq ASC LIMIT ?2)
+                    """, [.text(conversation), .integer(Int64(drop))])
+                    try exec("""
+                    UPDATE conversations SET complete = 0,
+                    oldest_seq = (SELECT MIN(seq) FROM messages WHERE conversation = ?1)
+                    WHERE conversation = ?1 AND oldest_seq IS NOT NULL
+                    """, [.text(conversation)])
+                }
+                trimmedAny = true
+                guard try byteCount() > byteLimit else { break }
+            }
+        }
+        try exec("PRAGMA incremental_vacuum")
+    }
+
     /// What is stored of a message: no image bytes picked on the phone (the server has them).
     static func stored(_ message: ConversationMessage) -> ConversationMessage {
         var message = message
@@ -226,6 +275,7 @@ final class ConversationHistoryDatabase {
     enum Value {
         case text(String)
         case integer(Int64)
+        case real(Double)
         case blob(Data)
         case null
     }
@@ -298,6 +348,7 @@ final class ConversationHistoryDatabase {
             switch value {
             case let .text(text): result = sqlite3_bind_text(statement, index, text, -1, transient)
             case let .integer(number): result = sqlite3_bind_int64(statement, index, number)
+            case let .real(number): result = sqlite3_bind_double(statement, index, number)
             case let .blob(data):
                 result = data.withUnsafeBytes { sqlite3_bind_blob(statement, index, $0.baseAddress, Int32($0.count), transient) }
             case .null: result = sqlite3_bind_null(statement, index)

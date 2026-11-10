@@ -102,8 +102,12 @@ extension ConversationTranscriptCache {
         }
 
         // 2. Backfill below the oldest stored message.
+        let byteLimit = byteLimit
         while !range.complete {
             try Task.checkCancellation()
+            // At the storage limit older history stays on the server: a backfill past it would
+            // only be trimmed again.
+            guard try await run(scope, { try $0.byteCount() < byteLimit }) else { break }
             page = try await fetch(range.oldestSeq, pageSize)
             try Task.checkCancellation()
             pages += 1

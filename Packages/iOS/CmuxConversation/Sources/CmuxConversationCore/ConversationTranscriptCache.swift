@@ -31,9 +31,14 @@ public struct ConversationTranscriptSnapshot: Sendable, Hashable, Codable {
 public final class ConversationTranscriptCache: @unchecked Sendable {
     /// Messages a store shows at once from here; older ones page in as the reader scrolls up.
     public static let limit = 200
+    /// Bytes the history database may hold before a write trims it: the conversations written
+    /// longest ago lose their oldest messages first, never the newest `limit` of any one (the
+    /// user, 2026-11-09: "chats preserved on disk up to a storage limit, latest kept").
+    public static let byteLimit = 256 * 1024 * 1024
 
     public let directory: URL
     public let limit: Int
+    public let byteLimit: Int
     let queue = DispatchQueue(label: "dev.cmux.conversation.transcript-cache", qos: .utility)
     /// How long a write waits for newer changes (a streamed reply changes the transcript many
     /// times a second): one write per key per `writeDelay`, of what changed since the last.
@@ -75,9 +80,11 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     private var database: ConversationHistoryDatabase?
     private var databaseAccount: String??
 
-    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, writeDelay: DispatchTimeInterval = .seconds(1)) {
+    public init(directory: URL, limit: Int = ConversationTranscriptCache.limit, byteLimit: Int = ConversationTranscriptCache.byteLimit,
+                writeDelay: DispatchTimeInterval = .seconds(1)) {
         self.directory = directory
         self.limit = limit
+        self.byteLimit = byteLimit
         self.writeDelay = writeDelay
     }
 
@@ -229,6 +236,32 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         }
         try? db.write(write.key, messages: Array(write.changed.values), info: .some(write.info), meID: .some(write.meID),
                       range: range, deleting: write.deleted)
+        try? db.trim(to: byteLimit, keepingNewest: limit)
+    }
+
+    /// Deletes the files of `directory` written longest ago until the rest fit in `byteLimit`
+    /// bytes, never `keeping` (the file just written). Runs on the caller's queue, never the main
+    /// thread. The other on-disk caches with a total limit use it (Home rows, agent transcripts).
+    public static func trim(_ directory: URL, to byteLimit: Int, keeping: URL?) {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        guard let urls = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys),
+                                                                       options: [.skipsHiddenFiles]) else { return }
+        let kept = keeping?.standardizedFileURL.path(percentEncoded: false)
+        var total = 0
+        var candidates: [(url: URL, size: Int, date: Date)] = []
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
+            let size = values.fileSize ?? 0
+            total += size
+            if url.standardizedFileURL.path(percentEncoded: false) != kept {
+                candidates.append((url, size, values.contentModificationDate ?? .distantPast))
+            }
+        }
+        guard total > byteLimit else { return }
+        for candidate in candidates.sorted(by: { $0.date < $1.date }) {
+            guard total > byteLimit else { break }
+            if (try? FileManager.default.removeItem(at: candidate.url)) != nil { total -= candidate.size }
+        }
     }
 
     /// Sign-out: every kept conversation of every account leaves this device. Writes not yet
