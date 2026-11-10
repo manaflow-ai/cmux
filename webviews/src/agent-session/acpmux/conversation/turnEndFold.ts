@@ -171,10 +171,13 @@ function foldFits(px: number, ms: number, easing: string): boolean {
 
 /// The first of `count` candidates that `fits`, or undefined: candidates that fit only follow ones
 /// that do not (a longer fold, or a curve leaned further toward the straight line, only slows its
-/// fastest frame), so it bisects, reading about log2(count) of them.
+/// fastest frame), so it bisects, reading about log2(count) of them. The first is read first: most
+/// folds that need a search fit there.
 function firstFit(count: number, fits: (index: number) => boolean): number | undefined {
-  if (count <= 0 || !fits(count - 1)) return undefined;
-  let low = 0;
+  if (count <= 0) return undefined;
+  if (fits(0)) return 0;
+  if (!fits(count - 1)) return undefined;
+  let low = 1;
   let high = count - 1;
   while (low < high) {
     const middle = (low + high) >> 1;
