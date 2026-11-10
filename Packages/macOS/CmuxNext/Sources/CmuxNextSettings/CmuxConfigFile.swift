@@ -7,6 +7,13 @@ import os
 /// the JSONC source in place (comments and unknown keys survive) and
 /// publish atomically; the file watcher then reloads and applies them, so
 /// there is one path from disk to live settings.
+///
+/// The daemon writes the same file (`settings.set`, `settings.reset`). Every write here holds the
+/// daemon's lock (``SettingsFileLock``) from its read of the file to its publish, so a daemon
+/// write and a write here never replace each other's edit. A write suspends while it waits for
+/// the lock (never a thread of the caller's), and throws ``SettingsFileBusy`` when another
+/// writer keeps the lock too long. Other calls of this actor may run during that wait; each write
+/// reads the file only after it has the lock.
 public actor CmuxConfigFile {
     public nonisolated let url: URL
     /// Keys an MDM profile or the team policy manages; every write checks it.
@@ -162,9 +169,12 @@ public actor CmuxConfigFile {
     }
 
     /// Sets each path the file leaves unset to its value, in one atomic publish; a path set since
-    /// the caller read it keeps its value. Read and write share one actor turn. Returns the paths set.
-    public func setUnset(_ values: [(path: [String], value: JSONValue)]) throws -> [[String]] {
+    /// the caller read it keeps its value. Read and write share one actor turn and one hold of the
+    /// settings lock. Returns the paths set.
+    public func setUnset(_ values: [(path: [String], value: JSONValue)]) async throws -> [[String]] {
         guard values.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
         let current = try source()
         let root = try validated(current)
         let unset = values.filter { root.value(at: $0.path) == nil }
@@ -191,31 +201,51 @@ public actor CmuxConfigFile {
     }
 
     /// Sets `path` to `value` and publishes the file atomically.
-    public func set(_ value: JSONValue, at path: [String]) throws {
+    public func set(_ value: JSONValue, at path: [String]) async throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
         try managedGuard.checkSet(value, at: path)
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
         let current = try source()
         _ = try validated(current)
         try publish(try JSONC.setting(value, at: path, in: current))
     }
 
     /// Removes the member at `path`. No-op when absent.
-    public func remove(_ path: [String]) throws {
+    public func remove(_ path: [String]) async throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
         try managedGuard.checkRemove(path)
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
         let current = try source()
         _ = try validated(current)
         let updated = try JSONC.removing(path, in: current)
         if updated != current { try publish(updated) }
     }
 
+    /// Removes the object at `path` when it has no members. The check and the removal share one
+    /// actor turn and one hold of the settings lock, so an object that gains a member meanwhile
+    /// (a daemon write, or another write here) stays. True when removed.
+    func removeEmptyObject(at path: [String]) async throws -> Bool {
+        guard !path.isEmpty else { throw Failure.invalidPath("") }
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
+        let current = try source()
+        guard case .object(let members)? = try validated(current).value(at: path), members.isEmpty else { return false }
+        try managedGuard.checkRemove(path)
+        try publish(try JSONC.removing(path, in: current))
+        return true
+    }
+
     /// Sets (a value) or removes (nil) several paths in one atomic publish,
     /// so the watcher never applies a half-done edit.
-    public func apply(_ edits: [(path: [String], value: JSONValue?)]) throws {
+    public func apply(_ edits: [(path: [String], value: JSONValue?)]) async throws {
         guard edits.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
         for edit in edits {
             if let value = edit.value { try managedGuard.checkSet(value, at: edit.path) } else { try managedGuard.checkRemove(edit.path) }
         }
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
         let current = try source()
         _ = try validated(current)
         var updated = current
@@ -231,7 +261,8 @@ public actor CmuxConfigFile {
 
     /// Removes each path whose value is still `expected` in the file as it is now, then each object
     /// those removals emptied, in one atomic publish; a path changed since the caller read it stays.
-    /// Read and write share one actor turn, so no other write of this file lands between them.
+    /// Read and write share one actor turn and one hold of the settings lock, so no other write of
+    /// this file, here or in the daemon, lands between them.
     /// With `recordBeside`, `record(removed, before)` is written beside the file first
     /// (`writeBeside`), so a failed record write leaves the file as it was. Returns the removed
     /// paths and the text before the publish.
@@ -239,8 +270,10 @@ public actor CmuxConfigFile {
         _ expected: [(path: [String], value: JSONValue)],
         recordBeside suffix: String? = nil,
         record: @Sendable (_ removed: [[String]], _ before: String) throws -> String = { _, _ in "" }
-    ) throws -> (removed: [[String]], before: String) {
+    ) async throws -> (removed: [[String]], before: String) {
         guard expected.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let lock = try await SettingsFileLock.acquire(file: url)
+        defer { lock.release() }
         let current = try source()
         let root = try validated(current)
         let removed = expected.filter { root.value(at: $0.path) == $0.value }.map(\.path)

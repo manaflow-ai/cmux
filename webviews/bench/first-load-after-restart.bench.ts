@@ -82,10 +82,8 @@ const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSna
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
-const newest = (limit: number, beforeSeq = Infinity, maxBytes?: number) =>
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
   newestPage(events, { limit, beforeSeq, maxBytes });
-const askedBytes = (params: Record<string, unknown>) =>
-  params.maxBytes === undefined ? undefined : Number(params.maxBytes);
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
 /// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
 /// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
@@ -111,7 +109,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       return { sessions: [session] };
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
-      const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, askedBytes(params));
+      const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
       return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
     }
     case "_acpmux/events": {
@@ -124,7 +122,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), askedBytes(params));
+        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
