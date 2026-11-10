@@ -147,7 +147,7 @@ impl Options {
         match (&self.split, &self.pane) {
             (Some(direction), _) => Placement::Split(direction.clone()),
             (None, Some(_)) => Placement::Tab,
-            (None, None) => Placement::Split("right".into()),
+            (None, None) => Placement::Beside,
         }
     }
 }

@@ -212,7 +212,7 @@ fn w3h_agent_start_and_resume_parse_names_launchers_and_placement() {
 
     let defaults = Options::default();
     assert!(defaults.focus && defaults.wait);
-    assert_eq!(defaults.placement(), super::Placement::Split("right".into()));
+    assert_eq!(defaults.placement(), super::Placement::Beside);
     let in_pane = Options {
         pane: Some("pane_11111111111111111111111111111111".into()),
         ..Options::default()
