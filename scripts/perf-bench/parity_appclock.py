@@ -428,8 +428,30 @@ def pacing_result(cmux, hz, spans):
             "spans": len(spans), "frames": len(changed), **facts}
 
 
+CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+
+
+def activate_once(cmux):
+    """Makes the bench app the active app one time (CuaDriver `bring_to_front`). A bench app is started from ssh and
+    is never the active app, and an app that was never active gives no key to a Chromium page: 0 of 6 `debug.key`
+    keys typed before this step, 6 of 6 after it, also when the app is not active any more at the time of the keys
+    (aws-m4pro-7, 2026-11-10). A person's app was active before its first key, so the step adds nothing a person
+    does not have. The bench shell itself has no right to activate an app and gets none."""
+    if not os.path.exists(CUA_DRIVER):
+        raise NotRun(f"cmux: the key-field row needs CuaDriver to make the app active one time ({CUA_DRIVER} is not on this host)")
+    try:
+        done = subprocess.run([CUA_DRIVER, "call", "bring_to_front", json.dumps({"pid": int(cmux.app.process.pid)})],
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=25, check=False)
+    except subprocess.TimeoutExpired as error:
+        raise NotRun("cmux: CuaDriver bring_to_front did not return in 25 s") from error
+    if done.returncode != 0:
+        raise NotRun(f"cmux: CuaDriver bring_to_front failed ({done.returncode}): {(done.stderr or done.stdout).strip()[:160]}")
+    pause(0.8)
+
+
 def row_key_field(cmux, server, hz, load, rng):
     cmux.setup(load, server.url("field", report="1"))
+    activate_once(cmux)
     left, top, width, height = cmux.page_box()
     cmux.rpc("debug.mouse", {"target": "page", "x": 300, "y": 42})  # a click in the field (page points): focus
     pause(0.6)
