@@ -2492,8 +2492,9 @@ impl Hub {
             }
             let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
+            // A host whose link was lost cannot take a Terminate frame; one whose link stopped
+            // reading did not take it within the grace (`host_unended`).
+            if link_lost || child.host_unended() {
                 self.end_unadopted_host(session).await;
             }
         } else {
