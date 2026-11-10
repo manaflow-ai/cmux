@@ -12,7 +12,8 @@ final class ChiefVoiceRecordUITests: XCTestCase {
     }
 
     override func tearDown() {
-        XCUIDevice.shared.appearance = .unspecified
+        // Back to the simulator's default (light); `.unspecified` is refused.
+        XCUIDevice.shared.appearance = .light
     }
 
     @MainActor
@@ -54,6 +55,11 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         let more = app.buttons["conversation.recording.continue"]
         XCTAssertTrue(wait(for: send, "hittable == true", timeout: 5), "review shows send")
         XCTAssertTrue(more.isHittable, "review shows the + pill")
+        // Messages' sizes (ComposerAudioLayout): play 34.33 pt, send 38 x 28.
+        let play = app.buttons["conversation.recording.play"]
+        XCTAssertEqual(play.frame.width, 34.33, accuracy: 1, "play circle size")
+        XCTAssertEqual(send.frame.width, 38, accuracy: 1, "send capsule width")
+        XCTAssertEqual(send.frame.height, 28, accuracy: 1, "send capsule height")
         XCTAssertTrue(more.label.contains("Continue Recording"))
         XCTAssertEqual(app.buttons["conversation.composer.plus"].label, "Cancel Recording", "the + became an x")
         attach(app, "4-review")
