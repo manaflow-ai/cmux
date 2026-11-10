@@ -190,9 +190,79 @@ fn read(home: &Path) -> Option<Record> {
             return None;
         }
     }
-    let record: Record = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    parse(&std::fs::read(path).ok()?)
+}
+
+fn parse(bytes: &[u8]) -> Option<Record> {
+    let record: Record = serde_json::from_slice(bytes).ok()?;
     let key_ok = unhex(&record.key).is_some_and(|key| key.len() == SECRET_BYTES);
     (record.version == VERSION && key_ok).then_some(record)
+}
+
+/// Another machine's record, read over ssh as that machine's user (`peer.rs`
+/// `read_config_argv` reads it only when that user owns it): the loopback
+/// address its daemon listens on and the key that proves that listener.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Remote {
+    pub listen: SocketAddr,
+    key: Vec<u8>,
+}
+
+impl std::fmt::Debug for Remote {
+    // The key never reaches a log.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Remote").field("listen", &self.listen).finish_non_exhaustive()
+    }
+}
+
+impl Remote {
+    /// The record in `bytes`, when it is a current one naming a loopback port.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        let record = parse(bytes)?;
+        if !record.listen.ip().is_loopback() || record.listen.port() == 0 {
+            return None;
+        }
+        Some(Self { listen: record.listen, key: unhex(&record.key)? })
+    }
+
+    /// Prove that `stream` (an ssh `-W` channel to [`Remote::listen`]) reaches the
+    /// daemon that wrote this record before anything else is sent on it: past `Ok`
+    /// the stream is the listener's request reader, as with [`connect_live`].
+    pub async fn prove<S>(&self, stream: &mut S, bound: Duration) -> Result<(), NotLive>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        tokio::time::timeout(bound, prove(stream, &self.key))
+            .await
+            .unwrap_or(Err(NotLive::Unreachable))
+    }
+}
+
+/// Send a fresh challenge on `stream` and check the answer under `key`.
+async fn prove<S>(stream: &mut S, key: &[u8]) -> Result<(), NotLive>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let challenge = random().ok_or(NotLive::WrongListener)?;
+    let probe = format!("{PROBE_PREFIX}{}\r\n\r\n", hex(&challenge));
+    stream.write_all(probe.as_bytes()).await.map_err(|_| NotLive::WrongListener)?;
+    stream.flush().await.map_err(|_| NotLive::WrongListener)?;
+    let mut line = Vec::with_capacity(ANSWER_BYTES);
+    // Byte by byte: what follows the answer belongs to the caller's stream.
+    while line.last() != Some(&b'\n') {
+        if line.len() >= ANSWER_BYTES {
+            return Err(NotLive::WrongListener);
+        }
+        let byte = stream.read_u8().await.map_err(|_| NotLive::WrongListener)?;
+        line.push(byte);
+    }
+    let answer = std::str::from_utf8(&line)
+        .ok()
+        .and_then(|line| line.strip_prefix(PROBE_PREFIX)?.strip_suffix('\n'))
+        .and_then(unhex)
+        .ok_or(NotLive::WrongListener)?;
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key);
+    ring::hmac::verify(&key, &challenge, &answer).map_err(|_| NotLive::WrongListener)
 }
 
 /// Why [`connect_live`] sent nothing on.
@@ -218,29 +288,11 @@ pub async fn connect_live(home: &Path, bound: Duration) -> Result<TcpStream, Not
         return Err(NotLive::NotLoopback);
     }
     let key = unhex(&record.key).ok_or(NotLive::NoRecord)?;
-    let challenge = random().ok_or(NotLive::WrongListener)?;
     tokio::time::timeout(bound, async {
         let mut stream =
             TcpStream::connect(record.listen).await.map_err(|_| NotLive::Unreachable)?;
         let _ = stream.set_nodelay(true);
-        let probe = format!("{PROBE_PREFIX}{}\r\n\r\n", hex(&challenge));
-        stream.write_all(probe.as_bytes()).await.map_err(|_| NotLive::WrongListener)?;
-        let mut line = Vec::with_capacity(ANSWER_BYTES);
-        // Byte by byte: what follows the answer belongs to the caller's stream.
-        while line.last() != Some(&b'\n') {
-            if line.len() >= ANSWER_BYTES {
-                return Err(NotLive::WrongListener);
-            }
-            let byte = stream.read_u8().await.map_err(|_| NotLive::WrongListener)?;
-            line.push(byte);
-        }
-        let answer = std::str::from_utf8(&line)
-            .ok()
-            .and_then(|line| line.strip_prefix(PROBE_PREFIX)?.strip_suffix('\n'))
-            .and_then(unhex)
-            .ok_or(NotLive::WrongListener)?;
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &key);
-        ring::hmac::verify(&key, &challenge, &answer).map_err(|_| NotLive::WrongListener)?;
+        prove(&mut stream, &key).await?;
         Ok(stream)
     })
     .await

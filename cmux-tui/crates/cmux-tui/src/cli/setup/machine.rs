@@ -165,9 +165,24 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     match run_acp(&argv) {
         Ok(result) => {
             let peer = after(&result, &name);
-            report.set("state", json!("changed"));
             report.set("after", peer.as_ref().map_or(Value::Null, summary));
             report.set("remote_version", remote_version(&result, &name));
+            // Registered, but its first connect settled refused: the machine is not usable,
+            // so this is no success (an `HTTP error: 401` was reported as `changed`).
+            let refused = peer.as_ref().filter(|peer| !flag(peer, "connected")).and_then(|peer| {
+                peer.get("error").and_then(Value::as_str).filter(|e| !e.is_empty())
+            });
+            if let Some(error) = refused {
+                report.set("state", json!("failed"));
+                report.set(
+                    "error",
+                    json!(format!(
+                        "{name} was added but its link did not connect ({error}); run `cmux acp host doctor {name} --json` for the step that fails and its fix"
+                    )),
+                );
+                return Ok(Outcome { report, failed: true });
+            }
+            report.set("state", json!("changed"));
             Ok(Outcome { report, failed: false })
         }
         Err(error) => {
