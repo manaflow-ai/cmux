@@ -21,10 +21,20 @@ export function deleteDate(machine: CloudMachine | undefined, now: number): Dele
   const at = machine?.evict_at;
   if (!machine || machine.keep || typeof at !== "number" || !Number.isFinite(at)) return undefined;
   if (machine.delete_reason === "requested") return undefined;
-  const days = Math.ceil((at - now) / DAY_MS);
+  // Calendar days in the viewer's time zone: a delete at 23:00 tonight is "today".
+  const days = calendarDays(now, at);
   if (days <= 0) return { kind: "today" };
   if (days === 1) return { kind: "tomorrow" };
   return { kind: "days", days };
+}
+
+/** Whole local calendar days from `from` to `to` (0: the same day). */
+export function calendarDays(from: number, to: number): number {
+  const day = (ms: number) => {
+    const date = new Date(ms);
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  };
+  return Math.round((day(to) - day(from)) / DAY_MS);
 }
 
 /** The machine is being archived before its delete (a person's archive and delete). */
@@ -105,14 +115,15 @@ export type CapOffer =
   /** Archive and delete the oldest paused machine (its disk kept as an archive). */
   | { kind: "archive"; machine: string; name: string };
 
-/** The provider's own machine limit (paused ones count), as cmux-platform words it. */
+/** The provider's own machine limit (paused ones count), as cmux-platform words it. Its text is
+ * read only to know the cap refused; the machine to delete is only ever the id in `free_up`. */
 const HELD_CAP = "machines (paused ones count)";
 
 /**
  * The offer of a create refusal at a machines cap: the plan's (`cloud.quota.exceeded` with
  * `details.resource: "machines"` and `details.free_up`) or the provider's ("limit of 20 machines
- * (paused ones count)"). The platform names the machine to free; without one, the oldest paused
- * machine nobody kept is archived and deleted. Undefined for any other error, or nothing to free.
+ * (paused ones count)"). A delete is offered only for the machine id the platform names in
+ * `free_up`; without one, the oldest paused machine nobody kept is archived and deleted. Undefined for any other error, or nothing to free.
  */
 export function capOffer(error: unknown, machines: readonly CloudMachine[]): CapOffer | undefined {
   if (!isPageError(error)) return undefined;
@@ -125,11 +136,6 @@ export function capOffer(error: unknown, machines: readonly CloudMachine[]): Cap
     const known = machines.find((machine) => machine.id === free.machine);
     const name = typeof free.name === "string" && free.name ? free.name : (known?.name ?? free.machine);
     return { kind: "delete", machine: free.machine, name };
-  }
-  const named = heldCap ? /You can delete (.+?) \(/.exec(error.message ?? "")?.[1] : undefined;
-  if (named) {
-    const known = machines.find((machine) => machine.name === named || machine.id === named);
-    if (known) return { kind: "delete", machine: known.id, name: named };
   }
   const oldest = oldestPaused(machines);
   return oldest ? { kind: "archive", machine: oldest.id, name: oldest.name || oldest.id } : undefined;
