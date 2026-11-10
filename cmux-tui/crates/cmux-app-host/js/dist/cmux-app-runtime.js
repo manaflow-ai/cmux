@@ -2038,7 +2038,7 @@
       settled = asError(err);
       batch(() => fail(e, settled));
     });
-    e.inFlight = run.then(() => {
+    e.inFlight = run.catch((err) => log("error", `watch ${e.name}: ${asError(err).message}`)).then(() => {
       e.inFlight = null;
       if (e.again) {
         e.again = false;

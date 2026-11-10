@@ -230,7 +230,8 @@ function read(e: Entry): Promise<void> {
       batch(() => fail(e, settled!))
     }
   )
-  e.inFlight = run.then(() => {
+  // A reader effect that throws while the new value flushes must not wedge the entry in flight.
+  e.inFlight = run.catch((err) => log("error", `watch ${e.name}: ${asError(err).message}`)).then(() => {
     e.inFlight = null
     if (e.again) {
       e.again = false
