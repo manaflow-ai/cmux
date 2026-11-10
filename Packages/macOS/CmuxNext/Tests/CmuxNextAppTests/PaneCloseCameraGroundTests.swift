@@ -148,7 +148,13 @@ struct PaneCloseCameraGroundTests {
         let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 3, "the close did not spring (\(frames) frames)")
         #expect(open.isEmpty, "\(open.count) frames show the shell in the window (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        if let lastGround { #expect(lastGround < 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away (\(lastGroundFrame))") }
+        // At most one point. A closing pane's free side follows its rider's travel (`ClosingPanesRules.collapse`: its
+        // distance left is its width x the rider's part left), so the rider's last quarter point before its spring is
+        // set on its place shows as a part of a point of ground (here 352 pt x about 0.09 pt / 60 pt, one point on the
+        // pixel grid). The close spring was under-damped until 2026-11-10 and passed its place before it rested, which
+        // made this 0; no spring passes its place now (#40288), so its last frame is short of it. More than a point is
+        // ground the pane kept for the landing: the failure this test is for.
+        if let lastGround { #expect(lastGround <= 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away (\(lastGroundFrame))") }
         #expect(closing.allSatisfy { $0.superview == nil }, "a closed host is left in the tree after the landing")
     }
 }
