@@ -11,6 +11,8 @@ mod agent_hooks_at_rest;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
+#[cfg(unix)]
+mod agent_reports_at_rest;
 mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
 mod agent_roster_kind_scope;
