@@ -272,12 +272,6 @@ public final class MenuSwatchStrip: NSView {
         ring.stroke()
     }
 
-    /// Swatch `index`'s rect in this view (drawing order: No Color first when there is one); nil past the last.
-    public func swatchRect(_ index: Int) -> NSRect? {
-        let rects = swatches
-        return rects.indices.contains(index) ? rects[index] : nil
-    }
-
     private func swatch(at event: NSEvent) -> Int? {
         let point = convert(event.locationInWindow, from: nil)
         return swatches.firstIndex { $0.insetBy(dx: -Self.gap / 2, dy: -6).contains(point) }
@@ -308,3 +302,28 @@ public final class MenuSwatchStrip: NSView {
         if let action = choice.action { NSApp.sendAction(action, to: choice.target, from: choice) }
     }
 }
+
+#if DEBUG
+extension MenuSwatchStrip {
+    /// `debug.object_menu {swatch: N}` (#39953): a left press and release on swatch `index` (No Color is 0) of the open
+    /// menu's header, posted to the menu's own window at the swatch's center, so the menu's tracking delivers them as a
+    /// person's click there. False when no shown window has a strip with that swatch.
+    public static func postClick(onSwatch index: Int) -> Bool {
+        func strip(in view: NSView) -> MenuSwatchStrip? {
+            view as? MenuSwatchStrip ?? view.subviews.lazy.compactMap(strip(in:)).first
+        }
+        for window in NSApp.windows where window.isVisible {
+            guard let found = window.contentView.flatMap(strip(in:)), found.swatches.indices.contains(index) else { continue }
+            let rect = found.swatches[index], point = found.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     pressure: type == .leftMouseDown ? 1 : 0) else { return false }
+                NSApp.postEvent(event, atStart: false)
+            }
+            return true
+        }
+        return false
+    }
+}
+#endif

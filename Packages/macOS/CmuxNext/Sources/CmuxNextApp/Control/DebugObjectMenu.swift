@@ -87,15 +87,8 @@ enum DebugObjectMenu {
             answer["folderKeys"] = .number(Double(events.count))
         }
         if let swatch = params["swatch"]?.intValue {
-            // A press and release on swatch `swatch` of the open menu's header (MenuIdentityHeaderView), posted to the
-            // menu's own window at the swatch's center, so the menu's tracking delivers them as a person's click (#39953).
-            guard let (menuWindow, point) = swatchPoint(swatch) else { return failure("no open menu with swatch \(swatch)") }
-            let clicks = [NSEvent.EventType.leftMouseDown, .leftMouseUp].compactMap { type in
-                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                   windowNumber: menuWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
-            }
-            clicks.forEach { NSApp.postEvent($0, atStart: false) }
-            answer["swatchClicks"] = .number(Double(clicks.count))
+            guard MenuSwatchStrip.postClick(onSwatch: swatch) else { return failure("no open menu with swatch \(swatch)") }
+            answer["swatchClicks"] = .number(2)
         }
         if params["dismiss"]?.boolValue == true {
             let escapes = (0..<4).flatMap { _ in
@@ -140,19 +133,6 @@ enum DebugObjectMenu {
                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                              characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)
         }
-    }
-
-    /// The open menu window showing a name-and-colors header, and swatch `index`'s center in that window.
-    private static func swatchPoint(_ index: Int) -> (NSWindow, NSPoint)? {
-        func strip(in view: NSView) -> MenuSwatchStrip? {
-            if let strip = view as? MenuSwatchStrip { return strip }
-            return view.subviews.lazy.compactMap(strip(in:)).first
-        }
-        for window in NSApp.windows where window.isVisible {
-            guard let content = window.contentView, let found = strip(in: content), let rect = found.swatchRect(index) else { continue }
-            return (window, found.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil))
-        }
-        return nil
     }
 
     private static func failure(_ message: String) -> JSONValue { .object(["error": .string(message)]) }
