@@ -309,8 +309,11 @@ pub(super) fn table(listed: &Value) -> String {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let creating =
         listed.get("creating").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    // A VM's name is a person's words (a teammate's VM too): no control characters reach the
+    // terminal.
     let text = |row: &Value, key: &str| {
-        row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-").to_owned()
+        let text = row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-");
+        super::wire::sanitize_remote_text(text)
     };
     let mut lines: Vec<[String; 4]> = rows
         .iter()
@@ -325,8 +328,12 @@ pub(super) fn table(listed: &Value) -> String {
         })
         .collect();
     lines.extend(creating.iter().map(|row| {
-        [text(row, "title"), "-".to_owned(), text(row, "status"), "-".to_owned()]
+        // The app names a VM being made `name` (a listed VM's is `title`).
+        [text(row, "name"), "-".to_owned(), text(row, "status"), "-".to_owned()]
     }));
+    if lines.is_empty() && listed.get("loaded").and_then(Value::as_bool) == Some(false) {
+        return "The VM list has not loaded yet; run `cmux vm ls` again in a moment.\n".to_owned();
+    }
     if lines.is_empty() {
         return "No Cloud VMs. Make one: cmux vm new (or cmux chat --on vm:new 'PROMPT')\n".to_owned();
     }
@@ -349,8 +356,14 @@ pub(super) fn table(listed: &Value) -> String {
 /// `Some(exit code)` when `args` is a short `vm` verb and the cmux app is here; `None` leaves
 /// it to the VM API (vm.rs).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command) = super::parse_globals(args).ok()?;
-    let short = parse(&command)?;
+    let (mut global, command) = super::parse_globals(args).ok()?;
+    let mut short = parse(&command)?;
+    // `vm move --machine vm:ID`: the global scan took `--machine`; it names the VM to move to.
+    if short.cloud_verb == "move" && short.named.is_none() && !short.targeted {
+        if let Some(machine) = global.machine.take() {
+            short.named = Some(super::vm_words::bare_id(&machine).to_owned());
+        }
+    }
     let app = super::vm::app_present(
         global.app_socket.is_some(),
         global.socket.is_some(),
@@ -384,6 +397,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
                 if let Some(code) = ask_delete(&global, &short, &id, &listed) {
                     return Some(code);
                 }
+                // A person said yes: the app's delete needs that said.
+                if !confirmed(&short) {
+                    short.tail.push("--yes".to_owned());
+                }
             }
             if short.cloud_verb == "exec" && global.output == super::OutputMode::Human {
                 return Some(exec_here(&global, &action, &cloud_words(&short, Some(&id))));
@@ -412,6 +429,7 @@ fn ask_delete(global: &GlobalArgs, short: &Short, id: &str, listed: &Value) -> O
             rows.iter().find(|row| row.get("machine_id").and_then(Value::as_str) == Some(id))
         })
         .and_then(|row| row.get("title").and_then(Value::as_str))
+        .map(super::wire::sanitize_remote_text)
         .map_or_else(|| format!("vm:{id}"), |title| format!("{title} (vm:{id})"));
     let typed = short.named.as_deref().unwrap_or(id);
     if !std::io::stdin().is_terminal() || global.output != super::OutputMode::Human {

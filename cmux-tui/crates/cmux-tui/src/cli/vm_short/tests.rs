@@ -217,12 +217,18 @@ fn ls_prints_a_table() {
         {"machine_id": "vm_a1", "title": "dev", "status": "running",
          "created_at": "2026-11-05T06:20:17Z"},
         {"machine_id": "vm_b2", "title": "", "status": "paused", "created_at": "2026-11-09T01:02:03Z"},
-    ], "creating": [{"title": "new-one", "status": "creating"}]});
+        {"machine_id": "vm_c3", "title": "evil\u{1b}]52;c;aGk=\u{7}", "status": "running",
+         "created_at": "2026-11-09T01:02:03Z"},
+    ], "creating": [{"name": "new-one", "status": "creating"}]});
     let text = table(&listed);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines[0].split_whitespace().collect::<Vec<_>>(), ["NAME", "ID", "STATUS", "CREATED"]);
     assert_eq!(lines[1].split_whitespace().collect::<Vec<_>>(), ["dev", "vm:vm_a1", "running", "2026-11-05"]);
     assert_eq!(lines[2].split_whitespace().collect::<Vec<_>>(), ["-", "vm:vm_b2", "paused", "2026-11-09"]);
-    assert_eq!(lines[3].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
+    assert!(!lines[3].contains('\u{1b}') && !lines[3].contains('\u{7}'), "{:?}", lines[3]);
+    assert_eq!(lines[4].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
     assert!(table(&json!({"machines": []})).contains("cmux vm new"));
+    // Still loading is not "no VMs".
+    let loading = table(&json!({"loaded": false, "machines": []}));
+    assert!(loading.contains("not loaded") && !loading.contains("cmux vm new"), "{loading}");
 }
