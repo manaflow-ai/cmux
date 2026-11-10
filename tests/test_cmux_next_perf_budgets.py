@@ -106,6 +106,18 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(rows["sidebar.400.ticking.cpu_pct"], (12.5, 12.5))
         self.assertEqual(rows["sidebar.400.ticking.main_ms_per_s"], (80.0, 80.0))
         self.assertEqual(rows["sidebar.400.ticking.frame"], (8.3, 9.1))
+        # Tabs and terminals as they grow: the grown workspace counts only, `@` out of the name (the cron's host mark).
+        self.assertEqual(pb.rows_surfaces_scale({"summary": {
+            "idle/new_tab": {"visible_p50": 8, "visible_p95": 12},
+            "idle@10ws/new_tab": {"visible_p50": 9, "visible_p95": 13},
+            "idle@30ws/new_terminal": {"visible_p50": 10, "visible_p95": 15}}}),
+            {"cmd_t.idle_10ws.key_to_visible": (9, 13), "ctrl_backtick.idle_30ws.key_to_visible": (10, 15)})
+        self.assertEqual(pb.rows_tab_close({"phases": {"light": [
+            {"scenario": "cmdw-terminal", "invalid": [], "input_to_next_commit_ms": {"n": 20, "p50": 6.1, "p95": 9.2}},
+            {"scenario": "cmdw-chat", "invalid": ["the scenario never ran its burst"]},
+            {"scenario": "cmdd", "invalid": [], "input_to_next_commit_ms": {"n": 20, "p50": 7, "p95": 11}}]}}),
+            {"tab_close.terminal.burst.input_to_commit": (6.1, 9.2)})
+        self.assertEqual(pb.rows_tab_close(None), {})
         # An older build's report with another shape (or none) leaves the rows empty, never raises.
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
@@ -127,11 +139,16 @@ class MappingTests(unittest.TestCase):
                  "cmd_shift_d.idle.key_to_visible", "tab_switch.chromium.10.e2e",
                  "palette.home_cmd_p.key_to_frame", "idle.terminals.app_cpu_pct",
                  "workspace_switch.chromium.cmd_digit.input_to_idle", "workspace_switch.terminal.next_prev.longest_frame",
-                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame"]
+                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame",
+                 "tab_switch.terminal.30.e2e", "tab_close.terminal.burst.input_to_commit",
+                 "tab_close.chat.burst.input_to_commit", "cmd_t.idle_30ws.key_to_visible",
+                 "ctrl_backtick.idle_10ws.key_to_visible"]
         for name in names:
             self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
         for pattern in budgets["rows"]:
             re.compile(pattern)
+        # Every group perf-budgets.py can run names the row families it must measure.
+        self.assertEqual(set(budgets["expected"]), set(pb.BENCHES) | set(pb.SCALE_BENCHES))
 
 
 split_spec = importlib.util.spec_from_file_location("perf_profile_split",

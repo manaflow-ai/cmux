@@ -186,6 +186,12 @@ class RowsTests(unittest.TestCase):
         self.assertEqual(cron.refresh_ms_of(report), 16.67)
         self.assertEqual(cron.part_for_row("panes.close.stress.frame"), "stress")
         self.assertEqual(cron.part_for_row("panes.close.4x2.frame"), "motion")
+        # Tabs and terminals at scale are their own part; one tab or workspace stays where it was.
+        self.assertEqual(cron.part_for_row("cmd_t.idle_30ws.key_to_visible@cmux20-bench"), "tabs")
+        self.assertEqual(cron.part_for_row("tab_switch.terminal.30.e2e@cmux20-bench"), "tabs")
+        self.assertEqual(cron.part_for_row("tab_close.chat.burst.input_to_commit"), "tabs")
+        self.assertEqual(cron.part_for_row("cmd_t.idle.key_to_visible"), "motion")
+        self.assertEqual(cron.part_for_row("tab_switch.terminal.10.e2e"), "switch")
 
 
 class FinishTests(OneRunRule):

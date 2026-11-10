@@ -9,7 +9,10 @@
   "home": ["home\\.typing\\.key_dispatch", "home\\.scroll\\.frame"],
   "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
   "idle": ["idle\\..*\\.app_cpu_pct"],
-  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"]
+  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"],
+  "tab_scale": ["tab_switch\\.terminal\\.(2|30)\\.e2e"],
+  "tab_close": ["tab_close\\.terminal\\.burst\\.input_to_commit", "tab_close\\.chat\\.burst\\.input_to_commit"],
+  "surfaces_scale": ["cmd_t\\.idle_(10|30)ws\\.key_to_visible", "ctrl_backtick\\.idle_(10|30)ws\\.key_to_visible"]
  },
  "rows": {
   "anim\\..*\\.frame": {
@@ -95,6 +98,12 @@
    "unit": "ms",
    "floor": 1.0,
    "what": "Cmd-Shift-D: key to split visible"
+  },
+  "tab_close\\..*": {
+   "p95": 10.0,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "tab close: each of 20 Cmd-W at 40 ms on terminal or chat tabs, key to the next commit (burst-bench.py; Lawrence 2026-10-23: \"need to make sure repeated cmd w is instant\", target < 10 ms p95)"
   },
   "tab_switch\\..*": {
    "p95": 16.7,
