@@ -362,9 +362,9 @@ class BaseRedConsumer(unittest.TestCase):
                                         flake_state=state())[0])
         tests = "Package tests"
         excused = {
-            # The test step starts in the second the build step ends: its lines are still its own.
-            "boundary second": (self.lines(HEAD.splitlines()), [(BUILD, "success", 3, 10),
-                                                                (base.TEST_STEP, "failure", 10, 20)]),
+            # The test step starts the second after the build step ends: its lines are its own.
+            "next second": (self.lines(HEAD.splitlines()), [(BUILD, "success", 3, 9),
+                                                            (base.TEST_STEP, "failure", 10, 20)]),
             # Two steps share a name; the failing one printed the quarantined failure.
             "duplicate name": ([(tests, 3, "##[group]Run swift test --filter Smoke"), (tests, 4, SUMMARY),
                                 (tests, 10, "##[group]Run swift test"), *((tests, 19, line) for line in HEAD.splitlines()),
@@ -396,6 +396,9 @@ class BaseRedConsumer(unittest.TestCase):
                                              (tests, 19.5, "##[error]Process completed with exit code 1.")],
                                             [(tests, "success", 3, 9), (tests, "failure", 10, 20)]),
             "missing time": (self.lines(HEAD.splitlines()), None),
+            # The test step starts in the second the build step ends: its header could be either step's.
+            "boundary second": (self.lines(HEAD.splitlines()), [(BUILD, "success", 3, 10),
+                                                                (base.TEST_STEP, "failure", 10, 20)]),
         }
         for change, (lines, steps) in refused.items():
             github = self.fake(columns=False)
