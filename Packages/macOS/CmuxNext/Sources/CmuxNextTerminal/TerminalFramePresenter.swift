@@ -48,8 +48,12 @@ final class TerminalFramePresenter {
     static let longKeepTicks: UInt64 = 2
     /// The pass's run-loop order: just before Core Animation's commit (2,000,000), after the turn's other work.
     static let passOrder: CFIndex = 1_999_999
-    /// Refreshes a terminal whose bounds changed without a present is watched for its frame.
+    /// Refreshes a terminal whose bounds changed without a present is watched for its frame. After it, the commit is
+    /// still owed (``owed``): a slower check reads it until its layer shows the host size.
     static let watchLimit = 240
+    /// The first wait of the owed-commit check, doubled after each check that finds no frame, up to ``owedMaxDelay``.
+    static let owedFirstDelay: Duration = .milliseconds(250)
+    static let owedMaxDelay: Duration = .seconds(2)
     /// Refreshes from the grid's send a resize's new size waits for the program's redraw at that grid (RESIZE P0 12).
     /// From the refresh the grid went in, not the request's (RESIZE P0 23): a grid the coalescer held to the next refresh
     /// gave the program one refresh less (P0 22, film 034647).
@@ -138,6 +142,13 @@ final class TerminalFramePresenter {
     private var watched: [ObjectIdentifier: Watch] = [:]
     /// Terminals whose shown size changed in a commit that is done by the next refresh.
     private var commits: [ObjectIdentifier: Watch] = [:]
+    /// Watched terminals whose watch ran out (``watchLimit``) before their layer showed the host size. Ghostty sends
+    /// their frames through main until a commit is reported (`ghostty_surface_host_frame_committed`), and only this
+    /// presenter reports it: the commit is owed. A timer, not each refresh, reads them (``checkOwed()``) until the layer
+    /// shows the host size (the watch goes on and reports it), the terminal hides (its reveal watches it again) or goes.
+    private var owed: [ObjectIdentifier: Watch] = [:]
+    private let owedTimer = DemandTimer(owner: "Terminal.framePresenter.owed")
+    private var owedDelay = TerminalFramePresenter.owedFirstDelay
     private var epoch: UInt64 = 0
     /// Terminals whose spring's next size goes to Ghostty after this turn's pass (``drawAhead(_:)``); one whose frame
     /// still waits keeps its entry until that frame lands.
@@ -176,6 +187,7 @@ final class TerminalFramePresenter {
         let id = ObjectIdentifier(view)
         requests[id] = Request(view: view, epoch: epoch, holdTicks: holdTicks, sentEpoch: sentEpoch ?? epoch)
         watched[id] = nil
+        owed[id] = nil // its landing reports the commit, or watches it
         armPass()
         client.activate()
     }
@@ -183,6 +195,7 @@ final class TerminalFramePresenter {
     /// `view`'s shown size changed outside a present: its commit is reported once its layer shows the host size.
     func watch(_ view: TerminalSurfaceView) {
         let id = ObjectIdentifier(view)
+        owed[id] = nil
         guard requests[id] == nil else { return }
         watched[id] = Watch(view: view)
         client.activate()
@@ -203,6 +216,7 @@ final class TerminalFramePresenter {
         aheads[id] = nil
         watched[id] = nil
         commits[id] = nil
+        owed[id] = nil
     }
 
     /// Whether `view` waits for a present here.
@@ -224,6 +238,7 @@ final class TerminalFramePresenter {
         if requests[id] != nil { return "request" }
         if watched[id] != nil { return "watch" }
         if commits[id] != nil { return "commit" }
+        if owed[id] != nil { return "owed" }
         return "-"
     }
     #endif
@@ -263,10 +278,50 @@ final class TerminalFramePresenter {
             default:
                 var next = watch
                 next.ticks += 1
-                watched[id] = next.ticks > watchTicks ? nil : next
+                if next.ticks > watchTicks {
+                    watched[id] = nil
+                    owe(id, view)
+                } else {
+                    watched[id] = next
+                }
             }
         }
         return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !aheads.isEmpty || !gridReports.isEmpty
+    }
+
+    /// `view`'s watch ran out before its layer showed the host size: Ghostty still sends its frames through main (from
+    /// the mode's start, a present, or a frame of a new size shown on main), and the commit must still be reported once
+    /// that size shows, or every later frame of the terminal (echo, scroll, output) waits for the main thread.
+    private func owe(_ id: ObjectIdentifier, _ view: TerminalSurfaceView) {
+        if owed.isEmpty { owedDelay = Self.owedFirstDelay }
+        owed[id] = Watch(view: view)
+        owedTimer.scheduleIfIdle(after: owedDelay) { @MainActor [weak self] in self?.checkOwed() }
+    }
+
+    /// Reads each terminal that is owed a commit. One whose layer shows the host size (or whose frame fits bounds given
+    /// without a present) is watched again: the next refresh reports its commit one refresh after the commit that showed
+    /// it, as for any watch (never in the turn that showed it). One with no frame yet is read again later, each wait
+    /// twice the last (at most ``owedMaxDelay``). A hidden or gone terminal owes nothing here: a reveal watches it.
+    private func checkOwed() {
+        for (id, debt) in owed {
+            guard let view = debt.view, view.window === window else {
+                owed[id] = nil
+                continue
+            }
+            switch view.hostFrame(present: false) {
+            case GHOSTTY_HOST_FRAME_HIDDEN:
+                owed[id] = nil
+            case GHOSTTY_HOST_FRAME_SHOWN,
+                 GHOSTTY_HOST_FRAME_READY where view.frameOwnership.ahead == nil,
+                 GHOSTTY_HOST_FRAME_READY_PROGRAM where view.frameOwnership.ahead == nil:
+                watch(view)
+            default:
+                continue
+            }
+        }
+        guard !owed.isEmpty else { return }
+        owedDelay = min(owedDelay * 2, Self.owedMaxDelay)
+        owedTimer.scheduleIfIdle(after: owedDelay) { @MainActor [weak self] in self?.checkOwed() }
     }
 
     /// Installs the pass before each commit while a request waits. An observer never wakes the run loop: the
