@@ -171,7 +171,33 @@ await requireBrowserLane("link-card-scroll-browser.test.ts", async () => {
         expect(restingOn).not.toBeNull();
         expect([...opened]).toEqual([]);
 
-        // 4. After the scroll, a real pointer move over a chip opens its card as before.
+        // 4. The pointer moves within the chip the scroll left under it, never leaving it: that real
+        // move is hover intent, and the chip's own card opens (review of #40035, F1).
+        const within = await page.evaluate(
+          ([x, y, chip]) => {
+            const element = document.elementFromPoint(x, y)?.closest<HTMLAnchorElement>(chip);
+            if (!element) return undefined;
+            (window as unknown as { leftChip: boolean }).leftChip = false;
+            element.addEventListener("pointerleave", () => {
+              (window as unknown as { leftChip: boolean }).leftChip = true;
+            });
+            const box = element.getBoundingClientRect();
+            const center = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+            // From a point inside a box to its center the path stays inside it.
+            const to = Math.abs(center.x - x) >= 2 ? center : { x: Math.min(x + 3, box.right - 1), y: center.y };
+            return { ...to, number: element.href.match(/(\d+)$/)?.[1] };
+          },
+          [first!.x, first!.y, CHIP] as const,
+        );
+        expect(within).toBeDefined();
+        await page.mouse.move(within!.x, within!.y, { steps: 4 });
+        await page
+          .waitForFunction((card) => document.querySelector(card) !== null, CARD, { timeout: 5_000 })
+          .catch(() => {});
+        expect(await page.evaluate(() => (window as unknown as { leftChip: boolean }).leftChip)).toBe(false);
+        expect(await openCards(page)).toEqual([within!.number!]);
+
+        // 5. After the scroll, a real pointer move over another chip opens its card as before.
         const next = await middleChip(page);
         expect(next).toBeDefined();
         await page.mouse.move(next!.x - 30, next!.y + 24, { steps: 4 });
