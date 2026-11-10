@@ -279,12 +279,7 @@ pub(super) fn pane_json(
 /// parse the raw `title`.
 fn shown_title_fields(tab: &mut Value) {
     let raw = tab.field("title").as_str().unwrap_or_default();
-    let shown = match tab.field("kind").as_str() {
-        Some("pty" | crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_KIND) => {
-            crate::TabTitle::terminal(raw)
-        }
-        _ => crate::TabTitle::page(raw),
-    };
+    let shown = crate::TabTitle::of_kind(tab.field("kind").as_str(), raw);
     tab.insert("title_text", Value::from(shown.text.as_ref()));
     tab.insert("title_activity", shown.activity.map(crate::TitleActivity::as_str).into());
 }

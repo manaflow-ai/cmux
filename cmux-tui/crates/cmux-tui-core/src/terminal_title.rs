@@ -141,17 +141,44 @@ impl TabTitle {
     pub fn terminal(raw: &str) -> Self {
         let mut rest = raw;
         let mut activity = None;
-        while let Some(first) = rest.chars().next()
-            && let Some(found) = TitleActivity::of(first)
-        {
+        loop {
+            let mut chars = rest.chars();
+            let Some(found) = chars.next().and_then(TitleActivity::of) else { break };
             activity = Some(found);
-            rest = rest[first.len_utf8()..]
+            rest = chars
+                .as_str()
                 // A variation selector (`✔︎`) belongs to the glyph before it.
                 .trim_start_matches(is_variation_selector)
                 .trim_start_matches(char::is_whitespace);
         }
         let words = rest.trim();
         let text = if words.is_empty() { raw.trim() } else { words };
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+impl TabTitle {
+    /// What a tab of `kind` (a tree tab's `kind`) shows of `raw`: a local or a
+    /// remote terminal's title loses its status glyphs, any other shows as is.
+    pub(crate) fn of_kind(kind: Option<&str>, raw: &str) -> Self {
+        match kind {
+            Some("pty" | crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_KIND) => {
+                Self::terminal(raw)
+            }
+            _ => Self::page(raw),
+        }
+    }
+
+    /// What a `list-workspaces` tab shows: its `title_text` and
+    /// `title_activity`, or, from a daemon before them, the rule of its kind
+    /// over its raw `title`. Clients show this and never the raw title, which
+    /// keeps a spinner frame the daemon does not announce.
+    pub fn of_tree_tab(tab: &serde_json::Value) -> Self {
+        let field = |name| tab.get(name).and_then(serde_json::Value::as_str);
+        let Some(text) = field("title_text") else {
+            return Self::of_kind(field("kind"), field("title").unwrap_or_default());
+        };
+        let activity = field("title_activity").and_then(TitleActivity::from_wire);
         Self { text: Arc::from(text), activity }
     }
 }
