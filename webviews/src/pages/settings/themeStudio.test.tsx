@@ -408,6 +408,7 @@ test("Preview on the Whole App: a refused terminal pick leaves the App Theme as 
   await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
   await fire(option("Dracula"), "mousedown");
   await until(() => ops(page!.provider, "cmux.settings.set").length > 0, "the terminal theme write");
+  // fixed-wait: proving the reset never goes out needs a quiet window after the refused write.
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
 });
