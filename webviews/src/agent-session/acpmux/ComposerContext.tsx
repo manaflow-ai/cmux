@@ -763,6 +763,9 @@ export function ComposerContext({
         ? projectLabel(currentFolder)
         : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
   const folderDetail = folderState === "cloudFresh" ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
+  // Picking Cloud (or This Mac) turns Choose folder into No folder (or back): the chip keeps the width
+  // of the wider of the two, so the Where chip after it never moves (folderReserve).
+  const folderReserve = folderReserveLabel(folderState);
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
@@ -909,6 +912,7 @@ export function ComposerContext({
                   dim={folderState === "choose"}
                   state={folderState}
                   {...(folderDetail ? { detail: folderDetail } : {})}
+                  {...(folderReserve ? { reserve: folderReserve } : {})}
                 />
               }
               folders={folders}
@@ -1266,6 +1270,7 @@ function LocationFace({
   dim = false,
   state,
   detail,
+  reserve,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1283,6 +1288,9 @@ function LocationFace({
   /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
   /// accessible description and tooltip, never narration in the strip.
   detail?: string;
+  /// Another face this chip turns into with no other change (Choose folder and No folder): drawn
+  /// unseen under the label, so the chip is as wide as the wider of the two and a switch moves nothing.
+  reserve?: string;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1301,8 +1309,9 @@ function LocationFace({
           // tooltip-allow: the folderless Cloud chip's one line on where the chat starts.
           title={detail}
           aria-description={detail}
+          data-reserve={reserve}
         >
-          {value}
+          {reserve === undefined ? value : <span className="acpmux-location-text">{value}</span>}
         </span>
       )}
       {live !== undefined && sleep === "resuming" && (
@@ -1640,4 +1649,12 @@ function LocationPicker({
       </Popover>
     </span>
   );
+}
+
+/// The chip's other face while it is Choose folder or No folder (FolderChipState `choose` and
+/// `cloudFresh`, which one pick of This Mac or Cloud switches between).
+function folderReserveLabel(state: FolderChipState): string | undefined {
+  if (state === "choose") return t(FOLDER_CHIP_LABELS.cloudFresh);
+  if (state === "cloudFresh") return t(FOLDER_CHIP_LABELS.choose);
+  return undefined;
 }

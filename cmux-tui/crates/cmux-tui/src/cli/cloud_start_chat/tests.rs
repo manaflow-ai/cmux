@@ -2065,14 +2065,14 @@ fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
 
 #[test]
 fn the_folder_kind_and_the_session_folder_read() {
-    assert_eq!(support::folder_kind(None, None), "fresh");
-    assert_eq!(support::folder_kind(Some("/home/cmux/work/api"), None), "given");
-    assert_eq!(support::folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    assert_eq!(folder_kind(None, None), "fresh");
+    assert_eq!(folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(folder_kind(None, Some("/Users/you/src/cmux")), "copied");
     let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
-    assert_eq!(support::session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
-    assert_eq!(support::session_cwd(Some(&rows), "s-3"), None);
-    assert_eq!(support::session_cwd(Some(&"not json".to_owned()), "s-2"), None);
-    assert_eq!(support::session_cwd(None, "s-2"), None);
+    assert_eq!(session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(session_cwd(None, "s-2"), None);
     // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
     let mut fake = Fake::new(vec![
         signed_in(),

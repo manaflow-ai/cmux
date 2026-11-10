@@ -119,6 +119,9 @@ test("Cloud with no folder: the chip reads No folder, a valid state with its one
   expect(label?.hasAttribute("data-dim")).toBe(false);
   expect(label?.getAttribute("aria-description")).toBe(t("composer.cloudNoFolderDetail"));
   expect(stripText()).not.toContain(t("composer.chooseFolder"));
+  // The chip keeps the width of Choose folder, its face on This Mac, so picking Cloud moves nothing
+  // after it (cloud-environment-chip-geometry.test.ts measures it in Chromium).
+  expect(label?.dataset.reserve).toBe(t("composer.chooseFolder"));
 });
 
 test("This Mac with no folder keeps Choose folder, dimmed", async () => {
@@ -127,6 +130,7 @@ test("This Mac with no folder keeps Choose folder, dimmed", async () => {
   expect(label?.textContent).toBe(t("composer.chooseFolder"));
   expect(label?.dataset.folderState).toBe("choose");
   expect(label?.hasAttribute("data-dim")).toBe(true);
+  expect(label?.dataset.reserve).toBe(t("composer.cloudNoFolder"));
 });
 
 test("Cloud with a folder picked keeps the folder's name: choosing a folder still works", async () => {

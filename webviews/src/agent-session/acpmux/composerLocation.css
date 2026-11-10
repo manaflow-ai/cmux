@@ -224,6 +224,22 @@
 /* A folder's name cuts in the middle (ComposerContext.tsx splitForMiddleTruncation): the head
    takes the ellipsis, the tail always shows. */
 .acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
+/* A chip that switches between two words with no other change (Choose folder and No folder,
+   ComposerContext.tsx folderReserveLabel) keeps the wider one's width: the other word is drawn
+   unseen in the same cell, so the chips after it never move. */
+.acpmux-location-label[data-reserve] { display: inline-grid; }
+.acpmux-location-label[data-reserve] > .acpmux-location-text,
+.acpmux-location-label[data-reserve]::after {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-location-label[data-reserve]::after {
+  content: attr(data-reserve);
+  visibility: hidden;
+}
 .acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .acpmux-location-tail { flex: none; white-space: pre; }
 /* The computer chips give up their names only where the strip runs out of room: a container query
