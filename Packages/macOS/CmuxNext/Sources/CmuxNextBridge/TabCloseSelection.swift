@@ -103,7 +103,9 @@ public final class TabCloseSelection {
     /// before ``settle(_:lists:)``.
     public func successor(of closed: String, old: [String], tabs: [String], hidden: Set<String> = []) -> String? {
         let shown = hidden.isEmpty ? Set(tabs) : Set(tabs).subtracting(hidden)
-        return FocusAfterClose.tab(selected: closed, old: old, surviving: tabs, shown: shown)
+        guard !known.isEmpty else { return openers.successor(ofTab: closed, old: old, surviving: tabs, shown: shown) }
+        let pick = openers.successor(ofTab: id(closed), old: old.map { id($0) }, surviving: tabs.map { id($0) }, shown: Set(shown.map { id($0) }))
+        return pick.map { shownAs[$0] ?? $0 }
     }
 
     /// Same, for a strip's own ids (`TabStripModel.closeSuccessor`).
