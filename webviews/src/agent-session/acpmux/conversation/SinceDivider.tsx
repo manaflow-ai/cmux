@@ -207,7 +207,9 @@ export function UnreadBanner({
           </span>
           <span className="acpmux-since-jump__count">{collapsed ? turns : count}</span>
           <span className="acpmux-since-jump__more" aria-hidden={collapsed || undefined}>
-            <span className="acpmux-since-jump__more-inner">{when && <span className="acpmux-since-jump__when">{when}</span>}</span>
+            <span className="acpmux-since-jump__more-inner">
+              {when && <span className="acpmux-since-jump__when">{when}</span>}
+            </span>
           </span>
         </button>
         <span className="acpmux-since-jump__more" aria-hidden={collapsed || undefined}>

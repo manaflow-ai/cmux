@@ -107,7 +107,10 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   for (const [zone, stack] of byZone) {
     if (stack.length === 1) continue;
     // Shared: every one has a place in the stack, and no two the same place.
-    expect(stack.every((place) => place >= 0), zone).toBe(true);
+    expect(
+      stack.every((place) => place >= 0),
+      zone,
+    ).toBe(true);
     expect(new Set(stack).size, zone).toBe(stack.length);
   }
   // What is new arrives in a dynamic zone; what stays put lives in a stable one.

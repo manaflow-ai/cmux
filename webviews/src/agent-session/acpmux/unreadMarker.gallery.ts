@@ -112,10 +112,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
-  covers: [
-    "agent-session/acpmux/conversation/SinceDivider.tsx",
-    "agent-session/acpmux/VirtualTranscript.tsx#JumpUp",
-  ],
+  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
   keywords: ["unread", "new since", "jump up", "jump to bottom", "banner"],
   variants: {
     "banner-expanded": {

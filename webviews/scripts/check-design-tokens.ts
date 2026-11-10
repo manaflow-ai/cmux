@@ -330,7 +330,17 @@ export function tokenOnlyFindings(rel: string, source: string): Finding[] {
 export function findTokenOnlyViolations(): Finding[] {
   return TOKEN_ONLY_FILES.flatMap((rel) => {
     const path = join(SRC, rel);
-    if (!existsSync(path)) return [{ file: rel, kind: "token-only" as const, selector: "", property: "file", value: "missing (TOKEN_ONLY_FILES names a file that is not there)", line: 0 }];
+    if (!existsSync(path))
+      return [
+        {
+          file: rel,
+          kind: "token-only" as const,
+          selector: "",
+          property: "file",
+          value: "missing (TOKEN_ONLY_FILES names a file that is not there)",
+          line: 0,
+        },
+      ];
     const source = readFileSync(path, "utf8");
     const ratchet = rel.endsWith(".css") ? findingsForFile(path) : [];
     return [...ratchet, ...tokenOnlyFindings(rel, source)];

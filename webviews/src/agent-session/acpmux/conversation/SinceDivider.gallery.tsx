@@ -77,7 +77,14 @@ function UnreadLooks({ part, theme, look = "tag", read = false, recap = true, mo
     >
       {part === "banner" && (
         <div className="acpmux-over-top" data-zone="top-start" style={{ top: 0 }}>
-          <UnreadBanner mark={`gallery-${theme}`} turns={3} firstNewAt={FIRST_NEW} onJump={() => {}} mode={mode} forceShown />
+          <UnreadBanner
+            mark={`gallery-${theme}`}
+            turns={3}
+            firstNewAt={FIRST_NEW}
+            onJump={() => {}}
+            mode={mode}
+            forceShown
+          />
         </div>
       )}
       <div style={{ height: part === "banner" ? 32 : 0 }} />

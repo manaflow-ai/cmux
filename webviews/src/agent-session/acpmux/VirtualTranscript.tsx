@@ -959,7 +959,17 @@ export function JumpToLatest({
 /// where the reader left off (the unread "New" line, else their last prompt or where they last
 /// stopped scrolling) while that place is off screen; pressed, it points down and a second press or
 /// Esc goes back to where the view was.
-export function JumpUp({ shown, back, onJump, lift }: { shown: boolean; back: boolean; onJump: () => void; lift: number }) {
+export function JumpUp({
+  shown,
+  back,
+  onJump,
+  lift,
+}: {
+  shown: boolean;
+  back: boolean;
+  onJump: () => void;
+  lift: number;
+}) {
   const t = useT();
   const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
   return (
@@ -999,7 +1009,10 @@ type PromptScan = { length: number; lastId?: string; found?: { id: string; at: n
 /// appends: when the rows read last are still the head of these, only the rows after them are
 /// scanned, so a render costs O(new rows); otherwise (another chat, a rebuild) one scan back from
 /// the end, which stops at the first prompt.
-function lastOwnPrompt(rows: readonly AcpmuxRow[], scan: { current: PromptScan }): { id: string; at: number } | undefined {
+function lastOwnPrompt(
+  rows: readonly AcpmuxRow[],
+  scan: { current: PromptScan },
+): { id: string; at: number } | undefined {
   const last = scan.current;
   const appended = last.length > 0 && rows.length >= last.length && rows[last.length - 1]?.id === last.lastId;
   const from = appended ? last.length : 0;
@@ -5251,9 +5264,7 @@ function TranscriptView({
             />
           </div>
         )}
-        {jumpButton && (
-          <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />
-        )}
+        {jumpButton && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
         {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.

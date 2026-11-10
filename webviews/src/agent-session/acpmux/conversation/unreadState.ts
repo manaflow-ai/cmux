@@ -86,7 +86,11 @@ export function hideUnreadBanner(mark: string): void {
 
 /// Whether the banner shows for `mark`: not off, not hidden for this mark, not done, and the line
 /// off screen.
-export function bannerShown(mark: string | undefined, current: UnreadView | undefined, mode: UnreadBannerMode): boolean {
+export function bannerShown(
+  mark: string | undefined,
+  current: UnreadView | undefined,
+  mode: UnreadBannerMode,
+): boolean {
   if (mark === undefined || mode === "off") return false;
   const mine = current?.mark === mark ? current : undefined;
   if (!mine) return true;
