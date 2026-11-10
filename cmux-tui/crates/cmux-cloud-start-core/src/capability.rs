@@ -190,7 +190,11 @@ fn ms<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error
     let value = f64::deserialize(deserializer)?;
     if value.is_finite() && value >= 0.0 && value.fract() == 0.0 && value < 9.007_199_254_740_992e15
     {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "checked above: finite, non-negative, whole and under 2^53"
+        )]
         return Ok(value as u64);
     }
     Err(serde::de::Error::custom("a whole non-negative number"))
