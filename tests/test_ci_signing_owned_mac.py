@@ -230,7 +230,7 @@ def keychain_job(job: dict) -> bool:
     """A job that holds the Developer ID certificate or makes a signing keychain."""
     text = json.dumps(keychain_guard.inline_step_scripts(job))
     return "APPLE_CERTIFICATE_BASE64" in text or bool(keychain_guard.CREATE.search(text)) or any(
-        script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
+        script in text for script in keychain_guard.KEYCHAIN_MAKING_SCRIPTS)
 
 
 def signing_job(job: dict) -> bool:

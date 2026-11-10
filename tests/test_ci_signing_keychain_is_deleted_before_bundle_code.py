@@ -61,7 +61,7 @@ statically, so a reordered step fails in review and not on a release day:
       variable says so, and that same condition picks a literal ephemeral label
       before runs-on reads any variable (stable-next.yml's sign: its dry run signs
       ad hoc with no key on an owned Mac; its publish run signs on Blacksmith).
-8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
+8. A job that signs with the release signer (RELEASE_SIGNER_SCRIPT) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
 
@@ -79,6 +79,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 
@@ -124,33 +125,27 @@ SIGNING_SECRET_PREFIXES = ("APPLE_", "ASC_API_", "IOS_", "SPARKLE_", "NIGHTLY_SP
 RELEASE_SECRET_PREFIXES = (*SIGNING_SECRET_PREFIXES, "CF_R2_", "NIGHTLY_NEXT_R2_", "HOMEBREW_TAP_TOKEN")
 RELEASE_ENVIRONMENT = re.compile(r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
 # The CodeRouter release signs one CLI binary with a keychain at an absolute
-# path and runs nothing from it; it keeps its own inline import.
+# path and runs nothing from it; it keeps its own inline import. A choice, so a
+# list: every job that imports the Developer ID certificate inline is named here
+# or fails rule 3, and every entry still imports it inline
+# (inline_keychain_classification).
 INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
-# Jobs whose Developer ID keychain a script makes with signing-keychain.sh
-# create just before its signature: notarize-nightly-dmg.sh (the DMG around
-# the stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
-# continuation). Rule 5 checks the order inside those scripts.
-SCRIPT_MADE_KEYCHAINS = {
-    ("nightly.yml", "build-sign-notarize-nightly"): "scripts/ci/notarize-nightly-dmg.sh",
-    # nightly-next recovery signs the DMG around the stapled app (feat-cmux-next).
-    ("nightly.yml", "recover-nightly-next-notarization"): "scripts/ci/notarize-nightly-dmg.sh",
-    ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
-    # Its same-run Blacksmith twin runs the same steps (tests/test_ci_signing_owned_mac.py).
-    ("release.yml", "build-sign-notarize-blacksmith"): "scripts/ci/notarize-nightly-dmg.sh",
-    ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
-    ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
-    ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
-}
-# Jobs that sign with the release signer (rule 8), each with the script that gets the certificate.
-RELEASE_POOL_SIGNERS = {
-    ("nightly.yml", "signer-app"): "scripts/ci/release-signer/sign-app.sh",
-    ("nightly.yml", "signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
-    # The cmux NIGHTLY-identity copy through the same signer (the macOS legacy signer's pool path).
-    ("nightly.yml", "legacy-signer-app"): "scripts/ci/release-signer/sign-app.sh",
-    ("nightly.yml", "legacy-signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
-}
+# Scripts that make the Developer ID keychain with signing-keychain.sh create
+# just before their signature: notarize-nightly-dmg.sh (the DMG around the
+# stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
+# continuation, through its package tool). Rule 5 checks the order inside each.
+# A job that runs one of them needs no create of its own (script_made_keychain());
+# the jobs are read from the workflows, not listed.
+KEYCHAIN_MAKING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-stapled-app-notarization.sh")
+# Rule 8's signer scripts. A job whose certificate step runs one of them signs
+# with the release signer (release_pool_signer()); the jobs are read from the
+# workflows, not listed. None does today: nightly.yml's signer-app, signer-dmg,
+# legacy-signer-app and legacy-signer-dmg, which the old list named, are gone.
+RELEASE_SIGNER_SCRIPT = re.compile(r"scripts/ci/release-signer/[A-Za-z0-9_.-]+\.sh")
 # Jobs that keep bundle code in the signing job, outside the keychain window
-# only (rule 1, not rule 6). Each entry names its follow-up.
+# only (rule 1, not rule 6). Each entry names its follow-up. A waiver, so a list:
+# every job that runs bundle code while it holds release material is here or
+# fails rule 6, and every entry still does (step_level_classification).
 STEP_LEVEL_ONLY = {
     # Build, sign, notarize and publish are one job; the split into build,
     # sign, verify and publish jobs is a separate change.
@@ -573,6 +568,214 @@ def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
     return {**job, "steps": steps}
 
 
+def holds_release_material(job: dict) -> bool:
+    """Rule 6's scope: the job reads a release secret (any form workflow_jobs reads) or runs in a release
+    environment."""
+    return release_secret(job) or bool(RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
+
+
+def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
+    """Rule 6 for one job (its moved step scripts already inline): each step that runs bundle code, or a
+    notarization script with its launch smokes on, in a job that holds release material."""
+    if not holds_release_material(job):
+        return []
+    failures = []
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
+        deferred = deferred_step(step)
+        for command in commands(str(step.get("run", ""))):
+            if any(pattern.search(command) for pattern in BUNDLE_CODE):
+                failures.append(
+                    f"{name}: step {label!r} runs bundle code in a job that holds secrets; "
+                    f"move it to a job without secrets: {command[:120]}"
+                )
+            elif SMOKING_SCRIPTS.search(command) and not deferred:
+                failures.append(
+                    f"{name}: step {label!r} runs a notarization script that launches the app; "
+                    "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
+                )
+    return failures
+
+
+def script_made_keychain(job: dict) -> str | None:
+    """The KEYCHAIN_MAKING_SCRIPTS script the job (its moved step scripts already inline) runs, if any."""
+    text = json.dumps(job)
+    return next((script for script in KEYCHAIN_MAKING_SCRIPTS if script in text), None)
+
+
+def release_pool_signer(job: dict) -> str | None:
+    """Rule 8: the release-signer script the job hands the Developer ID certificate to, read from the step that
+    reads APPLE_CERTIFICATE_BASE64 (any form); None when no such step runs one."""
+    found = set()
+    for step in job.get("steps") or []:
+        if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64"):
+            found.update(RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", ""))))
+    return min(found) if found else None
+
+
+def inline_keychain(job: dict) -> bool:
+    """INLINE_DEVELOPER_ID_KEYCHAINS' trait: the job reads the Developer ID certificate and imports it inline
+    (`security import`), outside the release signer."""
+    return (workflow_jobs.reads_secret(job, "APPLE_CERTIFICATE_BASE64") and "security import" in json.dumps(job)
+            and release_pool_signer(job) is None)
+
+
+def _every_job(documents: dict[str, dict]) -> Iterator[tuple[str, dict]]:
+    for workflow, document in documents.items():
+        for job_name, job in ((document or {}).get("jobs") or {}).items():
+            if isinstance(job, dict):
+                yield f"{workflow} {job_name}", inline_step_scripts(job)
+
+
+def step_level_classification(documents: dict[str, dict], listed: set[str] | None = None) -> list[str]:
+    """STEP_LEVEL_ONLY against the workflows: every job rule 6 names is listed (rule 6's own failures otherwise),
+    and every entry is a job that rule 6 would name (else the waiver is stale)."""
+    listed = STEP_LEVEL_ONLY if listed is None else listed
+    failures, seen = [], set()
+    for name, job in _every_job(documents):
+        found = bundle_code_with_secrets(name, job)
+        if name in listed:
+            seen.add(name)
+            if not found:
+                failures.append(f"{name}: in STEP_LEVEL_ONLY but runs no bundle code while it holds release "
+                                "material; drop it")
+        else:
+            failures.extend(found)
+    failures.extend(f"{name}: in STEP_LEVEL_ONLY, but no such job" for name in sorted(set(listed) - seen))
+    return failures
+
+
+def inline_keychain_classification(documents: dict[str, dict], listed: set | None = None) -> list[str]:
+    """INLINE_DEVELOPER_ID_KEYCHAINS against the workflows: every job with the trait (inline_keychain()) is listed,
+    and every entry has it."""
+    listed = INLINE_DEVELOPER_ID_KEYCHAINS if listed is None else listed
+    names = {f"{workflow} {job_name}" for workflow, job_name in listed}
+    failures, seen = [], set()
+    for name, job in _every_job(documents):
+        trait = inline_keychain(job)
+        if name in names:
+            seen.add(name)
+            if not trait:
+                failures.append(f"{name}: in INLINE_DEVELOPER_ID_KEYCHAINS but imports no Developer ID certificate "
+                                "inline; drop it")
+        elif trait:
+            failures.append(f"{name}: imports the Developer ID certificate inline (security import) but is not in "
+                            "INLINE_DEVELOPER_ID_KEYCHAINS; use scripts/ci/signing-keychain.sh create")
+    failures.extend(f"{name}: in INLINE_DEVELOPER_ID_KEYCHAINS, but no such job" for name in sorted(names - seen))
+    return failures
+
+
+def tree_job_failures(documents: dict[str, dict], name: str) -> list[str]:
+    """What check_job says about one job ("<workflow> <job>") of a fixture tree."""
+    workflow, job_name = name.split(" ", 1)
+    failures: list[str] = []
+    check_job(name, documents[workflow]["jobs"][job_name], failures)
+    return failures
+
+
+# A step that reads the Developer ID certificate by bracket, as the derived-list fixtures add it.
+CERTIFICATE_STEP = {"name": "Sign", "env": {"CERT": "${{ secrets['APPLE_CERTIFICATE_BASE64'] }}"}}
+
+
+def step_level_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """STEP_LEVEL_ONLY (a waiver, guarded): a copy of a listed job under a new id."""
+    problems = []
+    workflow, job_name = sorted(STEP_LEVEL_ONLY)[0].split(" ", 1)
+    base = {key: value for key, value in bracketed(documents[workflow]["jobs"][job_name]).items()
+            if key != "environment"}
+    fixture = with_job(documents, workflow, "step-level-fixture", base)
+    label = f"{workflow} step-level-fixture"
+    found = [why for why in step_level_classification(fixture) if why.startswith(label + ":")]
+    if not found or not all("in a job that holds secrets" in why or "launches the app" in why for why in found):
+        problems.append(f"STEP_LEVEL_ONLY: an unlisted job that runs bundle code while it holds release material "
+                        f"is not named by rule 6: {found}")
+    found = step_level_classification(fixture, STEP_LEVEL_ONLY | {label})
+    if found:
+        problems.append(f"STEP_LEVEL_ONLY: a listed job that runs bundle code with secrets fails the guard: {found}")
+    quiet = with_job(documents, workflow, "step-level-fixture", {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]})
+    found = step_level_classification(quiet, STEP_LEVEL_ONLY | {label})
+    if found != [f"{label}: in STEP_LEVEL_ONLY but runs no bundle code while it holds release material; drop it"]:
+        problems.append(f"STEP_LEVEL_ONLY: a stale entry is not named: {found}")
+    return problems
+
+
+def inline_keychain_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """INLINE_DEVELOPER_ID_KEYCHAINS (an exemption, guarded): a copy of the listed job under a new id."""
+    problems = []
+    workflow, job_name = sorted(INLINE_DEVELOPER_ID_KEYCHAINS)[0]
+    base = {key: value for key, value in bracketed(documents[workflow]["jobs"][job_name]).items()
+            if key != "environment"}
+    fixture = with_job(documents, workflow, "inline-keychain-fixture", base)
+    label = f"{workflow} inline-keychain-fixture"
+    found = inline_keychain_classification(fixture)
+    if found != [f"{label}: imports the Developer ID certificate inline (security import) but is not in "
+                 "INLINE_DEVELOPER_ID_KEYCHAINS; use scripts/ci/signing-keychain.sh create"]:
+        problems.append(f"INLINE_DEVELOPER_ID_KEYCHAINS: an unlisted inline import is not named: {found}")
+    found = inline_keychain_classification(fixture, INLINE_DEVELOPER_ID_KEYCHAINS | {(workflow, "inline-keychain-fixture")})
+    if found:
+        problems.append(f"INLINE_DEVELOPER_ID_KEYCHAINS: a listed inline import fails the guard: {found}")
+    return problems
+
+
+def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Script-made keychains (derived): a job that hands the certificate to a keychain-making script passes rule 3 without being listed; the same job with the script call dropped is named."""
+    problems = []
+    made = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [{**CERTIFICATE_STEP, "run": f"./{KEYCHAIN_MAKING_SCRIPTS[0]}"}]}
+    label = "release.yml script-keychain-fixture"
+    found = tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture", made), label)
+    found = [why for why in found if "Developer ID certificate" in why or "imports a certificate" in why]
+    if found:
+        problems.append(f"script-made keychains: a job whose keychain {KEYCHAIN_MAKING_SCRIPTS[0]} makes fails "
+                        f"rule 3: {found}")
+    bare = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [{**CERTIFICATE_STEP, "run": "./sign.sh"}]}
+    found = [why for why in tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture", bare), label)
+             if "Developer ID certificate" in why]
+    if found != [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
+        problems.append(f"script-made keychains: a job that reads the certificate and makes no keychain is not "
+                        f"named: {found}")
+    return problems
+
+
+def release_pool_signer_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Release-pool signers (derived): a job whose certificate step runs a release-signer script is held to rule 8 without being listed; one that also makes a keychain is named."""
+    problems = []
+    signer = "scripts/ci/release-signer/sign-app.sh"
+    good = {"runs-on": "ubuntu-24.04", "steps": [{**CERTIFICATE_STEP, "run": f"./{signer} app"}]}
+    label = "nightly.yml signer-fixture"
+    found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", good), label)
+             if "release-pool signer" in why or "Developer ID certificate" in why]
+    if release_pool_signer(good) != signer or found:
+        problems.append(f"release-pool signers: a signer job that keeps to rule 8 is not read as one or fails: {found}")
+    keychained = {**good, "steps": [{"run": "./scripts/ci/signing-keychain.sh create"}, *good["steps"],
+                                    {"if": "always()", "run": "./scripts/ci/signing-keychain.sh delete"}]}
+    found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", keychained), label)
+             if "release-pool signer" in why]
+    if found != [f"{label}: a release-pool signer runs on a literal ubuntu label, calls {signer} and makes no keychain"]:
+        problems.append(f"release-pool signers: a signer job that makes a keychain is not named: {found}")
+    return problems
+
+
+def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """The four keychain lists' fixtures, each built on every workflow document (with_job). Each red fixture adds a
+    job with the list's trait that reads its secrets by bracket (`secrets['X']`) and carries no release
+    environment, so only a secret reader that knows that form sees it; the guard must name it. Each green fixture
+    adds a correctly listed (or, for a derived list, correctly shaped) job, and the guard must stay quiet."""
+    return [*step_level_fixture_failures(documents), *inline_keychain_fixture_failures(documents),
+            *script_made_fixture_failures(documents), *release_pool_signer_fixture_failures(documents)]
+
+
+def check_keychain_lists(documents: dict[str, dict], failures: list[str]) -> None:
+    """The four keychain lists against the workflows (stale entries; unlisted jobs fail check_job) and their
+    fixtures."""
+    failures.extend(why for why in step_level_classification(documents) if "STEP_LEVEL_ONLY" in why)
+    failures.extend(inline_keychain_classification(documents))
+    if not any(script_made_keychain(job) for _, job in _every_job(documents)):
+        failures.append(f"no job runs one of {KEYCHAIN_MAKING_SCRIPTS}; is this the right tree?")
+    failures.extend(keychain_list_fixture_failures(documents))
+
+
 def check_job(name: str, job: dict, failures: list[str]) -> None:
     missing: list[str] = []
     job = inline_step_scripts(job, missing)
@@ -606,25 +809,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if created and not cleaned_up:
         failures.append(f"{name}: creates a signing keychain but no `if: always()` step deletes it")
 
-    holds_secrets = release_secret(job) or bool(
-        RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
-    if holds_secrets and name not in STEP_LEVEL_ONLY:
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
-            label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
-            deferred = deferred_step(step)
-            for command in commands(str(step.get("run", ""))):
-                if any(pattern.search(command) for pattern in BUNDLE_CODE):
-                    failures.append(
-                        f"{name}: step {label!r} runs bundle code in a job that holds secrets; "
-                        f"move it to a job without secrets: {command[:120]}"
-                    )
-                elif SMOKING_SCRIPTS.search(command) and not deferred:
-                    failures.append(
-                        f"{name}: step {label!r} runs a notarization script that launches the app; "
-                        "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
-                    )
+    if name not in STEP_LEVEL_ONLY:
+        failures.extend(bundle_code_with_secrets(name, job))
     if signing_secret(job):
         runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
         pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
@@ -668,7 +854,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 )
 
     text = json.dumps(job)
-    pool_signer = RELEASE_POOL_SIGNERS.get(tuple(name.split(" ", 1)))
+    pool_signer = release_pool_signer(job)
     if pool_signer:
         runner = str(job.get("runs-on", ""))
         if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
@@ -681,8 +867,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     elif workflow_jobs.reads_secret(job, "APPLE_CERTIFICATE_BASE64") and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
-        script = SCRIPT_MADE_KEYCHAINS.get(tuple(name.split(" ", 1)))
-        if "signing-keychain.sh create" not in text and not (script and script in text):
+        if "signing-keychain.sh create" not in text and not script_made_keychain(job):
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
@@ -855,6 +1040,7 @@ def main() -> int:
                 signing_jobs += 1
             check_job(f"{path.name} {job_name}", job, failures)
     check_gated_secret_classification(documents, failures)
+    check_keychain_lists(documents, failures)
     check_scripts(failures)
     if signing_jobs < 5:
         failures.append(f"found only {signing_jobs} keychain jobs; this guard is reading the wrong tree")
