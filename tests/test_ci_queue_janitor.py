@@ -5767,11 +5767,9 @@ class OrphanedDispatchRerunTests(unittest.TestCase):
         entries = janitor.orphan_reruns(decisions, {run["id"]: "cancelled"}, {run["id"]: jobs}, now=NOW)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["job_id"], jobs[1]["id"])
-        # The next sweep re-runs it once the cancel settled: no newer dispatch of its lane and filter, and the lane
-        # branch is still at the run's commit.
+        # The next sweep re-runs it once the cancel settled: no newer dispatch carries this request's title.
         cancelled = dict(run, status="completed", conclusion="cancelled")
         decisions = janitor.plan_lost_reruns(entries, {run["id"]: cancelled}, {}, now=NOW, head_runs={},
-                                             branch_heads={run["head_branch"]: run["head_sha"]},
                                              dispatch_runs={run["id"]: []}, dispatch_jobs={})
         self.assertEqual([d.action for d in decisions], ["rerun"])
         # Other dispatches on a short-lived branch keep their old rule: cancelled, not re-run.
