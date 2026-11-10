@@ -93,6 +93,15 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROGRAM = os.path.join(HERE, "session_real_agent.zsh")
 REAL = {"workspaces": 826, "panes": 858, "tabs": 1600, "terminals": 798, "agents": 170, "browser_tabs": 516, "clients": 13}
+# The session FORMS (one mix, two live shapes). `real` is the STRESS form: every agent terminal runs its program and 30
+# plain shells run. `real-live` is the LIVE size read on the person's Mac (2026-11-10, 22:07Z: 798 terminals of which
+# 59 ran and 739 were exited records about 7 days old; 214 agents listed, 50 agent processes): 60 terminals run
+# (50 agent programs + 10 plain shells) and 738 are EXITED records (the tab stays in its workspace, its shell ended),
+# 164 of them the terminals of a listed agent that has no process.
+FORMS = {
+    "real": {"agents": REAL["agents"], "agents_live": None, "live_shells": 30, "restart_live_shells": False},
+    "real-live": {"agents": 214, "agents_live": 50, "live_shells": 10, "restart_live_shells": True},
+}
 PTY_RESERVE = 64  # cmux-tui pty_reclaim.rs: the PTYs the daemon keeps free for new terminals
 NAME = re.compile(r"^real-(\d{4})$")
 EXIT_FAULTS = 3  # the command ran to its end and wrote its output, but the result has failures
@@ -262,6 +271,58 @@ class Mix:
 
 def mix_of(args):
     return Mix(args.workspaces, args.terminals, args.agents, args.tabs, args.panes, args.browser_tabs)
+
+
+def apply_form(args):
+    """Fills the counts that the command line did not give from the session form (`--form`, default `real`)."""
+    form = FORMS[getattr(args, "form", None) or "real"]
+    for key, value in form.items():
+        if getattr(args, key, None) is None:
+            setattr(args, key, value)
+    return args
+
+
+def first_kind_numbers(mix, kind):
+    """The workspace numbers whose first tab is `kind` ("agent" or "terminal"), in order: a terminal's rank is its
+    index here."""
+    return [number for number in range(1, mix.workspaces + 1) if mix.shape(number)[0][0] == kind]
+
+
+def live_numbers(mix, kind, live):
+    """The workspace numbers of the `live` terminals of `kind` that keep what runs in them (picked evenly, as the
+    parked plain terminals always were). `live` None: all of them."""
+    numbers = first_kind_numbers(mix, kind)
+    if live is None or live >= len(numbers):
+        return set(numbers)
+    return {number for rank, number in enumerate(numbers) if pick(rank, live, len(numbers)) is not None}
+
+
+def live_split(args, mix):
+    """(agent terminals that keep their program, plain terminals that keep a shell) of the form asked for."""
+    agents_live, shells = getattr(args, "agents_live", None), getattr(args, "live_shells", None)
+    agents_live = mix.count("agent") if agents_live is None else agents_live
+    shells = FORMS["real"]["live_shells"] if shells is None else shells
+    if not 0 <= agents_live <= mix.count("agent"):
+        raise SystemExit(f"session_real: --agents-live {agents_live} must be 0..{mix.count('agent')} (the agent terminals)")
+    return agents_live, min(shells, mix.count("terminal"))
+
+
+def form_counts(mix, agents_live, live_plain):
+    """What a session of this form reads back when it is at rest."""
+    terminals = mix.count("terminal", "agent")
+    return {"terminals": terminals, "terminals_running": agents_live + live_plain,
+            "terminals_exited": terminals - agents_live - live_plain,
+            "agents_listed": mix.count("agent"), "agent_processes": agents_live}
+
+
+FORM_NAMES = {"terminals": "terminals", "terminals_running": "terminals that run", "terminals_exited": "exited terminal records",
+              "agents_listed": "agents the daemon lists", "agent_processes": "agent processes (bench program or resumed CLI)"}
+
+
+def form_faults(want, got):
+    """Why the session read back is not the form asked for (empty: it is). `got` has the keys of `form_counts`; a
+    count the daemon could not give is None and is a fault, never a pass."""
+    return [f"{FORM_NAMES[key]}: the form has {want[key]}, read back {got.get(key)}" for key in FORM_NAMES if got.get(key) != want[key]]
 
 
 # ---------------------------------------------------------------- sockets
@@ -516,13 +577,19 @@ def app_counts(app_socket):
 def agent_tabs(tree, mix):
     """(workspace number, tab) of each agent terminal of a session `make` made: the first terminal of
     a workspace named real-NNNN whose shape starts with an agent terminal."""
+    return first_terminal_tabs(tree, mix, "agent")
+
+
+def first_terminal_tabs(tree, mix, kind):
+    """(workspace number, tab) of the first terminal of each workspace named real-NNNN whose shape starts with
+    `kind` ("agent": an agent terminal; "terminal": a plain one)."""
     found = []
     for workspace in tree.get("workspaces", []):
         named = NAME.match(workspace.get("name") or "")
         if not named or int(named.group(1)) > mix.workspaces:
             continue
         number = int(named.group(1))
-        if mix.shape(number)[0][0] != "agent":
+        if mix.shape(number)[0][0] != kind:
             continue
         for screen in workspace.get("screens", []):
             for pane in screen.get("panes", []):
@@ -541,13 +608,18 @@ def agent_tabs(tree, mix):
 
 # ---------------------------------------------------------------- make
 
-def pty_budget(mix, live_shells):
-    """Refuses a live-terminal count the machine cannot hold; prints the limit with its number."""
+def pty_budget(mix, live_shells, agents_live=None):
+    """Refuses a live-terminal count the machine cannot hold; prints the limit with its number. Each agent terminal
+    has a shell until its agent reported (`agents_live` below the agent count: the others are parked after that), so
+    the highest count is all agent terminals + the plain live ones."""
     limit, used = sysctl("kern.tty.ptmx_max"), ptys_in_use()
     live = mix.count("agent") + live_shells
     line = (f"PTY limit: kern.tty.ptmx_max={limit} for the whole machine, {used} in use now by this user, daemon reserve {PTY_RESERVE}. "
             f"Terminals {mix.count('terminal', 'agent')} = {live} with a shell ({mix.count('agent')} agent + {live_shells} plain) "
             f"+ {mix.count('terminal', 'agent') - live} parked (shell starts when the workspace is shown).")
+    if agents_live is not None and agents_live < mix.count("agent"):
+        line += (f" Form with {agents_live} live agents: after their report {mix.count('agent') - agents_live} agent terminals are parked "
+                 f"too: {agents_live + live_shells} run, {mix.count('terminal', 'agent') - agents_live - live_shells} are exited records.")
     print(line, flush=True)
     if limit is not None and used + live + PTY_RESERVE > limit:
         raise SystemExit(f"session_real: LIMIT kern.tty.ptmx_max={limit}: {used} in use + {live} live + reserve {PTY_RESERVE} "
@@ -555,9 +627,14 @@ def pty_budget(mix, live_shells):
     return line
 
 
+STALE = "idle stale"  # the program's arguments for a listed agent that gets no process again (session_real_agent.zsh)
+
+
 def agent_command(number, state):
-    """The shell line that starts the agent program in an agent terminal (a leading space keeps it out of history)."""
-    return f" exec /bin/zsh -f {shell_quote(AGENT_PROGRAM)} {state} real-{number:04d}\n"
+    """The shell line that starts the agent program in an agent terminal (a leading space keeps it out of history).
+    `STALE` as the state: at rest, with a session id that the product can not resume."""
+    state, _, stale = state.partition(" ")
+    return f" exec /bin/zsh -f {shell_quote(AGENT_PROGRAM)} {state} real-{number:04d}{' ' + stale if stale else ''}\n"
 
 
 def shell_quote(text):
@@ -575,14 +652,18 @@ def agent_state(rank, args):
 def make(args):
     mix = mix_of(args)
     daemon_socket, app_socket = sockets(args)
-    live_plain = min(args.live_shells, mix.count("terminal"))
-    limit_line = pty_budget(mix, live_plain)
+    agents_live, live_plain = live_split(args, mix)
+    live_agent_numbers = live_numbers(mix, "agent", agents_live)
+    if args.no_agents and agents_live < mix.count("agent"):
+        raise SystemExit("session_real: --no-agents can not make a form with listed agents that have no process "
+                         "(--agents-live below --agents): an agent is listed only after its program reported")
+    limit_line = pty_budget(mix, live_plain, agents_live)
     conn = Conn(daemon_socket)
     before = counts(conn)
     print(f"before: {json.dumps(before)}", flush=True)
     started = time.time()
     plain_seen = agents_seen = made = 0
-    to_park, agent_surfaces, step_times = [], [], []
+    to_park, agent_surfaces, step_times, listed_only = [], [], [], []
     park_asked = park_done = 0
     batch_started = time.time()
     for number in range(1, mix.workspaces + 1):
@@ -596,9 +677,17 @@ def make(args):
         else:
             terminal = conn.must("create-terminal", workspace=workspace, cwd=args.cwd)
             pane = terminal.get("pane")
-            if first == "agent":
+            if first == "agent" and number in live_agent_numbers:
                 agent_surfaces.append((number, terminal["surface"], agent_state(agents_seen, args)))
                 agents_seen += 1
+            elif first == "agent":
+                # A listed agent with no process: its program reports at rest with a session id that can not be
+                # resumed, then its terminal is parked (below). The daemon lists the agent but keeps no agent in the
+                # terminal's relaunch record (`record_terminal_relaunch_agent`: "an id that is not resumable is never
+                # stored"), so "End Sessions, Keep Layout" keeps the tab for its workspace's first show
+                # (`KeptStart::OnShowUnlessAgent`) and a restore starts no shell and no resume in it at connect.
+                agent_surfaces.append((number, terminal["surface"], STALE))
+                listed_only.append(terminal["surface"])
             else:
                 if pick(plain_seen, live_plain, mix.count("terminal")) is None:
                     to_park.append(terminal["surface"])
@@ -629,15 +718,32 @@ def make(args):
             batch_started = time.time()
     seconds = time.time() - started
     settle_agents(conn, 0 if args.no_agents else mix.count("agent"), args.settle)
+    listed_before_park = None
+    if listed_only:
+        # The agents are listed now (each program reported); the terminals of the ones with no process end here and
+        # stay as exited records, as the parked plain terminals. The daemon's list is read before and after.
+        time.sleep(LISTED_ONLY_REPORT_SECONDS)  # the last of the 4 reports of a program comes after the one that lists it
+        listed = conn.call("list-agents")
+        listed_before_park = len((listed.get("data") or {}).get("agents", [])) if listed.get("ok") else None
+        for start in range(0, len(listed_only), 64):
+            part = listed_only[start:start + 64]
+            parked = conn.must("park-tabs", surfaces=part).get("parked", [])
+            park_asked, park_done = park_asked + len(part), park_done + len(parked)
+            if len(parked) != len(part):
+                print(f"park-tabs (listed agents): asked {len(part)}, parked {len(parked)}", flush=True)
+    want_parked = mix.count("terminal") - live_plain + len(listed_only)
     after = counts(conn, app_socket)
     # A parked tab reads as parked when its host exited (tab_park.rs): give the last batch up to 15 s before the count is judged.
-    deadline = time.time() + 15
-    while after["terminals_parked"] - before["terminals_parked"] < min(park_done, mix.count("terminal") - live_plain) and time.time() < deadline:
+    deadline = time.time() + (45 if listed_only else 15)
+    while after["terminals_parked"] - before["terminals_parked"] < min(park_done, want_parked) and time.time() < deadline:
         time.sleep(0.5)
         after = counts(conn, app_socket)
     want = mix.summary()
+    want_form = form_counts(mix, agents_live, live_plain)
     result = {
-        "asked": want, "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
+        "asked": dict(want, form=getattr(args, "form", None) or "real",
+                      **{key: want_form[key] for key in ("terminals_running", "terminals_exited", "agent_processes")}),
+        "agents_listed_before_park": listed_before_park, "limit": limit_line, "make_seconds": round(seconds, 2), "batch_seconds": step_times,
         "batch": args.batch, "agents_working": args.agents_working, "agents_blocked": args.agents_blocked,
         "before": before, "after": after, "host": host_facts(),
     }
@@ -652,9 +758,12 @@ def make(args):
         if got != asked:
             faults.append(f"{kind} tabs: asked {asked}, read back {got} more than before")
     if not args.no_agents and after.get("agents", 0) - before.get("agents", 0) != want["agent_terminals"]:
-        faults.append(f"agents: asked {want['agent_terminals']}, the daemon lists {after.get('agents', 0) - before.get('agents', 0)} more than before")
-    faults += park_faults(park_asked, park_done, mix.count("terminal") - live_plain,
-                          after["terminals_parked"] - before["terminals_parked"])
+        faults.append(f"agents: asked {want['agent_terminals']}, the daemon lists {after.get('agents', 0) - before.get('agents', 0)} more than before"
+                      + (f" (it listed {listed_before_park} in all before the terminals of {len(listed_only)} of them were parked)" if listed_only else ""))
+    faults += park_faults(park_asked, park_done, want_parked, after["terminals_parked"] - before["terminals_parked"])
+    if after["terminals_live"] - before["terminals_live"] != want_form["terminals_running"]:
+        faults.append(f"terminals that run: the form has {want_form['terminals_running']}, read back "
+                      f"{after['terminals_live'] - before['terminals_live']} more than before")
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
@@ -662,6 +771,9 @@ def make(args):
         print("session_real: READ-BACK DIFFERS: " + "; ".join(faults), flush=True)
     end_with("make", faults)
     print(f"OK: made and read back {want} in {seconds:.1f} s", flush=True)
+
+
+LISTED_ONLY_REPORT_SECONDS = 3  # a program's 4 reports are 4 short runs of the hook helper, one after the other
 
 
 def park_faults(asked, parked, want, read_back):
@@ -959,6 +1071,12 @@ def agents(args):
                          f"for {mix.workspaces}: give `agents` the counts the session was made with (--workspaces --terminals "
                          "--agents --tabs --panes --browser-tabs); nothing was started")
     tabs = agent_tabs(tree, mix)
+    agents_live, live_plain = live_split(args, mix)
+    if agents_live < mix.count("agent"):
+        # A form with listed agents that have no process: only the live ones get a shell and the program.
+        keep = live_numbers(mix, "agent", agents_live)
+        tabs = [(number, tab) for number, tab in tabs if number in keep]
+    shells = restart_live_shells(conn, tree, mix, live_plain) if getattr(args, "restart_live_shells", False) else None
     # The daemon lists an agent again for a restarted kept tab from its stored record (measured: 113 listed after
     # a restore, with no program in their shells), so "runs" is read from the processes of this daemon's terminals.
     exact = has_terminal_resources(conn.must("identify"))
@@ -1011,9 +1129,65 @@ def agents(args):
                                 "a lower bound, not judged: programs whose CMUX_TUI_SOCKET is this daemon's (the daemon has no terminal-resources)",
         "resumed_cli_ended": len(did["ended_resumed"]), "resumed_cli_killed": len(did["resumed_killed"]),
         "resumed_cli_left": len(resumed_left), "other_programs": len(other), "rounds": did["rounds"],
-        "after": after}), flush=True)
-    end_with("agents", agents_faults(len(tabs), programs if exact else None, after.get("agents"), len(not_typed), restart_failed,
-                                     other, resumed_left, len(held_back), args.settle))
+        "live_shells_restarted": shells, "after": after}), flush=True)
+    faults = agents_faults(len(tabs), programs if exact else None, after.get("agents"), len(not_typed), restart_failed,
+                           other, resumed_left, len(held_back), args.settle)
+    if shells and shells["failed"]:
+        faults.append(f"restart-tab failed for {len(shells['failed'])} plain live terminals: first {shells['failed'][0]}")
+    end_with("agents", faults)
+
+
+def restart_live_shells(conn, tree, mix, live_plain):
+    """After a restore a kept PLAIN terminal waits for its workspace's first show (`relaunch.on_show`), so only the
+    agent terminals run. A form that says how many terminals RUN starts the plain live ones again here
+    (`restart-tab`, as the app does at the first show). {live_plain, asked, restarted, failed}."""
+    keep = live_numbers(mix, "terminal", live_plain)
+    dead = [(number, tab) for number, tab in first_terminal_tabs(tree, mix, "terminal") if number in keep and tab.get("dead")]
+    failed = []
+    for number, tab in dead:
+        reply = conn.call("restart-tab", surface=tab["surface"])
+        if not reply.get("ok") and reply.get("error_code") != "tab-not-dead":
+            failed.append(f"real-{number:04d}: {str(reply.get('error'))[:120]}")
+    return {"live_plain": len(keep), "asked": len(dead), "restarted": len(dead) - len(failed), "failed": failed}
+
+
+def check_read(conn, mix):
+    """(got, detail) of one read of the session for `check`: the counts of `form_counts` as the daemon and the
+    process table have them now. `agent_processes` is None when the daemon cannot name its terminals' processes."""
+    tree = conn.must("list-workspaces")
+    seen = counts(conn)
+    states = agent_terminal_states(conn, agent_tabs(tree, mix)) if has_terminal_resources(conn.must("identify")) else None
+    kinds = {}
+    for state in (states or {}).values():
+        kinds[state[0]] = kinds.get(state[0], 0) + 1
+    got = {"terminals": seen["terminals"], "terminals_running": seen["terminals_live"],
+           "terminals_exited": seen["terminals"] - seen["terminals_live"], "agents_listed": seen.get("agents"),
+           "agent_processes": None if states is None else kinds.get("program", 0) + kinds.get("resumed", 0)}
+    detail = {"exited_parked_on_show": seen["terminals_parked"], "exited_other": seen["terminals_dead_other"],
+              "agent_terminal_states": kinds if states is not None else "the daemon has no terminal-resources: not counted",
+              "agent_states_listed": seen.get("agent_states")}
+    return got, detail
+
+
+def check(args):
+    """The count check of a session form after its start (after `make`, or after a restore and the `agents` step):
+    the terminals that run, the exited terminal records, the agents the daemon lists and the agent processes that
+    live in this daemon's agent terminals. Exit 3 with each difference when the session is not the form."""
+    mix = mix_of(args)
+    daemon_socket, _ = sockets(args)
+    conn = Conn(daemon_socket)
+    agents_live, live_plain = live_split(args, mix)
+    want = form_counts(mix, agents_live, live_plain)
+    deadline = time.time() + args.settle
+    while True:
+        got, detail = check_read(conn, mix)
+        faults = form_faults(want, got)
+        if not faults or time.time() >= deadline:
+            break
+        time.sleep(1)  # a restarted shell and a parked terminal's exit take a moment to show in the tree
+    print("SESSION-REAL-CHECK " + json.dumps(dict(detail, form=getattr(args, "form", None) or "real", want=want, got=got,
+                                                  ok=not faults)), flush=True)
+    end_with("check", faults)
 
 
 def agents_faults(agent_terminals, programs, listed, not_started, restart_failed, other=None, resumed_left=(), held_back=0,
@@ -2221,7 +2395,13 @@ def main():
     def size(p):
         p.add_argument("--workspaces", type=int, default=REAL["workspaces"])
         p.add_argument("--terminals", type=int, default=REAL["terminals"])
-        p.add_argument("--agents", type=int, default=REAL["agents"])
+        p.add_argument("--form", choices=sorted(FORMS), default="real", help="the session form: `real` = the STRESS form (each agent terminal "
+                       "runs its program, 30 plain shells run); `real-live` = the person's LIVE size (60 terminals run, 738 are exited records, "
+                       "214 agents listed of which 50 have a process). It gives the counts below that the command line does not give")
+        p.add_argument("--agents", type=int, help="agent terminals = agents the daemon lists (form real: 170, real-live: 214)")
+        p.add_argument("--agents-live", type=int, help="agent terminals that keep their program; the others are listed agents with an "
+                       "exited terminal (form real: all, real-live: 50)")
+        p.add_argument("--live-shells", type=int, help="plain terminals that keep a shell; the others are parked (form real: 30, real-live: 10)")
         p.add_argument("--tabs", type=int, default=REAL["tabs"])
         p.add_argument("--panes", type=int, default=REAL["panes"])
         p.add_argument("--browser-tabs", type=int, default=REAL["browser_tabs"], help="pages among the second tabs (Chromium and WebKit in turn)")
@@ -2232,7 +2412,6 @@ def main():
     p = sub.add_parser("make")
     target(p)
     size(p)
-    p.add_argument("--live-shells", type=int, default=30, help="plain terminals that keep a shell; the others are parked")
     p.add_argument("--batch", type=int, default=32, help="workspaces per batch (park and agent start run per batch)")
     p.add_argument("--cwd", default="/private/tmp", help="the terminals' directory (one that is on every host, so a saved session restores anywhere)")
     p.add_argument("--browser-url", default="about:blank")
@@ -2255,6 +2434,11 @@ def main():
     p.add_argument("--force", action="store_true", help="no effect now (kept for old callers): a terminal gets the start line when no agent program runs in it, "
                         "read from the processes; a running agent program never gets a line")
     p.set_defaults(run=agents)
+
+    p = sub.add_parser("check")
+    target(p)
+    size(p)
+    p.set_defaults(run=check)
 
     p = sub.add_parser("clients")
     target(p)
@@ -2295,7 +2479,6 @@ def main():
     size(p)
     p.add_argument("--app", required=True, help="the bench app bundle (`.../cmux DEV <tag>.app`); its own daemon makes the session")
     p.add_argument("--to", required=True, help="a new folder for the saved session")
-    p.add_argument("--live-shells", type=int, default=30)
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--cwd", default="/private/tmp")
     p.add_argument("--browser-url", default="about:blank")
@@ -2327,6 +2510,8 @@ def main():
     p.set_defaults(run=uninstall)
 
     args = parser.parse_args()
+    if hasattr(args, "form"):
+        apply_form(args)
     if sys.platform != "darwin":
         raise SystemExit("session_real: a fleet Mac only")
     if args.command in ("save", "install", "uninstall", "build"):

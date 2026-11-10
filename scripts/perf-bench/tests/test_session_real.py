@@ -734,5 +734,204 @@ class BuildFailure(unittest.TestCase):
         self.assertEqual(killed, [(400, signal.SIGTERM)])
 
 
+
+class LiveForm(unittest.TestCase):
+    """The form `real-live` (the person's LIVE size): the same mix as `real`, 60 terminals run (50 agent programs + 10
+    plain shells), 738 are exited records, 214 agents are listed. `real` (the stress form) does not change."""
+
+    SIZE = dict(workspaces=826, terminals=798, tabs=1600, panes=858, browser_tabs=516)
+
+    def args(self, form, **given):
+        return m.apply_form(argparse.Namespace(form=form, **{**self.SIZE, "agents": None, "agents_live": None, "live_shells": None, **given}))
+
+    def form(self, args):
+        mix = m.mix_of(args)
+        return m.form_counts(mix, *m.live_split(args, mix))
+
+    def test_the_form_real_live_is_60_running_738_exited_214_listed_and_50_processes(self):
+        self.assertEqual(self.form(self.args("real-live")), {"terminals": 798, "terminals_running": 60, "terminals_exited": 738,
+                                                             "agents_listed": 214, "agent_processes": 50})
+
+    def test_the_form_real_stays_the_stress_form(self):
+        args = self.args("real")
+        self.assertEqual(self.form(args), {"terminals": 798, "terminals_running": 200, "terminals_exited": 598,
+                                           "agents_listed": 170, "agent_processes": 170})
+        self.assertFalse(args.restart_live_shells)
+        # An old caller that has no form (a Namespace of its own) reads as `real`.
+        old = argparse.Namespace(**self.SIZE, agents=170, live_shells=30)
+        self.assertEqual(self.form(old)["terminals_running"], 200)
+
+    def test_a_count_from_the_command_line_wins_over_the_form(self):
+        args = self.args("real-live", agents_live=20, live_shells=0)
+        self.assertEqual((args.agents, args.agents_live, args.live_shells), (214, 20, 0))
+        self.assertEqual(self.form(args)["terminals_running"], 20)
+        with self.assertRaises(SystemExit):
+            self.form(self.args("real-live", agents_live=215))
+
+    def test_make_and_agents_pick_the_same_live_terminals(self):
+        mix = m.mix_of(self.args("real-live"))
+        agents, plain = m.first_kind_numbers(mix, "agent"), m.first_kind_numbers(mix, "terminal")
+        self.assertEqual((len(agents), len(plain)), (214, 584))
+        live = m.live_numbers(mix, "agent", 50)
+        self.assertEqual(len(live), 50)
+        self.assertTrue(live <= set(agents))
+        self.assertEqual(live, m.live_numbers(mix, "agent", 50))
+        self.assertEqual(len(m.live_numbers(mix, "terminal", 10)), 10)
+        self.assertEqual(m.live_numbers(mix, "agent", None), set(agents))
+
+    def test_a_count_that_is_not_the_forms_or_is_not_known_is_a_fault(self):
+        want = self.form(self.args("real-live"))
+        self.assertEqual(m.form_faults(want, dict(want)), [])
+        self.assertEqual(len(m.form_faults(want, dict(want, terminals_running=214, terminals_exited=584))), 2)
+        self.assertEqual(len(m.form_faults(want, dict(want, agent_processes=None))), 1)
+        self.assertEqual(len(m.form_faults(want, dict(want, agents_listed=50))), 1)
+
+    def test_a_listed_agent_with_no_process_reports_a_session_that_is_not_resumed(self):
+        line = m.agent_command(7, m.STALE)
+        self.assertTrue(line.endswith(" idle real-0007 stale\n"), line)
+        self.assertTrue(m.agent_command(7, "working").endswith(" working real-0007\n"))
+        self.assertEqual(m.AGENT_COMMAND.search("/bin/zsh -f /kit/session_real_agent.zsh idle real-0007 stale").group(1), "real-0007")
+        with open(m.AGENT_PROGRAM, encoding="utf-8") as handle:
+            program = handle.read()
+        # The id the program reports for `stale` is not one the daemon keeps for a resume ([A-Za-z0-9._-] only).
+        self.assertIn('[[ ${3:-} == stale ]] && session="session-real+stale+$name"', program)
+
+    def run_make(self, wrong_live=0, **given):
+        """`make` of a small session against a stub daemon. (the calls, the result or the SystemExit code)."""
+        size = dict(form="real-live", workspaces=12, terminals=12, tabs=12, panes=12, browser_tabs=0, agents=6, agents_live=2, live_shells=2)
+        args = argparse.Namespace(**{**size, **given}, agents_working=1, agents_blocked=0, settle=1, batch=5,
+                                  cwd="/private/tmp", browser_url="about:blank", no_agents=False, out=None, socket="/tmp/d.sock", app_socket=None)
+        calls, world = [], {"terminals": 0, "parked": 0, "listed": 0, "workspaces": 0}
+
+        class Daemon:
+            def must(self, cmd, **params):
+                calls.append((cmd, params))
+                if cmd == "create-workspace":
+                    world["workspaces"] += 1
+                    return {"workspace": world["workspaces"]}
+                if cmd == "create-terminal":
+                    world["terminals"] += 1
+                    return {"surface": 100 + world["terminals"], "pane": world["terminals"]}
+                if cmd == "park-tabs":
+                    world["parked"] += len(params["surfaces"])
+                    return {"parked": list(params["surfaces"])}
+                if cmd == "send":
+                    world["listed"] += 1
+                    return {}
+                raise AssertionError(cmd)
+
+            def call(self, cmd, **params):
+                calls.append((cmd, params))
+                assert cmd == "list-agents", cmd
+                return {"ok": True, "data": {"agents": [{}] * world["listed"]}}
+
+        def counts(conn, app_socket=None):
+            return {"workspaces": world["workspaces"], "panes": world["terminals"], "tabs": world["terminals"], "terminals": world["terminals"],
+                    "terminals_live": world["terminals"] - world["parked"] + (wrong_live if world["terminals"] else 0), "terminals_parked": world["parked"],
+                    "terminals_dead_other": 0, "tab_kinds": {}, "agents": world["listed"]}
+
+        saved = (m.sockets, m.Conn, m.counts, m.pty_budget, m.host_facts, m.LISTED_ONLY_REPORT_SECONDS)
+        m.sockets, m.Conn, m.counts = (lambda args: ("/tmp/d.sock", None)), (lambda sock: Daemon()), counts
+        m.pty_budget, m.host_facts, m.LISTED_ONLY_REPORT_SECONDS = (lambda *a: "limit"), (lambda: {}), 0
+        try:
+            m.make(args)
+            code = 0
+        except SystemExit as stop:
+            code = stop.code
+        finally:
+            m.sockets, m.Conn, m.counts, m.pty_budget, m.host_facts, m.LISTED_ONLY_REPORT_SECONDS = saved
+        return calls, code
+
+    def test_make_starts_each_listed_agent_and_parks_the_ones_with_no_process_after_their_report(self):
+        calls, code = self.run_make()
+        self.assertEqual(code, 0)
+        sends = [params["text"] for cmd, params in calls if cmd == "send"]
+        self.assertEqual(len(sends), 6)                                            # each of the 6 agents reports: all are listed
+        self.assertEqual(sum(1 for text in sends if text.endswith(" stale\n")), 4)   # 4 of them never get a process again
+        parks = [(index, len(params["surfaces"])) for index, (cmd, params) in enumerate(calls) if cmd == "park-tabs"]
+        self.assertEqual(sum(count for _, count in parks), 4 + 4)                  # 4 plain (6 - 2 live) + the 4 listed agents
+        last_send = max(index for index, (cmd, _) in enumerate(calls) if cmd == "send")
+        listed = [index for index, (cmd, _) in enumerate(calls) if cmd == "list-agents"]
+        self.assertEqual(parks[-1][1], 4)
+        self.assertGreater(parks[-1][0], last_send)                                # the agents' terminals end after every report
+        self.assertTrue(any(last_send < index < parks[-1][0] for index in listed))  # and the list is read before the park
+        stale = {params["surface"] for cmd, params in calls if cmd == "send" and params["text"].endswith(" stale\n")}
+        self.assertEqual(set(calls[parks[-1][0]][1]["surfaces"]), stale)           # only the terminals of the stale agents
+
+    def test_make_with_another_count_of_running_terminals_is_a_fault(self):
+        self.assertEqual(self.run_make(wrong_live=3)[1], m.EXIT_FAULTS)
+
+    def test_make_of_the_form_real_parks_no_agent_terminal(self):
+        calls, code = self.run_make(form="real", agents_live=None)
+        self.assertEqual(code, 0)
+        self.assertEqual(sum(len(params["surfaces"]) for cmd, params in calls if cmd == "park-tabs"), 4)
+        self.assertFalse(any(params["text"].endswith(" stale\n") for cmd, params in calls if cmd == "send"))
+
+    def test_listed_agents_with_no_process_need_the_agent_programs(self):
+        with self.assertRaises(SystemExit) as stop:
+            saved = (m.sockets, m.pty_budget)
+            m.sockets, m.pty_budget = (lambda args: ("/tmp/d.sock", None)), (lambda *a: "limit")
+            try:
+                m.make(argparse.Namespace(form="real-live", workspaces=12, terminals=12, tabs=12, panes=12, browser_tabs=0, agents=6,
+                                          agents_live=2, live_shells=2, no_agents=True))
+            finally:
+                m.sockets, m.pty_budget = saved
+        self.assertIn("--no-agents", str(stop.exception.code))
+
+    def tree(self, mix, dead):
+        """A `list-workspaces` tree of a made session: one terminal first in each workspace; `dead` says which are."""
+        return {"workspaces": [{"name": f"real-{number:04d}", "screens": [{"panes": [{"tabs": [
+            {"kind": "pty", "surface": 100 + number, "dead": number in dead}]}]}]} for number in range(1, mix.workspaces + 1)]}
+
+    def test_after_a_restore_the_plain_live_shells_start_again_and_no_other_terminal(self):
+        args = argparse.Namespace(workspaces=12, terminals=12, tabs=12, panes=12, browser_tabs=0, agents=6, agents_live=2, live_shells=2)
+        mix = m.mix_of(args)
+        keep = m.live_numbers(mix, "terminal", 2)
+        asked = []
+
+        class Daemon:
+            def call(self, cmd, **params):
+                assert cmd == "restart-tab", cmd
+                asked.append(params["surface"])
+                return {"ok": True} if params["surface"] != 100 + max(keep) else {"ok": False, "error": "no pty", "error_code": "x"}
+
+        did = m.restart_live_shells(Daemon(), self.tree(mix, dead=set(range(1, 13))), mix, 2)
+        self.assertEqual(sorted(asked), sorted(100 + number for number in keep))   # never an agent terminal, never a parked plain one
+        self.assertEqual((did["asked"], did["restarted"], len(did["failed"])), (2, 1, 1))
+        asked.clear()
+        self.assertEqual(m.restart_live_shells(Daemon(), self.tree(mix, dead=set()), mix, 2)["asked"], 0)   # a shell that runs gets no restart
+        self.assertEqual(asked, [])
+
+    def test_the_check_reads_running_exited_listed_and_the_agent_processes(self):
+        args = argparse.Namespace(workspaces=12, terminals=12, tabs=12, panes=12, browser_tabs=0, agents=6, agents_live=2, live_shells=2)
+        mix = m.mix_of(args)
+        live = sorted(m.live_numbers(mix, "agent", 2))
+        rows = table((500 + live[0], 1, f"/bin/zsh -f /kit/session_real_agent.zsh idle real-{live[0]:04d}"),
+                     (500 + live[1], 1, f"/Users/x/.local/bin/claude --resume session-real-real-{live[1]:04d}"))
+
+        class Daemon:
+            def must(self, cmd, **params):
+                if cmd == "identify":
+                    return {"capabilities": ["terminal-resources-v1"]}
+                assert cmd == "list-workspaces", cmd
+                return LiveForm.tree(self, mix, dead=set())
+
+            def call(self, cmd, **params):
+                assert cmd == "terminal-resources", cmd
+                return {"ok": True, "data": {"terminals": [{"surface": 100 + number, "pid": 500 + number, "processes": [{"pid": 500 + number}]}
+                                                           for number in live]}}
+
+        saved = (m.counts, m.process_rows)
+        m.counts = lambda conn: {"terminals": 12, "terminals_live": 4, "terminals_parked": 8, "terminals_dead_other": 0, "agents": 6}
+        m.process_rows = lambda: dict(rows)
+        try:
+            got, detail = m.check_read(Daemon(), mix)
+        finally:
+            m.counts, m.process_rows = saved
+        self.assertEqual(got, {"terminals": 12, "terminals_running": 4, "terminals_exited": 8, "agents_listed": 6, "agent_processes": 2})
+        self.assertEqual(m.form_faults(m.form_counts(mix, 2, 2), got), [])
+        self.assertEqual(detail["agent_terminal_states"], {"program": 1, "resumed": 1, "none": 4})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

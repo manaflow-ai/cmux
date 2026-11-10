@@ -1,5 +1,5 @@
 #!/bin/zsh -f
-# session_real_agent.zsh <working|blocked|idle> <name>
+# session_real_agent.zsh <working|blocked|idle> <name> [stale]
 #
 # The program of one agent terminal of the shared `real` bench session (session_real.py). It is NOT a
 # model session. It draws like an agent TUI and reports its state through the product's own path:
@@ -14,6 +14,10 @@ zmodload zsh/zselect
 state=${1:-idle}
 name=${2:-agent}
 session="session-real-$name"
+# A third argument `stale`: an agent that is listed and never resumed (the form real-live: its terminal is parked
+# after this report). The `+` makes the session id one the daemon does not keep for a resume (it keeps 1 to 128 of
+# [A-Za-z0-9._-] only), so a restore starts no shell and no CLI for it.
+[[ ${3:-} == stale ]] && session="session-real+stale+$name"
 
 report() {  # report <native event>
   [[ -n $CMUX_TUI_HOOK && -x $CMUX_TUI_HOOK ]] || return 0
