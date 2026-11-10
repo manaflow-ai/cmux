@@ -2789,6 +2789,9 @@ fn run_server(
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
+    // `cloud-spare-warm-v1`: the App's Cloud intent warms the spare and copies the login here.
+    #[cfg(unix)]
+    link::install_spare_warm(&mux);
     #[cfg(unix)]
     cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
     #[cfg(unix)]

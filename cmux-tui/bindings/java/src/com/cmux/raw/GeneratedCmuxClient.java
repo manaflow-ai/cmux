@@ -338,6 +338,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudSpareWarm(CloudSpareWarmRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_SPARE_WARM, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudSpareWarmConsent(CloudSpareWarmConsentRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_SPARE_WARM_CONSENT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudStartChatReservation(CloudStartChatReservationRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_START_CHAT_RESERVATION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);

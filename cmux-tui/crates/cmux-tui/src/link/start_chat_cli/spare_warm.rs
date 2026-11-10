@@ -186,6 +186,19 @@ pub(super) fn run(
         Ok(request) => request,
         Err(error) => return Some(refused("bad_request", error)),
     };
+    if let Some(refusal) = invalid(&request) {
+        return Some(refusal);
+    }
+    let (mut credential, mut install) = (String::new(), String::new());
+    if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
+        return Some(refused("unauthorized", "no session credential on stdin"));
+    }
+    let _ = stdin.read_line(&mut install);
+    Some(answer(request, credential.trim(), &install, state, now_ms, transport))
+}
+
+/// The refusal of a request that names no valid account or a claimed machine that is no Cloud id.
+fn invalid(request: &Request) -> Option<Value> {
     if request.account.is_empty() || !valid_account(&request.account) {
         return Some(refused("bad_request", "invalid spare warm"));
     }
@@ -194,20 +207,31 @@ pub(super) fn run(
     {
         return Some(refused("bad_request", "the claimed machine is not a Cloud machine id"));
     }
-    let (mut credential, mut install) = (String::new(), String::new());
-    if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
-        return Some(refused("unauthorized", "no session credential on stdin"));
+    None
+}
+
+/// One warm, an end of its copy or a claim, as the CLI verb and the daemon's `cloud-spare-warm`
+/// (`daemon.rs`) ask it: `credential` is the person's session, `install` the install token.
+pub(super) fn answer(
+    request: Request,
+    credential: &str,
+    install: &str,
+    state: &Path,
+    now_ms: u64,
+    transport: Transport<'_>,
+) -> Value {
+    if let Some(refusal) = invalid(&request) {
+        return refusal;
     }
-    let _ = stdin.read_line(&mut install);
+    if credential.trim().is_empty() {
+        return refused("unauthorized", "no session credential");
+    }
     // The reservation's team (`install_team`, #36037): the spare warmed is the one the reserve claims.
-    let Some(team) = install_team(&install) else {
-        return Some(refused(TEAM_UNRESOLVED, "the install token names no team"));
+    let Some(team) = install_team(install) else {
+        return refused(TEAM_UNRESOLVED, "the install token names no team");
     };
     let Some(_held) = lock(state) else {
-        return Some(refused(
-            THROTTLE_UNAVAILABLE,
-            "the spare warm's throttle lock cannot be taken",
-        ));
+        return refused(THROTTLE_UNAVAILABLE, "the spare warm's throttle lock cannot be taken");
     };
     let path = state.join("spare-warm.json");
     let mut file = read(state);
@@ -248,14 +272,14 @@ pub(super) fn run(
         write(&path, &file);
         let mut answer = json!({"ok": true});
         answer.set(if abandon { "abandoned" } else { "finished" }, json!(found));
-        return Some(answer);
+        return answer;
     }
     let copy =
         |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
     if let Some(machine) = request.claimed.as_deref() {
         let answer = claim(&mut file, &request.account, &team, machine, now_ms, copy(machine));
         write(&path, &file);
-        return Some(answer);
+        return answer;
     }
     let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
@@ -279,14 +303,14 @@ pub(super) fn run(
             });
             write(&path, &file);
         }
-        return Some(answer);
+        return answer;
     }
     if let Some(attempt) =
         file.attempts.iter().find(|attempt| pair(&attempt.account, Some(attempt.team.as_str())))
     {
         let mut answer = attempt.answer.clone();
         answer.set("throttled", json!(true));
-        return Some(answer);
+        return answer;
     }
     // Registered before the platform call: a start that asks meanwhile waits for this warm's answer.
     let pending =
@@ -303,20 +327,20 @@ pub(super) fn run(
     let body = match body {
         Ok(body) => body,
         Err(error) => {
-            return Some(attempted(
+            return attempted(
                 &path,
                 file,
                 &request.account,
                 &team,
                 now_ms,
                 reservations::answer(Err(error)),
-            ));
+            );
         }
     };
     let Some(machine) = reservations::machine(&body).map(str::to_string) else {
         let reason = body.get("reason").and_then(Value::as_str).unwrap_or("none");
         let answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
-        return Some(attempted(&path, file, &request.account, &team, now_ms, answer));
+        return attempted(&path, file, &request.account, &team, now_ms, answer);
     };
     let warm_until = body.get("warm_until").and_then(Value::as_u64).unwrap_or(now_ms);
     let vm_kind = body.get("vm_kind").and_then(Value::as_str);
@@ -360,7 +384,7 @@ pub(super) fn run(
         claimed,
     });
     write(&path, &file);
-    Some(answer)
+    answer
 }
 
 /// `claimed: M` (under the lock): a reserve's or a claim's answer named M for this account and
@@ -579,3 +603,10 @@ pub(super) fn install_token(team: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+pub(super) mod daemon;
+#[cfg(unix)]
+mod login_copy;
+#[cfg(unix)]
+mod scripts;

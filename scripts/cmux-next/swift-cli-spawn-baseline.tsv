@@ -1,0 +1,61 @@
+# path	kind	count	owner who moves it to a daemon command (check-no-swift-cli-spawn.py; counts only go down)
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentIntegrations+Process.swift	process	1	lane:settings
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift	main-actor	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift	process	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCLI.swift	process	1	lane:cloud-account
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudBringBack.swift	cmux-cli	3	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudBringBack.swift	main-actor	3	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineUpdate.swift	cmux-cli	1	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineUpdate.swift	main-actor	1	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineUpdates.swift	cmux-cli	2	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineUpdates.swift	main-actor	2	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMove.swift	cmux-cli	3	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMove.swift	main-actor	3	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Login.swift	cmux-cli	1	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Login.swift	main-actor	1	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift	cmux-cli	6	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift	main-actor	6	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Repick.swift	cmux-cli	2	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Repick.swift	main-actor	2	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift	cmux-cli	6	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift	main-actor	6	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	cmux-cli	1	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	main-actor	1	lane:cloud-machine
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Account.swift	cmux-cli	2	lane:cloud-account
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Account.swift	main-actor	2	lane:cloud-account
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/LiveWebHandlers.swift	process	1	lane:server
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/SSHService+PersonKey.swift	main-actor	2	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/SSHService+PersonKey.swift	process	2	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	process	1	lane:server
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerReachService.swift	process	1	lane:server
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift	process	1	lane:session-transfer
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/TopPages.swift	cmux-cli	1	lane:automations
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/TopPages.swift	main-actor	2	lane:automations
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/TopPages.swift	process	1	lane:automations
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/Operations/BundledAgentMemoryIndex.swift	process	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift	process	1	lane:cloud-link
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudEnvironmentBootstrap.swift	process	2	lane:cloud-link
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudCarrierResolver.swift	process	1	lane:cloud-link
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	process	1	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialLogin.swift	main-actor	1	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialLogin.swift	process	2	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudHarnessLoginDecision.swift	cmux-cli	2	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudSpareWarm.swift	cmux-cli	1	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	process	1	lane:cloud-link
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher+Build.swift	process	2	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher+Capabilities.swift	process	1	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher+Replace.swift	process	1	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift	process	2	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonVersionHandoff.swift	process	1	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift	process	1	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefMoveWatchLauncher.swift	process	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportRunner.swift	main-actor	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportRunner.swift	process	1	lane:chief
+Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidPhoneBackend.swift	process	1	lane:phone
+Packages/macOS/CmuxNext/Sources/CmuxNextPhone/XcodePhoneBackend.swift	process	1	lane:phone
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/AddMachine/HostCLI.swift	process	3	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/Install/RemoteAgentDaemon.swift	process	3	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/Install/RemoteInstaller.swift	process	4	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/Install/RemoteUpdateNeed.swift	process	1	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineLink.swift	process	3	lane:remote
+Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineSecrets.swift	process	1	lane:remote

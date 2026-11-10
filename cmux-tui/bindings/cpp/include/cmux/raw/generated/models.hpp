@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73";
+inline constexpr std::string_view kProtocolIrSha256 = "515f95cc6f8c72b75feedb8a858e4aec8cf50b3e319b5197ce7e8bb6d8c05b61";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -332,6 +332,9 @@ struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
+struct CloudSpareWarmRequest;
+struct CloudSpareWarmConsentRequest;
+struct CloudStartChatReservationRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
 struct ConversationAttachmentLinkRequest;
@@ -1999,6 +2002,35 @@ struct CloudSessionSetRequest {
 
 struct CloudSessionStatusRequest {
     friend bool operator==(const CloudSessionStatusRequest&, const CloudSessionStatusRequest&) = default;
+};
+
+struct CloudSpareWarmConsentRequest {
+    Field<bool> consent{};
+    friend bool operator==(const CloudSpareWarmConsentRequest&, const CloudSpareWarmConsentRequest&) = default;
+};
+
+struct CloudSpareWarmRequest {
+    std::string access_token{};
+    std::string account{};
+    std::string api{};
+    Field<std::string> claimed{};
+    Field<bool> consent{};
+    std::optional<bool> dogfood{};
+    std::string install_token{};
+    std::optional<std::vector<std::string>> login_scopes{};
+    std::string platform{};
+    Field<bool> setting{};
+    Field<std::string> stored_choice{};
+    Field<std::string> team{};
+    friend bool operator==(const CloudSpareWarmRequest&, const CloudSpareWarmRequest&) = default;
+};
+
+struct CloudStartChatReservationRequest {
+    std::string access_token{};
+    std::string install_token{};
+    bool release{};
+    std::optional<JsonValue> request{};
+    friend bool operator==(const CloudStartChatReservationRequest&, const CloudStartChatReservationRequest&) = default;
 };
 
 struct CloudSubscriptionStateEvent {
@@ -8342,6 +8374,24 @@ template <>
 struct Codec<CloudSessionStatusRequest> {
     static Result<Json> encode(const CloudSessionStatusRequest& value);
     static Result<CloudSessionStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSpareWarmRequest> {
+    static Result<Json> encode(const CloudSpareWarmRequest& value);
+    static Result<CloudSpareWarmRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSpareWarmConsentRequest> {
+    static Result<Json> encode(const CloudSpareWarmConsentRequest& value);
+    static Result<CloudSpareWarmConsentRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudStartChatReservationRequest> {
+    static Result<Json> encode(const CloudStartChatReservationRequest& value);
+    static Result<CloudStartChatReservationRequest> decode(const Json& value);
 };
 
 template <>

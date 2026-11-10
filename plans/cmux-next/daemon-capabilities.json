@@ -50,6 +50,8 @@
     "cloud-conversations-v1",
     "cloud-host-replica-v1",
     "cloud-selfhost-v1",
+    "cloud-spare-warm-v1",
+    "cloud-start-chat-reservation-v1",
     "cloud_chat_relay.v1",
     "column-left-v1",
     "column-move-v1",

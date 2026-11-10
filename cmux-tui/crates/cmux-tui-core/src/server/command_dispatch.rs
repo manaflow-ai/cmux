@@ -724,6 +724,11 @@ fn dispatch_command(
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
         Command::CloudEnvironment(params) => cloud_conversations::environment(mux, client, params),
+        Command::CloudSpareWarm(params) => cloud_spare_warm::handle(mux, client, params),
+        Command::CloudSpareWarmConsent(params) => cloud_spare_warm::consent(mux, client, params),
+        Command::CloudStartChatReservation(params) => {
+            cloud_spare_warm::reservation(mux, client, params)
+        }
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }

@@ -8190,6 +8190,76 @@ refusals preserve their code; invalid fields fail before an HTTP call. Neither
 this command nor its reads change focus. CLI/MCP use requires the person's own
 API authorization; this native forwarding command never grants it to agents.
 
+
+### cloud-spare-warm
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-spare-warm` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-spare-warm-v1` |
+
+The app's Cloud intent: it came to the front signed in, the composer picked
+Cloud, or a reserve's or a claim's answer named a machine (`claimed`). Only the
+verified native app may send it. The daemon does the rest in Rust on a cloud
+request worker: the spare warm's throttle and ledger (`spare-warm.json` in the
+start-chat state folder, the one `cmux link start-chat warm-spare` and
+`wait-copy` read), the platform's `POST /v1/cloud/spare/warm` (none for a
+claim), and, when the ledger hands out a copy, the headless Claude login copy
+onto that machine: the Release remote switch, the harness login decision
+(cmux-cloud-start-core `harness_login::decide`, headless), the guest's kind and
+the machine's own login, the Keychain read, the guest check, the write and the
+install. The answer is the ledger's (`{ok, machine?, team?, fresh, copy?}`),
+sent once it is written; the copy goes on on its own thread and reports its end
+to the same ledger (`finished`, or `abandoned` when the copy was ended).
+
+The copy asks again, before it reads anything and right before its write,
+whether it may go on: the account is still the leased person, no sign-out
+(`cloud-session-clear`) or lease of another account came since (a daemon that
+never had a person lease keeps the app's account), and the person's consent
+has not changed (`cloud-spare-warm-consent`). The consent the write needs is
+the app's latest one, not the warm's. The Keychain scopes are read at once
+under one 30 s deadline.
+
+Fields: `platform` (the warm's origin), `api` (the cmux API the copy's machine
+routes and the Release switch call), `access_token` (the Stack session), `install_token`,
+`account` (the Stack user), and optionally `claimed`, `team` (the selected Stack
+team), `login_scopes` (the person's teams then `null` for personal), `dogfood`,
+`setting` (`cmux.cloud.passHarnessLogin`), `stored_choice` (the person's kept
+login choice) and `consent` (the one-time Release consent). Neither token is
+kept, logged or put in a URL.
+
+
+### cloud-spare-warm-consent
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-spare-warm-consent` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-spare-warm-v1` |
+
+The person's one-time Release consent (`consent`: true, false, or null for
+never asked or managed), which the verified native app sends once and again on
+every change. Every `cloud-spare-warm` login copy in flight reads it right
+before its write; a change ends the copies begun before it (abandoned, so the
+next warm answers them again). Answers `{ok: true}` on the request loop.
+
+
+### cloud-start-chat-reservation
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-start-chat-reservation` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-start-chat-reservation-v1` |
+
+The composer's machine reservation (`release: false`) or its release, which the
+app ran as a `cmux link start-chat reserve|release` child process on every
+compose. Only the verified native app may send it, on a cloud request worker.
+`request` is the page's `{composeKey, environment?}` with the app's `platform`;
+`access_token` is the Stack session and `install_token` names the team
+(`install_team`, the spare warm's). Answers exactly what the CLI verb prints.
+
 ### cloud-conversation-thread
 
 | Field | Value |

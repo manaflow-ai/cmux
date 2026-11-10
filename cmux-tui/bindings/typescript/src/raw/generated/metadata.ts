@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
+/* cmux-tui mux protocol 12, IR 515f95cc6f8c72b75feedb8a858e4aec8cf50b3e319b5197ce7e8bb6d8c05b61. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73" as const;
+export const SDK_IR_SHA256 = "515f95cc6f8c72b75feedb8a858e4aec8cf50b3e319b5197ce7e8bb6d8c05b61" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -836,6 +836,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-spare-warm": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-spare-warm-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app only. The app's Cloud intent (activation signed in, Cloud picked in the composer, a reserve's or a claim's machine): the daemon runs the spare warm's ledger and platform call and, for a copy it hands out, the headless Claude login copy, on worker threads. access_token and install_token are used for this warm only, never kept or logged. Answers the ledger's answer once written; the copy reports its end to the same ledger. See spec/commands.md."
+    ]
+  },
+  "cloud-spare-warm-consent": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-spare-warm-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app only. The person's one-time Release consent, sent once and on every change; every cloud-spare-warm login copy in flight reads it right before its write, and a change ends the copies begun before it. Answers {ok: true}. See spec/commands.md."
+    ]
+  },
+  "cloud-start-chat-reservation": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-start-chat-reservation-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app only. The composer's reservation (release false: POST /v1/machines/reservations) or its release (DELETE /v1/machines/reservations/{composeKey}) in the install token's team; request is the page's {composeKey, environment?} with the app's platform. Answers what `cmux link start-chat reserve|release` prints. Neither token is kept or logged. See spec/commands.md."
     ]
   },
   "conversation-agent-token": {
@@ -18277,6 +18307,181 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-spare-warm": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "account": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "api": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "claimed": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "consent": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "dogfood": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "install_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "login_scopes": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "platform": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "setting": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "stored_choice": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "team": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-spare-warm-consent": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "consent": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-start-chat-reservation": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "install_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "release": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "request": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {

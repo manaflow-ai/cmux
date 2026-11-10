@@ -23,9 +23,9 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     /// install token: Rust names the reservation in its team, the one the machine list reads and the spare warm uses.
     /// `reserved`: told the machine a reserve answered, so its login copy starts on that exact machine.
     @MainActor
-    public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
+    public func run(allowed: Bool, connection: DaemonConnection?, configuration: CloudConfiguration, auth: CloudAuth,
                     install: () async throws -> String?, reserved: (@MainActor (String) -> Void)? = nil) async -> [String: Any] {
-        guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
+        guard allowed, let connection, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
         }
         // One line as it begins and one as it ends, with its time and outcome: a Send waits on the reserve
@@ -33,7 +33,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         let verb = release ? "release" : "reserve"
         let began = ContinuousClock.now
         Self.log.notice("cloud \(verb, privacy: .public): begin")
-        let reply = await call(binary: binary, platform: platform, auth: auth, install: install, reserved: reserved)
+        let reply = await call(connection: connection, platform: platform, auth: auth, install: install, reserved: reserved)
         let ms = Int((ContinuousClock.now - began) / .milliseconds(1))
         let outcome = reply["ok"] as? Bool == true ? "ok" : ((reply["error"] as? [String: Any])?["code"] as? String ?? "failed")
         Self.log.notice("cloud \(verb, privacy: .public): end \(ms, privacy: .public) ms \(outcome, privacy: .public)")
@@ -42,18 +42,34 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
 
     nonisolated static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
+    /// The daemon's answer as the page's reply object: a walk of the tree it already decoded, no second decode.
+    nonisolated static func object(_ answer: JSONValue) -> [String: Any] {
+        func any(_ value: JSONValue) -> Any {
+            switch value {
+            case .null: NSNull()
+            case .bool(let value): value
+            case .number(let value): value.rounded() == value && abs(value) < 1e15 ? Int(value) as Any : value
+            case .string(let value): value
+            case .array(let items): items.map(any)
+            case .object(let members): members.mapValues(any)
+            }
+        }
+        return any(answer) as? [String: Any] ?? [:]
+    }
+
     @MainActor
-    private func call(binary: URL, platform: URL, auth: CloudAuth, install: () async throws -> String?,
+    private func call(connection: DaemonConnection, platform: URL, auth: CloudAuth, install: () async throws -> String?,
                       reserved: (@MainActor (String) -> Void)?) async -> [String: Any] {
         do {
-            let data = try JSONEncoder().encode(params)
-            var object = (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-            object["platform"] = platform.absoluteString
-            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            // The page's object with the trusted platform; Rust reads only `composeKey`, `environment` and `platform`.
+            var request: [String: JSONValue] = [:]
+            if case .object(let members) = params { request = members }
+            request["platform"] = .string(platform.absoluteString)
             let token = try await auth.tokens().access
-            let answer = try await CloudMoveCLI(binary: binary).startChatReservation(
-                release: release, request: String(decoding: payload, as: UTF8.self), access: token, install: try await install())
-            let reply = try JSONSerialization.jsonObject(with: answer) as? [String: Any] ?? [:]
+            let answer = try await connection.request(
+                CloudStartChatReservationRequest(release: release, request: .object(request), accessToken: token, installToken: try await install() ?? ""),
+                timeout: .seconds(release ? 15 : 130))
+            let reply = Self.object(answer)
             guard reply["ok"] as? Bool == true else {
                 // Rust emits only its fixed error codes; provider messages never reach the page.
                 let code = reply["error_code"] as? String ?? "unavailable"

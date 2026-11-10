@@ -207,6 +207,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    ("No Swift CLI or child spawns (the app reaches Rust over the daemon socket; Leo 2026-11-10, NIGHTLY freeze)",
+     ["python3", "-I", "{s}/check-no-swift-cli-spawn.py", "{root}"],
+     (PKG + "/", "scripts/cmux-next/swift-cli-spawn-baseline.tsv", "scripts/cmux-next/check-main-actor-work.py")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -295,6 +298,7 @@ RATCHET_BASELINES = {
     "raw-spawn-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
+    "swift-cli-spawn-baseline.tsv": ((0, 1), 2),
 }
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips

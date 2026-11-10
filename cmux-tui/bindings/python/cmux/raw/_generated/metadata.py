@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73'
+IR_SHA256 = '515f95cc6f8c72b75feedb8a858e4aec8cf50b3e319b5197ce7e8bb6d8c05b61'
 
 
 @dataclass(frozen=True)
@@ -880,6 +880,53 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+        },
+    ),
+    'cloud-spare-warm': CommandMetadata(
+        'cloud-spare-warm',
+        'local-admin',
+        12,
+        'cloud-spare-warm-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'account': CommandFieldMetadata(None, None),
+            'api': CommandFieldMetadata(None, None),
+            'claimed': CommandFieldMetadata(None, None),
+            'consent': CommandFieldMetadata(None, None),
+            'dogfood': CommandFieldMetadata(None, None),
+            'install_token': CommandFieldMetadata(None, None),
+            'login_scopes': CommandFieldMetadata(None, None),
+            'platform': CommandFieldMetadata(None, None),
+            'setting': CommandFieldMetadata(None, None),
+            'stored_choice': CommandFieldMetadata(None, None),
+            'team': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-spare-warm-consent': CommandMetadata(
+        'cloud-spare-warm-consent',
+        'local-admin',
+        12,
+        'cloud-spare-warm-v1',
+        ('local-admin',),
+        None,
+        {
+            'consent': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-start-chat-reservation': CommandMetadata(
+        'cloud-start-chat-reservation',
+        'local-admin',
+        12,
+        'cloud-start-chat-reservation-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'install_token': CommandFieldMetadata(None, None),
+            'release': CommandFieldMetadata(None, None),
+            'request': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-agent-token': CommandMetadata(

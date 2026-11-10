@@ -1,11 +1,16 @@
+import CmuxNextCompat
+import CmuxNextDaemon
 public import Foundation
 
 /// The claimed machines whose login copy (``CloudSpareWarm/start(claimed:)``) Rust has not registered yet. A start onto
 /// such a machine waits here before it asks Rust's `wait-copy`, so it finds the claim's copy in flight and waits on it
 /// instead of reading "no login" and installing a second copy beside it. The copy itself never holds anyone: only Rust's
-/// answer to the claim (`warm-spare` with `claimed`, registered or deduplicated per machine) is awaited.
+/// answer to the claim (`warm-spare` with `claimed`, registered or deduplicated per machine) is awaited. It also keeps
+/// the one task that tells the daemon the person's consent, which every copy in flight reads again.
 @MainActor public final class CloudClaimedCopyRegistrations {
     private var pending: [String: [UUID: Task<Void, Never>]] = [:]
+    /// The consent's follower (``followConsent(on:_:)``) and the daemon connection it sends on.
+    private var consentFollower: (connection: DaemonConnection, task: Task<Void, Never>)?
 
     public init() {}
 
@@ -21,6 +26,20 @@ public import Foundation
             if self?.pending[machine]?.isEmpty == true { self?.pending[machine] = nil }
         }
         return answer
+    }
+
+    /// Sends `consent` on `connection` at once and on every change (`cloud-spare-warm-consent`), so a login copy in flight
+    /// reads it right before its write and a change ends it (cmux-tui-core `server/cloud_spare_warm.rs`). One follower: a
+    /// warm on another connection (a restarted daemon) moves it there.
+    func followConsent(on connection: DaemonConnection, _ consent: @escaping @MainActor @Sendable () -> Bool?) {
+        guard consentFollower?.connection !== connection else { return }
+        consentFollower?.task.cancel()
+        // task-owner: `consentFollower`, cancelled when a warm comes on another connection; each send is bounded by its timeout.
+        consentFollower = (connection, Task { @MainActor in
+            for await value in ObservationStream(consent) {
+                _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: value), timeout: .seconds(5))
+            }
+        })
     }
 
     /// Returns once every registration of `machine` pending now has answered; at once when there is none.

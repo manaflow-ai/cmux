@@ -31,6 +31,8 @@ mod process_exit;
 mod seed;
 mod seed_cli;
 mod start_chat_cli;
+#[cfg(unix)]
+pub(crate) use start_chat_cli::install_spare_warm;
 mod state;
 pub(crate) mod sync_cli;
 

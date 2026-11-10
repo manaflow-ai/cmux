@@ -42,6 +42,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
         capabilities.push("cloud-environments-v1");
     }
+    if mux.spare_warm().is_some() {
+        capabilities.push(cloud_spare_warm::CAPABILITY);
+        capabilities.push(cloud_spare_warm::RESERVATION_CAPABILITY);
+    }
     if mux.host_replica().is_some_and(|replica| replica.running()) {
         capabilities.push(cloud_host_replica::CAPABILITY);
     }

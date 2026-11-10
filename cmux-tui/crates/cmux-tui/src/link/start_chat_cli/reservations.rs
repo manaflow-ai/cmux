@@ -87,10 +87,8 @@ pub(super) fn run_with(
         Ok(request) => request,
         Err(error) => return Some(refused("bad_request", error)),
     };
-    if !valid_key(&request.compose_key)
-        || request.environment.as_deref().is_some_and(|id| !valid_environment(id))
-    {
-        return Some(refused("bad_request", "invalid composer reservation"));
+    if let Some(refusal) = invalid(&request) {
+        return Some(refusal);
     }
     let mut credential = String::new();
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
@@ -98,19 +96,53 @@ pub(super) fn run_with(
     }
     let mut install = String::new();
     let _ = stdin.read_line(&mut install);
+    Some(reserve(request, action, credential.trim(), &install, transport))
+}
+
+/// The daemon's `cloud-start-chat-reservation` (`spare_warm/daemon.rs`): the App's composer
+/// reservation `request` (its JSON object) with the person's session and install tokens.
+#[cfg(unix)]
+pub(super) fn daemon(request: Value, release: bool, credential: &str, install: &str) -> Value {
+    let request: Request = match serde_json::from_value(request) {
+        Ok(request) => request,
+        Err(error) => return refused("bad_request", error),
+    };
+    if let Some(refusal) = invalid(&request) {
+        return refusal;
+    }
+    if credential.trim().is_empty() {
+        return refused("unauthorized", "no session credential");
+    }
+    let action = if release { Action::Release } else { Action::Reserve };
+    reserve(request, action, credential.trim(), install, &|call, credential| call.post(credential))
+}
+
+fn invalid(request: &Request) -> Option<Value> {
+    (!valid_key(&request.compose_key)
+        || request.environment.as_deref().is_some_and(|id| !valid_environment(id)))
+    .then(|| refused("bad_request", "invalid composer reservation"))
+}
+
+fn reserve(
+    request: Request,
+    action: Action,
+    credential: &str,
+    install: &str,
+    transport: Transport<'_>,
+) -> Value {
     let call = Call {
         action,
         compose_key: request.compose_key.to_lowercase(),
         send_key: None,
         environment: request.environment,
         platform: request.platform,
-        team: super::spare_warm::install_team(&install),
+        team: super::spare_warm::install_team(install),
     };
-    let result = transport(&call, credential.trim());
+    let result = transport(&call, credential);
     if action == Action::Reserve && result.as_ref().is_ok_and(|body| machine(body).is_none()) {
-        return Some(refused("bad_answer", "the cmux platform reserved no readable Cloud machine"));
+        return refused("bad_answer", "the cmux platform reserved no readable Cloud machine");
     }
-    Some(answer(result))
+    answer(result)
 }
 
 pub(super) fn answer(result: Result<Value, PlatformCallError>) -> Value {

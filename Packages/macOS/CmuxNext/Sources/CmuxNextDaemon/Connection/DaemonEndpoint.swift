@@ -410,6 +410,11 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// and their `cloud-*` events, only with the cloud transport installed. `cloudHostReplica`: object-sync DESIGN.md phase 3, verified app only.
     case cloudConversations = "cloud-conversations-v1"
     case cloudHostReplica = "cloud-host-replica-v1"
+    /// `cloud-spare-warm`: the app's Cloud intent; the daemon warms the spare and copies the login (verified app only), and
+    /// `cloud-spare-warm-consent`: the person's consent, which the copies in flight read again.
+    case cloudSpareWarm = "cloud-spare-warm-v1"
+    /// `cloud-start-chat-reservation`: the composer's reservation and its release, in Rust (verified app only).
+    case cloudStartChatReservation = "cloud-start-chat-reservation-v1"
     /// `cloud-attachment-upload` and `cloud-attachment-read`: attachments of Cloud conversations
     /// through the daemon's lease (advertised with `cloud-conversations-v1`).
     case cloudAttachments = "cloud-attachments-v1"
@@ -597,7 +602,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
-             .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
+             .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudSpareWarm, .cloudStartChatReservation, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
              .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
              .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,

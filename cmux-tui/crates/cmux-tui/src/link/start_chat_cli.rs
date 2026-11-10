@@ -85,6 +85,12 @@ cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH
 /// the next root is tried.
 const PERMISSION_DENIED: &str = "fs.permission_denied";
 
+/// Installs the daemon's `cloud-spare-warm` (`spare_warm/daemon.rs`) on `mux`.
+#[cfg(unix)]
+pub(crate) fn install_spare_warm(mux: &std::sync::Arc<cmux_tui_core::Mux>) {
+    spare_warm::daemon::install(mux);
+}
+
 pub(super) fn run(args: &[String]) -> i32 {
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
         println!("{USAGE}");

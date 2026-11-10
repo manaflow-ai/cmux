@@ -66,6 +66,11 @@ fn is_app(mux: &Mux, client: u64) -> bool {
     matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. })
 }
 
+/// [`is_app`] for the other cloud commands of this server (`cloud-spare-warm`).
+pub(super) fn is_app_client(mux: &Mux, client: u64) -> bool {
+    is_app(mux, client)
+}
+
 /// Whether `client` is a WebSocket connection that authenticated with a
 /// pairing-store credential (`ws-cloud-conversations-v1`), never a Unix one.
 fn is_websocket_person(mux: &Mux, client: u64) -> bool {
@@ -598,6 +603,8 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudRequestsList(_)
             | Command::CloudSelfhostInfo(_)
             | Command::CloudEnvironment(_)
+            | Command::CloudSpareWarm(_)
+            | Command::CloudStartChatReservation(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -692,6 +699,13 @@ pub(super) fn start(
     // The Home rows never fail for the Cloud: their worker takes its own lease
     // and request slot, and without them carries the local rows.
     let permit = if matches!(cmd, Command::HomeInbox(_)) {
+        None
+    } else if matches!(cmd, Command::CloudSpareWarm(_) | Command::CloudStartChatReservation(_)) {
+        // The spare warm takes no lease or request slot: it carries its own tokens, runs one
+        // bounded warm, and its login copy goes on on its own thread after the answer.
+        if !is_app(mux, client) {
+            return send(writer, id, Err(super::cloud_spare_warm::forbidden().into()));
+        }
         None
     } else {
         match precheck() {

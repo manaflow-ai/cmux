@@ -254,6 +254,9 @@ struct Lease {
     /// The verified cmux app set the current lease (`cloud-lease-app-only-v1`):
     /// no other connection may replace or clear it.
     app_held: bool,
+    /// Bumped by a sign-out and by a lease of another account, never by a renewal: work begun for
+    /// one person (the spare warm's login copy) ends when it changes ([`CloudConversations::lease_person_epoch`]).
+    person_epoch: u64,
 }
 
 struct Subscription {
@@ -424,6 +427,9 @@ impl CloudConversations {
                 && !(lease.app_held
                     && lease.session.as_ref().is_some_and(|old| old.account == session.account));
             let fresh_account = fresh.then(|| session.account.clone());
+            if lease.session.as_ref().is_some_and(|old| old.account != session.account) {
+                lease.person_epoch += 1;
+            }
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
@@ -454,9 +460,17 @@ impl CloudConversations {
             lease.session = None;
             lease.app_held = false;
             lease.generation += 1;
+            lease.person_epoch += 1;
         }
         self.inner.notify();
         Ok(json!({"state": "signed_out"}))
+    }
+
+    /// Changes on every sign-out and every lease of another account, never on a renewal: a value
+    /// read when work for the leased person began says, read again, whether that person is still it
+    /// (a lease cleared since is not the same as never having had one).
+    pub fn lease_person_epoch(&self) -> u64 {
+        self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner).person_epoch
     }
 
     /// Whether the verified cmux app set the current lease
@@ -1722,6 +1736,36 @@ mod presence_order_tests {
         ) -> Result<Box<dyn CloudWire>, ConnectError> {
             Err(ConnectError::Unavailable("offline".into()))
         }
+    }
+
+    fn lease(service: &CloudConversations, sub: &str) {
+        use base64::Engine as _;
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({"sub": sub, "aud": "project"}).to_string());
+        let params = serde_json::from_value(serde_json::json!({
+            "api_base_url": "https://api.cmux.test", "access_token": format!("e30.{claims}.sig"),
+            "expires_at": 4_102_444_800_000_u64
+        }))
+        .unwrap();
+        service.set_session(params).unwrap();
+    }
+
+    /// A renewal keeps the person's epoch; a sign-out and another account's lease move it, so a
+    /// lease cleared since some work began is never read as "never had one".
+    #[test]
+    fn the_person_epoch_moves_on_a_sign_out_and_an_account_switch_only() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let start = service.lease_person_epoch();
+        lease(&service, "user_ana");
+        assert_eq!(service.lease_person_epoch(), start, "a first lease is no switch");
+        lease(&service, "user_ana");
+        assert_eq!(service.lease_person_epoch(), start, "a renewal");
+        lease(&service, "user_bob");
+        let switched = service.lease_person_epoch();
+        assert_ne!(switched, start);
+        service.clear_session();
+        assert_ne!(service.lease_person_epoch(), switched);
+        assert!(service.lease_person().is_none());
     }
 
     fn presence(viewing: bool) -> CloudEvent {

@@ -207,6 +207,15 @@ class GeneratedClientMixin:
     def cloud_session_status(self) -> JsonValue:
         return self._invoke_command('cloud-session-status', CloudSessionStatusRequest())
 
+    def cloud_spare_warm(self, access_token: str, account: str, api: str, install_token: str, platform: str, *, claimed: Union[str, None, MissingType] = MISSING, consent: Union[bool, None, MissingType] = MISSING, dogfood: Union[bool, MissingType] = MISSING, login_scopes: Union[List[str], MissingType] = MISSING, setting: Union[bool, None, MissingType] = MISSING, stored_choice: Union[str, None, MissingType] = MISSING, team: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-spare-warm', CloudSpareWarmRequest(access_token=access_token, account=account, api=api, install_token=install_token, platform=platform, claimed=claimed, consent=consent, dogfood=dogfood, login_scopes=login_scopes, setting=setting, stored_choice=stored_choice, team=team))
+
+    def cloud_spare_warm_consent(self, *, consent: Union[bool, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-spare-warm-consent', CloudSpareWarmConsentRequest(consent=consent))
+
+    def cloud_start_chat_reservation(self, request: Union[JsonValue, None], access_token: str, install_token: str, release: bool) -> JsonValue:
+        return self._invoke_command('cloud-start-chat-reservation', CloudStartChatReservationRequest(request=request, access_token=access_token, install_token=install_token, release=release))
+
     def conversation_agent_token(self, participant: str) -> ConversationAgentTokenResult:
         return self._invoke_command('conversation-agent-token', ConversationAgentTokenRequest(participant=participant))
 
@@ -978,6 +987,9 @@ GeneratedClientMixin.cloud_selfhost_info.__cmux_command__ = COMMANDS['cloud-self
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
+GeneratedClientMixin.cloud_spare_warm.__cmux_command__ = COMMANDS['cloud-spare-warm']
+GeneratedClientMixin.cloud_spare_warm_consent.__cmux_command__ = COMMANDS['cloud-spare-warm-consent']
+GeneratedClientMixin.cloud_start_chat_reservation.__cmux_command__ = COMMANDS['cloud-start-chat-reservation']
 GeneratedClientMixin.conversation_agent_token.__cmux_command__ = COMMANDS['conversation-agent-token']
 GeneratedClientMixin.conversation_attachment_link.__cmux_command__ = COMMANDS['conversation-attachment-link']
 GeneratedClientMixin.conversation_attachment_read.__cmux_command__ = COMMANDS['conversation-attachment-read']

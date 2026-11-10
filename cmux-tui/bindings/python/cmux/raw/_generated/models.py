@@ -3038,6 +3038,38 @@ class CloudSessionStatusRequest:
 
 
 @dataclass(frozen=True)
+class CloudSpareWarmRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-spare-warm/request'
+    access_token: str
+    account: str
+    api: str
+    install_token: str
+    platform: str
+    claimed: Union[str, None, MissingType] = field(default=MISSING)
+    consent: Union[bool, None, MissingType] = field(default=MISSING)
+    dogfood: Union[bool, MissingType] = field(default=MISSING)
+    login_scopes: Union[List[str], MissingType] = field(default=MISSING)
+    setting: Union[bool, None, MissingType] = field(default=MISSING)
+    stored_choice: Union[str, None, MissingType] = field(default=MISSING)
+    team: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudSpareWarmConsentRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-spare-warm-consent/request'
+    consent: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudStartChatReservationRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-start-chat-reservation/request'
+    request: Union[JsonValue, None]
+    access_token: str
+    install_token: str
+    release: bool
+
+
+@dataclass(frozen=True)
 class ConversationAgentTokenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
     participant: str
@@ -6724,6 +6756,9 @@ __all__ = [
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
+    'CloudSpareWarmRequest',
+    'CloudSpareWarmConsentRequest',
+    'CloudStartChatReservationRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
     'ConversationAttachmentLinkRequest',
