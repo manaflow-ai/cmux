@@ -2220,9 +2220,10 @@ async fn a_detach_is_bounded_when_the_host_never_takes_the_terminate() {
     });
     // The restart's detach holds the agent slot by now.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let status = tokio::time::timeout(Duration::from_secs(10), rpc.call("_acpmux/status", json!({})))
-        .await
-        .expect("status waited on a detach whose host never takes the terminate");
+    let status =
+        tokio::time::timeout(Duration::from_secs(10), rpc.call("_acpmux/status", json!({})))
+            .await
+            .expect("status waited on a detach whose host never takes the terminate");
     assert!(status["pid"].is_number(), "{status}");
     let r = tokio::time::timeout(Duration::from_secs(20), restart)
         .await
