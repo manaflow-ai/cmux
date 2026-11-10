@@ -183,10 +183,11 @@ fn arg_paths(arg: &str) -> Vec<&str> {
     if let Some((_, value)) = arg.split_once('=') {
         words.push(value);
     }
-    if !rest.starts_with('-')
-        && let Some((at, _)) = rest.char_indices().nth(1)
-    {
-        words.push(&rest[at..]);
+    if !rest.starts_with('-') {
+        // The short flag's letter, then its value.
+        let mut value = rest.chars();
+        value.next();
+        words.push(value.as_str());
     }
     words.into_iter().filter(|w| !w.is_empty()).collect()
 }
