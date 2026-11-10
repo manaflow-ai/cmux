@@ -1030,22 +1030,13 @@ mod tests {
         let (dir, connection) = database("pinned");
         let path = dir.join("r.sqlite");
         let durability = WalDurability::attach(&connection, &path, None, false);
-        // The store's lock, given at the open as each store of the daemon
-        // gives it: the syncer runs the restart rule only with it.
-        let lock = Arc::new(Mutex::new(()));
-        durability.own_restart(Arc::downgrade(&lock));
         let wal = dir.join("r.sqlite-wal");
         let pinned = grow_a_pinned_wal(&path, &connection, &durability);
-        // Answered requests go on. The tries while the reader held its
-        // snapshot ended with no restart, so the next one comes 4 MiB of
-        // commits later: it copies the whole WAL, and the commit after it
-        // restarts the WAL and cuts the file to the limit.
-        let blob = vec![9u8; 64 * 1024];
+        // Answered requests go on: the syncer checkpoints the whole WAL, and
+        // the next commit restarts it and cuts the file to the limit.
         let deadline = Instant::now() + Duration::from_secs(10);
         let after = loop {
-            let held = lock.lock().recover_poison();
-            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
-            drop(held);
+            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
             durability.request_flush();
             let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
             if len <= WAL_SIZE_LIMIT_BYTES || Instant::now() > deadline {
