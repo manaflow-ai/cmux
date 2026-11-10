@@ -4,7 +4,7 @@ import CmuxNextHome
 import CmuxNextHomeModel
 import Foundation
 
-/// The card's parts per profile tab (Lawrence 2026-11-04, the Chief profile panel): Details, Settings
+/// The card's parts per profile tab (Lawrence 2026-11-04, the Chief profile): Details, Settings
 /// and Computer each show one section of this card, so every Chief setting shows in exactly one tab.
 @MainActor
 final class HomeChiefSettingsSections {

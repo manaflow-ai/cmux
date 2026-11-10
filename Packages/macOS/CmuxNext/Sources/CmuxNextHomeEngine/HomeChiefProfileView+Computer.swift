@@ -12,7 +12,7 @@ extension HomeChiefProfileView {
             gateButton.title = HomeEngineStrings.computerUpgrade
             gateButton.isHidden = false
         case .needsCloudChief:
-            // The panel has the Computer Use picker right under the note; the page has none.
+            // The popover has the Computer Use picker right under the note; the page has none.
             gateLabel.stringValue = settings == nil ? HomeEngineStrings.computerNeedsCloudChief(name())
                 : HomeEngineStrings.computerNeedsCloudOrMachine(name())
             gateButton.title = HomeEngineStrings.computerMove

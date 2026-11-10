@@ -11,7 +11,7 @@ extension InternalPageID {
     nonisolated static let chiefComputer = InternalPageID(rawValue: "chief-computer")
 }
 
-/// Owns the Chief's large computer pages in the pane beside Home. The profile panel's Expand and
+/// Owns the Chief's large computer pages in the pane beside Home. The settings popover's Expand and
 /// the palette's Chief: Toggle Computer open them. Each tab's route is its conversation, so a relaunched tab shows the same Chief.
 @MainActor
 final class ChiefComputerPageService: InternalPageProvider {
@@ -144,7 +144,7 @@ final class ChiefComputerPageService: InternalPageProvider {
         return view
     }
 
-    /// What this page and the Home chat's profile panel share: the computer, the plan, the Chief, Upgrade and Move to Cloud.
+    /// What this page and the Chief settings popover's profile share: the computer, the plan, the Chief, Upgrade and Move to Cloud.
     static func wire(_ view: HomeChiefProfileView, services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)

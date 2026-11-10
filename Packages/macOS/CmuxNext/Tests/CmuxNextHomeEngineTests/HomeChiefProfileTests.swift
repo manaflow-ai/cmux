@@ -4,10 +4,10 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// The Chief profile panel (Lawrence 2026-11-04, after Grok's bot panel): Details · Settings ·
-/// Computer, every setting of the old settings card in exactly one tab, the Computer tab's gates,
-/// and the control bar that hands the computer between the Chief and the person.
-@MainActor @Suite(.serialized) struct HomeChiefProfilePanelTests {
+/// The Chief's profile (Lawrence 2026-11-04, after Grok's bot panel), in the Chief settings popover and
+/// the expanded computer page: Details · Settings · Computer, every setting of the card in exactly one
+/// tab, the Computer tab's gates, and the control bar that hands the computer between the Chief and the person.
+@MainActor @Suite(.serialized) struct HomeChiefProfileTests {
     private static func card() -> HomeChiefSettingsView {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("chief-profile-\(UUID().uuidString)")
         let card = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
@@ -121,78 +121,42 @@ import Testing
         #expect(bar.status.frame.minX <= bar.edgeInsets.left + 1)
     }
 
-    /// cmux issue 38140: in a pane too narrow for both, the panel lies over the chat. Over a see-through
-    /// window the pane's fill is clear, and the chat's welcome text showed through the panel's own text.
-    /// Over the chat the panel is opaque; beside it, it keeps the pane's clear fill.
-    @Test func overTheChatThePanelIsOpaqueInASeeThroughWindow() throws {
-        // A workspace with a background picture: its window is see-through, so the pane's fill is clear.
-        let workspace = ThemeScope(level: .workspace)
-        workspace.pinBackdrop(.selection(.art(.vanGoghStarryNight)))
-        defer { workspace.pinBackdrop(.inherit) }
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
-        host.wantsLayer = true
-        workspace.root(host)
-        let chat = NSView()
-        host.addSubview(chat)
-        let panel = HomeChiefProfilePanel(settings: Self.card())
-        panel.install(in: host)
-        try #require(host.performWithTheme { Palette.paneFill.alphaComponent } == 0, "the window must be see-through, or this passes without the fix")
-        panel.open(.details)
-        let fillAlpha = { () -> CGFloat in
-            host.performWithTheme { panel.applyTheme() } // the host's theme pass (HomeHostView.updateLayer)
-            return panel.view.layer?.backgroundColor?.alpha ?? 0
-        }
-
-        panel.layout(chat: chat, in: host.bounds)
-        #expect(panel.coversChat)
-        #expect(panel.view.frame == host.bounds)
-        #expect(fillAlpha() == 1)
-
-        let wide = NSRect(x: 0, y: 0, width: 4 * HomeChiefProfileView.panelWidth, height: 600)
-        host.frame = wide
-        panel.layout(chat: chat, in: wide)
-        #expect(!panel.coversChat)
-        #expect(!panel.view.frame.intersects(chat.frame))
-        #expect(fillAlpha() == 0)
-    }
-
-    /// The chat's computer popup opens the panel at Computer and hides while that tab is on show;
-    /// another tab or a closed panel brings it back (cmux issue 31488).
-    @Test func thePanelShowsTheComputerOnlyOnItsTab() {
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
-        let panel = HomeChiefProfilePanel(settings: Self.card())
-        panel.install(in: host)
-        #expect(!panel.showsComputer)
-        panel.open(.computer)
-        #expect(panel.showsComputer)
-        panel.view.select(.details)
-        #expect(!panel.showsComputer)
-        panel.open(.computer)
-        panel.close(keyboardTo: host)
-        #expect(!panel.showsComputer)
-        // Opening, a pick and closing each tell the host, so the popup follows at once.
-        var changes = 0
-        panel.view.onTab = { changes += 1 }
-        panel.open(.details)
+    /// A pick tells the host: the chat's computer popup follows the Computer tab at once, and the
+    /// popover follows the tab's height (cmux issue 31488).
+    @Test func aTabPickTellsTheHost() {
+        let profile = HomeChiefProfileView(settings: Self.card())
+        var changes = 0, resizes = 0
+        profile.onTab = { changes += 1 }
+        profile.onResize = { resizes += 1 }
+        profile.tabs.button(.computer)?.performClick(nil)
+        #expect(profile.selectedTab == .computer)
         #expect(changes == 1)
-        panel.view.tabs.button(.computer)?.performClick(nil)
-        #expect(changes == 2)
-        #expect(panel.showsComputer)
-        panel.close(keyboardTo: host)
-        #expect(changes == 3)
+        #expect(resizes >= 1)
     }
 
-    /// The capture scene's fixture computer keeps its control bar through the host's own reads.
-    @Test func aPinnedControlBarIgnoresTheHostsComputer() {
-        let panel = HomeChiefProfilePanel(settings: Self.card())
+    /// The popover's profile has no ✕ (a click outside or Escape closes it); the expanded page has one.
+    @Test func onlyTheExpandedPageHasAClose() {
+        #expect(HomeChiefProfileView(settings: Self.card()).closeButton.isHidden)
+        #expect(!HomeChiefProfileView().closeButton.isHidden)
+    }
+
+    /// The control bar follows the Chief's computer: a new source only when the computer changes, none without one.
+    @Test func theControlBarFollowsTheChiefsComputer() {
+        let profile = HomeChiefProfileView(settings: Self.card())
         let lease = Lease()
-        panel.view.control = lease.source(machine: false)
-        panel.view.pinsControl = true
-        panel.follow(agent: nil, machine: nil) { _, _ in nil }
-        #expect(panel.view.control != nil)
-        panel.view.pinsControl = false
-        panel.follow(agent: nil, machine: nil) { _, _ in nil }
-        #expect(panel.view.control == nil)
+        var made = 0
+        profile.follow(agent: "agent-1", machine: nil) { _, _ in
+            made += 1
+            return lease.source(machine: false)
+        }
+        #expect(profile.control != nil)
+        profile.follow(agent: "agent-1", machine: nil) { _, _ in
+            made += 1
+            return lease.source(machine: false)
+        }
+        #expect(made == 1)
+        profile.follow(agent: nil, machine: nil) { _, _ in nil }
+        #expect(profile.control == nil)
     }
 
     @Test func theExpandedPageHasNoSettingsTab() {

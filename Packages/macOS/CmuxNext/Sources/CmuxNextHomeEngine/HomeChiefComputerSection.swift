@@ -114,7 +114,7 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.translatesAutoresizingMaskIntoConstraints = false
         message.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         message.alignment = .center
-        message.textColor = NSColor(white: 0.86, alpha: 1)
+        message.textColor = NSColor(white: 0.86, alpha: 1)  // colour-allow: light ink on the screen card, dark in both themes like a monitor
         let note = NSStackView(views: [sleepFace, message])
         note.orientation = .vertical
         note.alignment = .centerX
@@ -183,7 +183,7 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.layer?.backgroundColor = (screen.image == nil ? Self.cardFill : NSColor.black).cgColor
     }
 
-    static let cardFill = NSColor(white: 0.12, alpha: 1)
+    static let cardFill = NSColor(white: 0.12, alpha: 1)  // colour-allow: an unlit monitor, dark in both themes
 
     private func stop() {
         watch?.cancel()

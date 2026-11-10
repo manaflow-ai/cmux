@@ -6,7 +6,7 @@ import AppKit
 /// Decorative: the note beside it says it.
 @MainActor
 final class HomeChiefComputerSleepFace: NSView {
-    private static let grey = NSColor(white: 0.55, alpha: 1)
+    private static let grey = NSColor(white: 0.55, alpha: 1)  // colour-allow: on the dark screen card in both themes
     private static let disc: CGFloat = 30
     /// The disc's center in the view (flipped); the z's take the room above and to the right.
     private static let center = NSPoint(x: 28, y: 30)
@@ -23,7 +23,7 @@ final class HomeChiefComputerSleepFace: NSView {
         let center = Self.center
         Self.grey.setFill()
         NSBezierPath(ovalIn: NSRect(x: center.x - Self.disc / 2, y: center.y - Self.disc / 2, width: Self.disc, height: Self.disc)).fill()
-        NSColor(white: 0.13, alpha: 1).setFill()
+        NSColor(white: 0.13, alpha: 1).setFill()  // colour-allow: the face's features, the screen card's dark
         if awake {
             for side: CGFloat in [-1, 1] {
                 NSBezierPath(ovalIn: NSRect(x: center.x + side * 4.75 - 2.2, y: center.y - 3.2, width: 4.4, height: 4.4)).fill()

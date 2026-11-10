@@ -65,8 +65,7 @@ struct HomeHeaderPanelsTests {
 
     /// Nothing is open by default: a fresh window's header shows every toggle off (a Chief's
     /// conversation), and only the sidebar toggle elsewhere. Share Screen with Chief shows even
-    /// while the Debug toggle hides the rest (it is the sharing indicator too). The Chief's computer
-    /// has no header toggle: it is the profile's Computer tab (cmux issue 31488).
+    /// while the Debug toggle hides the rest: it is the sharing indicator too.
     @Test func aFreshWindowShowsEveryToggleOff() throws {
         let h = try Self.harness()
         defer { h.close() }

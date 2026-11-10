@@ -1,7 +1,9 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -23,9 +25,9 @@ protocol HomeChiefShowing: NSView {
 }
 
 /// What a Home view does for the Chief conversation it shows, apart from drawing it (the Messages
-/// page draws it): the Chief's settings, a popover under the page's name pill; Stop, Stop All Agents
-/// and their toast; whether the Chief answers now (the Chief panel's Esc). Moved from the native
-/// `HomeHostView`, unchanged: the popover, its rows and its hooks are the same objects.
+/// page draws it): the Chief's profile, a popover under the page's name pill (its settings and its
+/// computer, cmux issue 31488); the live view of that computer over the chat while the Chief uses it;
+/// Stop, Stop All Agents and their toast; whether the Chief answers now (the Chief panel's Esc).
 @MainActor
 final class HomeChiefSurface {
     let conversation: ConversationID
@@ -52,12 +54,15 @@ final class HomeChiefSurface {
     private var showsHosted = false
     private var engineWatch: Task<Void, Never>?
     private var hostWatch: Task<Void, Never>?
+    /// The live view over the chat while a Cloud Chief uses its computer; made at its first turn.
+    private var computerPopup: HomeChiefComputerPopup?
 
     private struct Made {
         let settings: HomeChiefSettingsPopover
         let petRows: ChiefPetSettingsRows
         let teleport: ChiefTeleportChips
         var view: HomeChiefSettingsView { settings.content }
+        var profile: HomeChiefProfileView { settings.profile }
     }
 
     init(services: AppServices, conversation: ConversationID, owner: NSView) {
@@ -74,9 +79,13 @@ final class HomeChiefSurface {
         hostWatch?.cancel()
     }
 
-    /// The view left its window or hid: the popover closes, so it never stays over the next pane.
+    /// The view left its window or hid, or shows another conversation: the popover closes, so it never
+    /// stays over the next pane, and the computer's live view goes (the next turn brings it back).
     func close() {
         made?.settings.close()
+        computerPopup?.follow(working: false)
+        computerPopup?.removeFromSuperview()
+        computerPopup = nil
     }
 
     /// This surface's Chief shows in its view, on screen.
@@ -112,6 +121,7 @@ final class HomeChiefSurface {
                 let reread = renamed || isChief != self.isChief || participant != self.participant
                 (self.isChief, self.participant) = (isChief, participant)
                 isWorking = isChief && typing
+                if isWorking && cloud || computerPopup != nil { followComputerPopup(working: isWorking && cloud) }
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 let engineMoved = cloud != showsCloud || (cloud && hosted != showsHosted)
                 (showsCloud, showsHosted) = (cloud, hosted)
@@ -120,7 +130,11 @@ final class HomeChiefSurface {
                     if renamed || engineMoved { made.view.use(control.engineSource()) }
                     made.view.setName(title)
                     if !isChief, made.settings.isShown { made.settings.close() }
-                    if made.settings.isShown { made.view.refresh() }
+                    if made.settings.isShown {
+                        made.view.refresh()
+                        made.profile.refresh()
+                        followComputerControl()
+                    }
                 }
                 if reread { loadAvatar() }
                 openPendingSettings()
@@ -141,6 +155,7 @@ final class HomeChiefSurface {
             return openOnly
         }
         guard showsChiefOnScreen, let owner else { return false }
+        followComputerControl()
         let placed = anchor.superview === owner
         if !placed { owner.addSubview(anchor) }
         if let pill {
@@ -150,6 +165,14 @@ final class HomeChiefSurface {
         }
         made.view.refresh()
         return made.settings.show(relativeTo: anchor, toggles: [anchor])
+    }
+
+    /// The profile opens at `tab` (the pet's Chief Pet Settings…, the computer popup's click). True if shown.
+    @discardableResult
+    func openProfile(_ tab: HomeChiefProfileTab) -> Bool {
+        let shown = toggleSettings(openOnly: true)
+        if shown { make().profile.select(tab) }
+        return shown
     }
 
     /// The header's location chip was clicked at `chip` (page points): the Teleport menu pops up under it.
@@ -183,7 +206,8 @@ final class HomeChiefSurface {
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the card at once
         petRows.onRefusal = { [view] in view.showNote($0) }  // why an upload was refused
         petRows.install(in: owner ?? anchor, addRow: { [view] in view.addAppearanceRow($0, control: $1) },
-                        open: { [weak self] in self?.toggleSettings(openOnly: true) ?? false })
+                        open: { [weak self] in self?.openProfile(.settings) ?? false })
+        wireComputer(settings, services: app)
         view.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -274,7 +298,11 @@ final class HomeChiefSurface {
             guard let self, control.brainHome == home else { return }
             onFace?(page, avatar.text)
             let name = control.services.home.chiefName(of: conversation) ?? ""
-            made?.view.setAvatar(picture: decoded.map { NSImage(cgImage: $0, size: .zero) }, text: avatar.text ?? HomeChiefAvatar.monogram(of: name))
+            let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
+            made?.view.setAvatar(picture: picture, text: avatar.text ?? HomeChiefAvatar.monogram(of: name))
+            // The expanded computer page shows the same face.
+            (control.services.pages.provider(.chiefComputer) as? ChiefComputerPageService)?
+                .setAvatar(conversation: conversation.rawValue, picture: picture, text: avatar.text)
         }
     }
 
@@ -318,6 +346,80 @@ final class HomeChiefSurface {
         return toggleSettings(openOnly: true) && make().view.beginEditingName()
     }
     #endif
+}
+
+// MARK: The Chief's computer (cmux issue 31488)
+
+extension HomeChiefSurface {
+    /// The popup's place over the page: under the chat's header, at its right edge.
+    private static let computerPopupTop: CGFloat = 60
+    private static let computerPopupInset: CGFloat = 12
+
+    /// The profile's Computer tab (the wiring the expanded page shares), the card's vault, connections
+    /// (cmux issue 34263) and Computer Use picker (cmux issue 36047), and Expand to the large page.
+    private func wireComputer(_ popover: HomeChiefSettingsPopover, services: AppServices) {
+        let conversation = conversation.rawValue
+        let view = popover.content, profile = popover.profile
+        ChiefComputerPageService.wire(profile, services: services, conversation: conversation)
+        let work = services.work
+        view.vault.names = {
+            let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
+            return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
+        }
+        view.connections.source = .init(services.accounts.chiefConnections)
+        view.bindCloudComputers(services.registry) { [weak services] in
+            services?.machines.cloud.compactMap { $0.effectiveStatus == .destroyed ? nil : .init(id: $0.machineID, title: $0.machine.title) } ?? []
+        }
+        // The chat's popup hides while the popover shows the computer, and comes back as it goes.
+        profile.onTab = { [weak self] in self?.computerPopup?.update() }
+        popover.onClose = { [weak self] in self?.computerPopup?.update() }
+        profile.onExpand = { [weak services, weak popover] in
+            popover?.close()
+            let arguments: [String: ActionValue] = ["conversation": .string(conversation), "open": .string("1")]
+            _ = services?.registry.perform(ChiefComputerPageService.toggleActionID, invocation: ActionInvocation(arguments: arguments, origin: .user))
+        }
+        let shown = view.onComputerShown
+        view.onComputerShown = { [weak self] in
+            shown()
+            self?.followComputerControl()
+        }
+    }
+
+    /// The control bar's computer: a Cloud Chief's own, else the Cloud machine a Chief of this Mac uses, else its own.
+    private func followComputerControl() {
+        guard let made else { return }
+        let services = control.services, conversation = conversation.rawValue
+        let machine = services.home.cloudChiefs.chief(for: conversation) == nil ? made.view.attachedMachine : nil
+        let agent = machine == nil ? ChiefComputerPageService.computerKey(services, conversation) : nil
+        made.profile.follow(agent: agent, machine: machine) { [weak services] in services?.chiefComputerControlSource(agent: $0, machine: $1) }
+    }
+
+    /// A Chief turn started or ended (`working`: a Cloud Chief answers): the live view over the chat follows it.
+    private func followComputerPopup(working: Bool) {
+        guard let owner else { return }
+        (computerPopup ?? makeComputerPopup(in: owner)).follow(working: working)
+    }
+
+    /// The popup at the chat's top right, over the page, so no message moves. A click opens the profile at Computer.
+    private func makeComputerPopup(in owner: NSView) -> HomeChiefComputerPopup {
+        let popup = HomeChiefComputerPopup()
+        computerPopup = popup
+        let services = control.services, conversation = conversation.rawValue
+        popup.section.source = ChiefComputerPageService.source(services: services, conversation: conversation)
+        popup.isSuppressed = { [weak self, weak services] in
+            guard let self else { return false }
+            if let made, made.settings.isShown, made.profile.selectedTab == .computer { return true }
+            guard let page = services?.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
+            return page.shows(conversation, in: self.owner?.window)
+        }
+        popup.onOpen = { [weak self] in _ = self?.openProfile(.computer) }
+        owner.addSubview(popup)
+        NSLayoutConstraint.activate([
+            popup.topAnchor.constraint(equalTo: owner.topAnchor, constant: Self.computerPopupTop),
+            popup.trailingAnchor.constraint(equalTo: owner.trailingAnchor, constant: -Self.computerPopupInset),
+        ])
+        return popup
+    }
 }
 
 extension CmuxToast {

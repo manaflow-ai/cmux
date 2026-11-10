@@ -16,7 +16,7 @@ extension HomeChiefSettingsView {
     }
 
     /// The avatar (a menu changes it) beside the Name row, where the brain runs under the name. The
-    /// profile panel shows the avatar in its header, which leaves the Name row.
+    /// profile shows the avatar in its header, which leaves the Name row.
     func identityRow() -> NSView {
         avatarButton.target = self
         avatarButton.action = #selector(showPictureMenu)
