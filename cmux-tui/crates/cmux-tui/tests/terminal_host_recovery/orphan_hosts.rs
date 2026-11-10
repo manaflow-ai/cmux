@@ -110,3 +110,75 @@ fn a_live_host_of_a_lost_registry_is_recovered_not_terminated() {
         "no recovery workspace: {tree}"
     );
 }
+
+/// A recovered terminal whose tab was closed runs detached. It has a public
+/// terminal id by then, so the next owner does not place it a second time
+/// (the rule of the Cloud template terminal, main #33195): it restores it
+/// detached, and the session still creates terminals.
+#[test]
+fn a_recovered_terminal_whose_tab_was_closed_stays_detached_after_a_restart() {
+    let mut harness = RecoveryHarness::start("orphan-recovered-detached");
+    let (terminal_id, record_path, record) = start_cat(&harness, "lost", "before-registry-loss");
+    stop_owner(&mut harness);
+    let registry = registry_path(&harness.state);
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = fs::remove_file(format!("{}{suffix}", registry.display()));
+    }
+    harness.restart();
+    wait_for_running(&harness, &terminal_id);
+
+    let listed = resource_request(
+        &harness.socket,
+        "recovered-detached-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let placed: Vec<&serde_json::Value> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|terminal| terminal["tab_id"].is_string())
+        .collect();
+    assert_eq!(placed.len(), 1, "expected the one recovered terminal in a tab: {listed}");
+    let public_id = placed[0]["id"].as_str().unwrap().to_string();
+    let tab = placed[0]["tab_id"].as_str().unwrap().to_string();
+    resource_request(
+        &harness.socket,
+        "recovered-detached-close-tab",
+        "tab.close",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        Some("recovered-detached-close-tab"),
+    );
+    stop_owner(&mut harness);
+    harness.restart();
+
+    wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
+    assert_same_live_host(&harness, &record_path, &record);
+    let after = resource_request(
+        &harness.socket,
+        "recovered-detached-list-after",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let recovered = after
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == public_id.as_str())
+        .unwrap_or_else(|| panic!("the detached recovered terminal was lost: {after}"));
+    assert!(
+        recovered["tab_ids"].as_array().is_none_or(Vec::is_empty),
+        "the detached recovered terminal was placed again: {recovered}"
+    );
+    assert_eq!(recovered["running"], true, "{recovered}");
+    let created = resource_request(
+        &harness.socket,
+        "recovered-detached-create",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("recovered-detached-create"),
+    );
+    assert!(created["value"]["terminal_id"].is_string(), "{created}");
+}

@@ -210,6 +210,18 @@ fn from_folder_goes_to_the_cloud_start() {
     assert!(parse(&words(&["--from-folder", "a", "--from-folder", "b", "go"]), None).is_err());
 }
 
+/// The copy-size refusal's recovery, `--allow-large`, works on `cmux chat` too: it goes to the
+/// Cloud start with the folder.
+#[test]
+fn allow_large_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "--allow-large", "go"]);
+    assert!(picked.allow_large);
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", ".", "--allow-large"])
+    );
+}
+
 /// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the
 /// Environment the composer's chip picks: none is Auto, and one makes the chat's machine in it.
 #[test]
