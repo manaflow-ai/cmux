@@ -29,7 +29,8 @@ export function ChiefTaskHat({
 }) {
   const subscribe = useCallback((listener: () => void) => book.subscribe(listener), [book]);
   const version = useSyncExternalStore(subscribe, book.getVersion);
-  // One re-read when the next finished task expires; none while nothing has finished.
+  // One re-read at the next boundary: a finished task's expiry, a running one's stall, a stalled
+  // one's removal. None while the hat is empty.
   const [expired, setExpired] = useState(0);
   const tickNow = Date.now();
   const tasks = useMemo(
@@ -65,7 +66,7 @@ export function ChiefTaskHat({
   return (
     <ul className={`lg-task-hat ${look}`} aria-label={label}>
       {tasks.map((task) => (
-        <TaskRow key={task.id} task={task} now={at} strings={strings} chip={look === "chips"} />
+        <TaskRow key={task.key} task={task} now={at} strings={strings} chip={look === "chips"} />
       ))}
     </ul>
   );

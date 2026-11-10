@@ -17,7 +17,7 @@ export const TASK_STALL_MS = 30 * 60_000;
  * the agent's own chat) ended it. */
 export const TASK_GONE_MS = 3 * 3600_000;
 const CONTROL_TOOLS = new Set(["control", "optchat.control", "mcp__optchat__control"]);
-const ENDING_ACTIONS = new Set(["cancel", "stop", "interrupt"]);
+const ENDING_ACTIONS = new Set(["cancel", "stop"]);
 /** The newest runs of a conversation read for tasks. */
 export const MAX_RUNS = 40;
 /** Characters of a result line. */
@@ -27,6 +27,8 @@ const SPAWN_TOOLS = new Set(["spawn", "optchat.spawn", "mcp__optchat__spawn"]);
 export type ChiefTaskState = "running" | "stalled" | "done" | "stopped";
 
 export interface ChiefTask {
+  /** Unique in the conversation: its Chief and its id (each Chief counts `a1` on its own). */
+  key: string;
   id: string;
   title: string;
   state: ChiefTaskState;
@@ -72,6 +74,7 @@ function spawned(step: HomeRunStep): ChiefTask[] {
     const [, id, answer] = match;
     if (!answer!.startsWith("hidden:")) return;
     out.push({
+      key: id!,
       id: id!,
       title: taskTitle(aligned?.[index], id!),
       state: "running",
@@ -85,6 +88,8 @@ function spawned(step: HomeRunStep): ChiefTask[] {
 function cancelled(step: HomeRunStep): string | undefined {
   const tool = step.tool;
   if (step.kind !== "tool" || !tool || !CONTROL_TOOLS.has(tool.name)) return undefined;
+  // Only a call that went through: a refused or failed cancel leaves the task running.
+  if (step.status === "failed" || /^(error|refused|outcome: refused)/i.test(tool.output ?? "")) return undefined;
   const input = tool.input as { action?: unknown; id?: unknown } | undefined;
   return typeof input?.action === "string" && ENDING_ACTIONS.has(input.action) && typeof input.id === "string"
     ? input.id
@@ -107,7 +112,7 @@ export function chiefTasks(entries: readonly RunEntry[], now: number): ChiefTask
   for (const { run, steps } of runs) {
     const key = (id: string) => `${run.author}\0${id}`;
     for (const step of steps) {
-      for (const task of spawned(step)) tasks.set(key(task.id), task);
+      for (const task of spawned(step)) tasks.set(key(task.id), { ...task, key: key(task.id) });
       const stop = cancelled(step);
       const stopping = stop ? tasks.get(key(stop)) : undefined;
       if (stopping && (stopping.state === "running" || stopping.state === "stalled")) {
@@ -138,6 +143,12 @@ export function chiefTasks(entries: readonly RunEntry[], now: number): ChiefTask
 
 /** When the hat next changes by itself: the earliest finished task's expiry; undefined when none. */
 export function nextExpiry(tasks: readonly ChiefTask[]): number | undefined {
-  const at = tasks.filter((t) => t.endedAt !== undefined).map((t) => t.endedAt! + HAT_TTL_MS);
+  const at = tasks.flatMap((t) =>
+    t.endedAt !== undefined
+      ? [t.endedAt + HAT_TTL_MS]
+      : t.state === "running"
+        ? [t.startedAt + TASK_STALL_MS]
+        : [t.startedAt + TASK_GONE_MS],
+  );
   return at.length ? Math.min(...at) : undefined;
 }

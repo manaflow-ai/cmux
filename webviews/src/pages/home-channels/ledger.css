@@ -2226,6 +2226,12 @@
 .lg-task-hat {
   display: grid;
   gap: 0;
+  /* A 24-task spawn never pushes the composer out of view: about four rows show, the rest
+     scroll inside the hat. */
+  flex: none;
+  max-height: calc(var(--ds-control-row) * 4.5 + var(--ds-space-2));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 var(--lg-pad) var(--ds-space-1);
   padding: var(--ds-space-1) 0;
   list-style: none;

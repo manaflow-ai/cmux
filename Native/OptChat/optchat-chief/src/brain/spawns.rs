@@ -1773,8 +1773,15 @@ impl Brain {
         else {
             return;
         };
+        // A tucked one keeps a short task's guards: a stopped run, or a report that left work to
+        // land (its landing follow-up resumes it), keeps its workspace.
         let reap =
-            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now);
+            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
+                && !sub.stopped
+                && !sub
+                    .report
+                    .as_deref()
+                    .is_some_and(crate::sub_watch::unlanded);
         // Every finished one under the close setting; else a short task's
         // (a run under SHORT_TASK whose report left nothing to land), so a
         // sidebar does not fill with workspaces of one-off asks. Its chat

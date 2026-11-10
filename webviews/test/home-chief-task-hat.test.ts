@@ -41,6 +41,7 @@ test("a stall marks a task once and its report still ends it", () => {
   ];
   expect(tasksOf(runs)).toEqual([
     {
+      key: "chief\u0000a9",
       id: "a9",
       title: "count tests",
       state: "done",
@@ -81,4 +82,28 @@ test("each Chief's a1 is its own task", () => {
     ["Theirs", "running"],
     ["Mine", "done"],
   ]);
+});
+
+test("the hat wakes at the next stall or removal; a refused cancel or an interrupt keeps it running", () => {
+  const start = HAT_NOW - 60_000;
+  const spawn = spawnRun("s", start, [["a8", "x", "hidden: a background task"]]);
+  expect(nextExpiry(tasksOf([spawn]))).toBe(start + TASK_STALL_MS);
+  expect(nextExpiry(tasksOf([spawn], start + TASK_STALL_MS))).toBe(start + TASK_GONE_MS);
+  const control = (action: string, output: string) => {
+    const run = spawnRun(`c-${action}`, HAT_NOW - 30_000, []);
+    run.steps.push({
+      id: `c-${action}-step`,
+      seq: 1,
+      at: HAT_NOW - 30_000,
+      rev: 1,
+      kind: "tool",
+      attachments: [],
+      links: [],
+      tool: { name: "control", input: { action, id: "a8" }, output, files: [] },
+    });
+    return run;
+  };
+  expect(tasksOf([spawn, control("interrupt", "outcome: done")]).map((t) => t.state)).toEqual(["running"]);
+  expect(tasksOf([spawn, control("cancel", "outcome: refused. not yours")]).map((t) => t.state)).toEqual(["running"]);
+  expect(tasksOf([spawn, control("cancel", "outcome: done")]).map((t) => t.state)).toEqual(["stopped"]);
 });
