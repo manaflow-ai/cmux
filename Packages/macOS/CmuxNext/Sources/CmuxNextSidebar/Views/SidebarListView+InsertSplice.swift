@@ -15,10 +15,17 @@ extension SidebarListViewComponents {
               let shown = sections[insertion.section.id], shown.nodes.count + 1 == insertion.section.nodes.count else { return nil }
         // The section the list drew is the set's without the new node (one compare per node, no layout): not when
         // `listingEachWorkspaceOnce` left out a workspace an earlier section lists too, which the cache would take back.
-        var before = insertion.section
-        before.nodes.remove(at: insertion.node)
-        SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
-        guard shown == before else { return nil }
+        // Not for a change the model took as its input (`SidebarModel.apply`, `fromRowChange`): it put the row into the
+        // section it listed at `from`, which this list drew (`spliceBase`), and it lists no workspace twice. The rows
+        // beside the place are checked, never every row.
+        if insertion.fromRowChange {
+            guard sitsBesideDrawnRows(insertion, in: shown) else { return nil }
+        } else {
+            var before = insertion.section
+            before.nodes.remove(at: insertion.node)
+            SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
+            guard shown == before else { return nil }
+        }
         let o = options(includeGap: true)
         // The selection moves to the new row with the insert (Cmd-N): the layout reads it only to keep a selected row
         // in a collapsed group, in a fold or out of the Archive, so it must leave every row where it was, both ways.
@@ -44,10 +51,17 @@ extension SidebarListViewComponents {
         // The section the list drew is the removal's with the row at its node (one compare per node, no layout).
         guard workspaces[id] != nil, let shown = sections[removal.section.id], removal.node < shown.nodes.count,
               case let .workspace(listed) = shown.nodes[removal.node], listed.id == id else { return nil }
-        var after = shown
-        after.nodes.remove(at: removal.node)
-        SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
-        guard after == removal.section else { return nil }
+        // Not for a change the model took as its input (as in `spliceInsertion`): the node count, and the row at the
+        // node (above), are the check.
+        if removal.fromRowChange {
+            SidebarPerfCounters.add(.rowsWalked)
+            guard removal.insertion == nil, shown.nodes.count == removal.section.nodes.count + 1 else { return nil }
+        } else {
+            var after = shown
+            after.nodes.remove(at: removal.node)
+            SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
+            guard after == removal.section else { return nil }
+        }
         // A move's target section, as the list would draw it before the row comes back.
         var target: SidebarSection?
         if let insertion = removal.insertion {
@@ -77,6 +91,16 @@ extension SidebarListViewComponents {
             workspaces[id] = nil
         }
         return (layout, .workspace(id), removal.insertion != nil, o)
+    }
+
+    /// Whether the row a one-row change added (`fromRowChange`) sits between the two rows that `shown`, the section
+    /// this list drew, has at its place: the same node before it and the same node after it.
+    private func sitsBesideDrawnRows(_ insertion: SidebarRowInsertion, in shown: SidebarSection) -> Bool {
+        let (nodes, k) = (insertion.section.nodes, insertion.node)
+        SidebarPerfCounters.add(.rowsWalked, 2)
+        if k > 0 { guard nodes[k - 1].id == shown.nodes[k - 1].id else { return false } }
+        if k < shown.nodes.count { guard nodes[k + 1].id == shown.nodes[k].id else { return false } }
+        return true
     }
 
     /// Whether selecting workspace `id` (or leaving it) moves no row: it is the inserted row, not listed here, or a

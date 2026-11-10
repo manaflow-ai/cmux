@@ -13,6 +13,10 @@ public nonisolated struct SidebarRowInsertion: Sendable {
     let section: SidebarSection
     /// The row's node index in `section`.
     let node: Int
+    /// The model made this from a one-row change it took as its input (`SidebarModel.apply(_:)`): `section` is the
+    /// section the model listed at `from` with the row put in (in a removal: taken out), and the workspace is listed
+    /// once. The list does not compare the section's rows again. Never set by a full set, which found the row itself.
+    var fromRowChange = false
     /// The inserted workspace.
     var workspace: SidebarWorkspace? {
         if case let .workspace(ws) = section.nodes[node] { ws } else { nil }
@@ -59,6 +63,8 @@ public nonisolated struct SidebarRowRemoval: Sendable {
     let workspace: SidebarWorkspace
     /// A move: the same workspace's row added back, onto the sections the removal leaves (its section as the set left it).
     let insertion: SidebarRowInsertion?
+    /// As `SidebarRowInsertion.fromRowChange`.
+    var fromRowChange = false
 }
 
 nonisolated extension SidebarSection {

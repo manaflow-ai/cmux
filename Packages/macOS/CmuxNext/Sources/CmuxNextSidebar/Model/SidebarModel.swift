@@ -34,14 +34,14 @@ public final class SidebarModel {
             rowIndex = nil
         }
     }
-    @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
+    @ObservationIgnored var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
     /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
     /// instead of every row.
     @ObservationIgnored public private(set) var contentRevision: UInt64 = 0
     /// Moves on every structural set of `sections`: readers compare it instead
     /// of the rows themselves (one counter, not a deep compare of 1,000 rows).
-    @ObservationIgnored public private(set) var sectionsRevision: UInt64 = 0
+    @ObservationIgnored public internal(set) var sectionsRevision: UInt64 = 0
     /// `sectionsRevision`, read so a tracked reader hears the next structural set.
     public var observedSectionsRevision: UInt64 {
         access(keyPath: \.sections)
@@ -50,14 +50,14 @@ public final class SidebarModel {
     /// `sectionsRevision` at the last structural set: a group's fold (`setGroupCollapsed`) moves
     /// `sectionsRevision` (caches keyed on it rebuild) but not this, so the sidebar draws a fold by
     /// splicing its rows (`onGroupFolded`) instead of laying the whole list out again.
-    @ObservationIgnored public private(set) var structureRevision: UInt64 = 0
+    @ObservationIgnored public internal(set) var structureRevision: UInt64 = 0
     /// `structureRevision`, read so a tracked reader hears the next structural set.
     public var observedStructureRevision: UInt64 {
         access(keyPath: \.sections)
         return structureRevision
     }
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
-    @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
+    @ObservationIgnored var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
     @ObservationIgnored public var onGroupFolded: ((GroupID) -> Void)?
 
@@ -470,7 +470,8 @@ public final class SidebarModel {
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
         let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
-        if writesRowsInPlace(next) { return }
+        rowChangeBase.note(given: new, shown: next, hidden: hiddenItemRefs, arranged: docDrag?.document?.shown != nil)
+        if writesRowsInPlace(next) { return rowChangeBase.recount(storedSections, structure: structureRevision) }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
         let from = sectionsRevision
@@ -478,6 +479,7 @@ public final class SidebarModel {
         // A set that only closes or moves one loose workspace row: the list takes it out (and puts it back) the same way.
         let removal = splicesRemovals && filterText.isEmpty && added == nil ? looseRemoval(to: next) : nil
         sections = next // the setter skips an unchanged list
+        rowChangeBase.recount(storedSections, structure: structureRevision)
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
         rowRemoval = removal.map { removal in
             let insertion = removal.insertion.map {
@@ -486,22 +488,6 @@ public final class SidebarModel {
             return SidebarRowRemoval(from: from, to: sectionsRevision, content: contentRevision, section: removal.section,
                                      node: removal.node, workspace: removal.workspace, insertion: insertion)
         }
-    }
-
-    /// Whether `sections` list workspace `id` once (a scan that stops at a second listing; no index is built).
-    private static func listsOnce(_ id: WorkspaceID, in sections: [SidebarSection]) -> Bool {
-        var seen = 0
-        for section in sections {
-            for node in section.nodes {
-                switch node {
-                case let .workspace(ws): if ws.id == id { seen += 1 }
-                case let .group(group): seen += group.workspaces.lazy.filter { $0.id == id }.count
-                case .item: break
-                }
-                if seen > 1 { return false }
-            }
-        }
-        return seen == 1
     }
 
     /// The one loose workspace row `next` takes out of the stored sections, or moves, with nothing else changed: the
@@ -522,11 +508,12 @@ public final class SidebarModel {
 
     /// The last structural set when it only added one loose workspace row (`setSections`); the list reads it at the
     /// reload that shows that set (its `to` is the current `sectionsRevision`).
-    @ObservationIgnored public private(set) var rowInsertion: SidebarRowInsertion?
+    @ObservationIgnored public internal(set) var rowInsertion: SidebarRowInsertion?
     /// The last structural set when it only closed or moved one loose workspace row (`setSections`), read as `rowInsertion`.
-    @ObservationIgnored public private(set) var rowRemoval: SidebarRowRemoval?
+    @ObservationIgnored public internal(set) var rowRemoval: SidebarRowRemoval?
     /// Off, a close or a move lays the list out in full as before the removal splice (a bench's before numbers).
     @ObservationIgnored var splicesRemovals = true
+    @ObservationIgnored var rowChangeBase = SidebarRowChangeBase() // what the last full set knows for `apply(_:)`
 
     /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
     /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,
@@ -550,7 +537,7 @@ public final class SidebarModel {
     /// change moves rows (filter, folder buckets, the Done fold, the row limit); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
-        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        if rowIndex == nil { buildRowIndex() }
         guard let index = rowIndex else { return false }
         // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
         guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
@@ -613,6 +600,8 @@ public final class SidebarModel {
     /// one row (`SidebarLayout.make`). Called on a selection change only, so
     /// the user can still collapse the section the focused workspace is in.
     func expandSections(hiding id: WorkspaceID) {
+        // Nothing is collapsed (the usual list): no place of the row is read, so no row index is built for a selection.
+        guard !collapsedSections.isEmpty || !collapsedLayoutSections.isEmpty || storedSections.contains(where: \.isCollapsed) else { return }
         var sectionIDs: Set<SectionID> = [], layoutIDs: Set<LayoutSectionID> = []
         for path in listedPaths(of: id) {
             let section = storedSections[path.section]
@@ -628,8 +617,12 @@ public final class SidebarModel {
     }
 
     func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
-        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        if rowIndex == nil { buildRowIndex() }
         return rowIndex?.paths(of: id) ?? []
+    }
+    private func buildRowIndex() {
+        SidebarPerfCounters.add(.rowIndexBuilds) // every listed row, once after each structural set
+        rowIndex = SidebarRowIndex(storedSections)
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.

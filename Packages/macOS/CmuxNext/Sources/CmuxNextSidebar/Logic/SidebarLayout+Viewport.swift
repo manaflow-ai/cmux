@@ -55,8 +55,9 @@ extension SidebarLayout {
 /// `SidebarLayout.lastIndex(startingAtOrBefore:)`), so the rows in a span are found by a search. A layout with a drag
 /// gap (`gapY`) can be a group drag's (`SidebarGroupDragPlan.layout`): its carried rows stand one over the other at
 /// the card's bottom, a tall one above a short one, so they are not in order of place and every row is read, as the
-/// rule did before. The list gives such a layout to the rule in one reload only, the first after a drop or a cancel
-/// (`applyKeepingViewport` runs with no drag held). Each row read counts in `viewport_rows`.
+/// rule did before. The list gives such a layout to the rule in each reload while a drop settles, and in the first reload
+/// after a cancel (`applyKeepingViewport` runs with no drag held; while `settling` is set, `reload` takes
+/// `displayLayout()` again). Each row read counts in `viewport_rows`.
 nonisolated struct SidebarLayoutViewportRows: ListViewportRows {
     let layout: SidebarLayout
 
