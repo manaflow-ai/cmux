@@ -1,7 +1,7 @@
 import Foundation
 @testable import CmuxNextApp
 @testable import CmuxNextDaemonService
-import CmuxNextFeed
+import CmuxNextFeedClient
 import Testing
 
 /// The share consent sheet (#30550) waits on the owner, so while it shows it is an open Feed request
@@ -55,17 +55,14 @@ struct AgentShareConsentFeedTests {
         #expect(owner.calls.isEmpty)
     }
 
-    @Test func aFeedAnswerDeclinesOrShowsTheMacNeverAllows() {
-        func item(_ state: FeedItemState, _ confirmed: Bool?) -> FeedItem {
-            FeedItem(id: "fi_consent0000000000001", title: "t",
-                     prompt: .confirm(.init(statement: "s", confirmLabel: nil, cancelLabel: nil, destructive: false)),
-                     poster: FeedPoster(kind: .app, label: "cmux"), state: state,
-                     answer: confirmed.map { FeedAnswerRecord(value: .confirm($0), by: "inst_phone", device: "iPhone", at: Date()) },
-                     createdAt: Date(timeIntervalSince1970: 0))
+    @Test func aFeedAnswerDeclinesOrShowsTheMacNeverAllows() throws {
+        func item(_ state: String, _ confirmed: Bool?) throws -> FeedDaemonItem {
+            let answer = confirmed.map { #","answer":{"value":{"confirmed":\#($0)},"by":"inst_phone","device":"iPhone"}"# } ?? ""
+            return try .wire(#"{"id":"fi_consent0000000000001","type":"request","kind":"confirm","title":"t","state":"\#(state)"\#(answer)}"#)
         }
-        #expect(FeedPendingConfirm.confirmed(item(.answered, false)) == false)
-        #expect(FeedPendingConfirm.confirmed(item(.answered, true)) == true)
-        #expect(FeedPendingConfirm.confirmed(item(.open, nil)) == nil)
-        #expect(FeedPendingConfirm.confirmed(item(.cancelled, nil)) == nil)
+        #expect(FeedPendingConfirm.confirmed(try item("answered", false)) == false)
+        #expect(FeedPendingConfirm.confirmed(try item("answered", true)) == true)
+        #expect(FeedPendingConfirm.confirmed(try item("open", nil)) == nil)
+        #expect(FeedPendingConfirm.confirmed(try item("cancelled", nil)) == nil)
     }
 }

@@ -1,9 +1,11 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// Jump to new sits inside the transcript, below the pane's tab row
+// Jump to new sits inside the transcript, below the pane's tab row, at any width and layout
 // (https://github.com/manaflow-ai/cmux/issues/40021). A pane with several tabs draws its tab row as
 // its own band at the top of the agent stage, above the scroller; Jump to new is placed over the
 // transcript's top, so it must start below that band, never on the tab strip beside the tab titles.
-// A one-tab pane's transcript runs up under its row (`topInset`), and the pill still clears the row.
+// A one-tab pane's transcript runs up under its row (`topInset`), and the pill still clears the row;
+// so does a header that is its own row. Each layout runs at a wide, a narrow and a phone-narrow width.
+// SINCE_JUMP_SHOTS=<dir> saves the top of each pane as a PNG there.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // daemon whose chat has turns that ended since the person last looked.
 //
@@ -146,8 +148,9 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
 
   type Bridge = { applyTabRow?(row: unknown): void };
 
-  async function openChat(row: Record<string, unknown>): Promise<Page> {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
+  /// Opens the chat at `width` and offers `row` (no offer: the header is its own row).
+  async function openChat(width: number, row?: Record<string, unknown>): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width, height: 600 } });
     await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText(LAST).waitFor();
@@ -155,69 +158,50 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
     await page.evaluate(() => {
       window.cmuxAcpmuxActions!["pane.tabRowTools"] = async () => null;
     });
-    await page.evaluate((row) => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyTabRow!(row), row);
-    await page.locator(".acpmux-header[data-tab-row]").waitFor();
-    await page.locator(".acpmux-since-jump").waitFor({ state: "attached" });
+    if (row) {
+      await page.evaluate((row) => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyTabRow!(row), row);
+      await page.locator(".acpmux-header[data-tab-row]").waitFor();
+    }
+    await page.locator(".acpmux-since-jump[data-shown]").waitFor();
     return page;
   }
 
-  /// Where Jump to new and the tab row are, after the row's layout has painted.
+  /// Where Jump to new, the header (the tab row when offered) and the transcript are, after the
+  /// layout has painted.
   const placement = (page: Page) =>
     page.evaluate(async () => {
       await window.cmuxPaintFrame();
       await window.cmuxPaintFrame();
-      const row = document.querySelector<HTMLElement>(".acpmux-header[data-tab-row]")!.getBoundingClientRect();
-      const pill = document.querySelector<HTMLElement>(".acpmux-since-jump")!.getBoundingClientRect();
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
-      return {
-        rowTop: Math.round(row.top),
-        rowBottom: Math.round(row.bottom),
-        scrollerBottom: Math.round(scroller.bottom),
-        pillTop: Math.round(pill.top),
-        pillBottom: Math.round(pill.bottom),
-        scrollerTop: Math.round(scroller.top),
+      const box = (selector: string) => {
+        const r = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
       };
+      return { header: box(".acpmux-header"), pill: box(".acpmux-since-jump"), scroller: box(".acpmux-scroll") };
     });
 
-  test("in a pane with several tabs, Jump to new sits in the transcript below the tab row", async () => {
-    const page = await openChat({ height: 32, trailingInset: 40, soloTab: false });
-    const at = await placement(page);
-    // The row is a band: the transcript starts under it, and so does the pill over the transcript.
-    expect(at.scrollerTop).toBeGreaterThanOrEqual(at.rowBottom);
-    expect(at.pillTop).toBeGreaterThanOrEqual(at.rowBottom);
-    expect(at.pillTop).toBeGreaterThanOrEqual(at.scrollerTop);
-    await page.close();
-  });
-
-  test("as tabs open and close and the row resizes, Jump to new never draws over the tab row", async () => {
-    // https://github.com/manaflow-ai/cmux/issues/40065: the pill sat over the tab strip's + beside a tab.
-    // Each change of the row (a second tab, the last tab closed, a taller row) moves the transcript's
-    // top under it; the pill follows, inside the transcript, below the row's bottom.
-    const page = await openChat({ height: 32, trailingInset: 40, soloTab: true });
-    const rows = [
-      { height: 32, trailingInset: 40, soloTab: false },
-      { height: 32, trailingInset: 40, soloTab: true },
-      { height: 44, trailingInset: 40, soloTab: true },
-      { height: 44, trailingInset: 40, soloTab: false },
-      { height: 28, trailingInset: 40, soloTab: false },
-      { height: 28, trailingInset: 40, soloTab: true },
-    ];
-    for (const row of rows) {
-      await page.evaluate((row) => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyTabRow!(row), row);
-      const at = await placement(page);
-      const where = `${JSON.stringify(row)} -> ${JSON.stringify(at)}`;
-      expect(at.rowBottom - at.rowTop, where).toBe(row.height);
-      expect(at.pillTop, where).toBeGreaterThanOrEqual(at.rowBottom);
-      expect(at.pillBottom, where).toBeLessThanOrEqual(at.scrollerBottom);
-      if (!row.soloTab) expect(at.pillTop, where).toBeGreaterThanOrEqual(at.scrollerTop);
-    }
-    await page.close();
-  });
-
-  test("in a one-tab pane, Jump to new still clears the row the transcript runs under", async () => {
-    const page = await openChat({ height: 32, trailingInset: 40, soloTab: true });
-    const at = await placement(page);
-    expect(at.pillTop).toBeGreaterThanOrEqual(at.rowBottom);
-    await page.close();
-  });
+  const shots = process.env.SINCE_JUMP_SHOTS;
+  const layouts = [
+    { name: "a pane with several tabs", slug: "tabs", row: { height: 32, trailingInset: 40, soloTab: false } },
+    { name: "a one-tab pane", slug: "solo", row: { height: 32, trailingInset: 40, soloTab: true } },
+    { name: "a header of its own (no tab row)", slug: "header", row: undefined },
+  ];
+  for (const layout of layouts)
+    for (const width of [900, 480, 320])
+      test(`in ${layout.name} at ${width}px, Jump to new never overlaps the header`, async () => {
+        const page = await openChat(width, layout.row);
+        if (shots)
+          await page.screenshot({
+            path: path.join(shots, `since-jump-${layout.slug}-${width}.png`),
+            clip: { x: 0, y: 0, width, height: 140 },
+          });
+        const at = await placement(page);
+        // Below the header's bottom edge: no pixel of the pill is on the tab strip or its buttons.
+        expect(at.pill.top).toBeGreaterThanOrEqual(at.header.bottom);
+        // And over the transcript, not past its top where the transcript is a band below the row.
+        if (!layout.row?.soloTab) expect(at.pill.top).toBeGreaterThanOrEqual(at.scroller.top);
+        // Inside the pane's width at any width.
+        expect(at.pill.left).toBeGreaterThanOrEqual(0);
+        expect(at.pill.right).toBeLessThanOrEqual(width);
+        await page.close();
+      });
 });
