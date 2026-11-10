@@ -55,10 +55,10 @@ public final class PageTabPictures {
     public func picture(of page: any PagePictureSubject, maxPixelSize: CGSize) async -> CGImage? {
         let key = page.pictureKey
         let kept = cache.image(for: key)
-        if let kept, isCurrent(key, page: page) { return await PreviewImageCache.decoded(kept, maxPixelSize) }
+        if let kept, isCurrent(key, page: page) { return await PreviewImageCache.decoded(topCrop(kept, to: maxPixelSize), maxPixelSize) }
         let task = inFlight[key] ?? startCapture(of: page)
         guard let image = await task.value ?? kept else { return nil }
-        return await PreviewImageCache.decoded(image, maxPixelSize)
+        return await PreviewImageCache.decoded(topCrop(image, to: maxPixelSize), maxPixelSize)
     }
 
     /// The tab closed: its picture goes.
@@ -114,6 +114,15 @@ public final class PageTabPictures {
             answer.onGiven = { deadline.cancel() }
         }
     }
+}
+
+/// `image`'s top, at `size`'s aspect: the card fills its frame centred, which cut a tall page in the middle and lost
+/// its heading, the line that names the document. A crop shares the image's pixels (no copy).
+private func topCrop(_ image: CGImage, to size: CGSize) -> CGImage {
+    guard size.width > 0, size.height > 0 else { return image }
+    let height = (CGFloat(image.width) * size.height / size.width).rounded()
+    guard height < CGFloat(image.height) else { return image }
+    return image.cropping(to: CGRect(x: 0, y: 0, width: CGFloat(image.width), height: height)) ?? image
 }
 
 /// Resumes one continuation once, from whichever of a capture and its deadline answers first. Both
