@@ -190,6 +190,7 @@ pub(super) enum Judgement {
 /// Judges a `cloud list-machines` answer (`CloudHandlers.machineListFields`: `loaded`,
 /// `machines` of `listedMachine` rows with `machine_id`, `title` and `status`, `creating` rows
 /// with the `name` asked for, and `account`) for the Run's machine.
+#[cfg(test)]
 pub(super) fn judge(
     list: &Value,
     machine_name: &str,
@@ -237,7 +238,7 @@ pub(super) fn judge_everywhere(
         }
         let creating =
             rows("creating").any(|row| field(row, "name").as_deref() == Some(machine_name));
-        if !creating && elsewhere.iter().any(|other| *other == listed_scope) {
+        if !creating && elsewhere.contains(&listed_scope) {
             return Judgement::Cleared(listed_scope);
         }
         return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
