@@ -1756,6 +1756,9 @@ fn page_verbs_send_the_caller() {
 #[path = "right_tests.rs"]
 mod right;
 
+#[path = "refusal_tests.rs"]
+mod refusal;
+
 #[test]
 fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
     use super::run::safe_to_resend;
