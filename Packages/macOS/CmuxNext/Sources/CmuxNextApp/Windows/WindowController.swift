@@ -261,7 +261,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
+        let listed = services.windows.registry.shownMembers(of: state.id)
         for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
             controller.teardown()
