@@ -493,6 +493,10 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
+    /// Whether its prompt is accepted: its sender heard `prompt_accepted`, when it was queued or
+    /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
+    /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
+    pub accepted: bool,
 }
 
 /// Options for `Hub::prompt_with`.

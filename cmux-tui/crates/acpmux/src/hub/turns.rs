@@ -112,8 +112,9 @@ pub(super) fn acp_prompt_blocks(
 
 /// The turn a pending run of `prompt_id` was given on `session`, and whether it still waits in
 /// the queue: the queued prompt's, or the running turn's. None while that run has not been
-/// accepted (its agent still starts, a check still runs), or between its leaving the queue and
-/// its turn's start.
+/// accepted (its agent still starts, a check still runs, also one after its turn shows: a
+/// Cloud turn's claim can still refuse it), or between its leaving the queue and its turn's
+/// start.
 fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     let queued = {
         let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -121,7 +122,9 @@ fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     };
     queued.or_else(|| {
         let turn = session.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        turn.as_ref().filter(|t| t.prompt_id == prompt_id).map(|t| (t.turn_id.clone(), false))
+        turn.as_ref()
+            .filter(|t| t.prompt_id == prompt_id && t.accepted)
+            .map(|t| (t.turn_id.clone(), false))
     })
 }
 
@@ -771,6 +774,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // A queued prompt was accepted when it was queued; any other is, once its checks pass.
+        turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
         *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((turn_id.to_string(), false));
@@ -969,6 +974,12 @@ impl Hub {
             if let Some(key) = supersede.as_deref() {
                 let _ =
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
+            // From here a second copy of the prompt hears this turn (`pending_turn`).
+            if let Some(turn) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+                && turn.turn_id == turn_id
+            {
+                turn.accepted = true;
             }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
