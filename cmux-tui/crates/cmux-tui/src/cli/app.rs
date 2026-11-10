@@ -27,7 +27,8 @@ use open::{OpenRequest, parse_open};
 use open::{is_web_url, open_is_interactive, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{
-    action_run_params, insert_run_key, request_with_retry, request_with_retry_within, safe_to_resend,
+    action_run_params, insert_run_key, request_with_retry, request_with_retry_within,
+    safe_to_resend,
 };
 
 mod agent_open;
@@ -1467,7 +1468,9 @@ fn read_reply(
         // macOS refuses a socket option (EINVAL) once the peer closed: that is a dropped connection too.
         stream.set_read_timeout(window).map_err(|error| match error.kind() {
             // (A zero window is the other EINVAL, and not a dropped connection.)
-            std::io::ErrorKind::InvalidInput if window != Some(Duration::ZERO) => crate::localization::catalog().app_control.closed.to_owned(),
+            std::io::ErrorKind::InvalidInput if window != Some(Duration::ZERO) => {
+                crate::localization::catalog().app_control.closed.to_owned()
+            }
             _ => io_message(&error),
         })?;
         let read = match reader.fill_buf() {
@@ -1566,8 +1569,13 @@ pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), St
 /// An I/O failure's text. A connection the app dropped (a restart of its control server, a close under load)
 /// reads as the app's `closed` message: the one transport failure a new connection may heal ([`is_dropped`]).
 fn io_message(error: &std::io::Error) -> String {
-    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, NotConnected, UnexpectedEof};
-    if matches!(error.kind(), BrokenPipe | ConnectionReset | ConnectionAborted | NotConnected | UnexpectedEof) {
+    use std::io::ErrorKind::{
+        BrokenPipe, ConnectionAborted, ConnectionReset, NotConnected, UnexpectedEof,
+    };
+    if matches!(
+        error.kind(),
+        BrokenPipe | ConnectionReset | ConnectionAborted | NotConnected | UnexpectedEof
+    ) {
         crate::localization::catalog().app_control.closed.to_owned()
     } else {
         error.to_string()

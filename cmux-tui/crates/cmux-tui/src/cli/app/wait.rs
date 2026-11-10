@@ -70,7 +70,8 @@ pub(super) fn request(
             Ok(fresh) => (*stream, gone_since, unreachable) = (fresh, None, None),
             Err(failure) => {
                 let gone = *gone_since.get_or_insert_with(Instant::now);
-                let stays = !super::socket_may_come_back(global) || gone.elapsed() >= RECONNECT_GONE_GRACE;
+                let stays =
+                    !super::socket_may_come_back(global) || gone.elapsed() >= RECONNECT_GONE_GRACE;
                 unreachable = Some(failure);
                 if stays {
                     break;
