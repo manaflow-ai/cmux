@@ -153,6 +153,148 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(result == .loaded(url: legacy, data: Data("cook".utf8)))
     }
 
+    /// The bytes of a store with one page per entry of `pageSizes`: the `cook`
+    /// header, the big-endian page table, then each page filled with `0xAB`.
+    /// The reader only follows the page table, so page contents do not matter.
+    private static func storeBytes(pageSizes: [Int]) -> Data {
+        var bytes = Array("cook".utf8) + bigEndian(UInt32(pageSizes.count))
+        for size in pageSizes {
+            bytes += bigEndian(UInt32(size))
+        }
+        for size in pageSizes {
+            bytes += [UInt8](repeating: 0xAB, count: size)
+        }
+        return Data(bytes)
+    }
+
+    private static func bigEndian(_ value: UInt32) -> [UInt8] {
+        [UInt8(value >> 24), UInt8((value >> 16) & 0xFF), UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)]
+    }
+
+    /// Writes `contents` as a named profile's store under a new temporary home
+    /// and returns the home, the profile and the store's URL.
+    private func temporaryStore(_ contents: Data) throws -> (home: URL, profile: InstalledBrowserProfile, store: URL) {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-safari-reader-\(UUID().uuidString)", isDirectory: true)
+        let root = home.appendingPathComponent("Profile", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = root.appendingPathComponent("Cookies.binarycookies")
+        try contents.write(to: store)
+        return (home, InstalledBrowserProfile(displayName: "Work", rootURL: root, isDefault: false), store)
+    }
+
+    /// The default reader stops at the end of the last page, so Safari's trailer is never loaded.
+    @Test func theDefaultReaderStopsAtTheEndOfTheLastPage() throws {
+        let pages = Self.storeBytes(pageSizes: [16, 32])
+        let fixture = try temporaryStore(pages + Data(repeating: 0xEE, count: 4_096))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home).load(for: fixture.profile)
+
+        #expect(result == .loaded(url: fixture.store, data: pages))
+    }
+
+    /// A trailer larger than the read limit does not make the store too large: only the pages count.
+    @Test func aTrailerLargerThanTheLimitDoesNotRejectTheStore() throws {
+        let pages = Self.storeBytes(pageSizes: [16])
+        let fixture = try temporaryStore(pages + Data(repeating: 0xEE, count: 1_000))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home, maximumStoreBytes: 64)
+            .load(for: fixture.profile)
+
+        #expect(result == .loaded(url: fixture.store, data: pages))
+    }
+
+    /// A store that exactly fills the read limit is read whole.
+    @Test func aStoreThatExactlyFillsTheLimitIsRead() throws {
+        let pages = Self.storeBytes(pageSizes: [52])
+        let fixture = try temporaryStore(pages)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home, maximumStoreBytes: pages.count)
+            .load(for: fixture.profile)
+
+        #expect(result == .loaded(url: fixture.store, data: pages))
+    }
+
+    /// Pages that run past the read limit are reported as too large instead of being loaded.
+    @Test func pagesPastTheLimitAreReportedAsTooLarge() throws {
+        let fixture = try temporaryStore(Self.storeBytes(pageSizes: [53]))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home, maximumStoreBytes: 64)
+            .load(for: fixture.profile)
+
+        #expect(result == .tooLarge(url: fixture.store))
+    }
+
+    /// A page table that runs past the read limit is reported as too large.
+    @Test func aPageTablePastTheLimitIsReportedAsTooLarge() throws {
+        let fixture = try temporaryStore(Self.storeBytes(pageSizes: [Int](repeating: 0, count: 100)))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home, maximumStoreBytes: 64)
+            .load(for: fixture.profile)
+
+        #expect(result == .tooLarge(url: fixture.store))
+    }
+
+    /// A small file whose header claims far more pages than it holds is handed
+    /// to the parser as it is, so it is reported as damaged rather than too large.
+    @Test func aHeaderThatOverstatesTheFileIsLeftToTheParser() throws {
+        let overstated = Data(Array("cook".utf8) + Self.bigEndian(UInt32.max) + [0, 0, 0, 1])
+        let fixture = try temporaryStore(overstated)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home, maximumStoreBytes: 64)
+            .load(for: fixture.profile)
+
+        #expect(result == .loaded(url: fixture.store, data: overstated))
+        #expect(throws: SafariBinaryCookiesParser.ParseError.self) {
+            try SafariBinaryCookiesParser().parse(overstated)
+        }
+    }
+
+    /// A file that is not a cookie store is read no further than its header.
+    @Test func aFileWithoutTheMagicNumberIsReadNoFurtherThanItsHeader() throws {
+        let fixture = try temporaryStore(Data(repeating: 0x41, count: 10_000))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home).load(for: fixture.profile)
+
+        #expect(result == .loaded(url: fixture.store, data: Data(repeating: 0x41, count: 8)))
+    }
+
+    /// The default reader still reports a missing store as missing.
+    @Test func theDefaultReaderReportsAMissingStore() throws {
+        let fixture = try temporaryStore(Data())
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        try FileManager.default.removeItem(at: fixture.store)
+
+        #expect(SafariCookieStoreReader(homeDirectory: fixture.home).load(for: fixture.profile) == .missing)
+    }
+
+    /// The default reader reports a store the file mode denies as a file-permission denial.
+    @Test func theDefaultReaderReportsAFileModeDenial() throws {
+        let fixture = try temporaryStore(Self.storeBytes(pageSizes: [16]))
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: fixture.store.path)
+
+        let result = SafariCookieStoreReader(homeDirectory: fixture.home).load(for: fixture.profile)
+
+        #expect(result == .accessDenied(url: fixture.store, cause: .filePermissions))
+    }
+
+    /// An injected reader can report a store as too large.
+    @Test func anInjectedReaderCanReportAStoreAsTooLarge() {
+        let reader = SafariCookieStoreReader(homeDirectory: home) { _ in
+            throw SafariCookieStoreReader.StoreTooLarge()
+        }
+
+        #expect(reader.load(for: defaultProfile) == .tooLarge(url: containerStore))
+    }
+
     /// Displays paths inside home with a tilde.
     @Test func displaysPathsInsideHomeWithATilde() {
         let reader = reader([:])
