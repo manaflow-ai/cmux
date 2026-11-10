@@ -13,6 +13,8 @@ import MessagesLabHome
 /// the network: the drop asks for the bytes, and `fetch` gets them then. A copy everywhere.
 @MainActor
 public final class HomePageAttachmentDrag {
+    /// The page's op, under ``HomeMessagesPageRoute/prefix``.
+    public nonisolated static let op = "attachment.drag"
     /// The window the page is in; nil while it has none.
     private let window: @MainActor () -> NSWindow?
     /// Fetches the original of `ref` where it appears; nil when it cannot.
@@ -53,6 +55,11 @@ public final class HomePageAttachmentDrag {
         let started = begin(item, drag, window)
         if started { current = drag }
         return .object(["started": .bool(started)])
+    }
+
+    /// ``call(_:userGesture:)`` when `name` is ``op``; nil for the page's other ops.
+    public func call(_ name: String, _ fields: [String: JSONValue], userGesture: Bool) throws -> JSONValue? {
+        name == Self.op ? try call(.object(fields), userGesture: userGesture) : nil
     }
 
     /// The attachment and its place from the page's params; nil when one is missing or malformed.
