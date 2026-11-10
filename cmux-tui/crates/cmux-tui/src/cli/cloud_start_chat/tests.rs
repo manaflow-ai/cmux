@@ -284,6 +284,8 @@ struct Fake {
     pushes: VecDeque<Result<Value, link_wait::Failure>>,
     /// The app calls and link waits asked: what and its params.
     called: Vec<(String, Value)>,
+    /// [`Runner::until`].
+    until: Option<Instant>,
 }
 
 impl Fake {
@@ -298,6 +300,7 @@ impl Fake {
             stream: None,
             pushes: VecDeque::new(),
             called: Vec::new(),
+            until: None,
         }
     }
 }
@@ -324,6 +327,9 @@ impl Runner for Fake {
     }
     fn fresh_name(&mut self) -> String {
         "chat-fresh".into()
+    }
+    fn until(&mut self) -> Option<Instant> {
+        self.until
     }
     fn app(
         &mut self,
@@ -2387,7 +2393,7 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
 fn a_fresh_name_has_sixteen_random_hex_characters() {
-    let mut runner = SelfRunner { globals: Vec::new(), global: GlobalArgs::default() };
+    let mut runner = SelfRunner::new(&GlobalArgs::default());
     let names: Vec<String> = (0..64).map(|_| runner.fresh_name()).collect();
     for name in &names {
         let hex = name.strip_prefix("chat-").unwrap_or_else(|| panic!("{name}"));
@@ -2774,9 +2780,138 @@ fn a_drill_send_past_its_deadline_runs_nothing() {
         ..GlobalArgs::default()
     };
     let past = Instant::now() - Duration::from_millis(1);
-    let send =
-        fault::prompt_send(&global, &asked, "count".into(), ("vm-1".into(), "sess-1".into()), past);
+    let send = fault::prompt_send(
+        SelfRunner::new(&global),
+        &asked,
+        "count".into(),
+        ("vm-1".into(), "sess-1".into()),
+        past,
+    );
     assert_eq!(send(), Err("--timeout ran out before the prompt was sent".to_owned()));
+}
+
+/// A stand-in `cmux` for the drill's real runner: it logs each step's words to `steps`, answers `cloud
+/// list-machines` signed in, and on `stall` (a verb) starts a child that sleeps far past any deadline, writing its
+/// pid to `child.pid`, and only after it ends writes `sent`: what the step would have done.
+#[cfg(target_os = "linux")]
+fn stalling_cmux(dir: &std::path::Path, stall: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = dir.display();
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{dir}/steps'\n\
+         case \"$*\" in\n\
+         *list-machines*) echo '{{\"result\":{{\"account\":{{\"signed_in\":true}},\"machines\":[{{\"title\":\"dev\"}}]}}}}' ;;\n\
+         *'cloud {stall}'*) sleep 600 & echo $! > '{dir}/child.pid'; wait; echo done > '{dir}/sent' ;;\n\
+         *) echo '{{\"result\":{{}}}}' ;;\n\
+         esac\n"
+    );
+    let path = std::path::PathBuf::from(format!("{dir}/cmux"));
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Whether `pid` (read from `file`) still runs: a gone or zombie process does not.
+#[cfg(target_os = "linux")]
+fn still_runs(file: &std::path::Path) -> bool {
+    let pid =
+        std::fs::read_to_string(file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid.trim())).unwrap_or_default();
+    stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z'))
+}
+
+/// Polls `still_runs` for up to 2 s: the killed group's processes go as soon as the kernel delivers SIGKILL.
+#[cfg(target_os = "linux")]
+fn gone(file: &std::path::Path) -> bool {
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
+        if !still_runs(file) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+/// The drill's real runner ends a start-session that stalls at the drill's deadline: the step's child (and the
+/// child it started, its process group) is killed there, the drill answers then, and nothing after it runs, so no
+/// prompt is sent. Without the bound the step waited for its child to finish, past any `--timeout`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_drill_s_start_session_that_stalls_is_killed_at_the_deadline_and_nothing_is_sent() {
+    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
+    let dir = tempfile::tempdir().unwrap();
+    let cmux = stalling_cmux(dir.path(), "start-session");
+    let asked = request(&["--prompt", "count", "--wait", "--timeout", "2"]);
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
+    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let global = GlobalArgs::default();
+    let began = Instant::now();
+    let until = began + Duration::from_secs(2);
+    let mut runner = SelfRunner::new(&global).running(cmux).until(until);
+    let answered = fault::drill_source(&mut runner, &global, &asked, false, (&plan, &caps, until));
+    let took = began.elapsed();
+    assert!(answered.is_err(), "a killed start went on");
+    assert!(took < Duration::from_secs(6), "answered {took:?} after a 2 s deadline");
+    assert!(gone(&dir.path().join("child.pid")), "the stalled step's child outlived the deadline");
+    assert!(!dir.path().join("sent").exists(), "the stalled step finished");
+    let steps = std::fs::read_to_string(dir.path().join("steps")).unwrap();
+    let after: Vec<&str> =
+        steps.lines().skip_while(|step| !step.contains("cloud start-session")).skip(1).collect();
+    assert!(after.is_empty(), "steps ran after the deadline: {after:?}");
+}
+
+/// The drill's prompt send whose `cloud exec` stalls is killed at the drill's deadline and never sends: the step's
+/// child goes with its process group, and the send answers the deadline then, not when the exec would have ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_drill_send_whose_exec_stalls_is_killed_and_never_sends() {
+    let dir = tempfile::tempdir().unwrap();
+    let cmux = stalling_cmux(dir.path(), "exec");
+    let asked = request(&["--prompt", "count", "--wait"]);
+    let began = Instant::now();
+    let send = fault::prompt_send(
+        SelfRunner::new(&GlobalArgs::default()).running(cmux),
+        &asked,
+        "count".into(),
+        ("vm-1".into(), "sess-1".into()),
+        began + Duration::from_secs(2),
+    );
+    let sent = std::thread::spawn(send).join().unwrap();
+    let took = began.elapsed();
+    assert!(sent.is_err(), "a killed send answered sent");
+    assert!(took < Duration::from_secs(6), "answered {took:?} after a 2 s deadline");
+    assert!(gone(&dir.path().join("child.pid")), "the stalled exec's child outlived the deadline");
+    assert!(!dir.path().join("sent").exists(), "the stalled exec finished");
+}
+
+/// A runner with a deadline gives each `cloud exec` what is left of it as the remote command's own limit (the
+/// machine's `timeout`, which kills the script's whole group there), so nothing runs on the machine past it; past
+/// the deadline no exec is asked. A runner without one sends the script as it is.
+#[test]
+fn a_remote_exec_gets_the_deadline_s_remaining_budget() {
+    let mut fake = Fake::new(vec![exec_out("hi\n"), exec_out("hi\n")]);
+    assert_eq!(exec(&mut fake, "vm-1", "echo hi"), Ok("hi\n".to_owned()));
+    let command = |ran: &Vec<String>| {
+        let at = ran.iter().position(|word| word == "--command").unwrap();
+        ran[at + 1].clone()
+    };
+    assert_eq!(command(&fake.ran[0]), "echo hi", "no deadline: the script as it is");
+    fake.until = Some(fake.clock + Duration::from_millis(30_400));
+    assert_eq!(exec(&mut fake, "vm-1", "echo hi"), Ok("hi\n".to_owned()));
+    assert_eq!(command(&fake.ran[1]), "timeout -k 1 30 sh -c 'echo hi'");
+    fake.until = Some(fake.clock + Duration::from_millis(400));
+    assert!(exec(&mut fake, "vm-1", "echo hi").is_err(), "under a second left: nothing is asked");
+    assert_eq!(fake.ran.len(), 2);
+    // A send on such a runner bounds every exec of its run the same way.
+    let mut fake = Fake::new(vec![exec_out("@@history\n{\"turns\":[]}\n@@send\nd-1\n@@exit 0\n")]);
+    fake.until = Some(fake.clock + Duration::from_secs(60));
+    let asked = request(&["--prompt", "count"]);
+    let _ = send_to(&mut fake, &asked, "vm-1", "sess-1");
+    let first = command(&fake.ran[0]);
+    assert!(first.starts_with("timeout -k 1 60 sh -c "), "{first}");
 }
 
 /// A promptless start answers the chat tab's number on the machine's daemon as `daemon_tab` (start-session's
