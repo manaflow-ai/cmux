@@ -14,7 +14,7 @@ public final class ScreenSharingOrientation {
     /// A window whose shorter side is at least this is an unfolded foldable's.
     /// No shipping iPhone's shorter side reaches it (the largest is 440 pt); an
     /// unfolded foldable's is about 670 pt.
-    static let unfoldedShortSide: CGFloat = 600
+    nonisolated static let unfoldedShortSide: CGFloat = 600
 
     /// Whether a Mac's screen is on screen.
     public private(set) var isPresenting = false
@@ -22,7 +22,14 @@ public final class ScreenSharingOrientation {
     /// The screen's own choice (`ScreenOrientation.shared`) while a Mac's screen
     /// shows, else the window's resting orientations.
     public func allowed(in window: UIWindow?) -> UIInterfaceOrientationMask {
-        isPresenting ? ScreenOrientation.shared.allowed : Self.resting(windowSize: window?.bounds.size ?? .zero)
+        isPresenting ? ScreenOrientation.shared.allowed : Self.resting(windowSize: Self.size(of: window))
+    }
+
+    /// The window's size, or its scene's when the system asks with no window.
+    private static func size(of window: UIWindow?) -> CGSize {
+        if let window { return window.bounds.size }
+        let scene = UIApplication.shared.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first
+        return scene?.effectiveGeometry.coordinateSpace.bounds.size ?? .zero
     }
 
     /// Portrait on a phone's screen; any orientation but upside down (as the
@@ -66,7 +73,7 @@ public final class ScreenSharingOrientation {
                     controller = presented
                 }
             }
-            if !isPresenting, Self.resting(windowSize: scene.coordinateSpace.bounds.size) == .portrait {
+            if !isPresenting, Self.resting(windowSize: scene.effectiveGeometry.coordinateSpace.bounds.size) == .portrait {
                 scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
             }
         }
