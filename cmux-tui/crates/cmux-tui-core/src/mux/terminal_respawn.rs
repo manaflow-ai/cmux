@@ -722,7 +722,7 @@ impl Mux {
     /// incarnation in one registry + state critical section. False when a
     /// close won.
     #[cfg(any(unix, windows))]
-    fn install_respawned_runtime(
+    pub(super) fn install_respawned_runtime(
         &self,
         plan: &RespawnPlan,
         surface: &Arc<Surface>,
@@ -785,6 +785,8 @@ impl Mux {
         match committed {
             Ok(Some((terminal_revision, resource_revision))) => {
                 state.resource_revision = resource_revision;
+                #[cfg(test)]
+                super::test_hooks::run_committed_before_route_publish_hook();
                 drop(state);
                 self.emit_terminal_registry_changed(&registry, terminal_revision);
                 Ok(true)

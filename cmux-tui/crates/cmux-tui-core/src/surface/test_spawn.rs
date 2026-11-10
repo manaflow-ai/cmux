@@ -308,6 +308,37 @@ impl Surface {
         )
     }
 
+    /// A hosted terminal surface on `attachment` (a fake host connection) whose program already
+    /// runs, as an adoption at daemon start makes one after its connect
+    /// (`adopt_hosted_with_resource_identity`), with the tab and terminal identity `identity`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_hosted_adopted_for_test(
+        id: SurfaceId,
+        mux: Weak<Mux>,
+        attachment: crate::terminal_host_runtime::HostAttachment,
+        identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &identity,
+            "a hosted terminal cannot use a browser resource identity",
+        )?;
+        Self::spawn_hosted(
+            id,
+            SurfaceOptions::default(),
+            mux,
+            HostedSurfaceLaunch {
+                adopted: true,
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(identity),
+            },
+        )
+    }
+
     /// Finish `command` with `exit_code` on this terminal's tracker, as the
     /// shell's OSC 133 marks do.
     #[cfg(test)]

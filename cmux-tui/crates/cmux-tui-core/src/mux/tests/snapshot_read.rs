@@ -719,3 +719,6 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
         "a snapshot read that started between a commit and the publish of its routes (it answered in the window: {in_window}) shows the rows of the commit with the size of the runtime that the commit replaced"
     );
 }
+
+#[cfg(unix)]
+mod window;
