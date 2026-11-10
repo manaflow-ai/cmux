@@ -441,9 +441,10 @@ impl GitSeedService {
         let alive = hold::Alive::new(std::sync::RwLock::new(true));
         let mut owners = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
         let lease = params.lease();
-        let owner = hold::spawn(job.clone(), folder, head, lease, barrier, alive.clone(), move || {
-            holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
-        })?;
+        let owner =
+            hold::spawn(job.clone(), folder, head, lease, barrier, alive.clone(), move || {
+                holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            })?;
         owners.insert(job.id.clone(), (owner, alive));
         drop(owners);
         jobs.order.push_back(job.id.clone());

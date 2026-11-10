@@ -162,7 +162,6 @@ pub(super) fn answer_line(
     })
 }
 
-
 /// How long a remote dial may take to send its whole first line.
 pub const FIRST_LINE_DEADLINE: Duration = Duration::from_secs(10);
 
