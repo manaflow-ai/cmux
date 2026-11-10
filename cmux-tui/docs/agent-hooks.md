@@ -165,6 +165,12 @@ Claude Code 2.1 reads under any config directory and beside any
     gets no session context. When the read fails or times out, the hook acts
     as before, so the terminal's own agent is never silenced by a daemon
     that does not answer in time.
+  - The `SessionStart` hook writes the claim whether or not the daemon took
+    the event, so a Claude that starts while the daemon is down still claims
+    its terminal (its read fails, so it counts as the agent). Claude Code
+    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s,
+    and the read ends 4.5 s after the hook started. With no time left the
+    hook makes no read and acts as when the read fails.
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then
   gets no session context and writes no claim until the screen detector
@@ -173,6 +179,14 @@ Claude Code 2.1 reads under any config directory and beside any
   reaches the daemon before its parent's (a `SessionStart` hook or MCP
   server that starts one at once), or one that outlives its parent, holds
   the row.
+- Limit: a claim on a tmux route names the terminal that showed the tmux
+  session at `SessionStart`. After the session is attached in another
+  terminal, the agent's events report there, but its claim still names the
+  first terminal. A Claude that a tool command then starts is not claimed
+  for the new terminal: its hooks report there and only the agent row check
+  and the first-live-session rule keep the terminal the agent's. The next
+  `SessionStart` of the agent (`/clear`, `/resume`, compaction) writes a
+  claim for the new terminal.
 - These rely on each Claude Code process setting its own `CLAUDE_PID` for
   its hooks (2.1.319 does). A nested Claude that passes on its parent's
   `CLAUDE_PID`, or that runs the agent's own session id (`claude -p
