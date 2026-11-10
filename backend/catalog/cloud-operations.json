@@ -1481,6 +1481,22 @@
             "name": "boolean"
           }
         },
+        "paused_by": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "spend_cap"
+            ]
+          }
+        },
+        "spend_cap_pause_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -1686,6 +1702,114 @@
                 "type": {
                   "kind": "primitive",
                   "name": "int64"
+                }
+              }
+            }
+          }
+        },
+        "spend_cap": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "state": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "enum",
+                    "values": [
+                      "under",
+                      "near",
+                      "at_cap"
+                    ]
+                  }
+                }
+              },
+              "spent_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "cap_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "period_end": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "checked_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "pause_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "paused_at": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
                 }
               }
             }
@@ -24737,6 +24861,7 @@
         "client.too_old",
         "cloud.environment.not_found",
         "cloud.environment.secrets_unavailable",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -24744,6 +24869,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -25081,6 +25207,17 @@
               "desktop": {
                 "type": "boolean"
               },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -25171,10 +25308,12 @@
         "cloud.environment.busy",
         "cloud.environment.not_found",
         "cloud.environment.secrets_unavailable",
+        "cloud.member_budget.reached",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
         "cloud.rate_limited",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -26903,6 +27042,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -26910,6 +27050,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -27242,6 +27383,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -27712,6 +27864,17 @@
               "desktop": {
                 "type": "boolean"
               },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -28098,6 +28261,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -28763,6 +28937,17 @@
               "desktop": {
                 "type": "boolean"
               },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -29140,6 +29325,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29529,6 +29725,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29949,6 +30156,17 @@
               "desktop": {
                 "type": "boolean"
               },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -30028,10 +30246,12 @@
         "cloud.machine.not_bound",
         "cloud.machine.not_found",
         "cloud.machine.not_paused",
+        "cloud.member_budget.reached",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
         "cloud.rate_limited",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -30329,6 +30549,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -30707,6 +30938,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -31154,6 +31396,120 @@
                   "saved",
                   "vm_hours_used",
                   "period_end"
+                ],
+                "additionalProperties": true
+              },
+              "spend_cap": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "under",
+                          "near",
+                          "at_cap"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "spent_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cap_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "period_end": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "checked_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pause_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "paused_at": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "spent_usd",
+                  "cap_usd",
+                  "period_end",
+                  "checked_at",
+                  "pause_at",
+                  "paused_at"
                 ],
                 "additionalProperties": true
               }
@@ -31889,6 +32245,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
@@ -31896,6 +32253,7 @@
         "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
+        "cloud.spend_cap.reached",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -32198,6 +32556,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -33425,6 +33794,17 @@
               },
               "desktop": {
                 "type": "boolean"
+              },
+              "paused_by": {
+                "type": "string",
+                "enum": [
+                  "spend_cap"
+                ]
+              },
+              "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
