@@ -39,7 +39,7 @@ public struct CloudDaemon: Sendable {
 
     /// One operation sent as is: its wire name, whether it is a mutation, its params (JSON, wiped
     /// after the send) and how long to wait; answers the SDK's envelope.
-    public typealias Send = @Sendable (_ operation: String, _ mutation: Bool, _ params: SecretBytes,
+    public typealias Send = @Sendable (_ operation: String, _ mutation: Bool, _ params: CloudSecretBytes,
                                        _ wait: Duration) async throws -> Data
 
     let send: Send
@@ -65,9 +65,9 @@ public struct CloudDaemon: Sendable {
     ]
 
     /// Runs `call` (one of `cmux_cloud_api::CALLS`) with `args` as `route`; answers its body as JSON.
-    /// `key` is a keyed start's person key: it goes base64 in the params and every copy is wiped.
+    /// `key` is a keyed start's person key: it goes base64 in the params, whose bytes are wiped after the send.
     /// `wait` bounds a daemon that does not answer; the call's own deadlines end first.
-    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, key: SecretBytes? = nil,
+    public func call(_ call: String, _ args: [String: any Sendable] = [:], as route: Route, key: CloudSecretBytes? = nil,
                      wait: Duration) async throws -> Data {
         var fields: [String: Any] = [
             "machine": "current", "session": "current", "api": route.api.absoluteString, "auth": route.auth.rawValue,
@@ -76,9 +76,9 @@ public struct CloudDaemon: Sendable {
         if let refresh = route.refresh, !refresh.isEmpty { fields["refresh_token"] = refresh }
         if let team = route.team, !team.isEmpty { fields["team"] = team }
         if let version = route.appVersion, !version.isEmpty { fields["app_version"] = version }
-        let params: SecretBytes
+        let params: CloudSecretBytes
         do {
-            params = SecretBytes(Array(try JSONSerialization.data(withJSONObject: fields)))
+            params = CloudSecretBytes(Array(try JSONSerialization.data(withJSONObject: fields)))
         } catch {
             throw CloudAPIError.transport("the call is not JSON")
         }
@@ -128,7 +128,7 @@ public struct CloudDaemon: Sendable {
 
     /// One call on its own connection, on a thread of its own (the SDK's calls block, for minutes for a sandboxed
     /// Run). A cancel answers at once; the call then ends on the daemon by its own deadlines and its answer is dropped.
-    static func sdkCall(socket: String, operation: String, mutation: Bool, params: SecretBytes, wait: Duration) async throws -> Data {
+    static func sdkCall(socket: String, operation: String, mutation: Bool, params: CloudSecretBytes, wait: Duration) async throws -> Data {
         try Task.checkCancellation()
         let gate = OneAnswer()
         return try await withTaskCancellationHandler {
@@ -145,7 +145,7 @@ public struct CloudDaemon: Sendable {
         }
     }
 
-    private static func blockingCall(socket: String, operation: String, mutation: Bool, params: SecretBytes,
+    private static func blockingCall(socket: String, operation: String, mutation: Bool, params: CloudSecretBytes,
                                      wait: Duration) throws -> Data {
         let ms = UInt32(clamping: wait.components.seconds * 1000 + wait.components.attoseconds / 1_000_000_000_000_000)
         var client: OpaquePointer?
@@ -186,7 +186,7 @@ public struct CloudDaemon: Sendable {
 }
 
 /// Bytes that hold a credential: wiped when the last reference goes.
-public final class SecretBytes: Sendable {
+public final class CloudSecretBytes: Sendable {
     private let bytes: Mutex<[UInt8]>
 
     public init(_ bytes: [UInt8]) { self.bytes = Mutex(bytes) }
@@ -205,17 +205,29 @@ public final class SecretBytes: Sendable {
     }
 
     func withMutableBytes<R: Sendable>(_ body: (UnsafeMutableBufferPointer<UInt8>) -> R) -> R {
-        bytes.withLock { $0.withUnsafeMutableBufferPointer(body) }
+        bytes.withLock { $0.withUnsafeMutableBufferPointer { buffer in body(buffer) } }
     }
 
     /// The JSON text, for a test to read.
     public var text: String { withBytes { String(decoding: $0, as: UTF8.self) } }
 
     /// Adds `"name":"<base64 of key>"` to this JSON object in place: no `String` or `Data` copy of the key.
-    func appendField(_ name: String, base64Of key: SecretBytes) {
+    func appendField(_ name: String, base64Of key: CloudSecretBytes) {
         let encoded = key.withBytes { Self.base64($0) }
         bytes.withLock { bytes in
             guard bytes.last == UInt8(ascii: "}") else { return }
+            // One allocation for the whole field: a growth after the key is in would free a copy of it unwiped.
+            let added = encoded.withBytes { $0.count } + name.utf8.count + 6
+            if bytes.capacity < bytes.count + added {
+                var grown: [UInt8] = []
+                grown.reserveCapacity(bytes.count + added)
+                grown.append(contentsOf: bytes)
+                bytes.withUnsafeMutableBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    _ = memset_s(base, buffer.count, 0, buffer.count)
+                }
+                bytes = grown
+            }
             bytes.removeLast()
             if bytes.count > 1 { bytes.append(UInt8(ascii: ",")) }
             bytes.append(contentsOf: Array("\"\(name)\":\"".utf8))
@@ -227,7 +239,7 @@ public final class SecretBytes: Sendable {
     private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
 
     /// The base64 of `input`, in bytes that are wiped in turn.
-    private static func base64(_ input: UnsafeBufferPointer<UInt8>) -> SecretBytes {
+    private static func base64(_ input: UnsafeBufferPointer<UInt8>) -> CloudSecretBytes {
         var out: [UInt8] = []
         out.reserveCapacity((input.count + 2) / 3 * 4)
         var index = 0
@@ -242,7 +254,7 @@ public final class SecretBytes: Sendable {
             out.append(index + 2 < input.count ? alphabet[Int(triple & 63)] : UInt8(ascii: "="))
             index += 3
         }
-        return SecretBytes(out)
+        return CloudSecretBytes(out)
     }
 }
 

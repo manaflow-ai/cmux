@@ -23,14 +23,14 @@ struct PasswordImportConflictTests {
 
     private static func login() -> ImportedLogin {
         ImportedLogin(url: "https://example.com/login", signonRealm: "https://example.com/", username: "someone",
-                      password: SecretBytes(copying: Array("throwaway-2".utf8)), created: nil)
+                      password: CloudSecretBytes(copying: Array("throwaway-2".utf8)), created: nil)
     }
 
     @Test func anImportTheStoreFailedIsAFailureNotCounts() async {
         let destination = AppPasswordDestination(available: true) { _, _ in
             ChromiumPasswordWriteResult(added: -1, duplicate: -1, conflict: -1, rejected: -1)
         }
-        let bytes = SecretBytes(copying: Array(Self.csv.utf8))
+        let bytes = CloudSecretBytes(copying: Array(Self.csv.utf8))
         await #expect(throws: PasswordImporter.Failure.storeUnavailable) {
             _ = try await PasswordCSVImporter(destination: destination).run(bytes: bytes, intoProfile: BrowserProfileRecord.defaultID)
         }

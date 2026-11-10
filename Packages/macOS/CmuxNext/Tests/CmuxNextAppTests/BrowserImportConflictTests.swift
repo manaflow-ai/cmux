@@ -16,7 +16,7 @@ import Testing
 struct BrowserImportConflictTests {
     private static func login(_ username: String) -> ImportedLogin {
         ImportedLogin(url: "https://example.com/login", signonRealm: "https://example.com/", username: username,
-                      password: SecretBytes(copying: Array("throwaway-new".utf8)), created: nil)
+                      password: CloudSecretBytes(copying: Array("throwaway-new".utf8)), created: nil)
     }
 
     @Test func everySourceProfilesConflictsAreReplacedIntoItsOwnProfile() async throws {

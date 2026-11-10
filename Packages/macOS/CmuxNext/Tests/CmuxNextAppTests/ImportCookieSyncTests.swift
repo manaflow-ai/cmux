@@ -23,7 +23,7 @@ import Testing
     private final class Refusing: SafeStorageKeyProviding {
         private let count = OSAllocatedUnfairLock(initialState: 0)
         var asked: Int { count.withLock { $0 } }
-        func password(service: String) throws(CookieImportError) -> SecretBytes {
+        func password(service: String) throws(CookieImportError) -> CloudSecretBytes {
             count.withLock { $0 += 1 }
             throw .keychainDenied(service: service)
         }
@@ -35,7 +35,7 @@ import Testing
         private let count = OSAllocatedUnfairLock(initialState: 0)
         var asked: Int { count.withLock { $0 } }
         init(_ base: FixtureSafeStorage) { self.base = base }
-        func password(service: String) throws(CookieImportError) -> SecretBytes {
+        func password(service: String) throws(CookieImportError) -> CloudSecretBytes {
             count.withLock { $0 += 1 }
             Thread.sleep(forTimeInterval: 0.5)
             return try base.password(service: service)

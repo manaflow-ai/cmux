@@ -54,7 +54,7 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// The key line `writeKey` writes, in bytes that are wiped when the call ends.
-    private static func read(_ length: Int, _ writeKey: (OutputStream) -> Bool) throws -> SecretBytes {
+    private static func read(_ length: Int, _ writeKey: (OutputStream) -> Bool) throws -> CloudSecretBytes {
         var input: InputStream?
         var output: OutputStream?
         Stream.getBoundStreams(withBufferSize: length * 2, inputStream: &input, outputStream: &output)
@@ -65,7 +65,7 @@ public struct CloudOwnerAPIClient: Sendable {
         guard wrote else { throw CloudAPIError.transport("the key did not reach the request body") }
         input.open()
         defer { input.close() }
-        let key = SecretBytes([UInt8](repeating: 0, count: length))
+        let key = CloudSecretBytes([UInt8](repeating: 0, count: length))
         let read = key.withMutableBytes { buffer in buffer.baseAddress.map { input.read($0, maxLength: length) } ?? -1 }
         guard read == length else { throw CloudAPIError.transport("the key did not reach the request body") }
         return key
@@ -92,7 +92,7 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// One `cloud.<name>` call as the person (`owner`); its body as JSON.
-    func call(_ name: String, _ args: [String: any Sendable] = [:], key: SecretBytes? = nil, wait: Duration) async throws -> Data {
+    func call(_ name: String, _ args: [String: any Sendable] = [:], key: CloudSecretBytes? = nil, wait: Duration) async throws -> Data {
         let access: String
         do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
         let route = CloudDaemon.Route(api: baseURL, auth: .owner, credential: access, team: await teamID())
