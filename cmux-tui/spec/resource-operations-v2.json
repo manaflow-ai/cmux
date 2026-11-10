@@ -19994,7 +19994,7 @@
         },
         "extra": false,
         "constraints": [
-          "Calls a Cloud machine's files and exec: a Worker machine's straight to its provider with a client session when it can, else through the cmux API; a classic one's /api/vm/{id}/exec and /fs/* (args are op, machine, path, data_base64, mode, command, timeout_ms, route; a cache_dir is dropped). A Worker machine's read or write may name local_path instead of carrying the bytes: a file directly in the per-user temp dir's cmux-cloud-transfer folder (0700), a write's source a regular 0600 file of the user's with one link, a read's destination new (created 0600); a symlink or any other path is refused before any request.",
+          "Calls a Cloud machine's files and exec: a Worker machine's straight to its provider with a client session when it can, else through the cmux API; a classic one's /api/vm/{id}/exec and /fs/* (args are op, machine, path, data_base64, mode, command, timeout_ms, route; a cache_dir is dropped).",
           "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
           "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
           "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
