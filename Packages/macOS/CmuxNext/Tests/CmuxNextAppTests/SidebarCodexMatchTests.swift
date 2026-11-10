@@ -1,5 +1,5 @@
 import AppKit
-import CmuxTheme
+@testable import CmuxTheme
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -104,6 +104,21 @@ struct SidebarCodexMatchTests {
         #expect(tokens.sidebarTitle.contrast(with: bg) < tokens.textPrimary.contrast(with: bg))
         for fill in [tokens.selectionFill, tokens.pressedFill, tokens.hoverFill] {
             #expect(tokens.sidebarTitle.contrast(with: fill.composited(over: bg)) >= ThemeTokens.minimumTextContrast)
+        }
+    }
+
+    /// In a see-through window the title still reads over the worst desktop behind it.
+    @Test func titlesReadInASeeThroughWindow() {
+        var input = ThemeInput.ghosttyDefault
+        input.background = ThemeRGB(hex: 0x6A6A6A)
+        input.foreground = ThemeRGB(hex: 0xFFFFFF)
+        input.backgroundOpacity = 0.6
+        let tokens = ThemeTokens.derive(from: input)
+        let bg = tokens.windowBackground.withAlpha(1)
+        for surface in ThemeTokens.seeThroughSurfaces(bg: bg, opacity: 0.6, isDark: tokens.isDark,
+                                                      fills: [tokens.pressedFill, tokens.selectionFill]) {
+            #expect(tokens.sidebarTitle.contrast(with: surface) >= ThemeTokens.minimumTextContrast
+                    || tokens.sidebarTitle == tokens.textPrimary, "softened only as far as it still reads")
         }
     }
 
