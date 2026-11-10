@@ -160,6 +160,77 @@ class Sentry(unittest.TestCase):
             qr.sentry_get("/organizations/manaflow/sessions/", [], "tok", opener=opener)
 
 
+class ReviewFixes(unittest.TestCase):
+    def test_sentry_errors_are_apart_from_crashes_and_hangs(self):
+        issues = {"nightly-next": [
+            {"shortId": "A", "title": "EXC_BAD_ACCESS", "level": "fatal", "count": "2", "firstSeen": "2026-11-10T01:00:00Z"},
+            {"shortId": "B", "title": "App Hanging for at least 8000 ms.", "level": "error", "count": "3", "firstSeen": "2026-11-10T01:00:00Z"},
+            {"shortId": "C", "title": "browser failure: renderer gone", "level": "error", "count": "9", "firstSeen": "2026-11-10T01:00:00Z"}]}
+        got = qr.sentry_crashes(FakeSentry(issues=issues), 24, SINCE)
+        self.assertEqual(got["total"], 5)
+        self.assertEqual(got["by_kind"], {"crash": 2, "hang": 3})
+        self.assertEqual(got["errors"], 9)
+        self.assertEqual([s["id"] for s in got["error_signatures"]], ["C"])
+
+    def test_sentry_list_follows_the_cursor(self):
+        pages = [([{"id": 1}], '<https://sentry.io/api/0/x/?cursor=0:100:0>; rel="next"; results="true"'),
+                 ([{"id": 2}], '<https://sentry.io/api/0/x/?cursor=0:200:0>; rel="next"; results="false"')]
+        seen = []
+
+        class Resp:
+            def __init__(self, body, link):
+                self.body, self.headers = body, {"Link": link}
+            def read(self):
+                return json.dumps(self.body).encode()
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        def opener(req, timeout):
+            seen.append(req.full_url)
+            return Resp(*pages[len(seen) - 1])
+        self.assertEqual(qr.sentry_get("/x/", [("a", "b")], "tok", opener=opener), [{"id": 1}, {"id": 2}])
+        self.assertIn("cursor=0%3A100%3A0", seen[1])
+
+    def test_busy_issue_reads_its_window_comments(self):
+        listed = [hang_issue(1, "aaaaaaaaaa", "hang", "cmux X", "2026-11-01T00:00:00Z", [OLD_HANG],
+                             comments=[("2026-11-02T00:00:00Z", "More reports: 1.\n\n" + OLD_HANG)] * 100)]
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[1] == "issue":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(listed), stderr="")
+            line = json.dumps({"createdAt": "2026-11-10T04:00:00Z", "body": "More reports: 1.\n\n" + NIGHTLY_HANG})
+            return subprocess.CompletedProcess(cmd, 0, stdout=line + "\n", stderr="")
+        issues = qr.gh_hang_watch_issues(SINCE, run=run)
+        self.assertIn("since=2026-11-09T09:00:00Z", calls[1][3])
+        self.assertEqual(qr.hang_watch_crashes(issues, SINCE)["total"], 1)
+
+    def test_regressed_row_shows_its_newest_value(self):
+        state = {"last_good": {"measured_at": "2026-10-23T00:00:00Z", "rows": {
+                     "webui.chat_open.latest@l": {"p95": 100, "unit": "ms", "budget": 1000}}},
+                 "row_history": {"webui.chat_open.latest@l": [{"at": "2026-11-01T00:00:00Z", "p95": 110}]},
+                 "regressions": [{"name": "webui.chat_open.latest@l", "p95": 1500, "unit": "ms",
+                                  "first_bad": {"measured_at": "2026-11-09T00:00:00Z", "sha": "d" * 40}}],
+                 "unconfirmed": [{"name": "webui.new_row.latest@l", "p95": 30, "unit": "ms", "at": "2026-11-09T05:00:00Z"}]}
+        got = qr.interaction_p95(state, None)
+        self.assertEqual(got["rows"]["webui.chat_open.latest@l"]["p95"], 1500)
+        self.assertEqual(got["over_budget"], ["webui.chat_open.latest@l"])
+        self.assertEqual(got["held"], ["webui.chat_open.latest@l", "webui.new_row.latest@l"])
+        self.assertEqual(got["newest_at"], "2026-11-09T05:00:00Z")
+
+    def test_public_json_names_no_signature(self):
+        r = qr.build_report(24, T, None, None, None, None,
+                            hang_watch=lambda since: [hang_issue(1, "aaaaaaaaaa", "hang", "cmux Secret.frame", "2026-11-10T03:00:00Z", [NIGHTLY_HANG])])
+        text = json.dumps(qr.public_report(r))
+        self.assertNotIn("aaaaaaaaaa", text)
+        self.assertNotIn("Secret.frame", text)
+        self.assertNotIn("cmuxterm-hq/issues", text)
+        self.assertEqual(qr.public_report(r)["crashes"]["total"], 1)
+
+
 class Inputs(unittest.TestCase):
     STATE = {
         "last_good": {"sha": "a" * 40, "measured_at": "2026-10-23T14:54:03Z", "rows": {

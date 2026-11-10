@@ -110,12 +110,33 @@ class SourceError(Exception):
     """A source that could not be read; its message is the report's `why`."""
 
 
+NEXT_CURSOR = re.compile(r'<[^>]*[?&]cursor=([^&>]+)[^>]*>;\s*rel="next";\s*results="true"')
+SENTRY_PAGES = 5
+
+
 def sentry_get(path: str, params: List[Tuple[str, str]], token: str, opener: Callable = urllib.request.urlopen) -> Any:
+    """One GET, or for a list endpoint every page up to SENTRY_PAGES (Sentry's Link header cursor)."""
+    out: List[Any] = []
+    cursor = None
+    for _ in range(SENTRY_PAGES):
+        page = sentry_page(path, params + ([("cursor", cursor)] if cursor else []), token, opener)
+        body, link = page
+        if not isinstance(body, list):
+            return body
+        out += body
+        m = NEXT_CURSOR.search(link or "")
+        if not m:
+            break
+        cursor = urllib.parse.unquote(m.group(1))
+    return out
+
+
+def sentry_page(path: str, params: List[Tuple[str, str]], token: str, opener: Callable) -> Tuple[Any, str]:
     url = f"{SENTRY_API}{path}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "User-Agent": "cmux-quality-report"})
     try:
         with opener(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8")), resp.headers.get("Link", "") if getattr(resp, "headers", None) else ""
     except urllib.error.HTTPError as e:
         hint = " (the token needs org:read and event:read)" if e.code in (401, 403) else ""
         raise SourceError(f"Sentry answered HTTP {e.code} for {path}{hint}") from e
@@ -147,18 +168,28 @@ def sentry_crash_free(get: Callable[[str, List[Tuple[str, str]]], Any], hours: i
             "why": None if sessions else "Sentry has no cmux NEXT sessions in the window"}
 
 
+def sentry_kind(issue: Dict[str, Any]) -> str:
+    """crash (a fatal event), hang (an app hang or main-thread hang report) or error (any other error event, such as a
+    browser failure): only the first two are counted as crashes and hangs; errors are reported beside them."""
+    if issue.get("level") == "fatal":
+        return "crash"
+    text = " ".join(str(issue.get(k) or "") for k in ("title", "culprit", "type"))
+    text += " " + json.dumps(issue.get("metadata") or {})
+    return "hang" if re.search(r"app ?hang|apphang|main.?thread.?hang|watchdog", text, re.I) else "error"
+
+
 def sentry_crashes(get: Callable[[str, List[Tuple[str, str]]], Any], hours: int, since: dt.datetime) -> Dict[str, Any]:
     """Unresolved error and fatal issues of cmux NEXT with events in the window, one query per environment."""
     sigs: Dict[str, Dict[str, Any]] = {}
     for env, channel in SENTRY_ENVIRONMENTS.items():
         params = [("project", SENTRY_PROJECT_ID), ("environment", env), ("statsPeriod", f"{hours}h"),
-                  ("query", "is:unresolved level:[fatal,error] app:cmux-next"), ("sort", "freq"), ("limit", "50")]
+                  ("query", "is:unresolved level:[fatal,error] app:cmux-next"), ("sort", "freq"), ("limit", "100")]
         for issue in get(f"/organizations/{SENTRY_ORG}/issues/", params) or []:
             key = str(issue.get("shortId") or issue.get("id"))
             first = parse_time(issue.get("firstSeen"))
             s = sigs.setdefault(key, {
                 "id": key, "title": str(issue.get("title") or "")[:140],
-                "kind": "crash" if issue.get("level") == "fatal" else "error",
+                "kind": sentry_kind(issue),
                 "url": issue.get("permalink"), "first_seen": issue.get("firstSeen"),
                 "new": bool(first and first >= since), "counts": {}})
             s["counts"][channel] = s["counts"].get(channel, 0) + int(issue.get("count") or 0)
@@ -179,9 +210,30 @@ def gh_hang_watch_issues(since: dt.datetime, repo: str = HQ_REPO, run: Callable 
     if done.returncode != 0:
         raise SourceError(f"gh could not list the hang-watch issues: {(done.stderr or done.stdout).strip()[-200:]}")
     try:
-        return json.loads(done.stdout or "[]")
+        issues = json.loads(done.stdout or "[]")
     except ValueError as e:
         raise SourceError(f"gh returned no JSON for the hang-watch issues: {e}") from e
+    # `gh issue list --json comments` gives the first 100 comments, oldest first; hang-watch comments every tick a
+    # signature recurs, so a busy issue's newest reports are past them. Read those issues' comments of the window.
+    for issue in issues:
+        if len(issue.get("comments") or []) >= 100:
+            issue["comments"] = gh_comments_since(repo, issue["number"], since, run)
+    return issues
+
+
+def gh_comments_since(repo: str, number: int, since: dt.datetime, run: Callable) -> List[Dict[str, Any]]:
+    path = f"repos/{repo}/issues/{number}/comments?since={since.strftime('%Y-%m-%dT%H:%M:%SZ')}&per_page=100"
+    cmd = ["gh", "api", "--paginate", path, "--jq", ".[] | {createdAt: .created_at, body: .body}"]
+    try:
+        done = run(cmd, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise SourceError(f"gh could not read hang-watch issue #{number}'s comments: {e}") from e
+    if done.returncode != 0:
+        raise SourceError(f"gh could not read hang-watch issue #{number}'s comments: {(done.stderr or done.stdout).strip()[-200:]}")
+    try:
+        return [json.loads(line) for line in (done.stdout or "").splitlines() if line.strip()]
+    except ValueError as e:
+        raise SourceError(f"gh returned no JSON for issue #{number}'s comments: {e}") from e
 
 
 def report_channel(line: str) -> str:
@@ -237,8 +289,12 @@ def hang_watch_crashes(issues: List[Dict[str, Any]], since: dt.datetime) -> Dict
 
 
 def summarize_signatures(sigs: List[Dict[str, Any]], source: str) -> Dict[str, Any]:
+    """Totals of crashes and hangs (hang-watch's resource reports included); Sentry's other error issues are counted
+    apart, in `errors`, and listed after them."""
     for s in sigs:
         s["count"] = sum(s["counts"].values())
+    errors = [s for s in sigs if s["kind"] == "error"]
+    sigs = [s for s in sigs if s["kind"] != "error"]
     sigs.sort(key=lambda s: (-s["count"], s["id"]))
     by_channel: Dict[str, int] = {}
     by_kind: Dict[str, int] = {}
@@ -249,7 +305,9 @@ def summarize_signatures(sigs: List[Dict[str, Any]], source: str) -> Dict[str, A
     return {"source": source, "total": sum(s["count"] for s in sigs), "signatures_seen": len(sigs),
             "new_signatures": sum(1 for s in sigs if s["new"]),
             "returning_signatures": sum(1 for s in sigs if not s["new"]),
-            "by_channel": by_channel, "by_kind": by_kind, "signatures": sigs[:TOP_SIGNATURES]}
+            "by_channel": by_channel, "by_kind": by_kind, "signatures": sigs[:TOP_SIGNATURES],
+            "errors": sum(s["count"] for s in errors),
+            "error_signatures": sorted(errors, key=lambda s: (-s["count"], s["id"]))[:TOP_SIGNATURES]}
 
 
 # Perf, god-vs-small and animation coverage inputs
@@ -267,29 +325,54 @@ def load_json(path: Optional[str]) -> Tuple[Any, Optional[str]]:
 
 
 def interaction_p95(state: Any, why: Optional[str]) -> Dict[str, Any]:
-    """Newest p95 per interaction row of a perf-cron state: the row's last row_history entry, else last_good."""
+    """Newest p95 per interaction row of a perf-cron state. perf-cron.py keeps a row that regressed or went over its
+    target out of last_good and row_history, so the newest value is taken from every place a measurement lands: the
+    last measurement (`last`), open regressions and unconfirmed candidates (both marked `held`), row_history and
+    last_good. Each row says when it was measured, so a stale state shows."""
     if not isinstance(state, dict):
-        return {"source": None, "rows": {}, "over_budget": [], "why": why or "the perf cron state is not an object"}
-    good = (state.get("last_good") or {}).get("rows") or {}
+        return {"source": None, "rows": {}, "over_budget": [], "held": [], "worst_p95_ms": None,
+                "why": why or "the perf cron state is not an object"}
+    good_rec = state.get("last_good") or {}
+    good = good_rec.get("rows") or {}
+    last_rec = state.get("last") or {}
     hist = state.get("row_history") if isinstance(state.get("row_history"), dict) else {}
+    meta: Dict[str, Dict[str, Any]] = {}
+    seen: Dict[str, List[Dict[str, Any]]] = {}
+
+    def add(name: Any, value: Any, at: Any, sha: Any, held: bool = False, info: Optional[Dict[str, Any]] = None) -> None:
+        if not isinstance(name, str) or not isinstance(value, (int, float)):
+            return
+        seen.setdefault(name, []).append({"p95": value, "at": at, "sha": sha, "held": held})
+        if info:
+            m = meta.setdefault(name, {})
+            for k in ("unit", "budget"):
+                if info.get(k) is not None and m.get(k) is None:
+                    m[k] = info[k]
+
+    for name, r in good.items():
+        add(name, (r or {}).get("p95"), good_rec.get("measured_at"), good_rec.get("sha"), info=r)
+    for name, h in hist.items():
+        if isinstance(h, list) and h and isinstance(h[-1], dict):
+            add(name, h[-1].get("p95"), h[-1].get("at"), h[-1].get("sha"))
+    for name, r in (last_rec.get("rows") or {}).items():
+        add(name, (r or {}).get("p95"), last_rec.get("measured_at"), last_rec.get("sha"), info=r)
+    for r in list(state.get("regressions") or []) + list(state.get("unconfirmed") or []):
+        if isinstance(r, dict):
+            at = r.get("at") or (r.get("first_bad") or {}).get("measured_at")
+            add(r.get("name"), r.get("p95"), at, r.get("sha") or (r.get("first_bad") or {}).get("sha"), held=True, info=r)
     rows: Dict[str, Any] = {}
-    for name in sorted(set(good) | set(hist)):
-        g = good.get(name) or {}
-        unit = g.get("unit")
-        if unit not in (None, "ms") or NOT_INTERACTION.search(name) or (unit is None and name not in good):
+    for name in sorted(seen):
+        unit = (meta.get(name) or {}).get("unit")
+        if unit != "ms" or NOT_INTERACTION.search(name):
             continue
-        h = hist.get(name) or []
-        last = h[-1] if h and isinstance(h[-1], dict) else {}
-        p95 = last.get("p95", g.get("p95"))
-        if not isinstance(p95, (int, float)):
-            continue
-        budget = g.get("budget")
-        rows[name] = {"p95": p95, "budget": budget, "at": last.get("at") or (state.get("last_good") or {}).get("measured_at"),
-                      "sha": last.get("sha") or (state.get("last_good") or {}).get("sha")}
+        newest = max(seen[name], key=lambda v: (parse_time(v["at"]) or dt.datetime.min.replace(tzinfo=dt.timezone.utc), v["held"]))
+        rows[name] = {**newest, "budget": (meta.get(name) or {}).get("budget")}
     over = sorted((n for n, r in rows.items() if isinstance(r["budget"], (int, float)) and r["budget"] > 0
                    and r["p95"] > r["budget"]), key=lambda n: -rows[n]["p95"] / rows[n]["budget"])
     worst = max(rows.values(), key=lambda r: r["p95"])["p95"] if rows else None
-    return {"source": "perf-cron", "rows": rows, "over_budget": over, "worst_p95_ms": worst,
+    stamps = [t for t in (parse_time(r["at"]) for r in rows.values()) if t]
+    return {"source": "perf-cron", "rows": rows, "over_budget": over, "held": sorted(n for n, r in rows.items() if r["held"]),
+            "worst_p95_ms": worst, "newest_at": iso(max(stamps)) if stamps else None,
             "why": None if rows else "the perf cron state has no interaction rows"}
 
 
@@ -368,6 +451,16 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
             "animation_token_coverage": anim_coverage(anim, anim_why)}
 
 
+def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
+    """The report without what names a crash (signature ids, titles, links, Sentry's messages): for this public
+    repository's artifact. The full report goes only to the private sticky issue."""
+    out = json.loads(json.dumps(r))
+    cr = out.get("crashes") or {}
+    for key in ("signatures", "error_signatures"):
+        cr.pop(key, None)
+    return out
+
+
 def pct(v: Optional[float]) -> str:
     return "n/a" if v is None else f"{v * 100:.2f}%"
 
@@ -407,7 +500,11 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
             state = "new" if s["new"] else ("came back" if s.get("came_back") else "returning")
             out.append(f"| {name} {title} | {s['kind']} | {s['count']} | {s['counts'].get('NIGHTLY', 0)} | "
                        f"{s['counts'].get('DEV', 0)} | {state} |")
+    if cr.get("errors"):
+        out += ["", f"Other error events (not counted above): {cr['errors']}."]
     p = r["interaction_p95_ms"]
+    if p.get("newest_at"):
+        out += ["", f"Perf rows measured up to {p['newest_at']}" + (f"; held as regressed or unconfirmed: {len(p['held'])}" if p.get("held") else "") + "."]
     if p["over_budget"]:
         out += ["", "Interaction rows over budget: " + ", ".join(
             f"`{n}` {p['rows'][n]['p95']} ms (budget {p['rows'][n]['budget']})" for n in p["over_budget"][:10])]
@@ -476,7 +573,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep.add_argument("--perf-state", help="perf-cron state.json (perf-cron.py fetch-state)")
     rep.add_argument("--god-small", help="the god-vs-small gate's JSON")
     rep.add_argument("--anim-coverage", help="the animation token coverage JSON")
-    rep.add_argument("--json", required=True, help="the metrics JSON")
+    rep.add_argument("--json", required=True, help="the metrics JSON, signature names included (private)")
+    rep.add_argument("--public-json", help="the metrics JSON without signature names (public)")
     rep.add_argument("--md", help="the full report (signature names)")
     rep.add_argument("--public-md", help="the numbers only")
     st = sub.add_parser("sticky", help="write the report into the sticky cmuxterm-hq issue")
@@ -487,9 +585,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.cmd == "report":
         r = build_report(args.hours, now_utc(), os.environ.get("SENTRY_AUTH_TOKEN") or None, args.perf_state,
                          args.god_small, args.anim_coverage)
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(r, f, indent=2, sort_keys=True)
-            f.write("\n")
+        for path, doc in ((args.json, r), (args.public_json, public_report(r) if args.public_json else None)):
+            if path:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(doc, f, indent=2, sort_keys=True)
+                    f.write("\n")
         for path, public in ((args.md, False), (args.public_md, True)):
             if path:
                 with open(path, "w", encoding="utf-8") as f:
