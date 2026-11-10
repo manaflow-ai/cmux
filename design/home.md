@@ -69,9 +69,8 @@ in the same PR. A seam never switches a working Swift path off before its React 
 
 The Messages view is React: the docked Home, classic Home's top page and a Home pane tab all host
 `home-messages` (`HomeMessagesPage`, one page kept and reused per host). The AppKit list, sheets and
-New Message are deleted. Conversation tabs and the Chief panel host the same page for one
-conversation (`HomeConversationPage`, `#/conversation/<id>`: no list column, no compose button), and
-the native transcript (`HomeHostView`, `NativeTranscript/`) is deleted.
+New Message are deleted. Conversation tabs and the Chief panel are not part of this move: they draw
+the native iMessage transcript ([The Chief's chat](#the-chiefs-chat)).
 
 - **Chief.** The name pill of a Chief chat sends its box (`chief.settings {conversation, anchor}`), and
   the app's Chief settings popover opens under it (`HomeChiefSurface`, the same popover and rows). While
@@ -85,6 +84,43 @@ the native transcript (`HomeHostView`, `NativeTranscript/`) is deleted.
 
 Picked list: `messages` (a neutral selection slab and hairlines between rows), over `accent` and `quiet`.
 Picked transcript: `imessage` (blue mine, grey theirs, tails on each group's last bubble), over `theme` and `outline`.
+
+## The Chief's chat
+
+The Chief panel and conversation tabs draw the Chief's chat as the native iMessage transcript:
+`HomeHostView` over `CmuxNextHome/NativeTranscript` (`HomeNativeTranscriptView`), never the React
+Messages page. The docked Home's Messages view stays React (above).
+
+> "imessage home lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust" (Lawrence,
+> relayed by Leo, 2026-11-10)
+
+> "Was this us on the chief related UI bit? Like, how could this have possibly freaking regressed?
+> ... Where's the freaking spec for that? Where's the freaking iMessage ... we're not freaking going
+> back. If we are, we can just turn it back instantly and just reinforce the thing." (Leo,
+> 2026-11-10, swearing softened)
+
+#37777 moved both surfaces to `HomeConversationPage` and deleted the native transcript; that is the
+regression this section exists to stop.
+
+- **Where it draws.** `TabContent.conversation(HomeHostView)`; `HomeService.tabView(for:)` makes the
+  `HomeHostView`, and the Chief panel shows the same tab view.
+- **The look.** Blue bubbles for mine, grey for theirs, a tail on each group's last bubble, the Chief's
+  name and picture over its run, the compose bar with Stop while the Chief answers (Option-click: Stop
+  All Agents), read receipts, the first run, the Set Up cmux card under the pinned section
+  (`SetupCardHost`, the `setup-card` page), link chips and previews, agent pills.
+- **Actions reach it first.** Stop, Stop All Agents and Chief Settings (`HomeChiefActions`), Attach
+  Files, Reply to Selection, viewer quotes and design mode cards act on a native transcript the front
+  window shows before the Messages page. Start Queued Agent Now (`HomeChiefHomes`) asks the native
+  Homes first.
+- **Shared types serve both views.** `HomeChiefTurnActions` takes a native transcript
+  (`init(transcript:)`) and keeps the page's `continueAvailable`; neither view's path is deleted to
+  make the other work.
+- **Changing it.** A port of either surface off Swift needs Leo's word, quoted in its PR. Until then a
+  change that touches these files keeps them native.
+
+Guard: `python3 tests/test_chief_native_transcript.py` fails when either surface stops making
+`HomeHostView` or the native transcript files go. The `language-boundaries` check (#40381) keeps
+`NativeTranscript/` and `HomeHostView` in Swift.
 
 ## Chat Colors
 
