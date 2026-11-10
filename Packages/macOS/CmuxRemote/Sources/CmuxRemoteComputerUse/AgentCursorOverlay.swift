@@ -190,6 +190,8 @@ private final class SessionCursor {
     private let body = CALayer()
     /// The pointer and its tail, scaled and wagged as one around the tip.
     private let figure = CALayer()
+    /// A thin deep-blue line outside the white rim, so the pointer reads on white too.
+    private let rim = CAShapeLayer()
     private let tailEdge = CAShapeLayer()
     private let tail = CAShapeLayer()
     private let shadow = CAShapeLayer()
@@ -215,12 +217,15 @@ private final class SessionCursor {
         didSet { if label != oldValue { layoutName() } }
     }
 
-    static let pointerSize = CGSize(width: 22, height: 28)
+    /// The figure's scale over its design grid (a pointer about 30 pt tall: bigger than the
+    /// person's own, so it reads as the agent's).
+    static let k: CGFloat = 1.3
+    static let pointerSize = CGSize(width: 24 * k, height: 28 * k)
     /// The widest the agent's name gets (points).
     static let maxNameWidth: CGFloat = 200
     /// The pointer's tip inside its bounds (y up).
-    static let tipPoint = CGPoint(x: 2.5, y: 26)
-    /// Where the tail leaves the pointer: the middle of the stem's end (y up).
+    static let tipPoint = CGPoint(x: 2.5 * k, y: 26 * k)
+    /// Where the tail leaves the pointer: the middle of the stem's end (design grid, y up).
     static let tailRoot = CGPoint(x: 12.8, y: 5.0)
     static var captionSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption1).pointSize }
     static var smallSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption2).pointSize }
@@ -236,15 +241,19 @@ private final class SessionCursor {
         figure.anchorPoint = CGPoint(x: Self.tipPoint.x / Self.pointerSize.width,
                                      y: Self.tipPoint.y / Self.pointerSize.height)
         figure.position = .zero
-        for layer in [tailEdge, tail, shadow, pointer] {
+        for layer in [tailEdge, tail, shadow, rim, pointer] {
             layer.frame = figure.bounds
             layer.lineJoin = .round
         }
         shadow.path = path
+        rim.path = path
+        rim.fillColor = nil
+        rim.strokeColor = AgentCursorOverlay.deepBlue.withAlphaComponent(0.55).cgColor
+        rim.lineWidth = 4.4
         pointer.path = path
         // The tail: a soft S of cmux blue with a white edge, behind the pointer.
         let rest = Self.tailPath(.rest)
-        for (layer, width, color) in [(tailEdge, 4.6, NSColor.white), (tail, 2.4, AgentCursorOverlay.deepBlue)] {
+        for (layer, width, color) in [(tailEdge, 5.6, NSColor.white), (tail, 3.0, AgentCursorOverlay.deepBlue)] {
             layer.path = rest
             layer.fillColor = nil
             layer.strokeColor = color.cgColor
@@ -302,6 +311,7 @@ private final class SessionCursor {
         figure.addSublayer(tailEdge)
         figure.addSublayer(tail)
         figure.addSublayer(shadow)
+        figure.addSublayer(rim)
         figure.addSublayer(pointer)
         body.addSublayer(figure)
         body.addSublayer(nameTag)
@@ -332,7 +342,8 @@ private final class SessionCursor {
             path.addArc(tangent1End: points[i], tangent2End: points[(i + 1) % points.count], radius: radii[i])
         }
         path.closeSubpath()
-        return path
+        var grid = CGAffineTransform(scaleX: k, y: k)
+        return path.copy(using: &grid) ?? path
     }
 
     /// How the tail lies.
@@ -369,7 +380,8 @@ private final class SessionCursor {
         let path = CGMutablePath()
         path.move(to: a)
         path.addCurve(to: end, control1: c1, control2: c2)
-        return path
+        var grid = CGAffineTransform(scaleX: k, y: k)
+        return path.copy(using: &grid) ?? path
     }
 
     /// Animates the tail through `poses` (from rest, back to rest).
@@ -399,7 +411,9 @@ private final class SessionCursor {
     /// The tail and pointer follow the alert color (amber, red), else cmux blue.
     private func tint(_ color: NSColor?) {
         pointer.fillColor = (color ?? AgentCursorOverlay.blue).cgColor
-        tail.strokeColor = (color?.blended(withFraction: 0.25, of: .black) ?? AgentCursorOverlay.deepBlue).cgColor
+        let deep = color?.blended(withFraction: 0.25, of: .black) ?? AgentCursorOverlay.deepBlue
+        tail.strokeColor = deep.cgColor
+        rim.strokeColor = deep.withAlphaComponent(0.55).cgColor
     }
 
     /// Every layer under `layer` draws at `scale` (vector paths, text, shadows stay sharp).
@@ -895,8 +909,8 @@ private final class SessionCursor {
         name.frame = CGRect(x: padX + dotSpace, y: padY, width: size.width, height: size.height)
         // Below and right of the tip (AppKit y up): clear of the pointer's body.
         // Right of the tail's tip, so the tail shows.
-        nameTag.position = CGPoint(x: 24, y: -24 - tagSize.height)
-        chipLayer.position = CGPoint(x: 24, y: nameTag.position.y - 5 - chipLayer.bounds.height)
+        nameTag.position = CGPoint(x: 30, y: -30 - tagSize.height)
+        chipLayer.position = CGPoint(x: 30, y: nameTag.position.y - 5 - chipLayer.bounds.height)
         CATransaction.commit()
     }
 
