@@ -83,20 +83,20 @@ ios/scripts/validate-app-store-release.sh \
 
 ## App Review Journey
 
-`ios/cmuxUITests/AppReviewJourneyUITests.swift` is the path App Review takes
-through a fresh install with no Mac of its own: signed out, then the
-demonstration account. `test-ios.yml` runs it on iPhone and iPad in every iOS
-pull request and merge-group run, inside the `ios-tests` gate, so a build
-that would strand a reviewer goes red in its pull request, long before App
-Store Connect sees it.
+`journey-tests.txt` lists the UI tests that walk the path App Review takes
+through a fresh install with no Mac of its own: the signed-out first screen,
+Tailscale scan and Skip without a Mac, and the demonstration account.
+`test-ios.yml` runs them on iPhone and iPad in every iOS pull request and
+merge-group run, inside the `ios-tests` gate, so a build that would strand a
+reviewer goes red in its pull request, long before App Store Connect sees it.
 
 When App Review rejects the app for its behaviour (Guideline 2.1 and the like),
-the fix PR adds the test that would have caught it to this class, failing on
-the base, before the fix. A test that needs an App Review state the app cannot
+the fix PR adds the test that would have caught it to the list, failing on the
+base, before the fix. A test that needs an App Review state the app cannot
 reach on its own (the demonstration account, no Tailscale) gets a
 `CMUX_UITEST_*` stand-in, as `CMUX_UITEST_ONBOARDING_DEMONSTRATION_ACCOUNT`
-does. `ios/tests/test_appstore_review_package.py` fails if the class or its CI
-step goes away.
+does. `ios/tests/test_appstore_review_package.py` fails if the list, a test it
+names or the CI step goes away.
 
 ## Files
 

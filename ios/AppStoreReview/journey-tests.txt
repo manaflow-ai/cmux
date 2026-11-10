@@ -1,0 +1,14 @@
+# The path App Review takes through a fresh install with no Mac of its own.
+# test-ios.yml runs each line with -only-testing on iPhone and iPad in every
+# iOS pull request and merge-group run, inside the ios-tests gate. When App
+# Review rejects the app for its behaviour, add the test that would have
+# caught it here (README.md, "App Review Journey").
+
+# Signed out: the first screen offers every sign-in method (2.1).
+cmuxUITests/cmuxUITests/testFreshSignedOutInstallOffersEverySignInMethod
+# No Mac: Tailscale Only's Scan Pairing Code opens the scanner and Skip leaves
+# onboarding (2.1(a), iPad, 2026-11-07, #39897).
+cmuxUITests/cmuxUITests/testFreshInstallTailscaleScanOpensScannerAndSkipLeavesOnboarding
+# Demonstration account: the connect page is ready and offers no Tailscale
+# choice (#39981).
+cmuxUITests/cmuxUITests/testDemonstrationAccountOnboardingHidesTailscaleAndOpensWorkspaces

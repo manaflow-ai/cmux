@@ -28,7 +28,7 @@ complete in App Store Connect or in the submitted binary.
       is reference-only and is not pasted into ASC.
 - [ ] Backend services needed by the demo account are live before submission.
 - [ ] `ios-tests` is green on the commit being submitted, on both iPhone and
-      iPad, including the App Review journey step (`AppReviewJourneyUITests`).
+      iPad, including the App Review journey step (`journey-tests.txt`).
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
 ## Metadata
