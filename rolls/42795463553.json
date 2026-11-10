@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42795463553",
+  "recorded_at": "2026-11-10T10:08:17Z",
+  "reason": "cmux-tui 02c23fc98e11 changes the image's cmux-tui (pinned e8993578f734)",
+  "dry_run": false,
+  "cmux_tui": "02c23fc98e11fa3cac2c4d55d1d62de106296c52",
+  "fixes": [
+    {
+      "sha": "02c23fc98e11fa3cac2c4d55d1d62de106296c52",
+      "mergedAt": "2026-11-10T01:43:49-08:00",
+      "subject": "Cloud start: start-session reports its stages; start-chat --wait reads the reply over the link (#40206)"
+    },
+    {
+      "sha": "8f36b7ba7ac308592fc5c205fc48deb89f0627a6",
+      "mergedAt": "2026-11-10T01:43:04-08:00",
+      "subject": "cmux-tui: empty host frames count against the demultiplexer's queue budget (#39806)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T10:08:17Z",
+    "snapshot_id": "sh-717eccd64ad7489b9101216974988e30",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42795463553): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "13539d091628b1047bd450282093b967c197277e",
+    "image": "cloud-native-auto-02c23fc9-42795463553-1",
+    "revision": "ci-42795463553-1",
+    "at": "2026-11-10T10:08:17Z"
+  },
+  "rolled_back": false
+}
