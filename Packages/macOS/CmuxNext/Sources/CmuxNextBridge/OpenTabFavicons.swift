@@ -59,9 +59,11 @@ import Observation
     /// (an incognito window's: every page of that window is incognito), else each browser tab's that has one
     /// (``favicon(_:faviconKey:)``). `incognito` is the caller's one read for the workspace, from the workspace's own
     /// facts (the app: `WindowManager.isIncognito(workspace:)` of the model: its `ephemeral` flag, its own registry cell,
-    /// its claim), so the workspace's observation reads no session-wide state. A per-tab read
-    /// (`BrowserTabService.isIncognitoTab`) found the workspace through the store's tab index, its workspace list and the
-    /// whole window registry: one tab added anywhere woke every workspace's observation (#40213 review).
+    /// its claim), so the observation of a workspace that a window lists reads no session-wide state. A workspace that
+    /// no window lists yet still reads the whole window registry there: that read is what lets it hear a new claim. A
+    /// per-tab read (`BrowserTabService.isIncognitoTab`) found the workspace through the store's tab index, its
+    /// workspace list and the whole window registry: one tab added anywhere woke every workspace's observation
+    /// (#40213 review).
     public static func favicons(of workspace: WorkspaceModel, incognito: Bool, faviconKey: (URL) -> String?) -> [Favicon] {
         guard !incognito else { return [] }
         return favicons(of: workspace, favicon: { Self.favicon($0, faviconKey: faviconKey) })
