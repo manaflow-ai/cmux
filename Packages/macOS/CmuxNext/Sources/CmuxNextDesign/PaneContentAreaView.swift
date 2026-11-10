@@ -34,6 +34,19 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// The ground the area shows under its content: its pane's (the window's color where panes paint it), else none.
+    public var restingGround: CGColor? { didSet { paintGround() } }
+
+    /// The ground of content that comes next but is not made yet (SPLIT NEW PANE GROUND, m81: a split's stand-in terminal
+    /// waits for its surface until after its key's frame): it shows instead of ``restingGround`` until then, so the new
+    /// pane has its terminal's ground from the key's frame, never the window's color.
+    public var waitingGround: CGColor? { didSet { paintGround() } }
+
+    private func paintGround() {
+        let ground = waitingGround ?? restingGround
+        if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
+    }
+
     /// The area's size when the hold began: the size its subviews keep; nil at rest.
     private var heldSize: CGSize?
 

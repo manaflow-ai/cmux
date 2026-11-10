@@ -361,6 +361,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
@@ -405,6 +406,7 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextServer",
         "CmuxNextSettings",
@@ -425,6 +427,7 @@
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextAppCore",
+        "CmuxNextAppHealth",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
@@ -484,6 +487,7 @@
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
+        "CmuxNextTaskManagerPage",
         "CmuxNextTerminalGeometry",
         "CmuxNextTestExitTrace",
         "CmuxNextTestSupport",
@@ -2135,6 +2139,16 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextTaskManagerPage": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTaskManagerPage",
+      "targets": [
+        "CmuxNextPages",
+        "CmuxNextResources",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextTerminal": {
       "kind": "regular",
