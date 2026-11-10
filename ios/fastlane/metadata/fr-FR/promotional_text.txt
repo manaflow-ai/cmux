@@ -1,1 +1,1 @@
-Vos agents de code, dans votre poche. Associez votre Mac, regardez les agents travailler en direct et recevez une notification dès qu'ils ont besoin de vous.
+Écrivez à vos Chiefs, les agents qui lancent des agents de code sur vos propres machines. Recevez une notification dès que l’un d’eux a besoin de vous.

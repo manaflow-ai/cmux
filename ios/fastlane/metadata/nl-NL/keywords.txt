@@ -1,1 +1,1 @@
-terminal,coding agent,AI,claude,codex,ssh,ontwikkelaar,devops,ghostty,remote,cli,automatisering,cmux
+codeeragent,AI-agent,chief,agents,ontwikkelaar,chat,berichten,meldingen,spraakmemo

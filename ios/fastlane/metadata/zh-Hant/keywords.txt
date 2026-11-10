@@ -1,1 +1,1 @@
-終端機,AI代理,claude,codex,ssh,開發者,devops,遠端,cli,自動化,cmux,ghostty
+程式代理,AI代理,Chief,代理,開發者,聊天,訊息,通知,語音備忘

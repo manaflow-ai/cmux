@@ -1,1 +1,1 @@
-terminale,agente AI,AI,claude,codex,ssh,sviluppatore,devops,ghostty,remoto,cli,cmux
+agente di codice,agente IA,chief,agenti,sviluppatore,chat,messaggi,notifiche,nota vocale

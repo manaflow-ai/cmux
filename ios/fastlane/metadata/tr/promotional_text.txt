@@ -1,1 +1,1 @@
-Kodlama ajanlarınız cebinizde. Mac'inize eşleyin, ajanların canlı çalışmasını izleyin ve biri sizi beklediğinde anında bildirim alın.
+Kendi makinelerinizde kod ajanlarını çalıştıran Chief’lerinize mesaj atın. Biri size ihtiyaç duyduğunda bildirim alır, nerede olursanız olun yanıt verirsiniz.

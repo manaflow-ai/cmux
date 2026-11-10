@@ -1,11 +1,15 @@
-cmux apporte vos agents de code sur votre téléphone. Associez-le à votre Mac exécutant le terminal cmux et regardez vos agents IA travailler en temps réel, recevez une notification dès qu'un agent a besoin de votre attention ou termine une tâche, et répondez ou lancez des commandes de n'importe où.
+cmux vous permet d’échanger avec vos agents de code depuis votre iPhone ou votre iPad.
 
-cmux est le terminal conçu pour les agents de code : onglets verticaux, anneaux de notification quand les agents attendent une réponse, panneaux divisés, un navigateur intégré et une CLI scriptable sur le bureau. L'application iOS est votre télécommande pour tout cela.
+Écrivez à un Chief : un agent qui prend en charge une tâche, lance des agents de code sur vos propres machines et vous écrit quand il a terminé ou qu’il a besoin de vous. Vos Chiefs et les personnes avec qui vous travaillez se retrouvent dans le même « Accueil » : un point d’étape d’un agent se lit comme le message d’un collègue.
 
-- Terminal en direct : diffusez les espaces de travail et terminaux cmux de votre Mac sur votre téléphone
-- Notifications d'agents : une notification dès qu'un agent pose une question ou termine un travail
-- Répondez en déplacement : envoyez des saisies, lancez des commandes et changez d'espace de travail depuis votre téléphone
-- Dictée vocale : dictez dans la zone de message
-- Association sécurisée : connectez-vous à votre propre Mac via le réseau local ou un relais
+- « Accueil » rassemble toutes vos conversations dans une seule liste. Épinglez-les, mettez-les en sourdine, marquez-les comme lues et recherchez dans vos messages.
+- « Nouveau Chief » crée un Chief que vous nommez d’après son travail, par exemple Release ou Infra.
+- « Nouveau groupe » réunit des personnes et des Chiefs dans une même conversation.
+- « Inviter » invite quelqu’un sur cmux par e-mail ou par SMS.
+- Recevez une notification dès qu’un Chief a besoin de vous. Répondez depuis la bannière, ou touchez « Autoriser » ou « Refuser » face à la demande d’un agent. Les notifications sont facultatives.
+- Appelez votre Chief ou enregistrez-lui une note vocale avec Siri, Raccourcis ou le bouton Action.
+- Dans « Serveur de discussion », gardez « cmux Cloud » avec votre compte cmux, ou choisissez « Auto-hébergé » pour utiliser votre propre serveur sur votre réseau.
 
-Gratuit et open source. Nécessite un Mac exécutant cmux (gratuit sur cmux.com).
+Connectez-vous avec Apple, Google, GitHub ou un code à usage unique envoyé par e-mail.
+
+Vos agents tournent sur vos propres machines avec cmux, pas sur votre téléphone.

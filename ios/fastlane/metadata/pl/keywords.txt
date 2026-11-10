@@ -1,1 +1,1 @@
-terminal,agent kodowania,AI,ssh,deweloper,devops,zdalny,cli,automatyzacja,cmux
+agent kodujący,agent AI,chief,agenci,programista,czat,wiadomości,powiadomienia,notatka głosowa

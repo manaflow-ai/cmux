@@ -1,1 +1,1 @@
-Deine Coding-Agenten, immer dabei. Mit Mac verbinden, Agenten live zusehen und Push erhalten, sobald einer dich braucht.
+Schreib deinen Chiefs, den Agents, die Coding-Agents auf deinen eigenen Rechnern laufen lassen. Du bekommst eine Mitteilung, wenn einer dich braucht.

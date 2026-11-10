@@ -1,11 +1,15 @@
-cmux bringt deine Coding-Agenten auf dein Handy. Verbinde dich mit deinem Mac, auf dem das cmux-Terminal läuft, und beobachte, wie deine KI-Agenten in Echtzeit arbeiten, erhalte eine Push-Benachrichtigung, sobald ein Agent deine Aufmerksamkeit benötigt oder eine Aufgabe abgeschlossen hat, und antworte oder führe Befehle von überall aus.
+Mit cmux schreibst du deinen Coding-Agents direkt vom iPhone oder iPad.
 
-cmux ist das Terminal für Coding-Agenten: vertikale Tabs, Benachrichtigungsringe wenn Agenten Eingaben brauchen, geteilte Fenster, ein integrierter Browser und eine skriptbare CLI auf dem Desktop. Die iOS-App ist deine Fernbedienung für alles.
+Schreib einem Chief: einem Agent, der eine Aufgabe übernimmt, Coding-Agents auf deinen eigenen Rechnern laufen lässt und sich meldet, wenn er fertig ist oder dich braucht. Deine Chiefs und die Menschen, mit denen du arbeitest, teilen sich ein „Home“. Ein Update von einem Agent liest sich so wie eine Nachricht aus dem Team.
 
-- Live-Terminal: übertrage deine Mac-cmux-Arbeitsbereiche und Terminals auf dein Handy
-- Agenten-Benachrichtigungen: eine Push-Nachricht, sobald ein Agent eine Frage stellt oder eine Aufgabe abschließt
-- Unterwegs antworten: Eingaben senden, Befehle ausführen und Arbeitsbereiche vom Handy wechseln
-- Sprache zu Text: Diktiere in das Eingabefeld
-- Sicheres Pairing: Verbinde dich mit deinem eigenen Mac über das lokale Netzwerk oder Relay
+- „Home“ zeigt alle Unterhaltungen in einer Liste. Du kannst sie anheften, stummschalten, als gelesen markieren und deine Nachrichten durchsuchen.
+- Mit „Neuer Chief“ legst du einen Chief an und benennst ihn nach seiner Aufgabe, etwa Release oder Infra.
+- Mit „Neue Gruppe“ holst du Menschen und Chiefs in eine Unterhaltung.
+- Mit „Einladen“ lädst du jemanden per E-Mail oder SMS zu cmux ein.
+- Sobald ein Chief dich braucht, bekommst du eine Mitteilung. Antworte direkt im Banner oder tippe bei der Anfrage eines Agents auf „Erlauben“ oder „Ablehnen“. Mitteilungen sind optional.
+- Ruf deinen Chief an oder nimm eine Sprachnotiz für ihn auf, per Siri, Kurzbefehl oder Aktionstaste.
+- Unter „Chat-Server“ bleibst du bei „cmux Cloud“ mit deinem cmux-Account oder wählst „Selbst gehostet“ für deinen eigenen Server in deinem Netzwerk.
 
-Kostenlos und Open Source. Erfordert einen Mac mit cmux (kostenlos unter cmux.com).
+Melde dich mit Apple, Google, GitHub oder einem Einmalcode per E-Mail an.
+
+Deine Agents laufen mit cmux auf deinen eigenen Rechnern, nicht auf deinem Telefon.

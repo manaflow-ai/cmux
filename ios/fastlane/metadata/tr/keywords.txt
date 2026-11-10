@@ -1,1 +1,1 @@
-terminal,yapay zeka,geliştirici,ajan,claude,codex,ssh,devops,uzak,cli,ghostty,cmux
+kod ajanı,yapay zeka ajanı,chief,ajanlar,geliştirici,sohbet,mesajlar,bildirimler,sesli not

@@ -1,11 +1,15 @@
-cmux, kodlama ajanlarınızı telefonunuza taşır. Mac'inizdeki cmux terminaline eşleyin, yapay zeka ajanlarınızın gerçek zamanlı çalışmasını izleyin, bir ajan dikkatinizi gerektirdiğinde veya görevi tamamladığında anında bildirim alın ve her yerden yanıt verin ya da komut çalıştırın.
+cmux ile kod ajanlarınızla iPhone veya iPad’inizden konuşursunuz.
 
-cmux, kodlama ajanları için tasarlanmış terminal uygulamasıdır: dikey sekmeler, ajanların girdi beklerken gösterdiği bildirim halkacıkları, bölünmüş paneller, uygulama içi tarayıcı ve masaüstünde komut satırı aracılığıyla tam kontrol. iOS uygulaması ise tüm bunlar için uzaktan kumandanızdır.
+Bir Chief’e mesaj atın: Chief bir görevi üstlenen, kendi makinelerinizde kod ajanlarını çalıştıran ve işi bittiğinde ya da size ihtiyaç duyduğunda size yazan bir ajandır. Chief’leriniz ve birlikte çalıştığınız kişiler aynı “Ana Sayfa”da durur; bir ajandan gelen güncelleme, bir ekip arkadaşından gelen mesaj gibi okunur.
 
-- Canlı terminal: Mac'inizdeki cmux çalışma alanlarını ve terminalleri telefonunuza yayınlayın
-- Ajan bildirimleri: bir ajan soru sorduğunda veya işi tamamladığında anında bildirim alın
-- Her yerden yanıt verin: telefonunuzdan girdi gönderin, komut çalıştırın ve çalışma alanları arasında geçiş yapın
-- Sesli metin girişi: mesaj kutusuna dikte ederek yazın
-- Güvenli eşleştirme: kendi Mac'inize yerel ağ veya aktarıcı üzerinden bağlanın
+- “Ana Sayfa” tüm sohbetleri tek bir listede toplar. Sohbetleri sabitleyebilir, sessize alabilir, okundu olarak işaretleyebilir ve mesajlarınızda arama yapabilirsiniz.
+- “Yeni Chief” ile bir Chief oluşturur ve ona üstlendiği işin adını verirsiniz, örneğin Release veya Infra.
+- “Yeni Grup” ile kişileri ve Chief’leri tek bir sohbette bir araya getirirsiniz.
+- “Davet Et” ile birini e-posta veya kısa mesajla cmux’a davet edersiniz.
+- Bir Chief size ihtiyaç duyduğu anda bildirim alırsınız. Bildirimden yanıt verebilir ya da bir ajanın isteğine “İzin ver” veya “Reddet” diyebilirsiniz. Bildirimler isteğe bağlıdır.
+- Siri, Kestirmeler veya Eylem düğmesiyle Chief’inizi arayabilir ya da ona sesli not bırakabilirsiniz.
+- “Sohbet Sunucusu” bölümünde cmux hesabınızla “cmux Cloud”u kullanmaya devam edebilir veya kendi ağınızdaki sunucunuz için “Kendi Sunucun”u seçebilirsiniz.
 
-Ücretsiz ve açık kaynaklı. cmux çalıştıran bir Mac gerektirir (cmux.com adresinden ücretsiz edinin).
+Apple, Google, GitHub ile ya da e-postanıza gelen tek kullanımlık bir kodla giriş yapın.
+
+Ajanlarınız telefonunuzda değil, cmux ile kendi makinelerinizde çalışır.

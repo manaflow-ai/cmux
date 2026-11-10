@@ -1,11 +1,15 @@
-cmux brings your coding agents to your phone. Pair to your Mac running the cmux terminal and watch your AI agents work in real time, get a push the moment an agent needs your attention or finishes a task, and reply or run commands from anywhere.
+cmux is where you talk to your coding agents from your iPhone or iPad.
 
-cmux is the terminal built for coding agents: vertical tabs, notification rings when agents need input, split panes, an in-app browser, and a scriptable CLI on the desktop. The iOS app is your remote for all of it.
+Message a Chief: an agent that takes a task, runs coding agents on your own machines, and messages you when it is done or needs you. Your Chiefs and the people you work with share one Home, so an update from an agent reads like a text from a teammate.
 
-- Live terminal: stream your Mac's cmux workspaces and terminals to your phone
-- Agent notifications: a push the moment an agent asks a question or completes work
-- Reply on the go: send input, run commands, and switch workspaces from your phone
-- Voice to text: dictate into the message box
-- Secure pairing: connect to your own Mac over the local network or relay
+- Home keeps every conversation in one list. Pin, mute, mark as read, and search your messages.
+- Start a New Chief and name it for the work it owns, like Release or Infra.
+- Start a New Group to bring people and Chiefs into one conversation.
+- Invite someone to cmux by email or text message.
+- Get a notification the moment a Chief needs you. Reply from the banner, or Allow or Deny an agent's request. Notifications are optional.
+- Call your Chief or record a voice note for it with Siri, Shortcuts, or the Action Button.
+- In Chat Server, keep cmux Cloud with your cmux account, or choose Self-Hosted to use your own server on your network.
 
-Free and open source. Requires a Mac running cmux (free at cmux.com).
+Sign in with Apple, Google, GitHub, or a one-time code sent to your email.
+
+Your agents run on your own machines with cmux, not on your phone.

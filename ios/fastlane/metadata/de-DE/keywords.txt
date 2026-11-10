@@ -1,1 +1,1 @@
-terminal,coding-agent,KI,claude,codex,ssh,entwickler,devops,ghostty,remote,cli,automation,cmux
+Coding-Agent,KI-Agent,Chief,Agents,Entwickler,Chat,Nachrichten,Mitteilungen,Sprachnotiz

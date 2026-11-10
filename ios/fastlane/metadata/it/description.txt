@@ -1,11 +1,15 @@
-cmux porta i tuoi agenti di programmazione sul telefono. Collega il tuo Mac con il terminale cmux e guarda i tuoi agenti AI lavorare in tempo reale, ricevi una notifica push nel momento in cui un agente ha bisogno della tua attenzione o completa un'attività, e rispondi o esegui comandi da qualsiasi luogo.
+Con cmux parli con i tuoi agenti di programmazione da iPhone o iPad.
 
-cmux è il terminale costruito per gli agenti di programmazione: schede verticali, anelli di notifica quando gli agenti richiedono istruzioni, pannelli suddivisi, un browser integrato e una CLI programmabile sul desktop. L'app iOS è il tuo telecomando per tutto questo.
+Scrivi a un Chief: un agente che prende in carico un compito, avvia agenti di programmazione sulle tue macchine e ti scrive quando ha finito o quando ha bisogno di te. I tuoi Chief e le persone con cui lavori condividono la stessa “Home”, così l’aggiornamento di un agente si legge come il messaggio di un collega.
 
-- Terminale live: trasmetti gli spazi di lavoro e i terminali cmux del tuo Mac sul telefono
-- Notifiche agenti: una push nel momento in cui un agente fa una domanda o completa un lavoro
-- Rispondi in movimento: invia istruzioni, esegui comandi e cambia spazio di lavoro dal telefono
-- Voce in testo: detta nel campo messaggio
-- Abbinamento sicuro: connettiti al tuo Mac tramite rete locale o relay
+- “Home” raccoglie tutte le conversazioni in un unico elenco. Fissale, silenziale, segnale come lette e cerca nei messaggi.
+- Con “Nuovo Chief” crei un Chief e gli dai il nome del lavoro di cui si occupa, come Release o Infra.
+- Con “Nuovo gruppo” riunisci persone e Chief in una sola conversazione.
+- Con “Invita” inviti qualcuno su cmux via email o SMS.
+- Ricevi una notifica appena un Chief ha bisogno di te. Rispondi dal banner, oppure tocca “Consenti” o “Rifiuta” sulla richiesta di un agente. Le notifiche sono facoltative.
+- Chiama il tuo Chief o registragli una nota vocale con Siri, Comandi Rapidi o il tasto Azione.
+- In “Server di chat” resta su “cmux Cloud” con il tuo account cmux, oppure scegli “Self-hosted” per usare il tuo server sulla tua rete.
 
-Gratuito e open source. Richiede un Mac con cmux in esecuzione (gratuito su cmux.com).
+Accedi con Apple, Google, GitHub o con un codice monouso inviato via email.
+
+I tuoi agenti girano sulle tue macchine con cmux, non sul telefono.
