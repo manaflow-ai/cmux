@@ -37,6 +37,17 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
+    /// The child exits at once and leaves a process behind that holds its stdout open. The run ends
+    /// at the child's exit with what the child wrote, not when the one left behind lets go of the pipe.
+    @Test(.timeLimit(.minutes(1))) func aRunEndsAtTheExitWhenAProcessLeftBehindHoldsItsStdout() async throws {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let result = try await PhoneProcessRunner().run(["sh", "-c", "sleep 15 & echo done"], stdin: nil, deadline: .seconds(20))
+        #expect(result.status == 0)
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "done\n")
+        #expect(clock.now - start < .seconds(10))
+    }
+
     @Test func theDeadlineKillsARunThatHangs() async throws {
         let clock = ContinuousClock()
         let start = clock.now
