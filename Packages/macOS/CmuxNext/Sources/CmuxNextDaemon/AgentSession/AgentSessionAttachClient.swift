@@ -210,8 +210,43 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
         }
         if let timings = Self.machineTimings(object["timings_ms"]) { Self.startLogger.info("cloud start machine: \(timings, privacy: .public)") }
+        if let phases = Self.machinePhases(object["timings_ms"]) { Self.keepStartPhases(phases, session: session) }
         return session
     }
+
+    /// The machine-side phases of the newest starts, by session, until the run that started one takes them
+    /// (``takeStartPhases(_:)``, `cloud start-session`'s `stages_ms`). At most ``startPhasesKept`` sessions.
+    private static let startPhases = OSAllocatedUnfairLock<[(session: String, phases: [String: Int])]>(initialState: [])
+    static let startPhasesKept = 16
+
+    static func keepStartPhases(_ phases: [String: Int], session: String) {
+        startPhases.withLock { kept in
+            kept.removeAll { $0.session == session }
+            kept.append((session, phases))
+            if kept.count > startPhasesKept { kept.removeFirst(kept.count - startPhasesKept) }
+        }
+    }
+
+    /// The machine-side phases (`session_new`, `acpmux_connect`, ...) of the start that made `session`, once: nil when
+    /// its daemon sent none or another caller took them.
+    public static func takeStartPhases(_ session: String) -> [String: Int]? {
+        startPhases.withLock { kept in
+            guard let index = kept.firstIndex(where: { $0.session == session }) else { return nil }
+            return kept.remove(at: index).phases
+        }
+    }
+
+    /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` as 0 or 1.
+    static func machinePhases(_ value: Any?) -> [String: Int]? {
+        guard let timings = value as? [String: Any] else { return nil }
+        var phases: [String: Int] = [:]
+        for name in machinePhaseNames {
+            if let ms = timings.first(where: { $0.key == name })?.value as? NSNumber { phases[name] = max(0, ms.intValue) }
+        }
+        if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { phases["acpmux_started"] = started ? 1 : 0 }
+        return phases.isEmpty ? nil : phases
+    }
+    static let machinePhaseNames = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
 
     /// The `cloud` category the Cloud probe's log stream reads (cmuxterm-hq cloud_chat_app_probe.py APP_LOG_PREDICATE).
     private static let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
@@ -220,8 +255,7 @@ public actor AgentSessionAttachClient {
     /// line, `session_new 1800 ms, ...`, in the daemon's phase order; nil when the daemon sent none. Durations only.
     static func machineTimings(_ value: Any?) -> String? {
         guard let timings = value as? [String: Any] else { return nil }
-        let phases = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
-        var parts = phases.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
+        var parts = machinePhaseNames.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
         guard !parts.isEmpty else { return nil }
         if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
         return parts.joined(separator: ", ")

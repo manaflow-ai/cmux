@@ -384,6 +384,32 @@ fn the_answer_times_each_step_it_ran() {
     );
 }
 
+/// Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?". The app's own split of
+/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `app`; an
+/// app that reports none leaves the step as it was.
+#[test]
+fn the_start_sessions_own_split_rides_under_its_step() {
+    let split = json!({"steps": [{"step": "machine", "ms": 7100}, {"step": "connect.link", "ms": 2800}],
+                       "machine": {"session_new": 1800}, "total": 22_826});
+    let mut with_split = started();
+    let mut answer: Value = serde_json::from_str(&with_split.stdout).unwrap();
+    answer["result"]["stages_ms"] = split.clone();
+    with_split.stdout = answer.to_string();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        with_split,
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["app"], split);
+    assert!(steps[0].get("app").is_none() && steps[2].get("app").is_none(), "{steps:?}");
+}
+
 #[test]
 fn a_failure_carries_the_steps_it_ran() {
     let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);

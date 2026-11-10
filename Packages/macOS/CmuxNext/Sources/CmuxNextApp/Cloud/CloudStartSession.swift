@@ -221,18 +221,43 @@ struct CloudStartSession {
     /// nothing in the account signed in now.
     /// `byPerson`: the person's own gesture (a palette or menu run, or Start on an agent's card);
     /// it decides how the machine is created and connected. `capCard`: a refusal at the cap opens the cap card, else answers the run.
+    /// The answer has `stages_ms`: each step the run's clocks marked (``CloudStartSteps``), in order, and the machine's
+    /// own phases of the start (`machine`, agent_session_start.rs `timings_ms`), so a `cmux chat --on vm:new --json`
+    /// shows where its start-session went. Names and milliseconds only.
     func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
+        let record = CloudStartStepRecord(), began = ContinuousClock.now
+        var answer = try await CloudStartStepRecord.$current.withValue(record) {
+            try await recorded(request, invocation, context, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy, revealing: revealing)
+        }
+        var machine: [String: Int]?
+        if case .string(let session)? = answer["session_id"] { machine = AgentSessionAttachClient.takeStartPhases(session) }
+        answer["stages_ms"] = Self.stages(record, machine: machine, total: CloudStartSteps.milliseconds(began.duration(to: .now)))
+        return answer
+    }
+
+    /// `stages_ms`: `{"steps": [{"step", "ms"}...], "machine": {phase: ms}?, "total": ms}`.
+    static func stages(_ record: CloudStartStepRecord, machine: [String: Int]?, total: Int) -> ActionResultValue {
+        var stages: [String: ActionResultValue] = [
+            "steps": .array(record.steps.map { .object(["step": .string($0.name), "ms": .int($0.ms)]) }), "total": .int(total),
+        ]
+        if let machine { stages["machine"] = .object(machine.mapValues { .int($0) }) }
+        return .object(stages)
+    }
+
+    private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
+                          revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
+        steps.done("machine") // the list read and the take, or the create's answer
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
         // From the connect until the agent runs, the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
-        let steps = CloudStartSteps(logger: services.cloud.logger)
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect")
         try still(name)
@@ -413,8 +438,10 @@ struct CloudStartSession {
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
+        let steps = CloudStartSteps(logger: services.cloud.logger)
         // A machine that is resuming is waited for (within the start's own connect wait), never refused at once.
         try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
+        steps.done("connect.ready") // a resuming machine's resume
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
             try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
@@ -422,12 +449,14 @@ struct CloudStartSession {
             try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
+            steps.done("connect.resume") // a paused machine's state read and its resume or connect asked
         }
         // An update of this machine already running when the start came (one that begins later finds the start in ``CloudStartGate``)
         // restarts the daemon: the agent starts once it ended and the link is back, and holds.
         let up = await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
             [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
         } && session.linkHeld()
+        steps.done("connect.link") // the relay link up and held
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up else { throw failure() }

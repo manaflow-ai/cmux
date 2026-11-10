@@ -905,12 +905,18 @@ impl Runner for Timed<'_> {
         let to = self.inner.now();
         if self.stages.len() < STAGES_KEPT {
             let step = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
-            self.stages.push(json!({
+            let mut stage = json!({
                 "step": step,
                 "at": from.saturating_duration_since(self.began).as_millis(),
                 "ms": to.saturating_duration_since(from).as_millis(),
                 "code": ran.code,
-            }));
+            });
+            // The app's own split of the step (`cloud start-session`'s `stages_ms`: its steps, and the machine's
+            // phases of the start), so the trace says where a long start-session went.
+            if let Some(inner) = app_stages(&ran) {
+                stage.set("app", inner);
+            }
+            self.stages.push(stage);
         } else {
             self.more += 1;
         }
@@ -928,6 +934,14 @@ impl Runner for Timed<'_> {
     fn fresh_name(&mut self) -> String {
         self.inner.fresh_name()
     }
+}
+
+/// The `stages_ms` object a step's app answer carries (an app that reports none, or a failed step: None).
+fn app_stages(ran: &Ran) -> Option<Value> {
+    if ran.code != 0 || !ran.stdout.contains("stages_ms") {
+        return None;
+    }
+    step_result(ran).ok()?.get("stages_ms").filter(|value| value.is_object()).cloned()
 }
 
 /// [`run`]'s steps; `progress` is what they got to. `--timeout` is one deadline from the start: the list, a new
