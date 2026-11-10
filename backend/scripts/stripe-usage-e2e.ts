@@ -9,10 +9,17 @@
 // Run on a Freestyle VM, one phase per call, in order: PHASE=a, PHASE=more (repeat until both levels pass
 // their included amounts), PHASE=cap (the personal team runs to its cap: calls and machine starts refused),
 // PHASE=b, PHASE=c, PHASE=cleanup.
-// /root/.wt/secrets.json (written 0600 and shredded by the VM helper): { stripe, levels, project, publishable,
-// email, password }. Nothing here prints a secret; it prints ids and amounts only.
+// Secrets: from the environment (the billing-e2e workflow, .github/workflows/billing-e2e.yml: E2E_STRIPE_TEST_KEY,
+// E2E_BILLING_LEVELS_KEY, E2E_STACK_EMAIL, E2E_STACK_PASSWORD), else /root/.wt/secrets.json (written 0600 and shredded
+// by the VM helper): { stripe, levels, project, publishable, email, password }. The run's state is E2E_STATE (default
+// /root/e2e-state-both.json). Nothing here prints a secret; it prints ids and amounts only.
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-const sec = JSON.parse(readFileSync("/root/.wt/secrets.json", "utf8"))
+/** The development sign-in project and its public client key (cloud-journey.ts `dev`). */
+const DEV_PROJECT = { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", publishable: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" }
+const fromEnv = process.env.E2E_STRIPE_TEST_KEY
+  ? { ...DEV_PROJECT, stripe: process.env.E2E_STRIPE_TEST_KEY, levels: process.env.E2E_BILLING_LEVELS_KEY, email: process.env.E2E_STACK_EMAIL, password: process.env.E2E_STACK_PASSWORD }
+  : null
+const sec = fromEnv ?? JSON.parse(readFileSync("/root/.wt/secrets.json", "utf8"))
 if (!/^(sk|rk)_test_/.test(sec.stripe)) throw new Error("test key only")
 if (sec.project !== "454ecd03-1db2-4050-845e-4ce5b0cd9895") throw new Error("dev sign-in project only")
 const ORIGIN = "https://cmux-api-development.debussy.workers.dev"
@@ -84,7 +91,7 @@ const planPrice = async (prefix: string) => {
   return found[0]
 }
 
-const STATE = "/root/e2e-state-both.json"
+const STATE = process.env.E2E_STATE ?? "/root/e2e-state-both.json"
 const phase = process.env.PHASE ?? "a"
 const st: any = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {}
 const save = () => writeFileSync(STATE, JSON.stringify(st))

@@ -1,0 +1,91 @@
+name: Billing E2E (development, Stripe test mode)
+
+# One manual end-to-end run of NEXT billing in Stripe TEST MODE against the development Worker
+# (backend/scripts/stripe-usage-e2e.ts; plans/cmux-next/billing-go-live.md). On a Stripe test clock, the agent test
+# account (dev sign-in project) buys Pro for its personal team and a 2-seat Team for its e2e team, spends past the
+# e2e set's included amounts, runs its personal team to the spending cap (model calls and a machine start refused),
+# and the clock renews both subscriptions; the check reads each renewal invoice back: the AI usage line equals the
+# billed overage (model overage at list + 10%). Cleanup cancels both subscriptions and deletes the test clock by id,
+# however the run ends. The script refuses any key but a test key and any sign-in project but development's.
+#
+# The billing-e2e environment holds (names only; values never reach the log):
+#   E2E_STRIPE_TEST_KEY     the development Stripe sandbox's test-mode key (sk_test_ or rk_test_), the one
+#                           cmux-api-development's STRIPE_USAGE_KEY is
+#   DEV_BILLING_LEVELS_KEY  cmux-api-development's BILLING_LEVELS_KEY (cmux-platform's development environment,
+#                           cmuxterm-hq's cloud-capture environment)
+#   CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD  the agent test account (cmux-next-vm-image-dev holds them)
+on:
+  workflow_dispatch:
+    inputs:
+      calls:
+        description: Model calls per PHASE=more round (each round syncs once)
+        required: false
+        default: "8"
+        type: string
+
+permissions:
+  contents: read
+
+# One run at a time: both sides use the agent account's teams.
+concurrency:
+  group: billing-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    environment: billing-e2e
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 60
+    env:
+      E2E_STRIPE_TEST_KEY: ${{ secrets.E2E_STRIPE_TEST_KEY }}
+      E2E_BILLING_LEVELS_KEY: ${{ secrets.DEV_BILLING_LEVELS_KEY }}
+      E2E_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
+      E2E_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
+      E2E_STATE: /tmp/billing-e2e-state.json
+      E2E_BIG_CALLS: ${{ inputs.calls }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: backend/scripts
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Secrets present
+        run: |
+          for name in E2E_STRIPE_TEST_KEY E2E_BILLING_LEVELS_KEY E2E_STACK_EMAIL E2E_STACK_PASSWORD; do
+            [ -n "${!name}" ] || { echo "::error::the billing-e2e environment has no ${name}"; exit 1; }
+          done
+      - name: Buy (PHASE=a)
+        run: PHASE=a bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+      - name: Use past the included amount (PHASE=more until both levels pass it)
+        run: |
+          for round in 1 2 3 4 5 6; do
+            PHASE=more bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+            # The e2e set includes 1 USD per team and 2 x 0.5 per seat: both levels must pass 1 USD.
+            if bun -e 'const s = JSON.parse(require("fs").readFileSync(process.env.E2E_STATE, "utf8")); process.exit(s.team.level.micros > 1e6 && s.seat.level.micros > 1e6 ? 0 : 1)'; then exit 0; fi
+          done
+          echo "::error::the levels did not pass the included amounts in 6 rounds"; exit 1
+      - name: Hit the cap (PHASE=cap)
+        run: PHASE=cap bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+      - name: Renew (PHASE=b)
+        run: PHASE=b bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+      - name: Read the invoices back (PHASE=c)
+        run: |
+          PHASE=c bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+          grep '"check"' "$RUNNER_TEMP/e2e.log" | tail -1 > "$RUNNER_TEMP/check.json"
+          bun -e 'const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).check; for (const [side, v] of Object.entries(c)) if (!v.pass || v.marked_up === false) { console.error(`::error::${side}: ${JSON.stringify(v)}`); process.exit(1) }' "$RUNNER_TEMP/check.json"
+      - name: Cap read back
+        run: |
+          # The cap phase's lines: the refusal, the level at the cap, the plan's spend_cap and the refused machine start.
+          grep -E '"(cap_refusal|level_at_cap|plan_spend_cap|machine_create_at_cap)"' "$RUNNER_TEMP/e2e.log" | tee "$RUNNER_TEMP/cap.jsonl"
+          grep -q '"cap_refusal":"402' "$RUNNER_TEMP/cap.jsonl" || { echo "::error::no model call was refused at the cap"; exit 1; }
+          grep -q '"code":"cloud.spend_cap.reached"' "$RUNNER_TEMP/cap.jsonl" || { echo "::error::the machine start was not refused at the cap"; exit 1; }
+      - name: Cleanup (PHASE=cleanup)
+        if: always()
+        run: |
+          [ -f "$E2E_STATE" ] || exit 0
+          PHASE=cleanup bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+      - name: Summary
+        if: always()
+        run: |
+          { echo '```json'; cat "$RUNNER_TEMP/e2e.log" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
