@@ -35,7 +35,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod session_reset;
-pub(super) use session_reset::run_session_reset_state;
+pub(super) use session_reset::{end_stopped_terminal_state, run_session_reset_state};
 pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;

@@ -299,6 +299,9 @@ export type PromptDelivery = {
   failedAt?: number;
   /// No answer for a while: the row says it is still sending.
   slow?: boolean;
+  /// acpmux is starting or reconnecting: the pane holds the prompt and sends it once acpmux answers
+  /// (sendWhenReady.ts). The row says "Sending when ready".
+  waitingForHost?: boolean;
   hop?: PromptDeliveryHop;
   /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's
   /// words and actions follow (sendFailure.ts). `error` is the refuser's own words, for Details.
@@ -609,6 +612,8 @@ export type AcpmuxRow = {
   /// (conversation/nextStepAsk.ts, NextStepCard.tsx). `superseded`: a later turn ended on a card of
   /// its own, so this one folds; `answer` then holds what the person said after it, if anything.
   nextStep?: { ask: NextStepAsk; answer?: string; superseded?: boolean };
+  /// A `walkthrough` row's browser walkthrough (conversation/walkthroughModel.ts, Walkthrough.tsx).
+  walkthrough?: Walkthrough;
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -2298,6 +2303,9 @@ function fallbackRowHeight(
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
   }
+  // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
+  // shots over two 16px caption lines, with 8px above and below.
+  if (row.kind === WALKTHROUGH) return finish(8 + 28 + 8 + 96 + 6 + 32 + 8);
   // The render card: its 36px head over the frame before it reports a height, and 8px below.
   if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
   // Permission and question cards have different frames and content at the grid padding.
@@ -3511,9 +3519,11 @@ import {
   NEXT_STEP,
   RENDER,
   THINKING,
+  WALKTHROUGH,
   WORKED,
   WORKING,
 } from "./conversation/turns";
+import type { Walkthrough } from "./conversation/walkthroughModel";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
