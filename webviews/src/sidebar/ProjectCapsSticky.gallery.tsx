@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The project header sticks while you scroll an expanded project (Leo, 2026-11-10); clicking the
 // stuck header collapses the project and scrolls back to its top.
-// Pick "veil": the stuck header lies on the sidebar's own glass (sidebar tone at 82%, 12 px blur)
+// Pick "veil": the stuck header lies on the sidebar's own glass (sidebar tone at 90%, 12 px blur)
 // and fades into the rows over 12 px; no line (the Blocks rule) and no shadow (a shadow reads as a
 // card lifted above the glass).
 import { componentEntry } from "../gallery/format";

@@ -6,7 +6,6 @@
   --pcd-ink: var(--cmux-text, CanvasText);
   --pcd-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--pcd-ink) 62%, transparent));
   --pcd-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--pcd-ink) 42%, transparent));
-  --pcd-blue: var(--cmux-status-unread, var(--cmux-accent));
   --pcd-yellow: var(--acpmux-needs-you-mark, var(--cmux-app-warning));
   --pcd-row: var(--grid-row, 28px);
   --pcd-inset: 6px;
@@ -15,7 +14,7 @@
   --pcd-gap: 8px;
   /* The sidebar's glass blur; none under Reduce Transparency, where the veil alone stands. */
   --pcd-blur: blur(12px);
-  --pcd-veil: color-mix(in srgb, var(--pcd-tone) 82%, transparent);
+  --pcd-veil: color-mix(in srgb, var(--pcd-tone) 90%, transparent);
   --pcd-dot: 8px; /* SidebarStyle.unreadDotSize */
   --pcd-chip: var(--grid-icon-box, 16px);
   --pcd-fade: 12px;

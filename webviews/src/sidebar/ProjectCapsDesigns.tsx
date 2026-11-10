@@ -14,12 +14,13 @@
 //     12 px chevron after it. It is the ChatGPT row Leo named, it names the count (a chip alone
 //     reads as an unread badge on the trail column, where the blue dot and the spinner live) and
 //     it keeps the trail column free; "Show less" uses the same row with the chevron turned up.
-//   sticky "veil": a stuck header lies on the sidebar's own glass (the sidebar tone at 82% with a
+//   sticky "veil": a stuck header lies on the sidebar's own glass (the sidebar tone at 90% with a
 //     blur) and fades into the rows over 12 px below it. No line, as the Blocks rule wants, and
 //     no shadow, which would read as a card lifted above the glass.
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AgentMark } from "../agent-session/shared/AgentMark";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
+import { STATUS_UNREAD } from "../theme/statusColors";
 import { capProjects } from "./projectCapsFixtures";
 import { layoutProject, moreLabel, needsYou, type CapChat, type CapProject, type CapRow } from "./projectCapsModel";
 import "./ProjectCapsDesigns.css";
@@ -272,6 +273,9 @@ function NeedsYou({ style, collapsed }: { style: NeedsYouStyle; collapsed: boole
   );
 }
 
+/** The theme's unread blue, else the status set's own (the gallery theme may not publish it). */
+const unreadTint = { "--pcd-blue": `var(--cmux-status-unread, ${STATUS_UNREAD})` } as CSSProperties;
+
 export function ProjectCapsDesigns({
   showMore = "text",
   sticky = "veil",
@@ -300,7 +304,7 @@ export function ProjectCapsDesigns({
     setStuck(id);
   }, []);
   return (
-    <div className="pcd-sidebar">
+    <div className="pcd-sidebar" style={unreadTint}>
       <div ref={scroll} className="pcd-scroll" onScroll={measure}>
         {needsYouStyle && <NeedsYou style={needsYouStyle} collapsed={needsYouCollapsed} />}
         {shownProjects.map((project) => (

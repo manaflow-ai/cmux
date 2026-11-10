@@ -15,7 +15,7 @@ const covers = ["sidebar/ProjectCapsDesigns.tsx"];
 const allOpen = { cmux: 9 };
 const capped = ["cmux", "ghostty", "hq"];
 /** Motion preview: the first page opens and the rows below slide down together. */
-const expand: Play = (ctx) => ctx.click({ text: /^Show \d+ more$/ });
+const expand: Play = (ctx) => ctx.click({ selector: '.pcd-project[data-project="cmux"] .pcd-more' });
 /** A fully open project is taller than the stage: scroll to its last row. */
 const toEnd: Play = (ctx) => ctx.scroll({ selector: ".pcd-scroll" }, "bottom");
 
