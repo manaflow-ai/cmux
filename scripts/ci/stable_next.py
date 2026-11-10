@@ -189,6 +189,8 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         raise Refused(f"build {chosen} has no usable enclosure")
     short = SHORT.search(item)
     minimum = MINIMUM.search(item)
+    date = PUBDATE.search(item)
+    published = email.utils.parsedate_to_datetime(date.group(1)) if date else None
     result = {
         "build": str(chosen),
         # nightly.yml's build number is <run id><two-digit attempt>.
@@ -197,6 +199,9 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         "url": url,
         "length": length,
         "minimum_system_version": minimum.group(1) if minimum else "",
+        # The plan warns when the newest build is old: a feed that stopped moving (the retired
+        # nightly-next/next feed, 11-06 to 11-10) re-tests one build every night.
+        "published_at": published.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if published else "",
         "verdict": verdict or "none",
         "skip": "false",
         "skip_reason": "",

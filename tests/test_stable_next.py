@@ -59,6 +59,13 @@ class Pick(unittest.TestCase):
         self.assertEqual(result["skip"], "false")
         self.assertEqual(result["verdict"], "none")
 
+    def test_reports_when_the_build_was_published(self):
+        """A feed that stopped moving re-tested one build every night (11-06 to 11-10); the plan warns on its age."""
+        result = stable_next.pick(feed(item(200, date="Tue, 10 Nov 2026 12:44:29 -0800")), None, set(), lambda b: None, None)
+        self.assertEqual(result["published_at"], "2026-11-10T20:44:29Z")
+        undated = feed(item(200)).replace("<pubDate>Fri, 30 Oct 2026 00:34:42 +0000</pubDate>", "")
+        self.assertEqual(stable_next.pick(undated, None, set(), lambda b: None, None)["published_at"], "")
+
     def test_untagged_items_count_as_nightly(self):
         self.assertEqual(stable_next.pick(feed(item(500, None)), None, set(), lambda b: None, None)["build"], "500")
 
