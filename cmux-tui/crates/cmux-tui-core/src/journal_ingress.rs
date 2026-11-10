@@ -477,6 +477,10 @@ struct JournalIngressState {
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
+    /// Test pacing: the writer reports each batch it took and commits it only
+    /// after a step; see [`JournalIngressSender::install_writer_pacing_for_test`].
+    #[cfg(test)]
+    writer_pacing: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
 }
 
 impl JournalIngressState {
@@ -566,6 +570,15 @@ impl JournalIngressState {
             epoch = self.queue_space_changed.wait(epoch).unwrap();
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn pace_writer_for_test(&self) {
+        let mut pacing = self.writer_pacing.lock().unwrap_or_else(|error| error.into_inner());
+        let Some((entered, step)) = pacing.as_ref() else { return };
+        if entered.send(()).is_err() || step.recv().is_err() {
+            *pacing = None;
+        }
     }
 
     #[cfg(test)]
@@ -910,6 +923,19 @@ impl JournalIngressSender {
         *self.state.nonretryable_failure_hook.lock().unwrap() = Some((entered, release));
     }
 
+    /// Paces the writer for a test: after it takes each batch from the
+    /// ingress lanes, it sends on `entered` and commits that batch only after
+    /// a message on `step`. Dropping the `step` sender ends the pacing.
+    #[cfg(test)]
+    pub(crate) fn install_writer_pacing_for_test(
+        &self,
+        entered: SyncSender<()>,
+        step: Receiver<()>,
+    ) {
+        *self.state.writer_pacing.lock().unwrap_or_else(|error| error.into_inner()) =
+            Some((entered, step));
+    }
+
     #[cfg(test)]
     fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
@@ -1105,6 +1131,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         let Some(batch) = receive_batch(&receivers) else { return };
         #[cfg(debug_assertions)]
         hold_terminal_journal_for_test(&batch);
+        #[cfg(test)]
+        receivers.state.pace_writer_for_test();
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = JOURNAL_RETRY_INITIAL_DELAY;

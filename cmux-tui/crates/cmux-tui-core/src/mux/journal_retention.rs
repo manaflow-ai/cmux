@@ -225,6 +225,32 @@ impl Mux {
         self.journal_retention.captures.load(Ordering::Acquire)
     }
 
+    /// Waits until the retention worker has committed `count` coalesced
+    /// checkpoints; `false` when `timeout` ends first.
+    #[cfg(test)]
+    pub(crate) fn wait_for_coalesced_checkpoints_for_test(
+        &self,
+        count: u64,
+        timeout: Duration,
+    ) -> bool {
+        let retention = &self.journal_retention;
+        let deadline = Instant::now() + timeout;
+        let mut schedule = retention.shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);
+        while retention.captures.load(Ordering::Acquire) < count {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            schedule = retention
+                .shared
+                .changed
+                .wait_timeout(schedule, remaining)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        true
+    }
+
     fn capture_coalesced_checkpoint(&self, batch: &[TerminalPublicId]) -> CaptureOutcome {
         if self.shutting_down.load(Ordering::Acquire) {
             return CaptureOutcome::NothingLive;
@@ -295,6 +321,8 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
             CaptureOutcome::NothingLive => {}
             CaptureOutcome::Failed => schedule.failed(batch, Instant::now()),
         }
+        // Wakes test waiters for a capture; the worker itself is not waiting.
+        shared.changed.notify_all();
     }
 }
 

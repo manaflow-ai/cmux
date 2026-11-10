@@ -8225,23 +8225,47 @@ mod tests {
         print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
         mux.flush_terminal_journal().unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while mux.coalesced_reconnect_checkpoints() == 0 {
-            assert!(Instant::now() < deadline, "no coalesced checkpoint after the journal gap");
-            std::thread::sleep(Duration::from_millis(25));
-        }
+        // One failed capture retries after the 30 s interval.
+        assert!(
+            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
+            "no coalesced checkpoint after the journal gap"
+        );
         for line in 0..20 {
             print_journaled_for_test(&surface, &mux, &format!("after-checkpoint-{line}\r\n"));
         }
         mux.flush_terminal_journal().unwrap();
 
+        let (checkpoint_id, replayed) =
+            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
+        let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+        assert!(live.contains("flood-1099") && live.contains("after-checkpoint-19"));
+        assert_eq!(replayed, live);
+        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        assert!(journal_records_after_for_test(&mux, 0).iter().any(|record| {
+            record.kind == "terminal.output.gap" && record.payload["reason"] == "journal_queue_full"
+        }));
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Rebuilds a terminal from the newest journal checkpoint plus the
+    /// `terminal.output` records after it. Returns the checkpoint id and the
+    /// rebuilt screen and scrollback.
+    #[cfg(unix)]
+    fn replay_from_newest_checkpoint_for_test(
+        mux: &Mux,
+        root: &std::path::Path,
+        terminal_id: &TerminalPublicId,
+    ) -> (String, String) {
         let checkpoint = mux.journal_checkpoints().unwrap().into_iter().next().unwrap();
         let content = checkpoint
             .content_refs
             .iter()
             .find(|content| content.terminal_id == terminal_id.as_str())
             .expect("the checkpoint holds the terminal's replay");
-        let database_path = std::fs::read_dir(&root)
+        let database_path = std::fs::read_dir(root)
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.path().join("workspace-registry.sqlite3"))
@@ -8265,19 +8289,153 @@ mod tests {
             Terminal::new(content.cols, content.rows, 64 * 1024 * 1024, Callbacks::default())
                 .unwrap();
         replayed.vt_write(&replay_bytes);
-        let after = journal_records_after_for_test(&mux, checkpoint.source_sequence);
+        let after = journal_records_after_for_test(mux, checkpoint.source_sequence);
         for record in after.iter().filter(|record| record.kind == "terminal.output") {
             replayed.vt_write(record.terminal_output.as_deref().unwrap());
         }
 
+        (checkpoint.checkpoint_id, replayed.plain_text().unwrap())
+    }
+
+    /// A terminal lane that stays more than half full keeps the terminal's
+    /// output out of the journal, so the many episodes in which the lane
+    /// fills while the writer drains one batch at a time give one gap
+    /// record for the whole dropped range, not one gap per batch with a
+    /// chunk of output between each.
+    #[cfg(unix)]
+    #[test]
+    fn dropped_output_stays_one_gap_until_the_terminal_lane_drains_to_half() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-gap-coalesce-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-gap-coalesce", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000083",
+                "10000000000040008000000000000083",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (step, step_receiver) = sync_channel(1);
+        mux.install_journal_writer_pacing_for_test(entered, step_receiver);
+        print_journaled_for_test(&surface, &mux, "held\r\n");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        // More chunks than the terminal lane's 1024 slots.
+        for _ in 0..1100 {
+            print_journaled_for_test(&surface, &mux, "flood\r\n");
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+        // Each step lets the writer commit one batch and take the next (at
+        // most 64 chunks): the lane stays more than half full, and the
+        // terminal fills it again each round.
+        for _ in 0..5 {
+            step.send(()).unwrap();
+            entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            for _ in 0..100 {
+                print_journaled_for_test(&surface, &mux, "flood\r\n");
+            }
+        }
+        drop(step);
+        mux.flush_terminal_journal().unwrap();
+        print_journaled_for_test(&surface, &mux, "after-the-gap\r\n");
+        mux.flush_terminal_journal().unwrap();
+
+        let records = journal_records_after_for_test(&mux, 0);
+        let gaps: Vec<usize> = records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| {
+                record.kind == "terminal.output.gap"
+                    && record.payload["reason"] == "journal_queue_full"
+            })
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(gaps.len(), 1, "one gap record for the whole dropped range: {gaps:?}");
+        let next_output = records[gaps[0]..]
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("the output after the gap");
+        assert_eq!(next_output.terminal_output.as_deref(), Some(&b"after-the-gap\r\n"[..]));
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A burst whose tail the journal dropped, with no output after it, still
+    /// gets its gap record and a coalesced checkpoint after that record: the
+    /// marker and the repair must not wait for the terminal's next output.
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_tail_with_no_later_output_gets_its_gap_and_checkpoint() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-gap-tail-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux =
+            Mux::open_persistent("terminal-journal-gap-tail", SurfaceOptions::default(), &root)
+                .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000084",
+                "10000000000040008000000000000084",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        let pty = surface.as_pty().unwrap();
+        for line in 0..20 {
+            print_journaled_for_test(&surface, &mux, &format!("before-{line}\r\n"));
+        }
+        mux.flush_terminal_journal().unwrap();
+
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        print_journaled_for_test(&surface, &mux, "held\r\n");
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        // More chunks than the terminal lane's 1024 slots; the burst ends here.
+        for line in 0..1100 {
+            print_journaled_for_test(&surface, &mux, &format!("flood-{line}\r\n"));
+        }
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), Some("journal_queue_full"));
+        release.send(()).unwrap();
+        mux.flush_terminal_journal().unwrap();
+
+        // One failed capture retries after the 30 s interval.
+        assert!(
+            mux.wait_for_coalesced_checkpoints_for_test(1, Duration::from_secs(40)),
+            "no coalesced checkpoint after a burst whose tail the journal dropped"
+        );
+        assert_eq!(*pty.journal_gap_pending.lock().unwrap(), None);
+        let records = journal_records_after_for_test(&mux, 0);
+        let gap = records
+            .iter()
+            .position(|record| {
+                record.kind == "terminal.output.gap"
+                    && record.payload["reason"] == "journal_queue_full"
+            })
+            .expect("a journal_queue_full gap record for the dropped tail");
+        let checkpoint = records
+            .iter()
+            .rposition(|record| record.kind == "journal.checkpoint.created")
+            .expect("the coalesced checkpoint record");
+        assert!(gap < checkpoint, "the checkpoint must follow the gap it covers");
+        let (checkpoint_id, replayed) =
+            replay_from_newest_checkpoint_for_test(&mux, &root, &terminal_id);
         let live = surface.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
-        assert!(live.contains("flood-1099") && live.contains("after-checkpoint-19"));
-        assert_eq!(replayed.plain_text().unwrap(), live);
-        let preview = mux.journal_restore_preview(&checkpoint.checkpoint_id).unwrap();
+        assert!(live.contains("flood-1099"));
+        assert_eq!(replayed, live);
+        let preview = mux.journal_restore_preview(&checkpoint_id).unwrap();
         assert_eq!(preview["fully_reducible"], true);
-        assert!(journal_records_after_for_test(&mux, 0).iter().any(|record| {
-            record.kind == "terminal.output.gap" && record.payload["reason"] == "journal_queue_full"
-        }));
         drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();

@@ -6102,6 +6102,15 @@ impl Mux {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
     }
 
+    #[cfg(test)]
+    pub(crate) fn install_journal_writer_pacing_for_test(
+        &self,
+        entered: SyncSender<()>,
+        step: Receiver<()>,
+    ) {
+        self.journal_ingress.install_writer_pacing_for_test(entered, step);
+    }
+
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
         self.journal_ingress.enabled()
     }
