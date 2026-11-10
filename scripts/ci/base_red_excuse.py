@@ -1917,10 +1917,15 @@ def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dic
 def superseded_by_green(repo: str, sha: str, job: dict, github, seen: dict) -> list[dict]:
     """The older red check runs of green JOB's name on SHA when every one is a cancelled (or stale) run of JOB's own
     workflow, so JOB, the newest, supersedes them all; [] when there is none, or any is a failure (a verdict that
-    stays red whatever a later run says) or another workflow's or a still-running run's."""
+    stays red whatever a later run says) or another workflow's or a still-running run's. JOB is GitHub's latest by
+    check run id, but recency is the linked job id: when a check run of the name links a newer job that is not a skip
+    (a skip is no verdict), JOB is not the newest verdict and supersedes nothing (supersede-rev-1 F1 on cmux#40209)."""
     mine = run_workflow(repo, job["run_id"], github, seen)
-    older = [(job_id, run, check) for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen)
-             if job_id < job["id"]]
+    linked = linked_checks(repo, sha, job.get("name", ""), github, seen)
+    if any(job_id > job["id"] and (check.get("status"), check.get("conclusion")) != ("completed", "skipped")
+           for job_id, _, check in linked):
+        return []
+    older = [(job_id, run, check) for job_id, run, check in linked if job_id < job["id"]]
     reds = [(run, check) for _, run, check in older if check.get("conclusion") not in GREEN]
     if mine is None or not reds:
         return []
