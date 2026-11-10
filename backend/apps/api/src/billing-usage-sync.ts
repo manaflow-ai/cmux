@@ -1,6 +1,7 @@
 import type { Env } from "./env.ts"
+import { PASS_THROUGH_BP } from "./usage-billing-store.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { defaultTeamMode, INCLUDED_MODES, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { billedLevelMicros, defaultTeamMode, INCLUDED_MODES, overageModelMarkup, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -18,6 +19,9 @@ import { defaultTeamMode, INCLUDED_MODES, poolsMachineTime, isIncludedMode, isUs
  *    meter aggregates `last`, so a repeat cannot double bill). The identifier names the level's state
  *    (period, micros, fact count, last fact time, and per seat the seats): the same state is the same
  *    event; any new fact, correction or seat change is a new event. Unchanged levels are not sent again.
+ *    The level sent is the billed level (billing-catalog.ts billedLevelMicros): under price set v2 the model share
+ *    above the pool is billed at list + 10% (Leo 2026-11-09); v1 and e2e send the level at cost as before. The
+ *    markup is pinned to the period at its first mark or push, like the included amount.
  * 4. The included mode (billing-catalog.ts): per team, the whole level goes to the graduated price's
  *    meter; per seat, the level above included x seats goes to the flat price's meter. A Team
  *    customer's mode is the operator's setting in force at the period start; the usage item moves to
@@ -162,11 +166,16 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
    * Sends the level of [start, end) for this subscription when it changed, in the period's mode: per team the
    * whole level, per seat the level above included x seats (`seats` = the most the period has seen).
    */
-  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number) => {
+  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number, markupBp: number) => {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-    const level = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
+    const facts = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
     const sent = await meter.pushState(team, sub.id, start)
     const seats = mode === "per_seat" ? Math.max(seatsNow, sent?.mode === "per_seat" ? sent.seats : 1) : 1
+    // The billed level (billing-catalog.ts billedLevelMicros): the pool at cost, model overage x the period's pinned
+    // markup. Stripe subtracts the pool (per seat below, per team by the graduated price's free tier), leaving the billed
+    // overage. At pass-through (v1, e2e, every period from before pinning) it is the level itself, so identifiers do not change.
+    const pool = Math.round(includedUsd * 1_000_000) * (mode === "per_seat" ? seats : 1)
+    const level = { ...facts, micros: billedLevelMicros(facts.models_micros, facts.machine_micros, pool, markupBp / 10_000) }
     // per_team keeps the S4 identifier form, so a deploy does not resend every unchanged level.
     const identifier = mode === "per_seat" ? `ais:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}:${seats}` : `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
     if (sent?.identifier === identifier || (sent === null && level.facts === 0)) return false
@@ -182,7 +191,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const err = e as { status?: number; stripeMessage?: string }
       if (!(err.status === 400 && /identifier/i.test(err.stripeMessage ?? "") && /(already|duplicate|exists)/i.test(err.stripeMessage ?? ""))) throw e
     }
-    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value, event_ts: timestamp })
+    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value, event_ts: timestamp, markup_bp: markupBp })
     return true
   }
 
@@ -223,7 +232,8 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const prev = periodStart ? await meter.previousPush(team!, sub.id, periodStart) : null
       if (prev) {
         const prevMode = isIncludedMode(prev.mode) ? prev.mode : "per_team"
-        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats)) report.pushed++
+        // The closed period keeps the markup it was pushed with (pass-through for a push from before pinning).
+        if (await pushLevel(team!, sub, prev.period_start, prev.period_end, prevMode, prev.included_usd ?? includedUsd, prev.seats, await meter.periodMarkup(team!, prev.period_start, PASS_THROUGH_BP))) report.pushed++
       }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
@@ -249,8 +259,11 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const periodIncluded = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
-      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded })
-      if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats)) report.pushed++
+      // The period's markup is pinned like its included amount: the set's at the period's first push or mark, kept until
+      // it closes (a set change mid-period neither raises nor lowers it; usage-billing-store.ts periodMarkupBp).
+      const markupBp = await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000))
+      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded, markup_bp: markupBp })
+      if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats, markupBp)) report.pushed++
       else report.unchanged++
     } catch (e) {
       report.failed++

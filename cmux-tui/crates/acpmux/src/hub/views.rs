@@ -577,6 +577,8 @@ impl Hub {
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
+            person_hold: self.person_hold(session),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered

@@ -92,6 +92,7 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+pub mod hunk_summary;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
