@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42759828116",
+  "recorded_at": "2026-11-10T05:15:48Z",
+  "reason": "cmux-tui bd4accdf1340 changes the image's cmux-tui (pinned 0064ac385c73)",
+  "dry_run": false,
+  "cmux_tui": "bd4accdf13405bfdf7f5301f74053ef16e67813e",
+  "fixes": [
+    {
+      "sha": "bd4accdf13405bfdf7f5301f74053ef16e67813e",
+      "mergedAt": "2026-11-09T20:48:18-08:00",
+      "subject": "fix(tabs): closing the selected tab selects like Chrome (Rust rule, daemon, cmux-tui, C ABI)"
+    },
+    {
+      "sha": "6eee3e0f5b8804315d03c1ec431d364fb24ae92e",
+      "mergedAt": "2026-11-09T20:48:17-08:00",
+      "subject": "test(tabs): closing the selected tab selects like Chrome (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T05:15:48Z",
+    "snapshot_id": "sh-e49d1debe50b4bcf94c379629edddd91",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42759828116): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d4d550316af80f5872a69f3329b498611d05d190",
+    "image": "cloud-native-auto-bd4accdf-42759828116-1",
+    "revision": "ci-42759828116-1",
+    "at": "2026-11-10T05:15:48Z"
+  },
+  "rolled_back": false
+}
