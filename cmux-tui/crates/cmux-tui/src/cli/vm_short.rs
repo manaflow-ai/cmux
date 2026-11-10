@@ -294,7 +294,7 @@ pub(super) fn cloud_words(short: &Short, id: Option<&str>) -> Vec<String> {
         words.extend([flag.to_owned(), format!("machine:{id}")]);
     }
     words.extend(short.tail.iter().map(|word| match word.as_str() {
-        "--yes" | "-y" if super::cloud_help::confirms(&short.cloud_verb) => "--confirm".to_owned(),
+        "--yes" | "-y" if super::cloud_help::confirms(short.cloud_verb) => "--confirm".to_owned(),
         _ => word.clone(),
     }));
     if !short.command.is_empty() {
