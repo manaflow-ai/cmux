@@ -7,7 +7,12 @@
 // page's number.
 import { heapStats } from "bun:jsc";
 import { expect, test } from "bun:test";
-import { AcpmuxDirectClient, cutAfter, thinStreamedOutputs, type EventRecord } from "../src/agent-session/acpmux/direct";
+import {
+  AcpmuxDirectClient,
+  cutAfter,
+  thinStreamedOutputs,
+  type EventRecord,
+} from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const SESSION = "heap-chat";
@@ -121,7 +126,8 @@ test("a cut that drops a streamed call's newest update keeps the whole output it
   let shown: AcpmuxSnapshot | undefined;
   const reader = AcpmuxDirectClient.fed(SESSION, (snapshot) => (shown = snapshot));
   reader.feed(cut, "snapshot");
-  const output = shown?.rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "shell-1")?.tool?.output;
+  const output = shown?.rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "shell-1")
+    ?.tool?.output;
   // The call's whole output (its newest content), never its first record's (which has none) or nothing.
   expect(output?.split("\n").length).toBe(UPDATES * LINES + 1);
   // A cut that keeps the newest content changes nothing.
@@ -202,14 +208,25 @@ test("a subagent's call under the chat's call id never thins the chat's output",
   const log = records();
   log.prompt("Run both");
   log.call({ sessionUpdate: "tool_call", toolCallId: "toolu_1", kind: "execute", status: "in_progress" });
-  log.call({ sessionUpdate: "tool_call", toolCallId: "toolu_1", kind: "execute", status: "in_progress" }, undefined, "child");
+  log.call(
+    { sessionUpdate: "tool_call", toolCallId: "toolu_1", kind: "execute", status: "in_progress" },
+    undefined,
+    "child",
+  );
   log.call({ sessionUpdate: "tool_call_update", toolCallId: "toolu_1", status: "in_progress" }, "parent output");
-  log.call({ sessionUpdate: "tool_call_update", toolCallId: "toolu_1", status: "in_progress" }, "child output", "child");
-  for (const held of [thinStreamedOutputs(log.events), (() => {
-    const client = AcpmuxDirectClient.fed(SESSION, () => {});
-    client.feed(log.events, "live");
-    return heldBy(client);
-  })()])
+  log.call(
+    { sessionUpdate: "tool_call_update", toolCallId: "toolu_1", status: "in_progress" },
+    "child output",
+    "child",
+  );
+  for (const held of [
+    thinStreamedOutputs(log.events),
+    (() => {
+      const client = AcpmuxDirectClient.fed(SESSION, () => {});
+      client.feed(log.events, "live");
+      return heldBy(client);
+    })(),
+  ])
     expect(held.map(contentOf).filter(Boolean)).toEqual(["parent output", "child output"]);
 });
 
