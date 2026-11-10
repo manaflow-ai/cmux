@@ -360,6 +360,17 @@ def git_state(folder: Path) -> dict | None:
             "changed": len(status.splitlines())}
 
 
+def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str) -> list[str]:
+    """The `open` command that starts --app on its own socket, as cloud-chat-proof.py does. The socket goes
+    only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app then strips the
+    CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507)."""
+    argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}"]
+    if credentials_file:
+        argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
+                 "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
+    return argv + [str(Path(app).resolve()), "--args", "--cloud-backend", backend]
+
+
 class Matrix:
     def __init__(self, args):
         self.args = args
@@ -403,12 +414,7 @@ class Matrix:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
         if args.app:
-            launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_SOCKET_PATH={self.env['CMUX_SOCKET_PATH']}",
-                      "--env", f"CMUX_NEXT_SOCKET_PATH={self.env['CMUX_NEXT_SOCKET_PATH']}"]
-            if args.credentials_file:
-                launch += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(args.credentials_file).resolve()}",
-                           "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
-            launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", args.cloud_backend]
+            launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file, args.cloud_backend)
             self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and

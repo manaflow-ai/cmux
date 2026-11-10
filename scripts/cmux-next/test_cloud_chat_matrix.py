@@ -78,5 +78,18 @@ class FixtureTests(unittest.TestCase):
         self.assertIn("LEAK", matrix.grid([cell]))
 
 
+class LaunchTests(unittest.TestCase):
+    def test_socket_travels_only_as_the_next_knob(self):
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging")
+        envs = [argv[i + 1] for i, word in enumerate(argv) if word == "--env"]
+        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock"])
+        self.assertEqual(argv[-3:], ["--args", "--cloud-backend", "staging"])
+
+    def test_credentials_sign_the_launched_app_in(self):
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod")
+        self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
+        self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
+
+
 if __name__ == "__main__":
     unittest.main()
