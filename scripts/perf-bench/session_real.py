@@ -154,14 +154,25 @@ def mix_of(args):
 class Conn:
     """One connection of the daemon's raw control protocol (JSON lines, cmux-tui/spec/commands.md)."""
 
-    def __init__(self, path, timeout=120):
-        self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.settimeout(timeout)
-        self.sock.connect(path)
-        self.buf = b""
-        self.next_id = 1
-        # With `conversation-tabs-v1` the tree names a chat tab `conversation`; without it a chat reads as `browser`.
-        self.call("set-client-info", name="session-real", kind="bench", capabilities=["conversation-tabs-v1", "agent-session-tabs-v1"])
+    def __init__(self, path, timeout=120, busy_wait=20.0):
+        # The daemon serves 64 connections (MAX_SERVER_CONNECTIONS); above that it answers `server.busy` and
+        # closes. 170 agents that report at one time fill it for some seconds: try again for `busy_wait`.
+        give_up = time.monotonic() + busy_wait
+        while True:
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.settimeout(timeout)
+            self.sock.connect(path)
+            self.buf = b""
+            self.next_id = 1
+            try:
+                # With `conversation-tabs-v1` the tree names a chat tab `conversation`; without it a chat reads as `browser`.
+                self.call("set-client-info", name="session-real", kind="bench", capabilities=["conversation-tabs-v1", "agent-session-tabs-v1"])
+                return
+            except ConnectionError:
+                self.close()
+                if time.monotonic() >= give_up:
+                    raise ConnectionError(f"the daemon refused the connection for {busy_wait} s (its limit is 64 connections)") from None
+                time.sleep(0.25)
 
     def close(self):
         try:
@@ -308,7 +319,14 @@ def counts(conn, app_socket=None):
         out["agent_states"] = states
     clients = conn.call("list-clients")
     if clients.get("ok"):
-        out["clients"] = len(clients.get("data") or [])
+        listed = clients.get("data") or []
+        out["clients"] = len(listed)
+        names = {}
+        for client in listed if isinstance(listed, list) else []:
+            # One line per kind of client: the app holds several connections, each hook call is one for a moment.
+            name = re.sub(r"[-_ ]?\d+$", "", str(client.get("name") or client.get("kind") or "unnamed")) if isinstance(client, dict) else "?"
+            names[name] = names.get(name, 0) + 1
+        out["client_names"] = names
     out["ptys_in_use_machine"] = ptys_in_use()
     out["kern.tty.ptmx_max"] = sysctl("kern.tty.ptmx_max")
     if app_socket:
@@ -503,12 +521,15 @@ def agents(args):
     daemon_socket, _ = sockets(args)
     conn = Conn(daemon_socket)
     tree = conn.must("list-workspaces")
-    listed = {agent.get("surface") for agent in (conn.must("list-agents") or {}).get("agents", [])}
+    # The daemon lists an agent again for a restarted kept tab from its stored record (measured: 113 listed after
+    # a restore, with no program in their shells), so "runs" is read from the process list, by the program's name.
+    running = set(re.findall(r"session_real_agent\.zsh \S+ (real-\d{4})",
+                             subprocess.run(["ps", "axo", "args="], capture_output=True, text=True).stdout))
     started = restarted = skipped = 0
     waiting = []
     for rank, (number, tab) in enumerate(agent_tabs(tree, mix)):
         surface = tab["surface"]
-        if surface in listed and not tab.get("dead") and not args.force:
+        if f"real-{number:04d}" in running and not tab.get("dead") and not args.force:
             skipped += 1
             continue
         if tab.get("dead"):
@@ -532,8 +553,9 @@ def agents(args):
             time.sleep(0.5)
     settle_agents(conn, len(agent_tabs(tree, mix)) - len(waiting), args.settle)
     after = counts(conn)
+    programs = subprocess.run(["ps", "axo", "args="], capture_output=True, text=True).stdout.count("session_real_agent.zsh")
     print("SESSION-REAL-AGENTS " + json.dumps({"started": started, "restarted_shells": restarted, "already_running": skipped,
-                                                "not_started": len(waiting), "after": after}), flush=True)
+                                                "not_started": len(waiting), "agent_programs_running": programs, "after": after}), flush=True)
     if waiting:
         raise SystemExit(f"session_real: {len(waiting)} agent terminals took no input")
 
@@ -545,7 +567,11 @@ def clients(args):
     held = []
     if args.total:
         probe = Conn(daemon_socket)
-        args.count = max(0, args.total - (len(probe.must("list-clients")) - 1))  # without this probe itself
+        reads = []
+        for _ in range(6):  # each hook call of an agent is a client for a moment: the lowest read is the steady list
+            reads.append(len(probe.must("list-clients")) - 1)  # without this probe itself
+            time.sleep(0.5)
+        args.count = max(0, args.total - min(reads))
         probe.close()
     for index in range(args.count):
         conn = Conn(daemon_socket)
@@ -591,13 +617,18 @@ def process_table():
     return table
 
 
-def footprint_mb(pid):
-    """`footprint` physical footprint in MB (what Activity Monitor's Memory column shows), else None."""
-    out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
-    found = re.search(r"phys_footprint:\s*([\d.]+)\s*(KB|MB|GB)", out) or re.search(r"Footprint:\s*([\d.]+)\s*(KB|MB|GB)", out)
-    if not found:
-        return None
-    return round(float(found.group(1)) * {"KB": 1 / 1024, "MB": 1, "GB": 1024}[found.group(2)], 1)
+def daemon_child_kind(command):
+    """What a descendant of the daemon is, from its command line."""
+    program = os.path.basename(command.split(" --")[0].split(" ")[0]) if not command.startswith("/Users/") else os.path.basename(command.split(" --")[0])
+    if "session_real_agent.zsh" in command:
+        return "agent_programs"
+    if "cmux-tui-host" in command or "terminal-host" in command:
+        return "terminal_hosts"
+    if "cmux-holder" in command or "__holder" in command:
+        return "terminal_holders"
+    if program.lstrip("-") in ("zsh", "bash", "sh", "login"):
+        return "shells"
+    return "daemon_other"
 
 
 def groups(table, app_pid, daemon_pid, bundle):
@@ -619,7 +650,7 @@ def groups(table, app_pid, daemon_pid, bundle):
     for pid in below(app_pid):
         role.setdefault(pid, "app_helpers")
     for pid in below(daemon_pid):
-        role.setdefault(pid, "daemon_children")
+        role.setdefault(pid, daemon_child_kind(table[pid][3]))
     for pid, (_, _, _, command) in table.items():
         if pid not in role and bundle and command.startswith(bundle + "/") and "cmux-tui" in command.split(" ")[0]:
             role[pid] = "terminal_hosts"
@@ -643,41 +674,61 @@ def measure(args):
         except (RuntimeError, OSError, ValueError) as error:
             return {"error": str(error)}
 
+    sys.path.insert(0, HERE)
+    import procs  # noqa: PLC0415  (xbench's per-process counters: proc_pid_rusage, no root)
+
+    # Window 1, nothing of the bench runs in the app: main-thread wakes, CPU and wakeups of every process.
     wakes_before = soft("debug.hangs", {"clear": True}).get("main_wakes")
-    soft("debug.frames", {"action": "start"})
+    before = {pid: procs.counters(pid) for pid in role}
     started = time.time()
     time.sleep(args.seconds)
     elapsed = time.time() - started
-    second = process_table()
-    frames = soft("debug.frames", {"action": "stop", "raw": True})
     hangs = soft("debug.hangs")
+    after = {pid: procs.counters(pid) for pid in role}
+    second = process_table()
+    # Window 2 (5 s): the display link's frames at rest. The frame recorder itself wakes the main thread per
+    # frame, so its wakes are not in window 1.
+    soft("debug.frames", {"action": "start"})
+    frame_started = time.time()
+    time.sleep(min(5.0, args.seconds))
+    frames = soft("debug.frames", {"action": "stop", "raw": True})
+    frame_seconds = time.time() - frame_started
     intervals, busy = frames.get("intervals_ms") or [], frames.get("main_ms") or []
     wakes = {
         "main_wakes_per_s": round((hangs.get("main_wakes") - wakes_before) / elapsed, 1)
         if isinstance(wakes_before, int) and isinstance(hangs.get("main_wakes"), int) else None,
         "main_max_gap_ms": hangs.get("max_gap_ms"), "main_stalls": hangs.get("count"),
-        "idle_frames": len(intervals), "idle_frames_per_s": round(len(intervals) / elapsed, 1),
-        "refresh_ms": frames.get("refresh_ms"), "frame_interval_ms": spread(intervals), "frame_main_ms": spread(busy),
+        "frames_over_8_3ms": hangs.get("frames_over_8_3ms"),
+        "frame_clock": {"seconds": round(frame_seconds, 1), "frames": len(intervals), "refresh_ms": frames.get("refresh_ms"),
+                        "interval_ms": spread(intervals), "main_ms_per_frame": spread(busy),
+                        "frames_main_over_1ms": sum(1 for value in busy if value > 1.0)},
         "errors": [r["error"] for r in (frames, hangs) if r.get("error")],
     }
     out = {}
     for pid, name in role.items():
-        if pid not in second:
+        if pid not in second or not after.get(pid):
             continue
-        group = out.setdefault(name, {"processes": 0, "rss_mb": 0.0, "cpu_percent": 0.0})
+        group = out.setdefault(name, {"processes": 0, "rss_mb": 0.0, "footprint_mb": 0.0, "cpu_percent": 0.0, "wakeups_per_s": 0.0})
         group["processes"] += 1
         group["rss_mb"] += second[pid][1] / 1024
-        group["cpu_percent"] += 100 * (second[pid][2] - first[pid][2]) / elapsed if pid in first else 0.0
+        group["footprint_mb"] += after[pid][3] / procs.MB
+        if before.get(pid):
+            group["cpu_percent"] += 100 * (after[pid][1] - before[pid][1]) / 1e9 / elapsed
+            group["wakeups_per_s"] += (after[pid][2] - before[pid][2]) / elapsed
+    total = {"processes": 0, "rss_mb": 0.0, "footprint_mb": 0.0, "cpu_percent": 0.0, "wakeups_per_s": 0.0}
     for group in out.values():
-        group["rss_mb"], group["cpu_percent"] = round(group["rss_mb"], 1), round(group["cpu_percent"], 2)
+        for key in total:
+            total[key] += group[key]
+            group[key] = round(group[key], 2 if key == "cpu_percent" else 1)
+    out["ALL"] = {key: round(value, 2 if key == "cpu_percent" else 1) for key, value in total.items()}
     conn = Conn(daemon_socket)
     result = {
         "seconds": round(elapsed, 1), "groups": out,
-        "footprint_mb": {"app": footprint_mb(app_pid), "daemon": footprint_mb(daemon_pid)},
-        "processes_of_session": sum(group["processes"] for group in out.values()),
+        "processes_of_session": out["ALL"]["processes"],
         "processes_of_user": len(second), "kern.maxprocperuid": sysctl("kern.maxprocperuid"),
         "app_idle": wakes, "counts": counts(conn, app_socket), "host": host_facts(),
-        "note": "cpu_percent: ps cpu time over the window (1 s steps of ps, so +-1/seconds %); rss is resident size, footprint is phys_footprint",
+        "note": "per group over the window: footprint_mb = sum of phys_footprint (Activity Monitor's Memory), rss_mb = sum of resident "
+                "sizes (shared pages counted in each process), cpu_percent and wakeups_per_s from proc_pid_rusage (procs.py)",
     }
     print("SESSION-REAL-MEASURE " + json.dumps(result), flush=True)
     if args.out:
@@ -841,7 +892,7 @@ def map_rows(args):
     def split():
         out = []
         for _ in range(runs):
-            out.append(app.timed("splitRight", settle=0.8))
+            out.append(app.timed("splitDown", settle=0.8))
             app.act("closePane")
             time.sleep(0.4)
         return out
@@ -860,7 +911,7 @@ def map_rows(args):
     row("workspace_switch_warm", "between two workspaces that both showed before", switch_warm)
     row("tab_switch", "terminal tab to terminal tab in one pane (nextSurface)", tab_switch)
     row("new_tab", "newSurface: a new terminal tab; closed again untimed", new_tab)
-    row("split", "splitRight: a new terminal pane; closed again untimed", split)
+    row("split", "splitDown: a new terminal pane; closed again untimed", split)
     row("workspace_close", "closeWorkspace of a workspace made right before (1 terminal)", close)
     if new_rows:
         rows.append(summarize("new_workspace", new_rows, "workspace.newAtBottom (the make step of workspace_close)"))
@@ -997,8 +1048,8 @@ def launch(args):
     if os.path.exists(meta_path):
         with open(os.path.join(json.load(open(meta_path, encoding="utf-8"))["from"], "session-real.json"), encoding="utf-8") as handle:
             want = json.load(handle)["asked"]["workspaces"]
-    app = BenchApp(args.app, out=args.out, fresh_state=False)
-    result = {"tag": tag, "want_workspaces": want, "host": host_facts(), "steps": {}}
+    app = BenchApp(args.app, out=args.out, fresh_state=False, socket_only=args.socket_only)
+    result = {"tag": tag, "want_workspaces": want, "host": host_facts(), "steps": {}, "socket_only": args.socket_only}
     held = None
 
     def sample(name):
@@ -1008,6 +1059,7 @@ def launch(args):
             return path
         return None
 
+    ptys_before = ptys_in_use()
     try:
         started = time.monotonic()
         try:
@@ -1027,6 +1079,27 @@ def launch(args):
                 break
             time.sleep(0.25)
         result["model_loaded_s"], result["app_counts_at_load"] = loaded_at, seen
+        # The app restarts a shell in each kept agent terminal at its first connect (`relaunchKeptLayoutIfNeeded`):
+        # the restore is done when no kept terminal that does not wait for its show is dead.
+        if loaded_at is not None and want:
+            try:
+                daemon = Conn(daemon_of_app(app.socket)[1])
+                last = None
+                restore_began = time.monotonic()
+                while time.monotonic() - restore_began < args.restore_timeout:
+                    last = counts(daemon)
+                    # A kept tab is "not dead" as soon as the daemon takes its restart; its shell has a PTY later.
+                    if not last.get("terminals_dead_other") and last.get("ptys_in_use_machine", 0) - ptys_before >= last.get("terminals_live", 0):
+                        result["kept_terminals_restarted_s"] = round(time.monotonic() - started, 2)
+                        break
+                    time.sleep(0.5)
+                result["counts_after_restore"] = last
+                if "kept_terminals_restarted_s" not in result and last:
+                    # A product fault, not a bench fault: say it, the `agents` step restarts these.
+                    result["kept_terminals_not_restarted"] = {"dead": last.get("terminals_dead_other"), "after_s": args.restore_timeout}
+                daemon.close()
+            except (RuntimeError, OSError, ValueError, SystemExit) as error:
+                result["kept_terminals_error"] = str(error)
         try:
             marks = app_rpc(app.socket, "debug.timings", timeout=60) or {}
             result["launch_marks_ms"] = marks.get("launch_ms_since_process_start")
@@ -1241,6 +1314,8 @@ def main():
     p.add_argument("--out", required=True, help="a folder for the app log and the results")
     p.add_argument("--timeout", type=float, default=240)
     p.add_argument("--quit-timeout", type=float, default=60)
+    p.add_argument("--restore-timeout", type=float, default=45, help="how long to wait for the app's restart of the kept agent terminals")
+    p.add_argument("--socket-only", action="store_true", help="a host with no GUI session: counts, memory and processes only, never a frame time")
     p.add_argument("--steps", default="counts", help="comma list, each `command[:arguments]`: counts, agents, clients[:total], "
                    "measure[:--seconds N], map[:--runs N ...], make[:...], still[:name], wait[:seconds]")
     p.set_defaults(run=launch)
