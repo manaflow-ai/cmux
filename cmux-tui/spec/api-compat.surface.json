@@ -986,6 +986,39 @@
         ]
       }
     },
+    "event:feed-reports-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-reports-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:feed-view-changed": {
+      "/changed": {
+        "ty": "array",
+        "required": true
+      },
+      "/changed/*": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-view-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:frame": {
       "/data": {
         "ty": "string",
