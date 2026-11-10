@@ -430,9 +430,11 @@ jobs:
         if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
+          # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
           ./scripts/reload.sh \
             --tag "$CMUX_PROOF_TAG" \
             --build-only \
+            --keep-app "$RUNNER_TEMP/cloud-chat-proof-app/cmux DEV $CMUX_PROOF_TAG.app" \
             --auth-profile agent \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" \
             --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
