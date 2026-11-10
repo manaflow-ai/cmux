@@ -1,4 +1,4 @@
-import { exportPKCS8, generateKeyPair } from "jose"
+import { decodeProtectedHeader, exportPKCS8, generateKeyPair } from "jose"
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { env } from "cloudflare:workers"
@@ -59,14 +59,13 @@ describe("APNs topics per app bundle", () => {
     }
     const { privateKey } = await generateKeyPair("ES256", { extractable: true })
     const apnsEnv = { ...env, APNS_KEY_P8: await exportPKCS8(privateKey), APNS_KEY_ID: "KEYTOPIC1", APNS_TEAM_ID: "TEAMTOPIC" }
-    const sent: Array<{ host: string; token: string; topic: string | null; kid: string }> = []
+    const sent: Array<{ host: string; token: string; topic: string | null; kid: string | undefined }> = []
     const realFetch = globalThis.fetch
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const req = input instanceof Request ? input : new Request(String(input), init)
       const url = new URL(req.url)
       if (url.hostname !== "api.push.apple.com" && url.hostname !== "api.sandbox.push.apple.com") return realFetch(input, init)
-      const jwt = req.headers.get("authorization")!.slice(7)
-      const kid = (JSON.parse(atob(jwt.split(".")[0]!.replace(/-/g, "+").replace(/_/g, "/"))) as { kid: string }).kid
+      const kid = decodeProtectedHeader(req.headers.get("authorization")!.slice(7)).kid
       sent.push({ host: url.hostname, token: url.pathname.split("/").pop()!, topic: req.headers.get("apns-topic"), kid })
       return new Response(null, { status: 200 })
     })

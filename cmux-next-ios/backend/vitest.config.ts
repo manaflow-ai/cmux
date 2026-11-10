@@ -1,5 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { exportJWK, generateKeyPair } from "jose"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitest/config"
 import { unstable_readConfig } from "wrangler"
@@ -11,7 +12,7 @@ const stackPrivate = { ...(await exportJWK(stack.privateKey)), kid: "stack-test"
 
 // The APNS_TOPICS each deployed environment declares in wrangler.jsonc: the tests run on the top level,
 // so test/apns-topics.test.ts reads these to pin the bundles dev and prod push to.
-const wranglerPath = fileURLToPath(new URL("./wrangler.jsonc", import.meta.url))
+const wranglerPath = join(dirname(fileURLToPath(import.meta.url)), "wrangler.jsonc")
 const deployedApnsTopics = Object.fromEntries(
   ["dev", "prod"].map((name) => [name, String(unstable_readConfig({ config: wranglerPath, env: name }, { hideWarnings: true }).vars.APNS_TOPICS ?? "")])
 )
