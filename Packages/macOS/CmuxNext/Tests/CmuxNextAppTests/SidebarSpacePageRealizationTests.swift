@@ -52,6 +52,45 @@ struct SidebarSpacePageRealizationTests {
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
     }
 
+    /// The next pull reuses the last page and its row views: a warm page makes no row view.
+    @Test func theNextSwipeReusesThePageAndItsRowViews() throws {
+        let (model, sidebar) = Self.sidebar()
+        sidebar.spacePaging.scroll(.began, deltaX: -20, time: 0)
+        let first = try #require(sidebar.spacePaging.neighbor?.list)
+        let made = Set(first.rowViews.values.map(ObjectIdentifier.init))
+        try #require(!made.isEmpty)
+        // The fingers go back to where they started: the page leaves. They pull again, and the space beside lists other rows now.
+        sidebar.spacePaging.scroll(.changed, deltaX: 20, time: 0.02)
+        #expect(sidebar.spacePaging.neighbor == nil, "the page stayed with the fingers back at the start")
+        model.spaceSections = { _ in Self.sections("b") }
+        sidebar.spacePaging.scroll(.changed, deltaX: -20, time: 0.04)
+        let second = try #require(sidebar.spacePaging.neighbor?.list)
+        #expect(second === first)
+        let reused = second.rowViews.values.map(ObjectIdentifier.init)
+        #expect(reused.allSatisfy(made.contains), "\(reused.filter { !made.contains($0) }.count) of \(reused.count) row views were new")
+        #expect(second.displayed.rows.contains { $0.key == .workspace(WorkspaceID("b-0")) })
+        sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
+    }
+
+    /// A swipe's settle whose sidebar goes away before it ends (a window closed mid-swipe) finishes without
+    /// touching the sidebar: its completion reads the sidebar through a weak reference.
+    @Test func aSwipeSettleOutlivingItsSidebarFinishesSafely() {
+        var paging: SidebarSpacePaging?
+        weak var gone: SidebarView?
+        autoreleasepool {
+            let (_, sidebar) = Self.sidebar()
+            gone = sidebar
+            paging = sidebar.spacePaging
+            sidebar.spacePaging.scroll(.began, deltaX: -180, time: 0)
+            sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.1)
+            sidebar.removeFromSuperview()
+        }
+        #expect(gone == nil, "the sidebar outlived the test's scope, so the settle never ran without it")
+        CATransaction.flush()
+        for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.3)) }
+        #expect(paging != nil) // the process is still alive: the completion did not trap
+    }
+
     /// A page shows the rows where the list was scrolled, not the space's first rows.
     @Test func theSlidOutPageKeepsTheListsScrollOffset() throws {
         let (model, sidebar) = Self.sidebar()

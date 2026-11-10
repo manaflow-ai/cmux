@@ -49,6 +49,25 @@ struct SpaceSwitchCostTests {
         #expect(configures(large) <= configures(small) + 4, "a switch at 500 configured \(configures(large)) rows vs \(configures(small)) at 100")
     }
 
+    /// "changing spaces in sidebar also feels kinda slow" (Lawrence 2026-11-10). What a switch paid for nothing:
+    /// a second list for the space it left (the page that slid out: a layout of every row of that space and a
+    /// view for each row on screen), and three main-actor turns before the list drew (the content swap, the
+    /// sidebar's rows, the list's render, each on its own observation). With 200 workspaces in each space, in a
+    /// window the app holds, a switch lays out the new space's rows once and shows them in its own turn.
+    @Test func aSwitchLaysOutTheNewSpaceOnceInItsOwnTurn() async throws {
+        let total = 400, perSpace = total / 2
+        let bench = try await SpaceSwitchBench(total: total, registered: true)
+        defer { bench.close() }
+        let samples = try await bench.run(rounds: 6)
+        print(SpaceSwitchBench.summary(total, samples) + " | registered mounted=\(bench.mounted)")
+        for (round, sample) in samples.enumerated() {
+            let count = { (name: String) in sample.counters[name] ?? 0 }
+            #expect(count("spins") == 0, "switch \(round): the sidebar showed the space \(count("spins")) turns after the switch")
+            #expect(count("list_reloads") == 1, "switch \(round): \(count("list_reloads")) list layouts for one space")
+            #expect(count("layout_rows") <= perSpace + 8, "switch \(round): laid out \(count("layout_rows")) rows to show \(perSpace)")
+        }
+    }
+
     /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a
     /// switch must not wake every parked workspace. 60 workspaces (30 per space) do not fill the
     /// sidebar and 120 do, so the check is the main-thread cost per realized row.
