@@ -124,7 +124,7 @@ Starts an agent chat, right here unless --on names another target:
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
-  --model MODEL      The agent's model (a chat here)
+  --model MODEL      The agent's model (here or on a Cloud machine)
   --cwd DIR          The chat's folder (absolute)
   --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
                      git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
@@ -968,9 +968,9 @@ fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, Usage
 
 /// The `cloud start-chat` words for this start on `machine`.
 pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String>, UsageError> {
-    if start.model.is_some() || start.name.is_some() {
+    if start.name.is_some() {
         return Err(UsageError::new(
-            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd and --prompt",
+            "--name names a chat here; a Cloud chat takes --agent, --model, --cwd and --prompt",
         ));
     }
     // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
@@ -991,6 +991,8 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     for (flag, value) in [
         ("--agent", &start.agent),
+        // The machine's agent starts on it (`cloud start-session --model`).
+        ("--model", &start.model),
         ("--cwd", &start.cwd),
         ("--environment", &start.environment),
         ("--timeout", &start.timeout),

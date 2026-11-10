@@ -346,6 +346,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder)
+                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder, model: request.model)
     }
 }

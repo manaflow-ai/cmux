@@ -41,6 +41,8 @@ struct CloudStartSession {
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
         var fromFolder: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
+        /// `--model`: the model the machine's agent starts on (acpmux's `session/new` model); nil: the harness's default.
+        var model: String?
         var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
@@ -48,6 +50,7 @@ struct CloudStartSession {
             var words = ["cmux cloud start-session"]
             if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
+            if let model { words.append("--model " + CloudStartCore.shellQuoted(model)) }
             if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
@@ -212,7 +215,10 @@ struct CloudStartSession {
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
         let login: CloudHarnessLoginAsk
         do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), login: login)
+        // The machine's daemon checks the model (`agent-session-start`), and refuses a start it cannot give one.
+        let model = invocation["model"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd),
+                       model: model?.isEmpty == false ? model : nil, login: login)
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -286,9 +292,9 @@ struct CloudStartSession {
             switch tabs.host(for: tabs.tabKey(tabKey, machine: id)) {
             case let remote as AgentTabRemoteHost:
                 // Each restart and start try is for the account that asked, checked right before it.
-                let command = request.command
+                let command = request.command, model = request.model
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
-                    try await CloudWait.retriedOnce({ try await remote.startNow(cwd: cwd, harness: agent) { @MainActor [services] in
+                    try await CloudWait.retriedOnce({ try await remote.startNow(cwd: cwd, harness: agent, model: model) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
                     } }, closed: CloudWait.linkDropped, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
                 }
@@ -306,13 +312,15 @@ struct CloudStartSession {
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
-        return [
+        var result: [String: ActionResultValue] = [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
             "workspace_id": .string(anchor.id), "surface_id": .string(String(started.surface)), "tab_id": .string(tabKey),
             // Where the start's time went (cmuxterm-hq#8658): `cmux cloud start-chat` lists it under its step.
             "stages_ms": .array(steps.recorded.map { .object(["step": .string($0.step), "ms": .int(Int($0.ms))]) }),
         ]
+        if let model = request.model { result["model"] = .string(model) }
+        return result
     }
 
     /// The store's tab of the chat this run opened. The person closing it before the store
