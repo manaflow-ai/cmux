@@ -311,10 +311,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `machine.io` | not-a-host | a method, area or resource kind name |
 | `cloud.machine.io` | not-a-host | a method, area or resource kind name |
 | `config.ru` | not-a-host | a file name |
-| `agent-auth.sh` | not-a-host | a file name |
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |
-| `login.sh` | not-a-host | a file name |
 | `web-lint.sh` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux-arm64.8.so` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux64.8.so` | not-a-host | a file name |

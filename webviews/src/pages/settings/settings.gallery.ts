@@ -1759,7 +1759,9 @@ variants["github-connect-empty"] = variant("accounts", {
 // Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
 // personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
 for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
-  variants[`team-agent-keys-${state}`] = variant("accounts", {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
     accounts: accounts({}, { agentKeys }),
     play: async (ctx) => {
       await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));

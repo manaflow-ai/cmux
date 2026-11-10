@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -354,9 +355,10 @@ class FaultTest(unittest.TestCase):
     def test_a_delay_fault_holds_the_turn_open_then_answers(self) -> None:
         self.post_status("/__stub/faults", {"faults": [{"delay_ms": 400}]})
         turn = {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]}
-        t0 = model_stub.time.monotonic()
-        self.assertEqual(self.post_status("/v1/messages", turn)[0], 200)
-        self.assertGreaterEqual(model_stub.time.monotonic() - t0, 0.39)
+        # The stub's own pause is what is checked, not how long the request took.
+        with mock.patch.object(model_stub.time, "sleep") as held:
+            self.assertEqual(self.post_status("/v1/messages", turn)[0], 200)
+        held.assert_called_once_with(0.4)
 
     def test_bad_faults_are_refused(self) -> None:
         for bad in [{"faults": [{"status": 200}]}, {"faults": [{"count": 0, "status": 500}]}, {"faults": [{}]}, {"faults": "x"}]:
@@ -368,9 +370,9 @@ class FaultTest(unittest.TestCase):
         server, _ = model_stub.serve(script, "n")
         base = f"http://127.0.0.1:{server.server_address[1]}"
         try:
-            t0 = model_stub.time.monotonic()
-            _, text = post(base + "/v1/messages", {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]})
-            self.assertGreaterEqual(model_stub.time.monotonic() - t0, 0.29)
+            with mock.patch.object(model_stub.time, "sleep") as held:
+                _, text = post(base + "/v1/messages", {"messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Bash"}]})
+            held.assert_called_once_with(0.3)
             self.assertEqual(json.loads(text)["content"][0]["text"], "held n")
             with self.assertRaises(urllib.error.HTTPError) as e:
                 post(base + "/v1/messages", {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]}], "tools": [{"name": "Bash"}]})
