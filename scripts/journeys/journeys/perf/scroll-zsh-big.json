@@ -1920,6 +1920,34 @@
    "title": "SURF1 zsh-trackpad-big 20"
   },
   {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_start",
+    "targets": [
+     "terminal"
+    ]
+   },
+   "title": "trace start zsh-wheel-big"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 60,
+   "interval": 0.008,
+   "title": "offmain wheel zsh-wheel-big"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_stop"
+   },
+   "title": "OFFMAIN zsh-wheel-big 1"
+  },
+  {
    "do": "key",
    "key": "end",
    "modifiers": [
@@ -2722,6 +2750,34 @@
    "method": "debug.surfaces",
    "params": {},
    "title": "SURF1 zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_start",
+    "targets": [
+     "terminal"
+    ]
+   },
+   "title": "trace start zsh-stream-scrolled-big"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 60,
+   "interval": 0.008,
+   "title": "offmain wheel zsh-stream-scrolled-big"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_stop"
+   },
+   "title": "OFFMAIN zsh-stream-scrolled-big 1"
   },
   {
    "do": "expect",

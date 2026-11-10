@@ -1186,6 +1186,34 @@
    "title": "SURF1 less-trackpad-big 12"
   },
   {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_start",
+    "targets": [
+     "terminal"
+    ]
+   },
+   "title": "trace start less-big"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 60,
+   "interval": 0.008,
+   "title": "offmain wheel less-big"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_stop"
+   },
+   "title": "OFFMAIN less-big 1"
+  },
+  {
    "do": "type",
    "text": "q",
    "enter": false,
@@ -2329,6 +2357,34 @@
    "method": "debug.surfaces",
    "params": {},
    "title": "SURF1 vim-trackpad-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_start",
+    "targets": [
+     "terminal"
+    ]
+   },
+   "title": "trace start vim-big"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 60,
+   "interval": 0.008,
+   "title": "offmain wheel vim-big"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.motion",
+   "params": {
+    "action": "trace_stop"
+   },
+   "title": "OFFMAIN vim-big 1"
   },
   {
    "do": "key",
