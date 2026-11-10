@@ -76,6 +76,7 @@ const TARGETLESS: &[&str] = &[
     "api-key-revoke",
     "move",
     "bring-back",
+    "move-to-machine",
     "sign-in",
     "sign-out",
     "diagnostics",
@@ -133,9 +134,7 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
 #[test]
 fn verb_help_is_that_verb_only() {
     let help = verb_help("kill-machine", false).expect("kill-machine help");
-    assert!(
-        help.starts_with("usage: cmux vm kill-machine --target machine:MACHINE_ID --confirm\n")
-    );
+    assert!(help.starts_with("usage: cmux vm kill-machine --target vm:VM_ID --confirm\n"));
     assert!(help.contains("cmux action describe cloud kill-machine --json"));
     assert!(!help.contains("list-machines"), "{help}");
     let japanese = verb_help("kill-machine", true).expect("kill-machine ja help");
@@ -145,10 +144,7 @@ fn verb_help_is_that_verb_only() {
 
 #[test]
 fn exec_usage_is_the_parse_error_text() {
-    assert_eq!(
-        usage("exec").as_deref(),
-        Some("cmux vm exec --target machine:MACHINE_ID --command COMMAND")
-    );
+    assert_eq!(usage("exec").as_deref(), Some("cmux vm exec --target vm:VM_ID --command COMMAND"));
 }
 
 /// `command` split as a shell would, for the single quotes the quick start uses.

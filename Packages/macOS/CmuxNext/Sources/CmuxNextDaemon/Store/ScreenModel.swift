@@ -41,7 +41,22 @@ public final class ScreenModel: Identifiable {
     }
     @ObservationIgnored private var columnList: [ColumnSnapshot]
     public internal(set) var viewportBaseWidth: Double
-    public internal(set) var zoomedPane: PaneID?
+    /// The pane the screen shows alone; nil shows the whole layout. Held with ``layout``: a pending zoom's overlay takes
+    /// it out and puts it back around each daemon batch.
+    public internal(set) var zoomedPane: PaneID? {
+        get {
+            access(keyPath: \.zoomedPane)
+            return zoomedValue
+        }
+        set {
+            guard treeBeforeHold == nil else {
+                zoomedValue = newValue
+                return
+            }
+            withMutation(keyPath: \.zoomedPane) { zoomedValue = newValue }
+        }
+    }
+    @ObservationIgnored private var zoomedValue: PaneID?
     public internal(set) var defaultPane: PaneID?
     /// The daemon's active screen of its workspace, as of the last snapshot or screen record
     /// (no event moves it in between): where a `move-tab-to-workspace` lands.
@@ -63,7 +78,7 @@ public final class ScreenModel: Identifiable {
     }
     @ObservationIgnored private var paneList: [PaneModel]
     /// The tree as it was published when the store began holding it (``holdTree()``); nil while not held.
-    @ObservationIgnored private var treeBeforeHold: (layout: LayoutNode, columns: [ColumnSnapshot], panes: [PaneModel])?
+    @ObservationIgnored private var treeBeforeHold: (layout: LayoutNode, columns: [ColumnSnapshot], panes: [PaneModel], zoomed: PaneID?)?
     /// Palette token, nil = none (`screen-metadata-v1`).
     public internal(set) var color: String?
     /// SF Symbol name or one emoji grapheme.
@@ -83,7 +98,7 @@ public final class ScreenModel: Identifiable {
         layoutValue = s.layout
         columnList = s.columns
         viewportBaseWidth = s.viewportBaseWidth ?? 1
-        zoomedPane = s.zoomedPane
+        zoomedValue = s.zoomedPane
         defaultPane = s.activePane
         isActive = s.active
         paneList = s.panes.map(PaneModel.init)
@@ -161,10 +176,10 @@ public final class ScreenModel: Identifiable {
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
 
-    /// Holds the publication of ``layout``, ``columns`` and ``panes`` until ``publishHeldTree()``
+    /// Holds the publication of ``layout``, ``columns``, ``panes`` and ``zoomedPane`` until ``publishHeldTree()``
     /// (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``): the writes still change the record at once.
     func holdTree() {
-        if treeBeforeHold == nil { treeBeforeHold = (layoutValue, columnList, paneList) }
+        if treeBeforeHold == nil { treeBeforeHold = (layoutValue, columnList, paneList, zoomedValue) }
     }
 
     /// Publishes each held field once, only when it is not what it was when held (panes by identity).
@@ -174,6 +189,7 @@ public final class ScreenModel: Identifiable {
         if before.layout != layoutValue { withMutation(keyPath: \.layout) {} }
         if before.columns != columnList { withMutation(keyPath: \.columns) {} }
         if !before.panes.elementsEqual(paneList, by: ===) { withMutation(keyPath: \.panes) {} }
+        if before.zoomed != zoomedValue { withMutation(keyPath: \.zoomedPane) {} }
     }
 
 }
