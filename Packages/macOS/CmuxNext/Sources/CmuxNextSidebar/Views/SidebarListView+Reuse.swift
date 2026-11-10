@@ -23,6 +23,7 @@ extension SidebarListViewComponents {
         view.closingEnd = nil
         fadingRows[ObjectIdentifier(view)] = nil
         view.clearFoldClip()
+        view.layer?.zPosition = 0 // a stuck header's raise belongs to the header it stood for
         // A parked view must not retain a render-server move from the list it just left. In
         // particular, a non-animated reload removes a row by recycling it directly, without
         // passing it through RowMotion.run's stop set; leaving its additive spring active would

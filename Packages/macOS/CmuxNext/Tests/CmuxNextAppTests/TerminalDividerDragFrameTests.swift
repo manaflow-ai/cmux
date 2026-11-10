@@ -21,6 +21,17 @@ import Testing
 /// its PTY's newest grid the one it fits; and each terminal took a new size in at least half of the drag frames (it
 /// follows its pane; the drag hold gave 0).
 ///
+/// GI RENDERER SYNC 2 (#40174) port. The frame owner is gone: the layer takes its pane's area in each drag frame, and
+/// Ghostty shows the frame of that size when it is drawn (a frame of a new size goes through the main queue). So a
+/// terminal that is behind its pane now has a layer of the area's size with the frame of an earlier drag frame in it,
+/// drawn 1:1 from the top-left (cut, or the pane's ground at its right and bottom): the same picture as before, when
+/// the layer kept that earlier size. The checks read the SHOWN FRAME: its pixel size is a size its pane had in this drag
+/// (this frame or an earlier one), it is never scaled to its layer (``TerminalKeyResizeFrameTests/Sample/drawnUnscaled``),
+/// and it took a new size in at least half of the drag frames. "The frame shown at the layer's pixel size" was red at
+/// d703d217459e (aws-m4pro-3: 5 of 42 samples showed the frame of one drag frame earlier) and is no longer the rule;
+/// those samples are "frames behind their pane": at most 1 frame of 4 per terminal (this port's choice, not a
+/// measured limit: aws-m4pro-3 gave 1 of 21 at 3be5828e3a33).
+///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
@@ -65,16 +76,16 @@ struct TerminalDividerDragFrameTests {
         try #require(frames.contains { $0.map(\.area) != before.map(\.area) }, "the drag changed no pane's area")
 
         var misplaced: [String] = [], unsized: [String] = [], stretched: [String] = []
-        // Frames in which a terminal showed another size than its pane's area (a size waits a frame or more for its
-        // frame to be drawn): reported for the PR's numbers, not asserted.
+        // Frames in which a terminal showed a frame of another size than its pane's area (a size waits a frame or more
+        // for its frame to be drawn): reported for the PR's numbers, not asserted.
         var behind = Array(repeating: 0, count: before.count)
         var changes = Array(repeating: 0, count: before.count)
+        var frameless: [String] = []
         for index in 1..<frames.count {
             for (terminal, sample) in frames[index].enumerated() {
                 let scale = sample.scale
                 func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) * scale <= 1 }
-                if index < dragFrames, sample.layer != frames[index - 1][terminal].layer { changes[terminal] += 1 }
-                if !near(sample.layer.width, sample.area.width) || !near(sample.layer.height, sample.area.height) { behind[terminal] += 1 }
+                if index < dragFrames, sample.shownPixels != frames[index - 1][terminal].shownPixels { changes[terminal] += 1 }
                 if !near(sample.topLeft.x, sample.areaTopLeft.x) || !near(sample.topLeft.y, sample.areaTopLeft.y) {
                     misplaced.append("frame \(index) p\(terminal + 1): top-left \(sample.topLeft), its area's \(sample.areaTopLeft)")
                 }
@@ -82,8 +93,18 @@ struct TerminalDividerDragFrameTests {
                 if !had.contains(where: { near(sample.layer.width, $0.width) && near(sample.layer.height, $0.height) }) {
                     unsized.append("frame \(index) p\(terminal + 1): layer \(Rig.text(sample.layer)), area \(Rig.text(sample.area))")
                 }
-                if let shown = sample.shownPixels, abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
-                    stretched.append("frame \(index) p\(terminal + 1): layer \(Rig.text(sample.layer)) at \(scale)x, frame \(Rig.text(shown)) px")
+                guard let shown = sample.shownPixels else {
+                    frameless.append("frame \(index) p\(terminal + 1)")
+                    continue
+                }
+                // The frame's own size: a size the pane had so far (in device px), never one of a later frame.
+                if !had.contains(where: { abs($0.width * scale - shown.width) <= 1 && abs($0.height * scale - shown.height) <= 1 }) {
+                    unsized.append("frame \(index) p\(terminal + 1): frame \(Rig.text(shown)) px, area \(Rig.text(sample.area)) at \(scale)x")
+                }
+                if abs(sample.area.width * scale - shown.width) > 1 || abs(sample.area.height * scale - shown.height) > 1 { behind[terminal] += 1 }
+                // A frame of another size than its layer is drawn 1:1 from the top-left, or it is stretched.
+                if abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1, !sample.drawnUnscaled {
+                    stretched.append("frame \(index) p\(terminal + 1): layer \(Rig.text(sample.layer)) at \(scale)x, frame \(Rig.text(shown)) px, gravity \(sample.gravity.rawValue)")
                 }
             }
         }
@@ -96,13 +117,16 @@ struct TerminalDividerDragFrameTests {
         let grids = zip(screen.sessions, screen.ios).map { session, io in
             (fits: session.surfaceView.fittedGrid.map { "\($0.columns)x\($0.rows)" }, newest: io.resizes.last.map { "\($0.columns)x\($0.rows)" })
         }
-        print("m14 drag: \(moves) drag frames, \(steps) landing frames; new sizes in drag frames \(changes); " +
-              "frames behind their pane \(behind); PTY grids \(resizes); misplaced \(misplaced.count), unsized \(unsized.count), " +
-              "frame of another pixel size than its layer \(stretched.count)")
-        #expect(changes.allSatisfy { $0 >= moves / 2 }, "a terminal took a new size in only \(changes) of \(moves) drag frames: the drag holds it")
+        print("m14 drag: \(moves) drag frames, \(steps) landing frames; frames of a new size in drag frames \(changes); " +
+              "frames behind their pane \(behind) of \(frames.count - 1); PTY grids \(resizes); misplaced \(misplaced.count), " +
+              "unsized \(unsized.count), stretched \(stretched.count), no frame \(frameless.count)")
+        #expect(changes.allSatisfy { $0 >= moves / 2 }, "a terminal showed a frame of a new size in only \(changes) of \(moves) drag frames: the drag holds it")
+        #expect(behind.allSatisfy { $0 * 4 <= frames.count - 1 },
+                "a terminal showed the frame of an earlier size than its pane's in \(behind) of \(frames.count - 1) frames: it is behind its pane")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
-        #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame at another pixel size than its layer: \(stretched.prefix(8))")
+        #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame scaled to a layer of another pixel size: \(stretched.prefix(8))")
+        #expect(frameless.isEmpty, "\(frameless.count) frames showed a terminal with no frame: \(frameless.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
         #expect(grids.allSatisfy { $0.fits == $0.newest }, "after the landing a PTY's newest grid is not the one its view fits: \(grids)")
     }

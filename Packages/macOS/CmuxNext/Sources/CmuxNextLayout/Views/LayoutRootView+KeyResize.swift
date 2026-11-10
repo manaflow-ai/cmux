@@ -24,14 +24,11 @@ extension LayoutRootView {
 
     /// The press's own sync ran, or had nothing to show (its values were refused while they went out): the column it
     /// kept in place applies to no later sync, and with nothing moving its content hold ends too (a later structural
-    /// change must not start held). A press that moves draws its first refresh ahead (T-KEYS 3). With no held snap,
-    /// each pane at rest lets go the size an earlier press of this turn drew ahead and this one took back: no placement,
-    /// no tick and no hold will (reviews of b2b71104252 and cab3639d25a: also while other panes still move).
+    /// change must not start held). A press that moves draws its first refresh ahead (T-KEYS 3).
     public func keyboardResizeDidChange(screenContaining pane: PaneID) {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return }
         view.scrollState.keptColumn = nil
         let moving = view.hasMotion
         if moving { view.drawAheadOfKeyPress() } else { view.holdsContentForKeyResize = false }
-        if !view.frameInput.snapWaitsForContent { view.releaseUntakenAhead(restingOnly: moving) }
     }
 }

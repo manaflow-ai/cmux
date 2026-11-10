@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
+from cmux_next_route import matches as route_matches  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -133,9 +134,7 @@ def graph_readers(path: str) -> set[str]:
     """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
     return {
         name for name, target in GRAPH["targets"].items()
-        if target["kind"] == "test" and any(
-            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
-        )
+        if target["kind"] == "test" and any(route_matches(path, read) for read in target.get("reads", []))
     }
 
 
@@ -283,12 +282,13 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
-        self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
+        # CmuxNextDesignTests (#39966) scans every app Swift source for SF Symbol names, so any .swift change runs it.
+        self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
         self.assertEqual(result["generated"], "true")
         self.assertEqual(result["native"], "true")
-        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
+        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
         path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
@@ -296,10 +296,11 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
         # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
-        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+        # CmuxNextDesignTests (#39966) reads every app Swift source (the SF Symbol scan), not the sidebar's module.
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextDesignTests", "CmuxNextKeepAwakeTests",
+                     "CmuxNextWorkspaceNamingTests"):
             self.assertIn(name, selected)
-        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
-            self.assertNotIn(name, selected)
+        self.assertNotIn("CmuxNextDaemonTests", selected)
         self.assertEqual(result["daemon"], "false")
 
     def test_every_target_selects_the_tests_that_reach_it(self):
@@ -849,6 +850,11 @@ class BundleInputs(unittest.TestCase):
         self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
                         "fnmatch's * crosses /: a pattern read is never narrower than the test")
         self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
+        self.assertTrue(self.route.matches("Sources/CmuxConversationMacUI/MacComposerView.swift",
+                                           "Sources/CmuxConversationMacUI/**/*.swift"),
+                        "/**/ is zero or more folders, as in the generator's pathlib glob")
+        self.assertTrue(self.route.matches("Sources/A/B/C.swift", "Sources/**/*.swift"))
+        self.assertFalse(self.route.matches("Sources/A/Resources/index.html", "Sources/**/*.swift"))
 
     def test_the_dev_server_test_reads_only_the_page_entries(self):
         """PageDevServerTests names its entries by a pattern, which the graph generator records."""

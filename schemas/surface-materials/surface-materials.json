@@ -142,6 +142,7 @@
     "CmuxNextSidebar/Views/SidebarContainerView.swift": "window-chrome",
     "CmuxNextSidebar/Views/SidebarNoticeCardView.swift": "sidebar-card",
     "CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift": "sidebar-card",
+    "CmuxNextSidebar/Views/SidebarStuckVeilView.swift": "window-chrome",
     "CmuxNextSidebar/Views/SidebarUpdateCardView.swift": "sidebar-card",
     "CmuxNextSidebar/Views/SidebarUpdatedCardHost.swift": "web-host",
     "CmuxNextSidebar/Views/StatesPlayground/SidebarStatesPlaygroundRenderer.swift": "debug",
