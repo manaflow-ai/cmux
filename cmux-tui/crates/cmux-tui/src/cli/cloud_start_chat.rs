@@ -256,6 +256,20 @@ pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
     step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
+/// One app Cloud verb run as this binary's own `--json` step: its `result`, or its error object
+/// (`cmux vm exec dev -- CMD` reads `exit_code`, `stdout` and `stderr` from it).
+pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Value> {
+    let mut globals = forwarded_globals(global);
+    // One step, so the caller's key is this step's: a retry with it does not run it twice.
+    if let Some(key) = &global.idempotency_key {
+        globals.extend(["--idempotency-key".to_owned(), key.clone()]);
+    }
+    let mut runner = SelfRunner { globals, global: global.clone() };
+    let mut args = args.to_vec();
+    args.push("--json".to_owned());
+    step_result(&runner.cmux(&args))
+}
+
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
 /// one of this command's own flags (`--prompt --json`) stays a value.
 pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {

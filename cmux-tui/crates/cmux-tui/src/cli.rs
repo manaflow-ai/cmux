@@ -717,7 +717,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => {
             vm::cloud_rename_note(args);
-            args
+            match vm::cloud_yes(args) {
+                Some(rewritten) => {
+                    cloud_args = rewritten;
+                    cloud_args.as_slice()
+                }
+                None => args,
+            }
         }
     };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
