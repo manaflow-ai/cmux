@@ -177,6 +177,9 @@ pub(super) struct Fixture {
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
+    /// `_acpmux/harnesses` asks the fake hangs up on (its connection closed, no answer) before it
+    /// answers one: an acpmux restarting under the start (the app's keyed restart).
+    pub(super) catalog_hang_ups: Arc<AtomicU64>,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -244,6 +247,17 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
+            "_acpmux/harnesses"
+                if fixture.phone.is_some()
+                    && fixture
+                        .catalog_hang_ups
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok() =>
+            {
+                // The test holds a clone of this stream: close it for every holder.
+                let _ = writer.shutdown(Shutdown::Both);
+                return;
+            }
             "_acpmux/harnesses" if fixture.phone.is_some() => Some({
                 if let Some(delay) = fixture.catalog_after {
                     std::thread::sleep(delay);
