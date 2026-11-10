@@ -95,6 +95,14 @@ final class ComposeSendButton: NSView {
         applyColors()
     }
 
+    /// The spring the disc grows on; `transition` sets its values and its duration. Not private:
+    /// `NoBounceSpringsTests` steps the animation the button adds.
+    static func showSpring() -> CASpringAnimation {
+        let s = CASpringAnimation(keyPath: "transform.scale")
+        s.mass = 1; s.stiffness = 520; s.damping = 30; s.initialVelocity = 0
+        return s
+    }
+
     private func transition(animated: Bool) {
         let toScale = isShown ? 1 : Self.hiddenScale
         let toOpacity: Float = isShown ? (isEnabled ? 1 : Self.disabledOpacity) : 0
@@ -108,8 +116,7 @@ final class ComposeSendButton: NSView {
         guard animated else { return }
         if isShown {
             // A soft spring (about 200 ms to settle, a 2-3 % overshoot), the disc grows from the waveform's spot.
-            let s = CASpringAnimation(keyPath: "transform.scale")
-            s.mass = 1; s.stiffness = 520; s.damping = 30; s.initialVelocity = 0
+            let s = Self.showSpring()
             s.fromValue = fromScale; s.toValue = toScale
             s.duration = min(0.35, s.settlingDuration)
             disc.add(s, forKey: "show")
