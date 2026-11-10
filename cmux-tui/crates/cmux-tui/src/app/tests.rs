@@ -601,6 +601,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         durable_notice_ack_retry_at: None,
         config: Config::default(),
         config_reload_applications: 0,
+        _test_deadline: Some(super::test_deadline::TestDeadline::arm()),
         chrome: ChromeTheme::dark(),
         tree: TreeView::default(),
         tab_locations: HashMap::new(),

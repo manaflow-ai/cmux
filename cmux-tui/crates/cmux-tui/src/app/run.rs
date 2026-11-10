@@ -395,6 +395,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         config,
         #[cfg(test)]
         config_reload_applications: 0,
+        #[cfg(test)]
+        _test_deadline: None,
         chrome,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),

@@ -381,6 +381,9 @@ pub struct App {
     pub config: Config,
     #[cfg(test)]
     config_reload_applications: usize,
+    /// Ends the test binary when a test that owns this `App` hangs.
+    #[cfg(test)]
+    _test_deadline: Option<test_deadline::TestDeadline>,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
@@ -1021,5 +1024,7 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
     a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
 }
 
+#[cfg(test)]
+mod test_deadline;
 #[cfg(test)]
 mod tests;
