@@ -494,10 +494,8 @@ struct FailureCard: View {
             Text(message).font(.subheadline).foregroundStyle(.secondary)
             if let detail {
                 DisclosureGroup("Details") {
-                    Text(detail)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
+                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)

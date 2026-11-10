@@ -82,6 +82,7 @@ print("2026-11-04 11:31:04.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.hub] toke
 '''
 
 FAKE_OPEN = r'''#!/bin/sh
+printf '%s\n' "$@" > "$FAKE_OPEN_ARGS"
 exit 0
 '''
 
@@ -103,7 +104,7 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
             open_tool.chmod(0o755)
             evidence = tmp_path / "evidence.json"
             env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "CMUX_PROOF_LOG_TOOL": str(log_tool),
-                   "CMUX_PROOF_OPEN_TOOL": str(open_tool), "FAKE_APP": str(app.resolve())}
+                   "CMUX_PROOF_OPEN_TOOL": str(open_tool), "FAKE_OPEN_ARGS": str(tmp_path / "open-args"), "FAKE_APP": str(app.resolve())}
             done = subprocess.run(
                 [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test", "--prompt", CONTEXT,
                  "--agent", "claude", "--cloud-backend", "staging", "--expected-api-origin",
@@ -111,6 +112,11 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
                 env=env, capture_output=True, text=True, timeout=120,
             )
             self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            # LaunchServices does not pass the caller's environment: the socket must be an --env of open.
+            open_args = (tmp_path / "open-args").read_text().splitlines()
+            self.assertIn("CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-ccp-test.sock", open_args)
+            # CMUX_SOCKET_PATH marks another cmux and makes the app strip CMUX_NEXT_SOCKET_PATH.
+            self.assertNotIn("CMUX_SOCKET_PATH=/tmp/cmux-debug-ccp-test.sock", open_args)
             text = evidence.read_text()
             self.assertNotIn(CONTEXT, text)
             self.assertNotIn(CONTEXT, done.stdout)

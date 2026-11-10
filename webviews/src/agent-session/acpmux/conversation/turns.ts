@@ -28,6 +28,7 @@ import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
 import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer, type NextStepAsk } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
+import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
@@ -75,6 +76,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -100,6 +102,10 @@ export const RENDER = "render";
 /// ask's lines. Its `nextStep` carries the ask; `settleNextSteps` adds the answer a later prompt
 /// picked, or folds it once a later card takes over.
 export const NEXT_STEP = "nextStep";
+/// A row added for an ended turn that ran a browser walkthrough (walkthroughModel.ts, `verifyFlow`): its
+/// last one as a pass/fail strip of screenshots (Walkthrough.tsx), under the answer, before any
+/// next-step card. Its `walkthrough` carries the steps.
+export const WALKTHROUGH = "walkthrough";
 /// The id prefix of the footer `supersededFooters` adds where the person came in on a stretch of a
 /// turn: before a steer that landed in it, or at the end of a turn a new prompt opened over.
 export const SUPERSEDED = "superseded";
@@ -1379,6 +1385,9 @@ function shapeTurn(
   // interrupted you and then there's nothing now"): its card draws under the reply that asked it.
   const cutOff = !live && !wrapUp && !tagged && summary.status === "completed" ? steeredAsk(body) : undefined;
   const nextStep = live ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
+  // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
+  const walked = live ? undefined : lastWalkthrough(worked);
+  let walkedDrawn = false;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -1545,18 +1554,31 @@ function shapeTurn(
       kind: NEXT_STEP,
       nextStep: { ask: nextStep! },
     });
+    const strip = (at: number): AcpmuxRow => {
+      walkedDrawn = true;
+      return { id: `${WALKTHROUGH}-${user.id}`, version, at, kind: WALKTHROUGH, walkthrough: walked };
+    };
     const underAnswer = Boolean(said && nextStep && !cutOff && said === answer);
+    const stripUnder = Boolean(walked && said && said === answer && !walkedDrawn);
     if (underAnswer) {
       // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
       // card draws; a new version, so its memo redraws.
       if (wrapUp) shaped.push(said!);
       else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
+      if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
-    } else if (said) shaped.push(said);
+    } else if (said) {
+      shaped.push(said);
+      if (stripUnder) shaped.push(strip(said.at));
+    }
     shaped.push(...between(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
-    // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
-    if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
+    // A wrap-up in a turn with no answer to hang under goes after the turn's last row, under its
+    // walkthrough: the strip always draws before the card.
+    if (nextStep && wrapUp && !underAnswer) {
+      if (walked && !walkedDrawn) shaped.push(strip(summary.at));
+      shaped.push(card(summary.at));
+    }
     // A cut-off ask goes right under the reply that asked it, which drops the ask's lines; where
     // that reply is out of sight (in a closed fold), after the turn's last row, the reply whole.
     if (cutOff) {
@@ -1570,6 +1592,9 @@ function shapeTurn(
     }
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
+  // A walkthrough in a turn with no answer to hang under goes after the turn's last row.
+  if (walked && !walkedDrawn)
+    shaped.push({ id: `${WALKTHROUGH}-${user.id}`, version, at: summary.at, kind: WALKTHROUGH, walkthrough: walked });
   shaped.push(...editsCard(edits));
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
@@ -1863,6 +1888,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === SINCE_DIVIDER ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
+  // A prompt coach card is about the whole chat's first prompt (PromptCoachCard.tsx).
+  row.kind === PROMPT_COACH ||
   // A preset approval waits for the person's Approve or Not now (PresetApprovalCard.tsx).
   row.kind === PRESET_APPROVAL ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
@@ -2254,17 +2281,25 @@ function codexLiveTurn(
   ];
 }
 
-/// The turn's compaction still running, with nothing from the agent since: no reply, call or prompt
-/// after it. A note after it (a failover, a background task's end) leaves it running. Once it ends,
+/// The turn's compaction still running, with nothing from the agent since: no reply or call after
+/// it. A note after it (a failover, a background task's end) leaves it running, and so does a prompt
+/// the person sent while it runs: the compaction stays the live line, under that prompt, never a
+/// row above it (Leo, 2026-11-09: "im still seeing compacting not be at the bottom"). Once it ends,
 /// its note is a row and the line reads "Thinking" at once, as after any finished step.
 function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     if (row.kind === "compaction") return row.compaction?.state === "running" ? row : undefined;
-    if (row.kind === "assistant" || row.kind === "activity" || row.kind === "user") return undefined;
+    if (row.kind === "assistant" || row.kind === "activity" || (row.kind === "user" && !sentByPerson(row)))
+      return undefined;
   }
   return undefined;
 }
+
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping.
+const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
 /// undefined when none is dated or the dated ones each came as one chunk, which measured nothing.

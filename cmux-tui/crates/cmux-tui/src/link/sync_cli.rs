@@ -47,6 +47,7 @@
 use cmux_json::JsonSet as _;
 
 mod base;
+pub(super) mod fence;
 mod git_back;
 mod history;
 mod links;
@@ -57,12 +58,15 @@ mod names;
 mod packs;
 mod place;
 mod pull;
+mod relay;
+/// `cmux link sync relay`'s copy (`cmux link agent move --sync relay`).
+pub(super) use relay::relay;
 mod remote;
 mod seed_pull;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
 pub(super) use seed_pull::{
-    SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
+    SeedBase, SeedPulled, export_to, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
 pub(crate) mod skips;
 mod store;
@@ -82,7 +86,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -130,6 +134,9 @@ pub(super) struct Summary {
     pub(super) skipped_counts: serde_json::Value,
     /// The content-addressed store's part ([`store`]), when one was asked for.
     pub(super) store: Option<serde_json::Value>,
+    /// Head links ([`push_head`]) the machine did not make, for nothing at their target
+    /// yet: a head without them is not the folder's head.
+    pub(super) head_links_short: u64,
 }
 
 impl Summary {
@@ -429,6 +436,11 @@ pub(super) fn run(args: &[String]) -> i32 {
     if let Some(code) = run_history(args) {
         return code;
     }
+    if let [action, rest @ ..] = args
+        && action == "relay"
+    {
+        return relay::run(rest);
+    }
     let Some((action, socket, local, remote, store)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
@@ -519,6 +531,11 @@ pub(super) fn is_refusal(error: &anyhow::Error) -> bool {
     remote::refusal_code(error).is_some()
 }
 
+/// The machine's code for a refusal (`seed.filling`), None for any other error.
+pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
+    remote::refusal_code(error)
+}
+
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     push_failure(error).0
@@ -535,6 +552,11 @@ pub(super) fn machine_call(
 }
 
 /// What is at `path` on the machine (`file`, `dir`, ...); None when nothing.
+/// The sync base kept for `local` at `from_root` is the one for `to_root` ([`base::carry`]).
+pub(super) fn carry_base(local: &Path, from_root: &str, to_root: &str) -> anyhow::Result<bool> {
+    base::carry(local, from_root, to_root)
+}
+
 pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<String>> {
     Remote::connect(socket)?.kind(path)
 }
@@ -888,7 +910,41 @@ fn parse(args: &[String]) -> Option<Parsed> {
 /// progress on stderr ([`progress_printer`]).
 pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
-    push_inner(socket, local, remote_root, &|_, _| true, false, Some(&mut printer))
+    push_inner(socket, local, remote_root, &|_, _| true, false, None, Some(&mut printer))
+}
+
+/// [`push`] of only the files in the head of a chat opened at `subpath`
+/// (`cmux_git::harness_head::in_head`), and every symlink with what it points
+/// at: what the held copy sends before the machine marks the head
+/// (`seed_cli`). The [`push`] after it finds these unchanged.
+pub(super) fn push_head(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    subpath: &str,
+) -> anyhow::Result<Summary> {
+    let mut printer = progress_printer();
+    let in_head = |relative: &str| cmux_git::harness_head::in_head(relative, subpath);
+    let head = |relative: &str, _: bool| in_head(relative);
+    push_inner(socket, local, remote_root, &head, false, Some(&in_head), Some(&mut printer))
+}
+
+/// The files the head links (`head`) of the folder `top` end at, read through every link
+/// on the way on this disk: what the machine must have before it makes them.
+fn link_targets(
+    top: &Path,
+    set: &local::LocalSet,
+    head: &dyn Fn(&str) -> bool,
+) -> BTreeSet<String> {
+    set.links
+        .keys()
+        .filter(|path| head(path))
+        .filter_map(|path| {
+            let real = std::fs::canonicalize(top.join(path)).ok()?;
+            let relative = real.strip_prefix(top).ok()?.to_str()?.to_owned();
+            set.files.contains_key(&relative).then_some(relative)
+        })
+        .collect()
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
@@ -931,7 +987,7 @@ pub(super) fn push_kept(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
-    push_inner(socket, local, remote_root, keep, true, None)
+    push_inner(socket, local, remote_root, keep, true, None, None)
 }
 
 fn push_inner(
@@ -940,6 +996,7 @@ fn push_inner(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
     files_only: bool,
+    head_links: Option<&dyn Fn(&str) -> bool>,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let local =
@@ -948,7 +1005,10 @@ fn push_inner(
     let mut set = local::collect(&local, rules)?;
     let before = set.files.len();
     let in_git = set.git;
-    set.files.retain(|relative, _| keep(relative, in_git));
+    // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
+    // a `docs/` file not sent yet). One that still lands short is counted ([`Summary`]).
+    let targets = head_links.map(|head| link_targets(&local, &set, head)).unwrap_or_default();
+    set.files.retain(|relative, _| keep(relative, in_git) || targets.contains(relative));
     set.skipped += (before - set.files.len()) as u64;
     // A share of files (`cmux link access`) takes no symlink.
     if files_only {
@@ -1216,6 +1276,9 @@ fn push_inner(
         waiting = again;
     }
     for (relative, why) in skipped {
+        if why == skips::Why::SymlinkBroken && head_links.is_some_and(|head| head(&relative)) {
+            summary.head_links_short += 1;
+        }
         set.skips.note(&relative, why);
     }
     // Links skipped since the summary began are named too.
@@ -1233,8 +1296,11 @@ fn push_inner(
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     // What this push left, for `cmux link sync undo`: every file's blob this
     // Mac does not keep yet, and a snapshot ([`history`]). Neither can fail
-    // the push.
-    snapshot_push(&local, remote_root, &next, &set.files, git_record);
+    // the push. A head ([`push_head`]) leaves none: it is part of the whole
+    // copy after it, and an undo to it would delete every file it left out.
+    if head_links.is_none() {
+        snapshot_push(&local, remote_root, &next, &set.files, git_record);
+    }
     Ok(summary)
 }
 

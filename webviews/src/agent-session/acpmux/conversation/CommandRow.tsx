@@ -17,7 +17,8 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
@@ -153,6 +154,14 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         <span className="cv-command__meta">
           {/* The page a background command serves, while it runs (PreviewChip.tsx). */}
           {tool.background?.state === "running" && <PreviewChip toolCallId={tool.id} />}
+          {/* From 20 s on, a running command offers another machine (RunElsewhere.tsx). */}
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+          />
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           {foreground || tag ? null : tool.background ? (
@@ -166,6 +175,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       </button>
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
+      <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />
       {fold.present && (
         <div {...fold.bodyProps}>
           <ShellBlock
@@ -176,7 +186,6 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             reveal={reveal}
             live={running}
           />
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>
