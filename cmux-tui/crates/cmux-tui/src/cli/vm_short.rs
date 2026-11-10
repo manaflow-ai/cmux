@@ -10,7 +10,7 @@
 //! --target machine:ID --command 'uname -a'`), `vm ssh dev` and `vm move dev` name the VM the same
 //! way; `vm ls` prints a table for a person (the app's answer stays the `--json` shape); and `vm rm
 //! dev` asks `[y/N]` at a terminal, `--yes`/`-y` skips the question (`--confirm` still works, with a
-//! one-line rename note), as gh, docker and kubectl confirm only the destructive verb.
+//! one-line rename note): only the destructive verb asks.
 //!
 //! With no cmux app here (CI, a headless agent) nothing changes: `vm pause|resume|rm|fork|ls`
 //! stay the VM API's verbs (vm.rs). A name the app does not list that looks like a VM API id
@@ -431,7 +431,7 @@ fn ask_delete(global: &GlobalArgs, short: &Short, id: &str, listed: &Value) -> O
 }
 
 /// `vm exec dev -- CMD` for a person: the command's stdout and stderr as it printed them, and its
-/// exit code as this command's, as `docker exec` and `ssh HOST CMD` do (`--json` keeps the app's
+/// exit code as this command's, as `ssh HOST CMD` does (`--json` keeps the app's
 /// answer with `exit_code`, `stdout` and `stderr`).
 fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
     use std::io::Write as _;
