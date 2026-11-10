@@ -181,10 +181,18 @@ fn a_long_turn_stays_current_in_history(workspaces: usize) {
         now_ms += REPORT_GAP_MS;
         mux.set_agent_activity_clock_for_test(now_ms);
         let event = if round % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
-        for agent in &agents {
+        for (index, agent) in agents.iter().enumerate() {
             let tool = json!({ "tool_name": "Read", "tool_input": { "file_path": "/a.rs" } });
             let answer = send_at(&mux, agent, event, tool, now_ms);
             assert!(answer.sequence > 0, "the hook's caller gets a receipt: {answer:?}");
+            // A round's first report can be the one that writes the activity
+            // row. The roster's owner folds each agent row (milliseconds in a
+            // daemon); until it did, a completed tool call is appended, not
+            // answered at rest (`tool_completion_may_resume_agent`). The next
+            // report here comes 30 simulated seconds later, so let it finish.
+            if index == 0 {
+                assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+            }
         }
         round += 1;
     }

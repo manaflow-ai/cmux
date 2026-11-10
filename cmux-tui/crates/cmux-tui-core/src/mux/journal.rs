@@ -564,6 +564,9 @@ impl Mux {
         // A hook that changes no durable state is answered from memory: no
         // journal row, no registry commit (`agent_hooks_at_rest.rs`).
         if let Some(commit) = self.answer_agent_hook_at_rest(ingress, origin, idempotency_key) {
+            // Its time is live state; the journal gets one coalesced row for
+            // all terminals when the interval passed.
+            self.save_agent_activity(false);
             return Ok(commit);
         }
         let in_flight = self.agent_hook_in_flight(ingress);
