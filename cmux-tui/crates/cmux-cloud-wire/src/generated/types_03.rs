@@ -5,6 +5,34 @@
 use super::*;
 
 wire_enum! {
+    OpClass {
+        Read = "read",
+        MutateOwn = "mutate-own",
+        MutateShared = "mutate-shared",
+        Execute = "execute",
+        SendExternal = "send-external",
+        Money = "money",
+        Destructive = "destructive",
+        CloudLink = "cloud-link",
+        VmSelf = "vm-self",
+    }
+}
+
+/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
+pub type PairingCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInfo {
+    pub name: String,
+    pub platform: Platform,
+    pub os_version: String,
+    pub arch: PairingInfoArch,
+    pub cmux_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<ServerCapability>>,
+}
+
+wire_enum! {
     PairingInfoArch {
         X8664 = "x86_64",
         Aarch64 = "aarch64",
@@ -876,26 +904,3 @@ pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
     pub value: i64,
     pub mode: PolicyMode,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoIdleTimeoutHours {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesAgentsAllowedClassesValueItem {
-        Mux = "mux",
-        Agent = "agent",
-        Run = "run",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAgentsAllowedClasses {
-    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesDeviceSettingsValue {}

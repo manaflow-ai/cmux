@@ -305,9 +305,13 @@ fn made() -> Ran {
 }
 
 fn started() -> Ran {
-    ok(json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
-              "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-              "tab_id": "tab-1", "target": "machine:vm-1"}))
+    ok(started_value())
+}
+
+fn started_value() -> Value {
+    json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
+           "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
+           "tab_id": "tab-1", "target": "machine:vm-1"})
 }
 
 #[test]
@@ -382,6 +386,29 @@ fn the_answer_times_each_step_it_ran() {
             ("cloud exec", 10_000, 5_000)
         ]
     );
+}
+
+/// `cloud start-session`'s own split (the app's `stages_ms`) goes under that step's `parts`, so its 20-odd seconds
+/// name the machine, the connect, the login, the tab and the start (cmuxterm-hq#8658: "no breakdown of it yet").
+#[test]
+fn the_start_sessions_own_stages_are_its_parts() {
+    let parts = json!([{"step": "machine", "ms": 8_100}, {"step": "connect", "ms": 9_400},
+                       {"step": "login", "ms": 2_100}, {"step": "tab", "ms": 700}, {"step": "start", "ms": 2_500}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts.clone();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["parts"], parts);
+    assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
 }
 
 #[test]
@@ -914,22 +941,56 @@ fn an_unanswered_read_of_the_turn_is_asked_again() {
     assert_eq!(fake.paused, NOT_STARTED_PAUSE);
 }
 
-/// READ_TRIES unanswered reads in a row are the machine not answering; a read the machine answers in between
-/// starts the count again.
+/// Unanswered reads are asked again, with backoff, until `--timeout` runs out: only then is the chat
+/// `chat.unreachable` (a fixed three tries failed a slow-but-working machine with most of the deadline left).
 #[test]
-fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
+fn unanswered_reads_are_asked_again_until_the_deadline() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"running\"}]}\n";
     let mut answers = vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(running)];
-    answers.extend((0..READ_TRIES).map(|_| unanswered()));
+    answers.extend((0..40).map(|_| unanswered()));
     let mut fake = Fake::new(answers);
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
-    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    // The deadline's own answer: the read that found it passed (`chat.unreachable`) or the wait that had none of it
+    // left (`chat.wait_timeout`), whichever came first.
+    let code = error["code"].as_str();
+    assert!(matches!(code, Some("chat.unreachable" | "chat.wait_timeout")), "{error}");
+    assert!(exit == 1 || exit == 3, "{exit}");
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
-    assert_eq!(fake.ran.len(), 5 + READ_TRIES as usize, "{:?}", fake.ran);
+    // Far more than three reads, and the failure comes only once the deadline has passed.
+    assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
+    assert!(fake.clock.duration_since(began) >= Duration::from_secs(120), "{:?}", fake.clock.duration_since(began));
+}
+
+/// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
+/// goes unanswered, and the reply is still read back inside `--timeout`.
+#[test]
+fn a_machine_that_answers_after_30_s_of_unanswered_reads_gets_its_reply_read() {
+    let mut answers = vec![signed_in(), started(), exec_out(SENT)];
+    // Each fake step takes 5 s; with the pauses between them, these reads span over 30 s.
+    answers.extend((0..5).map(|_| unanswered()));
+    answers.push(exec_out(REPLIED));
+    let mut fake = Fake::new(answers);
+    let Outcome::Done(answer) =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["unanswered_reads"], 5);
+    let unanswered_span = Duration::from_secs(5 * 5) + fake.paused;
+    assert!(unanswered_span >= Duration::from_secs(30), "{unanswered_span:?}");
+}
+
+/// The pauses between unanswered reads grow from 2 s and stop growing at 15 s.
+#[test]
+fn unanswered_pauses_back_off_to_a_cap() {
+    let pauses: Vec<u64> = (1..=6).map(|n| unanswered_pause(n).as_secs()).collect();
+    assert_eq!(pauses, [2, 4, 8, 15, 15, 15]);
 }
 
 /// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
@@ -1729,9 +1790,17 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with("this plan allows 5 active machines: "), "{message}");
     assert!(
-        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target machine:vm-a`"),
+        message.starts_with(
+            "Cloud could not start a new machine: too many machines are running at once"
+        ),
+        "{message}"
+    );
+    // A paid plan has no machine count: the guard's number stays in the app's answer, out of the lead.
+    assert!(!message.contains("plan allows"), "{message}");
+    assert_eq!(error["details"]["app"]["message"], "this plan allows 5 active machines");
+    assert!(
+        message.contains("api (running): `cmux cloud start-chat --target vm:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target vm:vm-a`"),
         "{message}"
     );
     assert!(message.contains("web (paused)"), "{message}");
@@ -1740,7 +1809,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     assert_eq!(error["details"]["cap"], "running");
     assert_eq!(
         error["details"]["machines"][1]["delete"],
-        "cmux cloud kill-machine --target machine:vm-b --confirm"
+        "cmux cloud kill-machine --target vm:vm-b --confirm"
     );
 }
 
@@ -1761,29 +1830,111 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with(cap), "{message}");
     assert!(
-        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
+        message
+            .starts_with("Cloud could not start a new machine: too many machines are kept at once"),
+        "{message}"
+    );
+    assert!(!message.contains("limit of 20"), "{message}");
+    assert!(
+        message.contains("web (paused): `cmux cloud start-chat --target vm:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target vm:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
+    assert_eq!(error["details"]["reason"], cap);
+}
+
+#[test]
+fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([
+            {"machine_id": "vm-a", "title": "api", "status": "running"},
+            {"machine_id": "vm-b", "title": "web", "status": "paused"},
+        ])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "cloud.spend_cap.reached",
+                           "message": "this team is at its spending cap"})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.spend_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message
+            .starts_with("Cloud could not start a new machine: your team reached its spending cap"),
+        "{message}"
+    );
+    assert!(message.contains("nothing is lost"), "{message}");
+    assert!(message.contains("api (running)"), "{message}");
+    // A paused machine cannot start at the cap: never offered.
+    assert!(!message.contains("web (paused)"), "{message}");
+    assert_eq!(error["details"]["cap"], "spend");
 }
 
 #[test]
 fn only_a_cap_refusal_reads_as_a_cap() {
     use super::cap::{Cap, cap_of};
-    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
+    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("cloud.quota.exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("", "this plan allows 5 active machines", None), Some(Cap::Running));
     assert_eq!(
         cap_of(
             "cloud.provider.unavailable",
-            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"
+            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another",
+            None
         ),
         Some(Cap::Held)
     );
-    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
-    assert_eq!(cap_of("app.unreachable", "no app"), None);
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "this plan allows 200 machines in all, paused ones included; delete one first",
+            None
+        ),
+        Some(Cap::Held)
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cmux.cloud.spend_cap_reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429", None), None);
+    assert_eq!(cap_of("app.unreachable", "no app", None), None);
+    // cmux-platform's `details.resource` decides over its words.
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
+    assert_eq!(
+        cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
+        None
+    );
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "a team keeps at most 50 environments",
+            Some("environments")
+        ),
+        None
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", Some("active")), Some(Cap::Spend));
+    // The app's string-only failure and a stage's reason carry cmux-platform's words, not its code.
+    assert_eq!(
+        cap_of(
+            "unavailable",
+            "could not create machine \"w\": this team has reached its spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
+    assert_eq!(
+        cap_of(
+            "",
+            "this team has spent 40.00 USD of its 40.00 USD spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
 }
 
 #[test]
