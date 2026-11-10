@@ -5,10 +5,10 @@ import XCTest
 /// Each scene launches the DEBUG app on mock data with its own launch
 /// arguments and environment, walks to one UI state with real taps, and
 /// attaches a full-screen screenshot (system alerts included) named
-/// `uistate|<group>|<id>|<look>`, in light and in dark. A scene that cannot
+/// `uistate~~<group>~~<id>~~<look>`, in light and in dark. A scene that cannot
 /// reach its state never fails the run: it prints `UISTATE-MISS <id> <reason>`
 /// to the console and attaches what the screen shows instead, named
-/// `uimiss|…`, so the artifact lists it as missing with its reason.
+/// `uimiss~~…~~<reason>`, so the artifact lists it as missing with its reason.
 /// `cmuxterm-hq/artifacts/ios-all-ui-states/` is built from these attachments.
 class UIStateCaptureCase: XCTestCase {
     enum Look: String, CaseIterable {
@@ -90,10 +90,10 @@ class UIStateCaptureCase: XCTestCase {
         shot.lifetime = .keepAlways
         if let miss {
             print("UISTATE-MISS \(group)|\(id)|\(look.rawValue) \(miss)")
-            shot.name = "uimiss|\(group)|\(id)|\(look.rawValue)|\(miss)"
+            shot.name = "uimiss~~\(group)~~\(id)~~\(look.rawValue)~~\(miss)"
         } else {
             print("UISTATE-OK \(group)|\(id)|\(look.rawValue)")
-            shot.name = "uistate|\(group)|\(id)|\(look.rawValue)"
+            shot.name = "uistate~~\(group)~~\(id)~~\(look.rawValue)"
         }
         add(shot)
     }
