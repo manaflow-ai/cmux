@@ -94,6 +94,33 @@ struct TerminalRevealReportTests {
         #expect(!watch.isWatching)
     }
 
+    /// Review of #40174 (GI LAND 2): the reveal's own report no longer calls a layer scale that waits for its first
+    /// frame a mismatch, and no other report read the scales after a frame showed, so a layer scale that never landed
+    /// (tiny text that stays) had no report. The check at the limit now reports it, apart from a blank pane; a pane
+    /// that drew at its scale, and one with no frame since the reveal (its layer scale may still wait), report nothing.
+    @Test func aLayerScaleStillWrongAfterAFrameShowedIsReportedAtTheLimit() async throws {
+        let clock = ManualClock()
+        let watch = TerminalBlankWatch(clock: clock)
+        let blank = Reports(), mismatch = Reports()
+        var stale = Self.report(content: 2, layer: 1, window: 2)
+        stale.framesSinceReveal = 3
+        let drew = stale
+        watch.watch(probe: { drew }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
+        try await clock.waitForSleeper()
+        clock.advance(by: TerminalBlankWatch.limit)
+        for _ in 0..<50 where mismatch.items.isEmpty { await Task.yield() }
+        #expect(mismatch.items == [drew], "a layer scale still wrong after 3 frames was not reported")
+        #expect(blank.items.isEmpty, "a pane that drew was reported blank")
+
+        mismatch.items.removeAll()
+        let waiting = Self.report(content: 2, layer: 1, window: 2)
+        watch.watch(probe: { waiting }, onBlank: { blank.items.append($0) }, onScaleMismatch: { mismatch.items.append($0) })
+        try await clock.waitForSleeper()
+        clock.advance(by: TerminalBlankWatch.limit)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(mismatch.items.isEmpty && blank.items.isEmpty, "a kept frame at its own scale, no frame since the reveal, was reported")
+    }
+
     // MARK: A real terminal shown again
 
     /// A real Ghostty surface hidden and shown again reports its reveal: the scales agree and the frame it kept
