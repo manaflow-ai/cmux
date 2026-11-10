@@ -170,6 +170,85 @@ fn person_requests_beside_a_change_storm(workspaces: usize) {
     assert!(!requests.is_empty() && changes > 0, "the arm of {workspaces} measured nothing");
 }
 
+/// No request waits for the bulk of the checkpoint that lets the WAL
+/// restart. The copy of the bulk is made [`SLOW_BULK`] slower (a large WAL
+/// on a busy disk); the storm's request whose commit takes the WAL to its
+/// restart point, a person's request beside it, and each span in which the
+/// restart rule keeps the writer lock must all stay under [`NO_WAIT`].
+#[cfg(unix)]
+#[test]
+fn no_request_waits_for_the_bulk_of_a_restart_checkpoint() {
+    const SLOW_BULK: Duration = Duration::from_millis(600);
+    const NO_WAIT: Duration = Duration::from_millis(300);
+    const HOLDS: usize = 2;
+    let root = std::env::temp_dir()
+        .join(format!("cmux-wal-bulk-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("wal-bulk", &root);
+    mux.stop_journal_maintenance();
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.create_empty_workspace(Some("storm".to_owned()), None, None).unwrap();
+    mux.request_registry_flush();
+    let (person_workspace, storm_workspace) =
+        mux.with_state(|state| (state.workspaces[0].id, state.workspaces[1].id));
+    mux.registry_connection.slow_wal_restart_bulk_for_test(SLOW_BULK);
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let storm = {
+        let (mux, stop) = (mux.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let (mut changes, mut slowest) = (0u64, Duration::ZERO);
+            while !stop.load(Ordering::Acquire) {
+                let from = Instant::now();
+                assert!(mux.rename_workspace(storm_workspace, format!("storm {changes}")));
+                slowest = slowest.max(from.elapsed());
+                mux.request_registry_flush();
+                changes += 1;
+            }
+            (changes, slowest)
+        })
+    };
+    let started = Instant::now();
+    let (mut requests, mut person_slowest) = (0u64, Duration::ZERO);
+    let holds = loop {
+        let from = Instant::now();
+        assert!(mux.rename_workspace(person_workspace, format!("person {requests}")));
+        person_slowest = person_slowest.max(from.elapsed());
+        mux.request_registry_flush();
+        requests += 1;
+        std::thread::sleep(Duration::from_millis(2));
+        let holds = mux.registry_connection.wal_restart_holds_for_test();
+        if holds.len() >= HOLDS || started.elapsed() > Duration::from_secs(120) {
+            break holds;
+        }
+    };
+    stop.store(true, Ordering::Release);
+    let (changes, storm_slowest) = storm.join().unwrap();
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+    let longest_hold = holds.iter().map(|(from, to)| *to - *from).max().unwrap_or(Duration::ZERO);
+    println!(
+        "registry_wal_bulk: storm_changes={changes} person_requests={requests} holds={} \
+         longest_hold_ms={} storm_slowest_ms={} person_slowest_ms={} slow_bulk_ms={}",
+        holds.len(),
+        longest_hold.as_millis(),
+        storm_slowest.as_millis(),
+        person_slowest.as_millis(),
+        SLOW_BULK.as_millis(),
+    );
+    assert!(holds.len() >= HOLDS, "the restart rule ran {} times in 120 s", holds.len());
+    assert!(
+        storm_slowest < NO_WAIT && person_slowest < NO_WAIT && longest_hold < NO_WAIT,
+        "with the bulk of each restart checkpoint {} ms slower, the slowest storm request took \
+         {} ms, the slowest request of the person {} ms, and the restart rule kept the writer \
+         lock for {} ms; none may wait for the bulk ({} ms)",
+        SLOW_BULK.as_millis(),
+        storm_slowest.as_millis(),
+        person_slowest.as_millis(),
+        longest_hold.as_millis(),
+        NO_WAIT.as_millis(),
+    );
+}
+
 #[cfg(unix)]
 #[test]
 #[ignore = "a measure of minutes: run it by name (module docs)"]

@@ -272,6 +272,14 @@ impl RegistryConnection {
             .unwrap_or_default()
     }
 
+    /// Test seam: the copy of the WAL's bulk for each restart takes `delay` longer.
+    #[cfg(test)]
+    pub(crate) fn slow_wal_restart_bulk_for_test(&self, delay: std::time::Duration) {
+        if let Some(durability) = &self.durability {
+            durability.slow_restart_bulk(delay);
+        }
+    }
+
     /// Commits no flush was requested for (`WalDurability::unrequested_commits`).
     #[cfg(test)]
     pub(crate) fn unrequested_commits_for_test(&self) -> u64 {

@@ -230,6 +230,9 @@ struct Shared {
     /// The longest a commit, or the clean stop, waits for a checkpoint it
     /// asked for ([`RESTART_WAIT`]).
     restart_wait: Duration,
+    /// Test seam ([`WalDurability::slow_restart_bulk`]), in milliseconds.
+    #[cfg(test)]
+    slow_restart_bulk_ms: std::sync::atomic::AtomicU64,
 }
 
 thread_local! {
@@ -342,6 +345,8 @@ impl WalDurability {
             commit_delay,
             frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
             restart_wait: if cfg!(test) { TEST_RESTART_WAIT } else { RESTART_WAIT },
+            #[cfg(test)]
+            slow_restart_bulk_ms: std::sync::atomic::AtomicU64::new(0),
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
@@ -435,6 +440,14 @@ impl WalDurability {
     #[cfg(test)]
     pub(crate) fn restart_holds(&self) -> Vec<(std::time::Instant, std::time::Instant)> {
         self.shared.state.lock().recover_poison().restart_holds.clone()
+    }
+
+    /// Test seam: the copy of the WAL's bulk for each restart takes `delay`
+    /// longer, as the copy of a large WAL on a busy disk does.
+    #[cfg(test)]
+    pub(crate) fn slow_restart_bulk(&self, delay: Duration) {
+        let ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+        self.shared.slow_restart_bulk_ms.store(ms, std::sync::atomic::Ordering::Release);
     }
 
     /// Waits that ended at the limit before their checkpoint did.
@@ -623,7 +636,15 @@ fn run(shared: &Shared) {
         let mark = state.wal_frame_bytes;
         let due =
             owed || (!force && mark.saturating_sub(state.copied_frame_bytes) > CHECKPOINT_BYTES);
+        #[cfg(test)]
+        let for_a_restart = !state.stopping && asked > state.restart_done;
         drop(state);
+        #[cfg(test)]
+        {
+            if for_a_restart {
+                slow_restart_bulk(shared);
+            }
+        }
         // A forced flush syncs the WAL; otherwise the WAL reaches the disk
         // with its checkpoint (SQLite syncs it first), or at close.
         let mut synced = force;
@@ -647,6 +668,15 @@ fn run(shared: &Shared) {
             state.synced = state.synced.max(target);
         }
         shared.changed.notify_all();
+    }
+}
+
+/// The [`WalDurability::slow_restart_bulk`] seam.
+#[cfg(test)]
+fn slow_restart_bulk(shared: &Shared) {
+    let ms = shared.slow_restart_bulk_ms.load(std::sync::atomic::Ordering::Acquire);
+    if ms > 0 {
+        std::thread::sleep(Duration::from_millis(ms));
     }
 }
 
