@@ -75,10 +75,15 @@ impl Brain {
 
     /// Traces a workspace close the host makes on its own, with its reason.
     pub(super) fn trace_workspace_close(&self, id: &str, reason: &str) {
-        self.trace.emit(
-            "subagent.workspace_closed",
-            json!({"id": id, "reason": reason}),
-        );
-        (self.log)(&format!("subagent {id}: closing its workspace ({reason})"));
+        trace_close(&self.trace, &self.log, id, reason);
     }
+}
+
+/// `subagent.workspace_closed {id, reason}` in the trace, and a log line.
+pub(super) fn trace_close(trace: &crate::trace::Trace, log: &super::Log, id: &str, reason: &str) {
+    trace.emit(
+        "subagent.workspace_closed",
+        json!({"id": id, "reason": reason}),
+    );
+    log(&format!("subagent {id}: closed its workspace ({reason})"));
 }

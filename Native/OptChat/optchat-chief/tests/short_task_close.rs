@@ -112,8 +112,9 @@ fn finish_a1_routed(
 ) -> (Vec<String>, Option<String>) {
     let mut h = Harness::new(script());
     if close {
-        h.brain
-            .set_user_settings(Some(json!({"subagents": {"closeFinishedWorkspaces": true}})));
+        h.brain.set_user_settings(Some(
+            json!({"subagents": {"closeFinishedWorkspaces": true}}),
+        ));
     }
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
@@ -206,7 +207,10 @@ fn finish_a1_routed(
 #[test]
 fn a_short_task_that_landed_keeps_its_workspace() {
     let (closed, workspace) = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
-    assert!(closed.is_empty(), "a finished short task's workspace stays: {closed:?}");
+    assert!(
+        closed.is_empty(),
+        "a finished short task's workspace stays: {closed:?}"
+    );
     assert!(workspace.is_some(), "its workspace stays recorded");
 }
 
@@ -217,7 +221,10 @@ fn a_short_task_waiting_on_a_build_keeps_its_workspace() {
         "Release build passed; the fleet test runs are going and I will report when they finish.",
         Duration::from_secs(10 * 60),
     );
-    assert!(closed.is_empty(), "a working agent's workspace stays: {closed:?}");
+    assert!(
+        closed.is_empty(),
+        "a working agent's workspace stays: {closed:?}"
+    );
 }
 
 #[test]
@@ -245,7 +252,11 @@ fn the_persons_close_setting_still_closes_a_finished_workspace() {
         Duration::from_secs(45 * 60),
         true,
     );
-    assert_eq!(closed.len(), 1, "subagents.closeFinishedWorkspaces closes it");
+    assert_eq!(
+        closed.len(),
+        1,
+        "subagents.closeFinishedWorkspaces closes it"
+    );
     assert_eq!(workspace, None, "and forgets its key");
 }
 

@@ -1799,14 +1799,11 @@ impl Brain {
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        self.trace_workspace_close(
-            id,
-            if explicit {
-                "close_finished_setting"
-            } else {
-                "tucked_reaper"
-            },
-        );
+        let reason = if explicit {
+            "close_finished_setting"
+        } else {
+            "tucked_reaper"
+        };
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.workspace = None;
@@ -1815,12 +1812,18 @@ impl Brain {
             self.save();
         }
         let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
+        let trace = self.trace.clone();
         std::thread::spawn(move || {
             let closed = if explicit {
                 workspaces.close(&key).map(|()| true)
             } else {
                 workspaces.close_idle(&key)
             };
+            // Traced once the workspace is gone, not when the close is tried: a
+            // busy terminal keeps a tucked one open (#36980 review).
+            if matches!(closed, Ok(true)) {
+                super::subagent_settings::trace_close(&trace, &log, &id, reason);
+            }
             match closed {
                 // A reaped workspace's key is forgotten once it is gone, so a later
                 // `control show` opens a new one.
