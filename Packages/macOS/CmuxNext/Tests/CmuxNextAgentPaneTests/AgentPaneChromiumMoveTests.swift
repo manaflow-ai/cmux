@@ -171,5 +171,43 @@ struct AgentPaneChromiumMoveTests {
         view.layoutSubtreeIfNeeded()
         #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
     }
+
+    /// A page that drew its frame while its pane is still on the spring does not come in at a size of the spring (it
+    /// would get a new size in each of the spring's next frames): it shows in the layout the pane lands in.
+    @Test func aPageThatDrewWhileItsPaneIsOnItsSpringShowsWhenThePaneLands() async throws {
+        let (view, page) = try await parkedChromiumPage()
+        var asked = 0
+        page.answer = { method, params in
+            if method == "Runtime.evaluate", let expression = params["expression"] as? String, expression.contains("innerWidth") { asked += 1 }
+            return nil
+        }
+        view.placeMovedChromiumPage {}
+        let rest = NSSize(width: 1000, height: 700)
+        let window = pane(rest)
+        defer { window.close() }
+        let springing = SpringingPane(frame: NSRect(x: 0, y: 0, width: 1000, height: 300))
+        springing.rest = rest
+        window.contentView?.addSubview(springing)
+        springing.addSubview(view)
+        view.frame = springing.bounds
+        view.layoutSubtreeIfNeeded()
+        try #require(view.holdsPageAway, "the moved page shows at once: the test no longer reaches the wait")
+
+        // The page answers its size wait (the fake answers at once) while the pane is at 300 pt of 700.
+        let deadline = Date().addingTimeInterval(5)
+        while asked == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(asked > 0, "no size wait was asked of the page")
+        try await Task.sleep(for: .milliseconds(200))
+        let atRest = view.topBar.contentFrame(in: NSRect(origin: .zero, size: rest)).size
+        #expect(view.holdsPageAway, "the page came in while its pane is on its spring, at \(view.pageContent.frame.size)")
+        #expect(view.pageContent.frame.size == atRest)
+
+        // The pane lands: the page shows in that layout, at the pane's size.
+        springing.frame.size.height = rest.height
+        view.frame = springing.bounds
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.holdsPageAway, "the page is still outside the window after its pane landed")
+        #expect(view.pageContent.frame == view.topBar.contentFrame(in: view.bounds))
+    }
 }
 #endif
