@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4288034338201",
+  "notes": "notes/4288034338201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40681,
+      "title": "cmux-tui: a report at rest runs the retry of a pending hook projection (fixes a regression of #40587)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40496,
+      "title": "Cloud copy: refuse a huge folder fast; short folder refusals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40597,
+      "title": "fix(browser-host): a popup's event leaves with its announce; one tab's facts are read exact (follow-up of #40544)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40674,
+      "title": "fix(agent-chat): the turn's footer glides under the reply's last lines in every pass of the drain",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40668,
+      "title": "ci(nightly): the deltas jobs forget the kept clone's sparse mode; size guard red 32,000 bytes early",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40616,
+      "title": "perf(next sidebar): a window resize step does not make the space switcher again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40564,
+      "title": "Cloud chat sign-in: one card, three ways in (Claude, API key, cmux's gateway)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40669,
+      "title": "fix(perf-bench): session_real.py never leaves a tag's state wrong and never exits 0 on a failure",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40631,
+      "title": "ci: one synchronous deadline HTTP transport for scripts/ci; no bare urlopen in its deadline-bounded clients",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40596,
+      "title": "A pane's mirrors obey the incognito window rule",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31915,
+      "title": "agent-pane-policy: the gesture pick is the Swift host's: hand-off prompt ids, answer digests, Double numbers",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40379,
+      "title": "cmux-vm: revoke an existing VM's public egress (DELETE /v1/vms/:id/public-egress)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40684,
+      "title": "CI: artifact uploads from today's no-CI landings keep 3 days, not 7 or 30",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40576,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-7d64634e87631d2f344f7e3258f449eb7cdc047c",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40381,
+      "title": "language-boundaries: Home and Chief stay Swift, chat UI React, acpmux/cmux-tui/cloud core Rust; a port needs Leo's approval",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40667,
+      "title": "compile-status: a 530 from the results service hands off to the fallback verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40679,
+      "title": "perf-bench parity: blind inputs show in the verdict; the silence limit leaves the refresh grid",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40623,
+      "title": "Cloud start: wait for a starting acpmux's catalog instead of refusing after 5 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40633,
+      "title": "bench(web-ui): chat stand-ins page as acpmux does, by count, maxBytes and superseded updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40652,
+      "title": "ci(nightly): promote jobs stop reading CI_NIGHTLY_NEXT_BUILD_RUNNER",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40463,
+      "title": "base red: the iOS reliability matrix runs on the owned simulator pool and fleet Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40655,
+      "title": "perf-bench parity: a key at which the capture stream stops is blind, not a key with no frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40620,
+      "title": "Pane close: two last-column closes in a row leave no ground for the landing (bound back to under 1 pt)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40587,
+      "title": "cmux-tui: agents and project scans at rest write nothing to the registry",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40628,
+      "title": "perf(cmux-next): a workspace list change names no other workspace's link places again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40625,
+      "title": "cmux-tui: a bell keeps the next banner; cmux attention uses the newest notification (port of #38490 review fixes)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40613,
+      "title": "cmux-tui: agent resume does not send the first prompt of the start again (port of main #39226's review fix)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40644,
+      "title": "backend: cmux-next production runs on Vitess (projection primary MySQL, Postgres shadow)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40480,
+      "title": "ios Home: read a long conversation list faster (shared date formatters, one-pass previews)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40647,
+      "title": "fix(cmux-next): a read of the unified log keeps the newest errors of its window",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40637,
+      "title": "fix(mcp): a refusal the app decided reaches a tool call as rejected, not not_run",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40493,
+      "title": "ios: a revoked session stays signed out, also when the service refuses the token at the dial",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40378,
+      "title": "acpmux: an outbox change appends the deliveries it changed, not the whole file (2-34 GB disk-write reports)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40285,
+      "title": "ios: instant-list perf bench, small vs god sessions (CmuxMobileInstantPerfTests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40612,
+      "title": "perf-bench: busy_holder, the load arm oversub (250 busy threads beside the app)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40619,
+      "title": "cmux-tui: restore a closed-tab Cloud template terminal detached after restart (port of #33195)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
