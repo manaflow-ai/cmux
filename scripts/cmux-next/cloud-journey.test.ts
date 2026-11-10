@@ -1374,6 +1374,34 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a name's own :digits is not a line number, an ancestor's key is read, and a binary file's held-back hit is checked", () => {
+    const DIGITS = "123456789012345678901234567890123456";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // This test's own process is an ancestor of the probe: its command line here holds a real key.
+      [`proc/${process.pid}/comm`]: "supervisor\n",
+      [`proc/${process.pid}/environ`]: "HOME=/root\0",
+      [`proc/${process.pid}/cmdline`]: "supervisor\0--openai-api-key\0Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt\0",
+      "home/cmux/session.json": `{"access_token":"opaq:${DIGITS}"}\n`,
+      [`home/cmux/opaq:${DIGITS}/.codex/auth.json`]: "{}",
+      "home/cmux/project/blob.bin": `\0{"refresh_token":"${"Aa8k_".repeat(120)}\0${PROJ}\0`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [DIGITS, DIGITS.slice(0, 12), "Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt"]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "cmdline process [a process] (1 pid): OPENAI_API_KEY",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/project/[a name].bin: an OpenAI project key",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",

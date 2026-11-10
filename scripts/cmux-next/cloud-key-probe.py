@@ -191,19 +191,18 @@ KNOWN_PROCESSES = {
 }
 EXTENSIONS = {".json", ".env", ".toml", ".yaml", ".yml", ".ini", ".txt", ".md", ".ts", ".js", ".mjs", ".py", ".rs",
               ".sh", ".bin", ".conf", ".cfg", ".pem", ".key", ".db", ".log", ".bak", ".old"}
-LINE_NO = re.compile(r"^(.*?)(:\d+)?$", re.S)
 # What the probe itself writes in place of a value, kept only when it is the whole part (with a line number): any
 # other character beside a mark is the machine's and goes through the same rule as any name.
 OWN_MARKS = {"[a secret]", "[a piece of a secret]", "[a name]"} | {f"[{kind}]" for kind, _ in SHAPES}
 
 
-def shown_part(part):
-    """One part of a path, as it may be printed."""
-    name, line = LINE_NO.match(part).groups()
+def shown_part(name):
+    """One part of a path, as it may be printed. A `:N` in it is the machine's, never taken for a line number: the
+    probe adds its own line numbers after this (redacted)."""
     if name in KNOWN_NAMES or name in OWN_MARKS:
-        return part
+        return name
     ext = next((e for e in EXTENSIONS if name.endswith(e) and len(name) > len(e)), "")
-    return "[a name]" + ext + (line or "")
+    return "[a name]" + ext
 
 
 def safe_place(text):
@@ -260,7 +259,11 @@ def redacted(value, place=False):
     if isinstance(value, list):
         return [redacted(v, place) for v in value]
     if isinstance(value, dict):
-        return {redact(k): redacted(v, place or k in ("where", "unreadable")) for k, v in value.items()}
+        out = {redact(k): redacted(v, place or k in ("where", "unreadable")) for k, v in value.items() if k != "line"}
+        # A file finding's line number is the probe's own count, added after the place is made safe.
+        if isinstance(value.get("line"), int) and "where" in out:
+            out["where"] += f":{value['line']}"
+        return out
     return value
 
 
@@ -490,6 +493,9 @@ def scan_file(path):
                         tail = window[max(0, at - 2):]
                         break
                     seen.update(shape_kinds(window[max(0, at - 2):stop].decode("latin-1")))
+            # Hits held back for the next chunk (a value still open) are checked to the file's end.
+            for hit in PREFILTER.finditer(tail):
+                seen.update(shape_kinds(tail[max(0, hit.start() - 2):hit.start() + MAX_VALUE].decode("latin-1")))
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
@@ -555,10 +561,11 @@ def scan_processes(root, me, report):
         report["scanned"]["processes"] += 1
         for name, kind in scan_env(env):
             grouped.setdefault(("env", comm, f"{name} ({kind})"), set()).add(pid)
-        # This probe's own command line (and its sudo's and shell's) is its source and arguments, never a key;
-        # their environments are still read above.
+        # This probe's source reaches it as a shell's heredoc: the argument that carries it (the shell's script) is
+        # skipped in this probe's own chain, every other argument of every ancestor (a supervisor started with a key)
+        # is read.
         if int(pid) in me:
-            continue
+            args = [a for a in args if SOURCE_MARK not in a]
         for what in scan_args(args):
             grouped.setdefault(("cmdline", comm, what), set()).add(pid)
     for (place, comm, what), ids in sorted(grouped.items()):
@@ -648,7 +655,11 @@ def scan_files(root, deadline, report):
                     continue
                 listed = report["shipped"] if is_shipped(where, path) else report["findings"]
                 for line, what in hits:
-                    listed.append({"place": "file", "where": where if line is None else f"{where}:{line}", "what": what})
+                    listed.append({"place": "file", "where": where, "line": line, "what": what})
+
+
+# The heredoc delimiter keyProbeCommand (cloud-journey.ts) wraps this source in: the shell argument holding it.
+SOURCE_MARK = "CMUX_KEY_" + "PROBE"
 
 
 def own_chain():
