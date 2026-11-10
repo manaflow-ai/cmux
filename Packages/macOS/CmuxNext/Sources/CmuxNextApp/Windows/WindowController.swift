@@ -217,7 +217,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         roomObservation = Task { [weak self] in
             for await _ in ObservationStream({ state.profileID }) {
                 guard let self else { return }
-                services.themes.windowDidChange(self)
+                services.themes.roomDidChange(self)
             }
         }
         // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),

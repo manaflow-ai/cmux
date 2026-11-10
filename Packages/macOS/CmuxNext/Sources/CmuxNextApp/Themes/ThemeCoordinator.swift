@@ -192,11 +192,18 @@ final class ThemeCoordinator {
 
     // MARK: Mounts
 
-    /// A window opened or switched room: its room and its shown workspace take their themes.
-    func windowDidChange(_ controller: WindowController) {
+    /// A window opened or switched room: its room takes its theme and background, and the panes of the
+    /// shown workspace take theirs again, because a pane's tint and its waiting terminal's ground read the
+    /// room. The workspace took its own themes when it showed (`contentDidShow`, in the switch's own
+    /// turn) and nothing else of it reads the room, so a switch shows its content to the themes once.
+    func roomDidChange(_ controller: WindowController) {
+        applyRoom(controller)
+        if let content = controller.content { for pane in content.panes.values { applyPaneBackground(pane) } }
+    }
+
+    private func applyRoom(_ controller: WindowController) {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
         applyWindowBackground(controller)
-        if let content = controller.content { contentDidShow(content) }
     }
 
     /// A workspace content was created or shown in `controller`'s window: it and the terminals in
@@ -264,7 +271,10 @@ final class ThemeCoordinator {
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
         applies.advance()
-        for controller in services.windows.controllers { windowDidChange(controller) }
+        for controller in services.windows.controllers {
+            applyRoom(controller)
+            if let content = controller.content { contentDidShow(content) }
+        }
         if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
     }
 
