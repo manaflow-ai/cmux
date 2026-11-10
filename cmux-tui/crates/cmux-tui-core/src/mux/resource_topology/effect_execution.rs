@@ -956,7 +956,10 @@ impl Mux {
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
-        let around = intent.get("fields").and_then(|fields| fields.get(AROUND_SPLIT_FIELD)).and_then(Value::as_u64);
+        let around = intent
+            .get("fields")
+            .and_then(|fields| fields.get(AROUND_SPLIT_FIELD))
+            .and_then(Value::as_u64);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is

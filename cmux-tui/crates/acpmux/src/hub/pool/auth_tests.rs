@@ -233,7 +233,8 @@ fn pool_auth_gemini_and_grok_homes_and_api_keys_change_the_key() {
         ("gemini", "GEMINI_API_KEY", "GEMINI_CLI_HOME", ".gemini/oauth_creds.json"),
         ("grok", "XAI_API_KEY", "GROK_HOME", "auth.json"),
     ] {
-        let with = |name: &'static str, value: String| move |k: &str| (k == name).then(|| value.clone());
+        let with =
+            |name: &'static str, value: String| move |k: &str| (k == name).then(|| value.clone());
         let a = cache.fingerprint_with(family, &with(key, "fixture-key-a".into()), &home.0);
         let b = cache.fingerprint_with(family, &with(key, "fixture-key-b".into()), &home.0);
         assert_ne!(a, b, "{family}: a rotated {key}");
