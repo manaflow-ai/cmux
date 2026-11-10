@@ -23,6 +23,8 @@
 //!   nothing in the chat's folder has (a file, a folder or a link, [`check_target`]). The daemon
 //!   makes the folder itself, opens it without following a link, and git runs inside the folder
 //!   it opened, so a link put in its place after the check does not move the clone elsewhere.
+//!   What a failed clone left is removed through that same open folder, never by its name
+//!   ([`remove_failed`]), so a folder put at the name while git ran keeps everything in it.
 //! - git runs with `--template=` and `core.hooksPath=/dev/null` (no hook or template runs),
 //!   https only (`protocol.allow=never`), no submodules, a bounded time and bounded output.
 
@@ -232,26 +234,159 @@ async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<()
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(target)
         .map_err(|e| RpcError::internal(format!("could not open {name}: {e}")))?;
-    let cloned = clone_in(&dir, target, repo, token).await;
+    let cloned = clone_in(&dir, repo, token).await;
     if cloned.is_err() {
         remove_failed(&dir, target);
     }
     cloned
 }
 
-/// Removes what a failed clone left in the folder it made (`dir`, opened at `target`).
+/// Removes what a failed clone left in the folder it made (`dir`, opened at `target`), through
+/// that open folder and never through the name `target`: the agent can rename the folder while
+/// git runs and put another at its name (Codex review F1 on #40513), and nothing of that one is
+/// touched. Every entry is removed relative to its own parent's handle, without following a
+/// link, and only on the folder's own file system. A `.git` below the top folder is never one
+/// the clone made (no submodules, and the agent may not write `.git` at all), so one found there
+/// was moved in and is left whole, with the folders above it. The emptied top folder goes only
+/// while `target` still names it; one that moved stays, empty.
 #[cfg(unix)]
-pub(crate) fn remove_failed(_dir: &std::fs::File, target: &Path) {
-    let _ = std::fs::remove_dir_all(target);
+pub(crate) fn remove_failed(dir: &std::fs::File, target: &Path) {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::fs::MetadataExt as _;
+    let Ok(top) = dir.metadata() else { return };
+    if let Err(e) = clear_at(dir.as_raw_fd(), top.dev(), 0) {
+        let folder = target.display();
+        tracing::warn!(%folder, "github clone: a failed clone was not all removed: {e}");
+        return;
+    }
+    let same = std::fs::symlink_metadata(target)
+        .is_ok_and(|m| m.is_dir() && m.dev() == top.dev() && m.ino() == top.ino());
+    if same {
+        // rmdir removes only an empty folder, so a swap after this check loses nothing.
+        let _ = std::fs::remove_dir(target);
+    }
+}
+
+/// How deep [`clear_at`] goes; a deeper tree is left.
+#[cfg(unix)]
+const CLEAR_DEPTH: usize = 64;
+
+/// Removes every entry of the folder open at `fd` (module docs, [`remove_failed`]).
+#[cfg(unix)]
+fn clear_at(fd: std::os::fd::RawFd, dev: u64, depth: usize) -> std::io::Result<()> {
+    use std::ffi::CStr;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    let last = std::io::Error::last_os_error;
+    if depth > CLEAR_DEPTH {
+        return Err(std::io::Error::other("too deep"));
+    }
+    // The entries' names, read through a copy of the handle (closedir closes the copy).
+    let mut names = Vec::new();
+    // SAFETY: `fd` is an open folder for the whole call; the copy is owned by `dirp` and closed
+    // with it; `readdir`'s entry is read before the next call.
+    unsafe {
+        let copy = libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0);
+        if copy < 0 {
+            return Err(last());
+        }
+        let dirp = libc::fdopendir(copy);
+        if dirp.is_null() {
+            let e = last();
+            libc::close(copy);
+            return Err(e);
+        }
+        libc::rewinddir(dirp);
+        loop {
+            let entry = libc::readdir(dirp);
+            if entry.is_null() {
+                break;
+            }
+            let name = CStr::from_ptr((*entry).d_name.as_ptr()).to_owned();
+            if name.as_bytes() != b"." && name.as_bytes() != b".." {
+                names.push(name);
+            }
+        }
+        libc::closedir(dirp);
+    }
+    let mut result = Ok(());
+    for name in names {
+        let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `name` is a C string; `st` is written by fstatat when it returns 0.
+        if unsafe { libc::fstatat(fd, name.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) }
+            != 0
+        {
+            result = Err(last());
+            continue;
+        }
+        // SAFETY: fstatat returned 0.
+        let st = unsafe { st.assume_init() };
+        if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR {
+            // SAFETY: `name` is a C string; flag 0 unlinks the entry itself, never a link's target.
+            if unsafe { libc::unlinkat(fd, name.as_ptr(), 0) } != 0 {
+                result = Err(last());
+            }
+            continue;
+        }
+        #[allow(clippy::unnecessary_cast)] // dev_t is u64 on Linux, i32 on macOS
+        let entry_dev = st.st_dev as u64;
+        if (depth > 0 && name.as_bytes() == b".git") || entry_dev != dev {
+            result = Err(std::io::Error::other("a folder the clone did not make is left"));
+            continue;
+        }
+        // SAFETY: `name` is a C string; O_NOFOLLOW refuses a link swapped in since fstatat.
+        let sub = unsafe {
+            libc::openat(
+                fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if sub < 0 {
+            result = Err(last());
+            continue;
+        }
+        // SAFETY: `sub` was just opened and is owned here.
+        let sub = unsafe { OwnedFd::from_raw_fd(sub) };
+        let cleared = clear_at(sub.as_raw_fd(), dev, depth + 1);
+        drop(sub);
+        if cleared.is_err() {
+            result = cleared;
+            continue;
+        }
+        // SAFETY: `name` is a C string; AT_REMOVEDIR removes only an empty folder.
+        if unsafe { libc::unlinkat(fd, name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+            result = Err(last());
+        }
+    }
+    result
+}
+
+/// The bytes of `.git/config` in the folder open at `dir`, read through it without following a
+/// link; empty when there is none.
+#[cfg(unix)]
+fn config_at(dir: &std::fs::File) -> Vec<u8> {
+    use std::io::Read as _;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: literal C strings; each fd opened here is owned by the File made from it.
+    unsafe {
+        let git = libc::openat(dir.as_raw_fd(), c".git".as_ptr(), flags | libc::O_DIRECTORY);
+        if git < 0 {
+            return Vec::new();
+        }
+        let git = std::fs::File::from_raw_fd(git);
+        let config = libc::openat(git.as_raw_fd(), c"config".as_ptr(), flags);
+        if config < 0 {
+            return Vec::new();
+        }
+        let mut bytes = Vec::new();
+        let _ = std::fs::File::from_raw_fd(config).take(1 << 20).read_to_end(&mut bytes);
+        bytes
+    }
 }
 
 #[cfg(unix)]
-async fn clone_in(
-    dir: &std::fs::File,
-    target: &Path,
-    repo: &str,
-    token: Option<&str>,
-) -> Result<(), RpcError> {
+async fn clone_in(dir: &std::fs::File, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
     use std::io::Write as _;
     use std::os::fd::AsRawFd as _;
     let base = base();
@@ -325,12 +460,16 @@ async fn clone_in(
         let (err, status) = tokio::join!(read, child.wait());
         status.map(|s| (s, err))
     };
-    let (status, stderr) = tokio::time::timeout(CLONE_TIMEOUT, run)
-        .await
-        .map_err(|_| {
-            RpcError::internal(format!("git did not finish within {}s", CLONE_TIMEOUT.as_secs()))
-        })?
-        .map_err(|e| RpcError::internal(format!("lost git: {e}")))?;
+    let ran = tokio::time::timeout(CLONE_TIMEOUT, run).await;
+    let Ok(ran) = ran else {
+        // Stopped and waited for, so it writes nothing while its folder is removed.
+        let _ = child.kill().await;
+        return Err(RpcError::internal(format!(
+            "git did not finish within {}s",
+            CLONE_TIMEOUT.as_secs()
+        )));
+    };
+    let (status, stderr) = ran.map_err(|e| RpcError::internal(format!("lost git: {e}")))?;
     if !status.success() {
         return Err(RpcError::new(
             -32041,
@@ -340,7 +479,7 @@ async fn clone_in(
     }
     // What git wrote stays in this one folder; a config that kept the token is not left.
     if let Some(token) = token.filter(|t| !t.is_empty()) {
-        let config = std::fs::read(target.join(".git").join("config")).unwrap_or_default();
+        let config = config_at(dir);
         if config.windows(token.len()).any(|w| w == token.as_bytes()) {
             return Err(RpcError::internal("the clone kept its credential; it was removed"));
         }

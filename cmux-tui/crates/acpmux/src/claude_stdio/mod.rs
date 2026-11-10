@@ -1054,7 +1054,11 @@ fn tool_kind(name: &str) -> &'static str {
         "Read" | "Glob" | "Grep" | "NotebookRead" => "read",
         "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => "edit",
         "Bash" | "BashOutput" | "KillShell" => "execute",
-        "WebFetch" | "WebSearch" => "fetch",
+        // The GitHub broker's reads (`github_mcp.rs`) read from the network as WebFetch does.
+        "WebFetch"
+        | "WebSearch"
+        | "mcp__acpmux-github__repo_view"
+        | "mcp__acpmux-github__pr_view" => "fetch",
         "Task" | "Agent" => "think",
         "AskUserQuestion" | "ExitPlanMode" => "other",
         _ => "other",
