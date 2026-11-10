@@ -14,8 +14,9 @@
 //! replaced, so a later move always wins), keeping the record's data barrier
 //! so a power cut never leaves a torn record, and syncs each directory once
 //! per batch. It writes a record only while the file still holds the same
-//! terminal incarnation: a host that was replaced meanwhile (rehost, respawn)
-//! wrote its own record, which a stale mirror must not overwrite. The thread
+//! terminal incarnation and host process (pid and start nonce): a host that
+//! was replaced meanwhile (rehost, respawn) wrote its own record, which a
+//! stale mirror must not overwrite. The thread
 //! starts on first use and sleeps on a condition variable when nothing is
 //! queued.
 
@@ -78,11 +79,17 @@ fn run() {
     }
 }
 
-/// Whether the record at `path` is still `record`'s terminal incarnation.
+/// Whether the record at `path` is still `record`'s host: the same terminal
+/// incarnation served by the same host process. A rehost keeps the
+/// incarnation and changes the host pid and process-start nonce, so a write
+/// queued for the replaced host must not land on its replacement's record.
 fn still_this_incarnation(path: &Path, record: &TerminalHostRecord) -> bool {
     let Ok(bytes) = std::fs::read(path) else { return false };
     let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else { return false };
-    current.terminal_id == record.terminal_id && current.incarnation == record.incarnation
+    current.terminal_id == record.terminal_id
+        && current.incarnation == record.incarnation
+        && current.host_start_nonce == record.host_start_nonce
+        && current.host_pid == record.host_pid
 }
 
 #[cfg(test)]
