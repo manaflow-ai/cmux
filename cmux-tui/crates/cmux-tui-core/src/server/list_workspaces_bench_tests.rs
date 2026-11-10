@@ -1,7 +1,7 @@
 //! Bench (off unless CMUX_LIST_WORKSPACES_BENCH=<lists per case>): the real
-//! daemon's `list-workspaces` with 1, 100, 1,000 and 5,000 workspaces
-//! (hq#8813), each workspace holding one terminal tab (no process), on a persistent
-//! registry.
+//! daemon's `list-workspaces` with 1, 100, 1,000 and 4,000 workspaces
+//! (hq#8813; the daemon holds at most 4,096), each workspace holding one
+//! terminal tab with no process behind it, on a persistent registry.
 //! Per size: the whole reply (what every phone list costs today) and the
 //! `known` reply of a client whose tree is current, from the command to the
 //! serialized line, p50 and p95, with the line's bytes; then the first whole
@@ -76,7 +76,7 @@ fn list_workspaces_bench() {
     let mut lines_out = Vec::new();
     // CMUX_LIST_WORKSPACES_BENCH_SIZES=1,100 picks the sizes.
     let sizes = std::env::var("CMUX_LIST_WORKSPACES_BENCH_SIZES").ok().map_or_else(
-        || vec![1usize, 100, 1_000, 5_000],
+        || vec![1usize, 100, 1_000, 4_000],
         |sizes| sizes.split(',').filter_map(|size| size.trim().parse().ok()).collect(),
     );
     for count in sizes {
