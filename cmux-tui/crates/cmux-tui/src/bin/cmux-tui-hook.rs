@@ -482,6 +482,14 @@ pub(crate) mod plugin_copy;
 #[path = "cmux-tui-hook/terminal_agent.rs"]
 mod terminal_agent;
 
+/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
+/// whose time budget ends at `budget_end`.
+#[allow(dead_code, reason = "W5-N3 red: the fix calls it")]
+fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+    let _ = (budget_end, now);
+    CLAUDE_SESSION_START_HANDOFF_WAIT
+}
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     // Codex SessionStart also reads the session context after the handoff
     // (session_context.rs, 1.5 s), all inside the 5 s hook timeout. Claude
@@ -1201,6 +1209,18 @@ mod tests {
         // The Claude claim (terminal_agent.rs) is still written inside 5 s.
         assert!(handoff_wait("claude", "SessionStart") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionStart") < CLAUDE_HOOK_BUDGET);
+    }
+
+    #[test]
+    fn any_launcher_w5n3_cap_start_handoff_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // A fresh hook: the full wait, past the child's own deadline.
+        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        assert_eq!(fresh, CLAUDE_SESSION_START_HANDOFF_WAIT);
+        // A slow start (payload, tmux route): the wait ends with the budget.
+        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        assert_eq!(late, Duration::from_secs(1));
+        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
     }
 
     #[test]
