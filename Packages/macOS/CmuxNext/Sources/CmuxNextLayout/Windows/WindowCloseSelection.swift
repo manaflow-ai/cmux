@@ -14,8 +14,9 @@ import CmuxNextDesign
 /// relation never crosses windows.
 ///
 /// Cost: with no relation held, `shown`, `left` and `settle` are each one or two emptiness checks
-/// of a dictionary. With some held, each asks about the workspaces of those relations only. No
-/// call here walks a window's members.
+/// of a dictionary, and no call walks a window's members. With some held, `shown` and `left` ask
+/// about the workspaces of those relations only; `settle` looks each of them up in the window's
+/// rows before and after (a few workspaces at most, on a membership change, never on a switch).
 public final class WindowCloseSelection {
     private let openers = CloseSelection<String>()
     /// A person's new workspaces their window does not show yet, each to that window.
@@ -95,8 +96,8 @@ public final class WindowCloseSelection {
     public func settle(_ window: String, previous: [String], members: [String], owner: (String) -> String?,
                        exists: (String) -> Bool, claimed: (String) -> Bool) {
         // A create the window lists and did not show in this repair is not in the foreground, and one
-        // that is neither listed nor waited for failed: no opener.
-        if !expected.isEmpty { expected = expected.filter { $0.value.window != window || (owner($0.key) == nil && claimed($0.key)) } }
+        // that is neither listed nor waited for failed, as did one whose window is gone: no opener.
+        if !expected.isEmpty { expected = expected.filter { $0.value.window != window ? exists($0.value.window) : owner($0.key) == nil && claimed($0.key) } }
         guard !home.isEmpty else { return }
         for (workspace, at) in home {
             let gone = at != window ? !exists(at)

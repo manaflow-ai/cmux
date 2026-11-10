@@ -138,6 +138,27 @@ struct WorkspaceCloseSelectionTests {
         #expect(close("n", shown: "n", rows: ["x", "n", "y"], rule: rule) == "y")
     }
 
+    /// A create that failed, or that its window listed and did not show (a background create), gets no opener
+    /// when the window shows it later.
+    @Test func aCreateTheWindowDidNotShowGetsNoOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        rule.expect("n", in: window, quick: false)
+        // The window lists "n" and still shows "b": the repair after it settles the state.
+        rule.settle(window, previous: ["a", "b", "c"], members: rows, owner: { _ in "w" }, exists: { _ in true }, claimed: { _ in false })
+        go("n", from: "b", in: rule)
+        #expect(rule.isEmpty)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "c")
+    }
+
+    /// While its window waits for the create (not listed yet, still claimed), a repair keeps it.
+    @Test func aRepairWhileTheCreateWaitsKeepsItsOpener() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
+        rule.expect("n", in: window, quick: false)
+        rule.settle(window, previous: ["a", "b", "c"], members: ["a", "b", "c"], owner: { $0 == "n" ? nil : "w" }, exists: { _ in true }, claimed: { $0 == "n" })
+        go("n", from: "b", in: rule)
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
+    }
+
     // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
