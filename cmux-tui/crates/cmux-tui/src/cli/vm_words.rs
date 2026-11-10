@@ -6,7 +6,7 @@
 //! - Output: for a `vm`, `cloud` or `chat` command (and `machine`'s old VM verbs), `wire` passes
 //!   every success and error value through [`respell_value`] before it prints. Only the fields
 //!   the CLI and the app write as directions are respelled ([`HINT_KEYS`]: a `target`, a `next`
-//!   hint, an error `message`); a chat's reply, a command's output and a file's content print
+//!   hint, an `again` command, and an error's own `message`); a chat's reply, a command's output and a file's content print
 //!   as they are. JSON keys stay (`machines`, `machine_id`): scripts and skills read them.
 //! - Input: `--target vm:ID` (and `--machine vm:ID`) reaches the app as `machine:ID`
 //!   ([`app_target`]); every selector reader takes either prefix ([`bare_id`]). The old spellings
@@ -31,7 +31,9 @@ pub(super) fn activate_for(command: &[String]) {
         return;
     }
     let speaks_vm = match command.first().map(String::as_str) {
-        Some("vm" | "cloud" | "chat") => true,
+        // `chat read`/`chat wait` print a transcript and a reply: data, never directions.
+        Some("chat") => !matches!(command.get(1).map(String::as_str), Some("read" | "wait")),
+        Some("vm" | "cloud") => true,
         Some("machine") => command.get(1).is_some_and(|verb| machine_vm_verb(verb)),
         _ => false,
     };
@@ -72,17 +74,22 @@ const HINT_KEYS: &[&str] = &[
     "follow_up",
     "follow_ups",
     "pending",
-    "message",
     "hint",
     "hints",
     "usage",
     "handoff",
+    "again",
 ];
 
 /// `value` with every string under a [`HINT_KEYS`] field respelled ([`respell`]).
 pub(super) fn respell_value(value: &Value) -> Value {
     let mut value = value.clone();
     respell_in_place(&mut value, false);
+    // An error's own `message` is the CLI's or the app's words; a `message` deeper down (a
+    // transcript item, a VM's answer) is data.
+    if let Some(Value::String(message)) = value.get_mut("message") {
+        *message = respell(message);
+    }
     value
 }
 
@@ -99,9 +106,10 @@ fn respell_in_place(value: &mut Value, hint: bool) {
     }
 }
 
-/// Whole phrases first, longest first, so a later rule never sees a half-rewritten one.
+/// Whole phrases first, longest first, so a later rule never sees a half-rewritten one. A
+/// command keeps its own verb and flags (`cmux cloud start-chat --login none …` stays one: `cmux
+/// chat` takes other flags); only its VM words change.
 const PHRASES: &[(&str, &str)] = &[
-    ("cmux cloud start-chat --target machine:", "cmux chat --on vm:"),
     ("cmux cloud list-machines", "cmux vm ls"),
     ("cmux vm list-machines", "cmux vm ls"),
     ("cloud list-machines", "vm ls"),
@@ -208,8 +216,8 @@ mod tests {
             "cmux vm file-read --target vm:vm-1 --path /tmp/s"
         );
         assert_eq!(
-            respell("cmux cloud start-chat --target machine:vm-1 --cwd /w --prompt 'P'"),
-            "cmux chat --on vm:vm-1 --cwd /w --prompt 'P'"
+            respell("cmux cloud start-chat --target machine:vm-1 --login none --from-folder /w"),
+            "cmux cloud start-chat --target vm:vm-1 --login none --from-folder /w"
         );
         assert_eq!(respell("[--target machine:MACHINE_ID]"), "[--target vm:VM_ID]");
         assert_eq!(respell("cmux cloud list-machines --json"), "cmux vm ls --json");
@@ -235,6 +243,20 @@ mod tests {
 
     /// A VM's output and a chat's reply are data: a file that says `--target machine:x` reads
     /// back byte for byte.
+    #[test]
+    fn only_an_errors_own_message_is_respelled() {
+        let answer = json!({"message": "run `cmux vm list-machines`",
+            "items": [{"message": "--target machine:MACHINE_ID"}],
+            "details": {"again": "cmux cloud start-chat --target machine:vm-a --login none"}});
+        let printed = respell_value(&answer);
+        assert_eq!(printed["message"], "run `cmux vm ls`");
+        assert_eq!(printed["items"][0]["message"], "--target machine:MACHINE_ID");
+        assert_eq!(
+            printed["details"]["again"],
+            "cmux cloud start-chat --target vm:vm-a --login none"
+        );
+    }
+
     #[test]
     fn data_the_vm_or_the_agent_wrote_prints_unchanged() {
         let data = "cmux cloud list-machines --json; --target machine:MACHINE_ID";

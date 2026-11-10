@@ -57,10 +57,11 @@ pub(super) fn at_cap(
             let id = at(row, "machine_id").as_str()?;
             let status = at(row, "status").as_str().unwrap_or("unknown");
             let name = at(row, "title").as_str().filter(|t| !t.is_empty()).unwrap_or(id);
-            let target = format!("machine:{id}");
+            // The VM words the CLI prints (vm_words.rs); every command here takes them.
+            let target = format!("vm:{id}");
             Some(json!({
                 "machine_id": id, "name": name, "status": status,
-                "chat": chat(id),
+                "chat": crate::cli::vm_words::respell(&chat(id)),
                 "pause": format!("cmux cloud pause-machine --target {target}"),
                 "delete": format!("cmux cloud kill-machine --target {target} --confirm"),
             }))
