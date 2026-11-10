@@ -67,6 +67,7 @@ struct SpaceSwitchSameTurnTests {
     @Test func theSpaceActionsShowTheSpaceInTheirOwnTurn() async throws {
         let bench = try await Self.bench()
         defer { bench.close() }
+        AppActions.bind(bench.services)
         let registry = bench.services.registry
         try #require(registry.perform("space.next"), "space.next did not run in this window")
         Self.expectShown(bench.rooms[1], in: bench, after: "space.next")
