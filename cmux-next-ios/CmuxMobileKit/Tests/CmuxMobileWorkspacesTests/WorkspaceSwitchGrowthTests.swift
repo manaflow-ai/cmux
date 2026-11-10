@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxMobileModel
 import Foundation
 import Testing
@@ -88,3 +89,4 @@ struct WorkspaceSwitchGrowthTests {
         #expect(diskPerOperation <= 64, "\(diskPerOperation) bytes of disk per switch")
     }
 }
+#endif
