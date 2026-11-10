@@ -41,13 +41,14 @@ struct PastedImage: Sendable, Equatable {
     private static func encode(_ image: UIImage, limit: Int) -> PastedImage? {
         var edge = min(maximumLongEdge, max(image.size.width * image.scale, image.size.height * image.scale))
         let transparent = hasAlpha(image)
-        // Halve the size until it fits (a huge PNG; JPEG nearly always fits at once).
-        while edge >= 256 {
+        // Halve the size until it fits (a huge PNG; JPEG nearly always fits at once). A small
+        // image (a sticker under 256 px) still gets its one try at full size.
+        repeat {
             let scaled = scale(image, longEdge: edge)
             if transparent, let png = scaled.pngData(), png.count <= limit { return PastedImage(data: png, type: "public.png") }
             if let jpeg = scaled.jpegData(compressionQuality: 0.9), jpeg.count <= limit { return PastedImage(data: jpeg, type: "public.jpeg") }
             edge /= 2
-        }
+        } while edge >= 256
         return nil
     }
 

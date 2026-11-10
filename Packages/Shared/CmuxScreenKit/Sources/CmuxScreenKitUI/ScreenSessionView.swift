@@ -122,6 +122,8 @@ public struct ScreenSessionView: View {
             if features.contains(.resumeOnForeground), scenePhase == .active { session.resumeIfNeeded() }
         }
         .onChange(of: session.preferences.quality) { session.applyQuality() }
+        // On the root, not the picker: a stall that hides the button while the picker is open keeps the pick.
+        .onChange(of: pickedPhoto) { paste(pickedPhoto) }
         .onDisappear {
             if features.contains(.orientationLock) { ScreenOrientation.shared.lock(.auto) }
             session.close()
@@ -154,7 +156,6 @@ public struct ScreenSessionView: View {
                 }
                 .disabled(preparingPhoto || session.imagePaste == .sending)
                 .accessibilityIdentifier("screen.pasteImage")
-                .onChange(of: pickedPhoto) { paste(pickedPhoto) }
             }
             if features.contains(.keyboard) {
                 Button("Keyboard", systemImage: keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") {

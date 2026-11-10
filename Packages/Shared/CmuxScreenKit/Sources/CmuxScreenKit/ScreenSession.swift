@@ -78,7 +78,10 @@ public final class ScreenSession {
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
     /// Set for a Mac paired as a screen stream (WebRTC video + input channel).
-    @ObservationIgnored public private(set) var stream: ScreenStreamViewer?
+    @ObservationIgnored public private(set) var stream: ScreenStreamViewer? {
+        // A paste the old stream carried never hears from the Mac now: settle it.
+        didSet { if stream !== oldValue { abandonPendingPaste() } }
+    }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
@@ -119,8 +122,8 @@ public final class ScreenSession {
     }
 
     public private(set) var imagePaste = ImagePaste.idle
-    /// Which paste ``imagePaste`` is about (a later paste's answer never settles an earlier one).
-    @ObservationIgnored private var imagePasteCount = 0
+    /// The image ``imagePaste`` is about (another image's answer never settles it).
+    @ObservationIgnored private var imagePasteID: String?
 
     /// Sends an image for the Mac to paste where its focus is (the Mac puts
     /// it on its pasteboard and presses ⌘V). ``imagePaste`` follows it:
@@ -130,28 +133,38 @@ public final class ScreenSession {
             imagePaste = .failed("This Mac can't take pasted images.")
             return
         }
-        guard !data.isEmpty, data.count <= ScreenInput.pasteImageMaximumBytes, ScreenInput.pasteImageTypes.contains(type) else {
+        guard ScreenInput.pasteImageTypes.contains(type), !data.isEmpty else {
+            imagePaste = .failed("This kind of image can't be pasted.")
+            return
+        }
+        guard data.count <= ScreenInput.pasteImageMaximumBytes else {
             imagePaste = .failed("This image is too large to paste.")
             return
         }
         perf?.input("paste-image")
-        imagePasteCount += 1
-        let count = imagePasteCount
+        let id = UUID().uuidString
+        imagePasteID = id
         imagePaste = .sending
         Task { [weak self] in
-            let sent = await stream.pasteImage(data, type: type)
-            guard let self, count == imagePasteCount, !sent else { return }
+            let sent = await stream.pasteImage(data, type: type, id: id)
+            guard let self, id == imagePasteID, imagePaste == .sending, !sent else { return }
             imagePaste = .failed("The connection closed before the image was sent.")
         }
     }
 
-    package func receivePasteImage(_ outcome: ScreenHostMessage.PasteImageOutcome) {
-        guard imagePaste == .sending else { return }
+    /// The Mac's answer about the image `id` (nil from a host that names none).
+    package func receivePasteImage(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String? = nil) {
+        guard imagePaste == .sending, id == nil || id == imagePasteID else { return }
         switch outcome {
         case .pasted: imagePaste = .pasted
         case .refused: imagePaste = .failed("The Mac could not paste this image.")
         case .incomplete: imagePaste = .failed("Part of the image went missing. Try again.")
         }
+    }
+
+    private func abandonPendingPaste() {
+        guard imagePaste == .sending else { return }
+        imagePaste = .failed("The connection dropped before the Mac answered. Try again.")
     }
 
     /// A paste that failed before it reached the session (the photo could not be read).
@@ -366,10 +379,10 @@ public final class ScreenSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
-        viewer.onPasteImage = { [weak self, weak viewer] outcome in
+        viewer.onPasteImage = { [weak self, weak viewer] outcome, id in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
-                self.receivePasteImage(outcome)
+                self.receivePasteImage(outcome, id: id)
             }
         }
         viewer.onTelepointers = { [weak self, weak viewer] message in

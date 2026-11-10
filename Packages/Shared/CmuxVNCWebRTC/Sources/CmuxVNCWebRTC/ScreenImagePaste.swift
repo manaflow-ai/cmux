@@ -28,9 +28,10 @@ extension ScreenHostMessage {
         case incomplete
     }
 
-    /// The host's answer for `outcome`.
-    public init(pasteImage outcome: PasteImageOutcome) {
+    /// The host's answer for `outcome` about the image `id`.
+    public init(pasteImage outcome: PasteImageOutcome, id: String?) {
         self.init(t: Self.pasteImageType, s: outcome.rawValue)
+        self.id = id
     }
 
     /// The paste outcome this message carries; nil for any other message.
@@ -68,43 +69,50 @@ struct ScreenImageAssembler {
         /// Kept; more to come.
         case partial
         /// The last chunk: the whole image.
-        case complete(Data, type: String)
-        /// Dropped (the answer to send).
-        case failed(ScreenHostMessage.PasteImageOutcome)
+        case complete(Data, type: String, id: String)
+        /// Dropped (the answer to send, about the image `id`).
+        case failed(ScreenHostMessage.PasteImageOutcome, id: String?)
+        /// A later chunk of an image already answered as failed: no second answer.
+        case ignored
     }
 
     private var id: String?
+    /// The image that failed: its remaining chunks are ignored, until a new image starts.
+    private var failedID: String?
     private var type = ""
     private var expected = 0
     private var count = 0
     private var data = Data()
 
     mutating func take(_ input: ScreenInput) -> Step {
+        if let failedID, input.id == failedID, input.i != 0 { return .ignored }
         guard let id = input.id, let index = input.i, let count = input.n, let type = input.f,
-              let chunk = input.s.flatMap({ Data(base64Encoded: $0) }) else { return fail(.incomplete) }
+              let chunk = input.s.flatMap({ Data(base64Encoded: $0) }) else { return fail(.incomplete, id: input.id) }
         let maximumChunks = (ScreenInput.pasteImageMaximumBytes + ScreenInput.pasteImageChunkBytes - 1) / ScreenInput.pasteImageChunkBytes
         guard ScreenInput.pasteImageTypes.contains(type), (1 ... maximumChunks).contains(count),
-              chunk.count <= ScreenInput.pasteImageChunkBytes else { return fail(.refused) }
+              chunk.count <= ScreenInput.pasteImageChunkBytes else { return fail(.refused, id: id) }
         if index == 0 {
+            failedID = nil
             self.id = id
             self.type = type
             self.count = count
             expected = 0
             data = Data()
         }
-        guard id == self.id, index == expected, count == self.count, type == self.type else { return fail(.incomplete) }
+        guard id == self.id, index == expected, count == self.count, type == self.type else { return fail(.incomplete, id: id) }
         data.append(chunk)
-        guard data.count <= ScreenInput.pasteImageMaximumBytes else { return fail(.refused) }
+        guard data.count <= ScreenInput.pasteImageMaximumBytes else { return fail(.refused, id: id) }
         expected += 1
         guard expected == count else { return .partial }
         let image = data
         reset()
-        return .complete(image, type: type)
+        return .complete(image, type: type, id: id)
     }
 
-    private mutating func fail(_ outcome: ScreenHostMessage.PasteImageOutcome) -> Step {
+    private mutating func fail(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String?) -> Step {
         reset()
-        return .failed(outcome)
+        failedID = id
+        return .failed(outcome, id: id)
     }
 
     private mutating func reset() {

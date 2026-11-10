@@ -79,6 +79,23 @@ struct ScreenInputTests {
         #expect(ScreenHostMessage.pasteImageCapability == "paste-image")
     }
 
+    /// A paste on its way when the stream goes (a drop, a reconnect, a disconnect) never hears
+    /// from the Mac: it settles as failed instead of spinning and locking the button.
+    @MainActor @Test func aPasteInFlightSettlesWhenTheStreamGoes() throws {
+        let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
+        let session = ScreenSession(title: "Mac", pairing: stream)
+        defer { session.close() }
+        session.connect()
+        session.receiveCapabilities(["paste-image"])
+        #expect(session.supportsImagePaste)
+        session.pasteImage(Data("png".utf8), type: "public.png")
+        #expect(session.imagePaste == .sending)
+        session.receivePasteImage(.pasted, id: "another image")
+        #expect(session.imagePaste == .sending, "another image's answer does not settle this one")
+        session.disconnect()
+        guard case .failed = session.imagePaste else { Issue.record("still \(session.imagePaste) after the stream went"); return }
+    }
+
     private func object(_ input: ScreenInput) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any])
     }

@@ -31,11 +31,15 @@ struct ScreenImagePasteTests {
     }
 
     /// Feeds `inputs` to a host step by step; the answers it sends.
-    static func host(_ inputs: [ScreenInput], backend: any ScreenBackend, viewOnly: Bool = false) -> [ScreenHostMessage.PasteImageOutcome] {
+    static func answers(_ inputs: [ScreenInput], backend: any ScreenBackend, viewOnly: Bool = false) -> [ScreenHostMessage] {
         var images = ScreenImageAssembler()
         return inputs.compactMap { input in
             ScreenStreamHost.takeImageChunk(input, backend: backend, viewOnly: viewOnly) { images.take($0) }
         }
+    }
+
+    static func host(_ inputs: [ScreenInput], backend: any ScreenBackend, viewOnly: Bool = false) -> [ScreenHostMessage.PasteImageOutcome] {
+        answers(inputs, backend: backend, viewOnly: viewOnly).compactMap(\.pasteImageOutcome)
     }
 
     @Test func anImageSplitIntoChunksArrivesWholeAndIsPastedOnce() throws {
@@ -44,18 +48,25 @@ struct ScreenImagePasteTests {
         #expect(messages.allSatisfy { $0.t == "paste-image" && $0.n == 4 && $0.id == "a" && $0.f == "public.png" })
         #expect(messages.allSatisfy { (Data(base64Encoded: $0.s ?? "")?.count ?? .max) <= ScreenInput.pasteImageChunkBytes })
         let backend = PastingBackend()
-        #expect(Self.host(messages, backend: backend) == [.pasted])
+        let answers = Self.answers(messages, backend: backend)
+        #expect(answers.map(\.pasteImageOutcome) == [.pasted])
+        #expect(answers.first?.id == "a", "the answer names its image")
         #expect(backend.pasted.count == 1)
         #expect(backend.pasted.first?.0 == Self.image)
         #expect(backend.pasted.first?.1 == "public.png")
     }
 
-    @Test func aMissingChunkPastesNothing() throws {
+    /// A missing chunk pastes nothing and is answered once, naming the image (the chunks after it
+    /// stay quiet); the next image is taken as usual.
+    @Test func aMissingChunkPastesNothingAndIsAnsweredOnce() throws {
         var messages = try Self.wire(ScreenInput.pasteImage(Self.image, type: "public.jpeg", id: "a"))
-        messages.remove(at: 2)
+        messages.remove(at: 1)
+        let next = try Self.wire(ScreenInput.pasteImage(Data("next".utf8), type: "public.png", id: "b"))
         let backend = PastingBackend()
-        #expect(Self.host(messages, backend: backend) == [.incomplete])
-        #expect(backend.pasted.isEmpty)
+        let answers = Self.answers(messages + next, backend: backend)
+        #expect(answers.map(\.pasteImageOutcome) == [.incomplete, .pasted])
+        #expect(answers.map(\.id) == ["a", "b"])
+        #expect(backend.pasted.map(\.0) == [Data("next".utf8)])
     }
 
     /// A second image that starts before the first ends replaces it: only the second is pasted.
@@ -90,9 +101,10 @@ struct ScreenImagePasteTests {
     }
 
     @Test func theHostAnswerRoundTrips() throws {
-        let data = try JSONEncoder().encode(ScreenHostMessage(pasteImage: .pasted))
+        let data = try JSONEncoder().encode(ScreenHostMessage(pasteImage: .pasted, id: "a"))
         let message = try JSONDecoder().decode(ScreenHostMessage.self, from: data)
         #expect(message.pasteImageOutcome == .pasted)
+        #expect(message.id == "a")
         #expect(ScreenHostMessage(t: "displays").pasteImageOutcome == nil)
     }
 
@@ -125,6 +137,21 @@ struct ScreenCaptureBackendPasteTests {
         let v = keys.filter { $0.getIntegerValueField(.keyboardEventKeycode) == 9 }
         #expect(v.map(\.type) == [.keyDown, .keyUp])
         #expect(v.allSatisfy { $0.flags.contains(.maskCommand) })
+    }
+
+    /// A ⇧ or ⌥ the viewer latched would make ⌘V another shortcut: the paste is a bare ⌘V,
+    /// and the latched modifier is still held after it.
+    @Test func thePasteIsABareCommandVWhateverTheViewerHolds() {
+        let posted = PostedEvents()
+        let backend = ScreenCaptureBackend(log: { _ in }, timing: nil, input: EventInjector(source: nil) { posted.append($0) },
+                                           writePasteboard: { _, _ in true })
+        backend.handle(ScreenInput(t: "key", k: 0xFFE1, d: true)) // ⇧ latched
+        #expect(backend.pasteImage(Data("png".utf8), type: "public.png"))
+        let v = posted.of([.keyDown, .keyUp]).filter { $0.getIntegerValueField(.keyboardEventKeycode) == 9 }
+        #expect(v.map(\.type) == [.keyDown, .keyUp])
+        #expect(v.allSatisfy { $0.flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl]) == .maskCommand })
+        backend.handle(ScreenInput(t: "key", k: 0x61, d: true))
+        #expect(posted.all.last?.flags.contains(.maskShift) == true, "⇧ is still held after the paste")
     }
 
     @Test func bytesThatAreNoImageAreNotPasted() {
@@ -180,7 +207,7 @@ struct ScreenImagePasteStreamTests {
         let answers = Answers()
         let viewer = ScreenStreamViewer(signaling: viewerSide)
         viewer.onCapabilities = { answers.setCaps($0) }
-        viewer.onPasteImage = { answers.append($0) }
+        viewer.onPasteImage = { outcome, _ in answers.append(outcome) }
         try await viewer.connect()
         defer {
             viewer.close()
