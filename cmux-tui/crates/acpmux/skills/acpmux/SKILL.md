@@ -357,7 +357,9 @@ from a command that skips approvals (`--yolo`, `--dangerously-skip-permissions`)
 from a command that runs code of the chat's folder (`${cwd}/agent.py`, a
 relative program such as `./agent`, `python3 -m NAME`, an env value such as
 `PYTHONPATH=.`, a relative `PATH` entry, a program that `PATH` finds in the
-folder, a runner such as `npx`, `uvx` or `bun`),
+folder, a runner such as `npx`, `uvx` or `bun`, a file of the folder that an
+option names or an interpreter or wrapper runs: `--config agent.json`,
+`env python3 agent.py`, a bare `NODE_OPTIONS` preload such as `--require hook`),
 from an entry, defaults or preset changed or removed after the start, or from
 a fork or moved chat that has a copy of another agent's claim. Each claim is in
 the session events as `asks_before_tools_claim`, with `trusted` and, when

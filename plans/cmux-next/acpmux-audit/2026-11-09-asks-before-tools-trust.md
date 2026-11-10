@@ -63,8 +63,25 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
   `/tmp` is `/private/tmp`; on a volume that ignores case, another case is the same folder); an
   argument counts as a path only with a slash or as the script an interpreter runs (no false
   refusal for `opencode acp` or `.`); `not_started_here` tells the person to restart the chat.
+- Delta review of #40158 (delta-rev-3) and the codex review (F3, F4). The bare-word rule passed
+  launches that run a folder file. Fixed (fail closed): a bare word that names something the
+  folder holds counts when acpmux cannot tell that it is no path: an option's value
+  (`--config agent.json`, `--config=agent.json`), or any word of a launch that names an
+  interpreter (`python3 -I agent.py`) or a wrapper (`env`, `nice`, `timeout`, ...). Under a
+  wrapper every later word is judged as the program it may run (`env python3 -m agent`). Python's
+  options are read as clusters (`-um` is a module run), `-I` keeps the safe path, and `-E` drops
+  `PYTHONSAFEPATH`. A bare preload name in `NODE_OPTIONS` (`--require hook`) is the folder's. A
+  bare word of another program that follows no option (`opencode acp`, `agent .`) is still taken
+  as a subcommand or the program's own argument.
 
 ## Still open
+- F1 (codex review of #40158, deferred to its own PR by the lead): a pooled agent is judged at
+  take time. The pool prewarm spawns with no claim (`spawn.rs` `spawn_profile_for`,
+  `claim_from = None`), and the take judges the folder as it is then, after the agent ran: an
+  agent that runs `agent.py` from the folder and then deletes it is believed when it is taken.
+- A bare word of a program that is no interpreter or wrapper, and that follows no option, is
+  taken as no path (`opencode acp`). A program that reads such a word as a file of the folder is
+  not judged by it.
 - A `PATH` folder inside the chat folder that does not hold the agent's program is not judged:
   the agent's own subprocesses (not its tool calls, which ask) can find programs there.
 - Other interpreters that load code from the working folder (Ruby `-I.`, Perl, a shell script
