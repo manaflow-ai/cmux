@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTerminal
 import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
@@ -92,7 +93,12 @@ import Testing
         for _ in 0..<12 where services.cache.existingTerminal(standIn.id) == nil || pane.view.content == nil { await Self.nextCommittedPass() }
         let entry = try #require(services.cache.existingTerminal(standIn.id), "no terminal for the stand-in after its key's frame")
         try #require(pane.view.content === entry.session.view)
-        #expect(Self.rgb(entry.session.view.layer?.backgroundColor) == waiting, "the terminal paints another ground than its pane showed before it")
+        // The host paints once before its scope joins the pane's, and a scope does not repaint for inherited surface
+        // backgrounds alone: this test's pane-level background reaches the host at its next paint. (The app sets
+        // `appearance.surfaces` app-wide, where the host's first paint has it.)
+        let host: TerminalHostView = entry.session.view
+        host.viewDidChangeEffectiveAppearance()
+        #expect(Self.rgb(host.layer?.backgroundColor) == waiting, "the terminal paints another ground than its pane showed before it")
         #expect(Self.rgb(pane.view.contentHost.layer?.backgroundColor) != ground, "the area keeps the waiting ground under the shown terminal")
     }
 }
