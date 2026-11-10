@@ -1270,7 +1270,8 @@ def report(args):
             slower = c["p95"] > g["p95"] if c.get("n") and g.get("n") else None
             table.append({"row": row, "metric": metric, "kind": kind, "load": load, "cmux": c, "chrome": g,
                           "verdict": verdict + (f", {note}" if note and verdict != "not run" else "")
-                          + (f", {c['blind']} of {c['inputs']} cmux inputs blind (not measured)" if c.get("blind") else ""),
+                          + (f", {c['blind']} of {c['inputs']} cmux inputs blind (not measured)"
+                             if c.get("blind") and verdict != "not run" else ""),  # a "not run" row keeps its plain name
                           "cmux_p95_over_chrome": slower,
                           "load1": [min(arm_loads), max(arm_loads)] if arm_loads else None,
                           "not_run": reasons, "cmux_surface": cmux_what, "chrome_surface": chrome_what})
