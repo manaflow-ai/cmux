@@ -34,6 +34,9 @@ import Testing
         defer { h.window.close() }
         let list = h.sidebar.list
         let section = SectionID.machine(.local)
+        // The rows come by a full set, as the app's: the model counts each workspace's listings in it.
+        h.model.setSections(Insert.sections(h.rows))
+        h.sidebar.renderNow()
         var nodes = h.rows
         let change: SidebarLooseRowChange
         var selects: WorkspaceID?
@@ -83,11 +86,19 @@ import Testing
             // Every count, also when the test passes.
             print("SIDEBAR-ROW-CHANGE-ENTRY count case=\(which.rawValue) size=\(size) took=\(outcome.took) rows_walked=\(rows) viewport_rows=\(view)"
                 + " section_sets=\(count("section_sets")) row_changes=\(count("row_changes")) list_reloads=\(count("list_reloads"))"
-                + " layout_rows=\(count("layout_rows")) order_builds=\(count("order_builds")) rebuilds=\(count("rebuilds"))")
+                + " layout_rows=\(count("layout_rows")) order_builds=\(count("order_builds")) row_index_builds=\(count("row_index_builds"))"
+                + " rebuilds=\(count("rebuilds"))")
             #expect(outcome.took, "\(which.rawValue) at \(size) rows: the entry refused a loose row listed once, with no filter")
             #expect(count("list_reloads") >= 1, "fixture: \(which.rawValue) at \(size) rows reloaded no list")
             #expect(outcome.faults.isEmpty, "\(which.rawValue) at \(size) rows: \(outcome.faults)")
             #expect(count("layout_rows") <= 2, "\(which.rawValue) at \(size) rows laid out \(count("layout_rows")) rows")
+            #expect(count("section_sets") == 0, "\(which.rawValue) at \(size) rows set the sections \(count("section_sets")) times")
+            // A change of the selection reads the selected rows' places (`SidebarListView+SelectionPatch`), which builds
+            // the model's row index again after any structural set: every row, once. Not in `rows_walked`; a close of
+            // a row that is not selected must build none.
+            if which == .close {
+                #expect(count("row_index_builds") == 0, "a close at \(size) rows built the row index (every row) \(count("row_index_builds")) times")
+            }
             #expect(rows <= view + Self.constant,
                     "\(which.rawValue) at \(size) rows read \(rows) rows: more than the \(view) in view and \(Self.constant)")
         }
