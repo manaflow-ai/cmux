@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
+import AppKit
 import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
@@ -28,6 +29,11 @@ import Testing
         #expect(lane.tryIt?.at == Date(timeIntervalSince1970: 5))
         #expect(Self.lane(["tryIt": ["url": "javascript:alert(1)"]]).tryIt == nil)
         #expect(Self.lane(["tryIt": ["command": "ls\nrm -rf ~"]]).tryIt == nil)
+        // Review of #40089: a carriage return, Ctrl-U, an escape or a bidi override could run a line
+        // other than the one the tooltip shows.
+        for hidden in ["echo hi\rrm -rf ~", "rm -rf ~\u{15}echo safe", "ls \u{1b}[2K", "ls \u{202e}fdp.txt"] {
+            #expect(Self.lane(["tryIt": ["command": hidden]]).tryIt == nil, "\(hidden.debugDescription)")
+        }
         #expect(Self.lane([:]).tryIt == nil)
     }
 
@@ -48,8 +54,13 @@ import Testing
             (WorkspaceID("ws-remote"), [AgentSessionRef(host: "registry:vm", session: "a1")]),
             (WorkspaceID("ws-none"), [AgentSessionRef(host: Self.localHost, session: "n1")]),
         ]
-        let tries = SidebarSessionTreeFeed.tries(chats, links: ["a1": links(older), "a2": links(newer), "a3": links(stepsOnly), "n1": links(nil)],
+        var mirrored = links(newer)
+        mirrored.peer = "studio"
+        let tries = SidebarSessionTreeFeed.tries(chats + [(WorkspaceID("ws-peer"), [AgentSessionRef(host: Self.localHost, session: "p1")])],
+                                                 links: ["a1": links(older), "a2": links(newer), "a3": links(stepsOnly), "n1": links(nil),
+                                                         "p1": mirrored],
                                                  localHost: Self.localHost)
+        // Review of #40089: a peer's mirrored chat is that machine's work, never a pill here.
         #expect(tries == [WorkspaceID("ws-a"): SidebarTry(label: "Open build", url: "http://127.0.0.1:17320/t", verify: ["Look."])])
     }
 
@@ -70,5 +81,20 @@ import Testing
         #expect(opened.map(\.0) == [WorkspaceID("ws-a")])
         pill.configure(SidebarTry(label: "Only steps", verify: ["Look."]), workspace: WorkspaceID("ws-a"))
         #expect(pill.isHidden)
+    }
+
+    /// Review of #40089: the row hit-tests only its listed controls, so a pill missing from them drew
+    /// its hover and never got the click; the list selected the row instead.
+    @Test func aClickOnTheRowsPillReachesThePill() {
+        let saved = SidebarSessionTree.shared.onTry
+        defer { SidebarSessionTree.shared.onTry = saved }
+        SidebarSessionTree.shared.onTry = { _, _ in }
+        let row = WorkspaceRowView(key: .workspace(WorkspaceID("ws-a")))
+        row.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
+        row.configureTry(SidebarTry(label: "Open build", url: "http://127.0.0.1:17320/t"), workspace: WorkspaceID("ws-a"))
+        row.tryPill.frame = NSRect(x: 220, y: 10, width: 40, height: 20)
+        #expect(row.hitTest(NSPoint(x: 230, y: 20)) === row.tryPill)
+        row.configureTry(nil, workspace: WorkspaceID("ws-a"))
+        #expect(row.hitTest(NSPoint(x: 230, y: 20)) == nil)
     }
 }

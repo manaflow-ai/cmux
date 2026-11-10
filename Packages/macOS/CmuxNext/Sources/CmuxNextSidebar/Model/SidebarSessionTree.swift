@@ -124,8 +124,12 @@ public nonisolated struct SidebarTry: Hashable, Sendable {
     public var verify: [String]
     /// The HTML report.
     public var report: String?
+    /// The chat's working folder: the command runs there.
+    public var cwd: String?
 
-    public init(label: String, url: String? = nil, command: String? = nil, verify: [String] = [], report: String? = nil) {
+    public init(label: String, url: String? = nil, command: String? = nil, verify: [String] = [], report: String? = nil,
+                cwd: String? = nil) {
+        self.cwd = cwd
         self.label = label
         self.url = url
         self.command = command

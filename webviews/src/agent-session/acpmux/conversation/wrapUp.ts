@@ -80,6 +80,27 @@ export function wrapUpAsk(tool: Tool): NextStepAsk | undefined {
 /// The wrap-up's Try: one http(s) page or one shell line, the steps to check, the report. A target
 /// the tool would refuse (another scheme, a second line) draws no button; the steps and report
 /// still draw. Undefined when it gave none of them.
+/// One line with no control (C0, DEL, C1), line or paragraph separator, or bidi formatting
+/// character (acpmux `acpmux_mcp_wrap_up::plain_line`): a command is typed into a terminal.
+export function plainLine(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (
+      c < 0x20 ||
+      (c >= 0x7f && c <= 0x9f) ||
+      c === 0x2028 ||
+      c === 0x2029 ||
+      c === 0x200e ||
+      c === 0x200f ||
+      c === 0x061c ||
+      (c >= 0x202a && c <= 0x202e) ||
+      (c >= 0x2066 && c <= 0x2069)
+    )
+      return false;
+  }
+  return true;
+}
+
 export function tryOf(args: Record<string, unknown>): WrapUpTry | undefined {
   const target = record(args.try);
   const url = words(target?.url);
@@ -87,16 +108,16 @@ export function tryOf(args: Record<string, unknown>): WrapUpTry | undefined {
   const safeUrl =
     url && !command && /^https?:\/\//i.test(url) && url.length <= MAX_TRY_URL && !/\s/.test(url) ? url : undefined;
   const safeCommand =
-    command && !url && command.length <= MAX_TRY_COMMAND && !command.includes("\n") ? command : undefined;
+    command && !url && command.length <= MAX_TRY_COMMAND && plainLine(command) ? command : undefined;
   const label = safeUrl || safeCommand ? (words(target?.label)?.slice(0, MAX_TRY_LABEL) ?? "Try it") : undefined; // l10n-allow: the tool's own default label
   const verify = Array.isArray(args.verify)
     ? args.verify
         .map((step) => words(step))
-        .filter((step): step is string => step !== undefined && step.length <= MAX_VERIFY_STEP && !step.includes("\n"))
+        .filter((step): step is string => step !== undefined && step.length <= MAX_VERIFY_STEP && plainLine(step))
         .slice(0, MAX_VERIFY)
     : [];
   const report = words(args.report);
-  const safeReport = report && report.length <= MAX_REPORT && !report.includes("\n") ? report : undefined;
+  const safeReport = report && report.length <= MAX_REPORT && plainLine(report) ? report : undefined;
   if (!label && !verify.length && !safeReport) return undefined;
   return {
     ...(label && { label }),

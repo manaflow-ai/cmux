@@ -125,20 +125,22 @@ public final class SidebarSessionTreeFeed {
         if tree.tries != tries { tree.tries = tries }
     }
 
-    /// Each workspace's Try pill: of its chats on this Mac, the newest wrap-up that gave a page or a
+    /// Each workspace's Try pill: of its chats on this Mac (not a peer's mirrored chat), the newest wrap-up that gave a page or a
     /// command to try (acpmux `tryIt`). Another machine's chats have no lane here yet, so no pill.
     static func tries(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links: [String: AgentLaneLinks],
                       localHost: String?) -> [SidebarWorkspaceID: SidebarTry] {
         var out: [SidebarWorkspaceID: SidebarTry] = [:]
         for (id, refs) in chats {
-            let newest = refs.compactMap { ref -> AgentLaneTry? in
-                guard ref.host == localHost, let session = ref.session, let found = links[session]?.tryIt,
-                      found.url != nil || found.command != nil else { return nil }
-                return found
-            }.max { $0.at < $1.at }
-            if let newest {
+            // A peer's mirrored chat is that machine's work: its command and its loopback page are
+            // not this Mac's to open.
+            let newest = refs.compactMap { ref -> (AgentLaneTry, String?)? in
+                guard ref.host == localHost, let session = ref.session, let link = links[session], link.peer == nil,
+                      let found = link.tryIt, found.url != nil || found.command != nil else { return nil }
+                return (found, link.cwd)
+            }.max { $0.0.at < $1.0.at }
+            if let (newest, cwd) = newest {
                 out[id] = SidebarTry(label: newest.label ?? String(localized: "sidebar.try.default", defaultValue: "Try it", bundle: .module),
-                                     url: newest.url, command: newest.command, verify: newest.verify, report: newest.report)
+                                     url: newest.url, command: newest.command, verify: newest.verify, report: newest.report, cwd: cwd)
             }
         }
         return out

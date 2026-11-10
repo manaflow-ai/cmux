@@ -145,7 +145,7 @@ pub(crate) fn check(args: &Value) -> Result<Value, String> {
             let mut out = Vec::new();
             for item in list {
                 match item.as_str().map(str::trim).filter(|v| !v.is_empty()) {
-                    Some(step) if step.chars().count() <= MAX_VERIFY_STEP && !step.contains('\n') => {
+                    Some(step) if step.chars().count() <= MAX_VERIFY_STEP && plain_line(step) => {
                         out.push(step);
                     }
                     _ => {
@@ -163,7 +163,7 @@ pub(crate) fn check(args: &Value) -> Result<Value, String> {
         return Err(format!("at most {MAX_VERIFY} verify steps"));
     }
     let report = text("report");
-    if report.is_some_and(|r| r.chars().count() > MAX_REPORT || r.contains('\n')) {
+    if report.is_some_and(|r| r.chars().count() > MAX_REPORT || !plain_line(r)) {
         return Err(format!("report is one path or URL of at most {MAX_REPORT} characters"));
     }
     let mut shown = serde_json::Map::new();
@@ -185,13 +185,23 @@ pub(crate) fn check(args: &Value) -> Result<Value, String> {
     Ok(Value::Object(shown))
 }
 
+/// One line with no control character (C0, DEL, C1), line or paragraph separator, or bidi
+/// formatting character. A Try command is typed into a terminal: a carriage return, Ctrl-U, an
+/// escape sequence or a bidi override could make the line that runs differ from the one shown.
+pub(crate) fn plain_line(text: &str) -> bool {
+    !text.chars().any(|c| {
+        matches!(c as u32, 0..=0x1F | 0x7F..=0x9F | 0x2028 | 0x2029 | 0x200E | 0x200F | 0x061C
+            | 0x202A..=0x202E | 0x2066..=0x2069)
+    })
+}
+
 /// The Try launcher checked: a label (Try it when none) and exactly one target, an http(s) page
 /// or one shell line. Where it runs is the person's click: the Mac opens the page in a browser
 /// tab or the command in a new terminal; a phone opens a page and only shows a command.
 fn check_try(t: &serde_json::Map<String, Value>) -> Result<Value, String> {
     let field = |key: &str| t.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
     let label = field("label").unwrap_or("Try it");
-    if label.chars().count() > MAX_TRY_LABEL || label.contains('\n') {
+    if label.chars().count() > MAX_TRY_LABEL || !plain_line(label) {
         return Err(format!("try.label is a few words, at most {MAX_TRY_LABEL} characters"));
     }
     match (field("url"), field("command")) {
@@ -206,7 +216,7 @@ fn check_try(t: &serde_json::Map<String, Value>) -> Result<Value, String> {
             Ok(json!({"label": label, "url": url}))
         }
         (None, Some(command)) => {
-            if command.chars().count() > MAX_TRY_COMMAND || command.contains('\n') {
+            if command.chars().count() > MAX_TRY_COMMAND || !plain_line(command) {
                 return Err(format!(
                     "try.command is one shell line of at most {MAX_TRY_COMMAND} characters"
                 ));
@@ -301,6 +311,11 @@ mod tests {
             json!({"recap": "Done.", "try": {"url": "javascript:alert(1)"}}),
             json!({"recap": "Done.", "try": {"url": "file:///etc/passwd"}}),
             json!({"recap": "Done.", "try": {"command": "ls\nrm -rf x"}}),
+            json!({"recap": "Done.", "try": {"command": "echo hi\rrm -rf x"}}),
+            json!({"recap": "Done.", "try": {"command": "rm -rf x\u{15}echo safe"}}),
+            json!({"recap": "Done.", "try": {"command": "ls \u{1b}[2K"}}),
+            json!({"recap": "Done.", "try": {"command": "ls \u{202e}fdp.txt"}}),
+            json!({"recap": "Done.", "try": {"label": "Go\u{85}now", "url": "https://a"}}),
             json!({"recap": "Done.", "verify": ["a", "b", "c", "d", "e", "f"]}),
             json!({"recap": "Done.", "verify": ["two\nlines"]}),
             json!({"recap": "Done.", "report": "a\nb"}),

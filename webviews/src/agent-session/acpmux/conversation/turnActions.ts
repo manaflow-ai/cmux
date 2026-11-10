@@ -23,8 +23,12 @@ import type { MessageBranch } from "./branches";
 import type { SlashCommand } from "../slashCommands";
 import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
+import type { WrapUpTry } from "./nextStepAsk";
 
 export type TurnActions = {
+  /// Opens a wrap-up's Try (rows/NextStepRow.tsx `openTry`) in the chat's folder; absent where it
+  /// may not open on this Mac (a peer's or a Cloud machine's chat), so the Try button is disabled.
+  openTry?: (tryIt: WrapUpTry) => void;
   /// Cloud chats can fork their current machine and transcript into one sibling. The action is
   /// intentionally latest-turn-only until platform checkpoint inputs are available.
   tryAnotherApproach?: (throughSeq: number) => Promise<void>;

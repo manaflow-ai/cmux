@@ -1,4 +1,6 @@
+import CmuxNextAgentActivity
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 
 /// Opens a workspace row's Try pill (``SidebarTryPillView``): shows that workspace, then opens what
@@ -11,12 +13,30 @@ import Foundation
 struct SidebarTryOpener {
     let services: AppServices
 
+    /// Shows the pill's own workspace (its window takes it now, I6), then opens the Try in a pane of
+    /// that workspace, never the one the person looked at before the click. A pane not mounted yet
+    /// is waited for, as the provider sign-in tab does (`AppServices+LoginTabs.swift`).
     func open(_ workspace: WorkspaceID, _ tryIt: SidebarTry) {
-        guard let window = services.windows.reveal(workspaceID: workspace.rawValue), let pane = window.focusedPane else { return }
+        let id = workspace.rawValue
+        guard let window = services.windows.reveal(workspaceID: id) else { return }
+        services.windows.show(workspaceID: id, in: window.state, from: .thisWindow)
+        let mounted: @MainActor @Sendable () -> Bool = { [services] in
+            _ = services.paneMounts.generation
+            return window.content?.workspace.id == id && window.focusedPane != nil
+        }
+        if mounted() { return place(tryIt, in: window, workspace: id) }
+        Task { @MainActor in
+            await ObservationDeadline(owner: "sidebar-try-pane").until(mounted, limit: .seconds(5))
+            place(tryIt, in: window, workspace: id)
+        }
+    }
+
+    private func place(_ tryIt: SidebarTry, in window: WindowController, workspace: String) {
+        guard window.content?.workspace.id == workspace, let pane = window.focusedPane else { return }
         if let text = tryIt.url, let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             _ = pane.newBrowserTab(url: url)
-        } else if let command = tryIt.command, !command.contains("\n") {
-            pane.newTerminalTab(typing: command + "\n")
+        } else if let command = tryIt.command, AgentLaneTry.isPlainLine(command) {
+            pane.newTerminalTab(cwd: tryIt.cwd, typing: command + "\n")
         }
     }
 

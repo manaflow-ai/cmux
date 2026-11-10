@@ -203,9 +203,14 @@ function TryBlock({
           <p className="acpmux-next-step__verify-head">{t("wrapUp.try.verify")}</p>
           <ul>
             {tryIt.verify.map((step, index) => (
-              <li key={step}>
+              <li key={index}>
                 <label>
-                  <input type="checkbox" checked={ticked.has(index)} onChange={() => tick(index)} />
+                  <input
+                    type="checkbox"
+                    aria-label={step}
+                    checked={ticked.has(index)}
+                    onChange={() => tick(index)}
+                  />
                   <span>{inlineText(step)}</span>
                 </label>
               </li>

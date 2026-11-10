@@ -21,6 +21,9 @@ use crate::wrap_up_suggestion::{Call, recognise, shown_in_output};
 
 /// Wrap-up calls still running, by session and tool call id: a later update may carry only the
 /// status.
+/// More open wrap-up calls than any set of live turns has: past it the stale ones are dropped.
+const MAX_OPEN_CALLS: usize = 256;
+
 static CALLS: LazyLock<Mutex<HashMap<(String, String), Call>>> = LazyLock::new(Default::default);
 
 /// Notes one `tool_call` or `tool_call_update` of `session` into `m`.
@@ -29,9 +32,19 @@ pub(super) fn absorb(session: &str, update: &Value, m: &mut SessionMeta, replaye
         return;
     }
     let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    let status = update.get("status").and_then(Value::as_str);
+    let found = recognise(update);
+    // Most calls are not wrap-ups and do not end: they never take the lock.
+    if found.is_none() && !matches!(status, Some("completed" | "failed")) {
+        return;
+    }
     let key = (session.to_owned(), id.to_owned());
     let mut calls = CALLS.lock().unwrap_or_else(|e| e.into_inner());
-    match recognise(update) {
+    // A wrap-up cut off by a cancelled turn or a crash never completes: bound what it leaves.
+    if calls.len() >= MAX_OPEN_CALLS && !calls.contains_key(&key) {
+        calls.clear();
+    }
+    match found {
         Some(call @ Call::Args(_)) => {
             calls.insert(key.clone(), call);
         }
@@ -40,7 +53,6 @@ pub(super) fn absorb(session: &str, update: &Value, m: &mut SessionMeta, replaye
         }
         None => {}
     }
-    let status = update.get("status").and_then(Value::as_str);
     if !matches!(status, Some("completed" | "failed")) {
         return;
     }
