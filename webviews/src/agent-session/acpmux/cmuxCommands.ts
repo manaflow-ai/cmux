@@ -328,7 +328,8 @@ export function cmuxCommandRefusal(
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "mcp":
-      return state.summary ? undefined : "composer.cmuxUnavailable";
+      // `/mcp <args>` is the agent's own, sent as typed (New Tab too); a bare one needs the chat's servers.
+      return state.summary || args?.trim() ? undefined : "composer.cmuxUnavailable";
     case "cd":
       if (state.newTab) return "composer.cmuxCdNewTab";
       return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";

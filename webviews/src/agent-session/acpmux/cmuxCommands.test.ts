@@ -162,4 +162,6 @@ test("a bare /mcp is cmux's, the agent's own /mcp gives way, and /mcp with argum
   };
   expect(cmuxCommandRefusal(mcp.command, "", state)).toBeUndefined();
   expect(cmuxCommandRefusal(mcp.command, "", { ...state, summary: false })).toBe("composer.cmuxUnavailable");
+  // New Tab (no summary yet): `/mcp <args>` is the agent's and goes as typed.
+  expect(cmuxCommandRefusal(mcp.command, "enable github", { ...state, summary: false })).toBeUndefined();
 });
