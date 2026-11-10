@@ -1709,7 +1709,7 @@ mod turn_checkpoints {
                 capture("sess-1", "manual-checkpoint", 10),
             ]})
             .to_string()),
-            target if target.starts_with("DELETE /v1/machines/snapshots/") => {
+            target if target.starts_with("DELETE /v1/workspaces/ws-1/machine/turns/") => {
                 ok(r#"{"deleted":true}"#)
             }
             _ => Some((500, "{}".into())),
@@ -1724,7 +1724,7 @@ mod turn_checkpoints {
         let seen = seen.lock().unwrap();
         let deletes: Vec<String> =
             seen.iter().map(Seen::target).filter(|t| t.starts_with("DELETE")).collect();
-        assert_eq!(deletes, ["DELETE /v1/machines/snapshots/snap-sess-1-auto-t1-g0"]);
+        assert_eq!(deletes, ["DELETE /v1/workspaces/ws-1/machine/turns/auto-t1-g0?session=sess-1"]);
     }
 
     #[test]

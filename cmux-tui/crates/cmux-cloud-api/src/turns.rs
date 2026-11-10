@@ -183,9 +183,21 @@ async fn call(
     body: Option<Value>,
     timeout: Duration,
 ) -> Result<Value, Failure> {
+    call_query(http, method, segments, &[], body, timeout).await
+}
+
+/// [`call`] with a query string.
+async fn call_query(
+    http: &Http,
+    method: Method,
+    segments: &[&str],
+    query: &[(&str, String)],
+    body: Option<Value>,
+    timeout: Duration,
+) -> Result<Value, Failure> {
     let path = path_text(segments);
     let reply = http
-        .send(method, http.url(segments, &[]), body.map(Body::Json), None, timeout, &path)
+        .send(method, http.url(segments, query), body.map(Body::Json), None, timeout, &path)
         .await?;
     let object = reply.json();
     if !reply.ok() {
@@ -370,7 +382,7 @@ async fn retain(http: &Http, workspace: &str, session: &str, kept: Option<usize>
     ours.retain(|c| c.seq.is_some());
     let (mut deleted, mut failed) = (Vec::new(), Vec::new());
     for old in ours.iter().skip(kept) {
-        match delete_checkpoint(http, &old.snapshot).await {
+        match delete_checkpoint(http, workspace, session, &old.turn).await {
             Ok(()) => deleted.push(json!(old.turn)),
             Err(failure) => failed.push(json!({
                 "turn": old.turn, "snapshotId": old.snapshot, "error": failure.json(),
@@ -380,15 +392,17 @@ async fn retain(http: &Http, workspace: &str, session: &str, kept: Option<usize>
     json!({ "kept": kept, "deleted": deleted, "failed": failed })
 }
 
-/// Deletes one turn checkpoint's snapshot. The platform has no turn-capture delete yet: this
-/// is the machine snapshot delete, which reads only `/v1/machines/snapshots` records, so a turn
-/// checkpoint answers 404 there until the platform adds a route (then only this changes).
-async fn delete_checkpoint(http: &Http, snapshot: &str) -> Result<(), Failure> {
-    if !((1..=256).contains(&snapshot.len()) && snapshot.bytes().all(id_byte)) {
-        return Err(Failure::Transport("not a snapshot id".into()));
-    }
-    let segments = ["v1", "machines", "snapshots", snapshot];
-    call(http, Method::DELETE, &segments, None, DELETE_TIMEOUT).await.map(|_| ())
+/// Deletes one turn checkpoint: the platform deletes its snapshot and its ledger row, so it is
+/// neither listed nor rewound to again. A delete of an already deleted checkpoint answers ok.
+async fn delete_checkpoint(
+    http: &Http,
+    workspace: &str,
+    session: &str,
+    turn: &str,
+) -> Result<(), Failure> {
+    let segments = ["v1", "workspaces", workspace, "machine", "turns", turn];
+    let query = [("session", session.to_owned())];
+    call_query(http, Method::DELETE, &segments, &query, None, DELETE_TIMEOUT).await.map(|_| ())
 }
 
 /// A ready checkpoint as the page needs it.
