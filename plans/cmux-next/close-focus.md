@@ -259,7 +259,8 @@ Tabs in a pane and workspaces in a window's sidebar follow the same rule after a
 - R2: a new item the person makes (Cmd-T, the plus button, New Workspace) keeps the item he came
   from as its opener until the selection leaves the new item. A link's or a tab action's new tab
   keeps its opener until R3 or R4 ends it. Nothing else has an opener: not an item made by
-  automation, a restore, a move or a drag.
+  automation, a restore, a move or a drag. A new item in the foreground first forgets every
+  older relation of its strip, so one family is live at a time.
 - R3: a selection the person makes forgets every relation of the strip, unless the two items
   have the same opener (or both have none) or one is the other's opener. A typed navigation
   forgets them too, except the first one in a tab the person just made.
@@ -267,9 +268,14 @@ Tabs in a pane and workspaces in a window's sidebar follow the same rule after a
   its own opener, and its own relation ends.
 - R5: where a new item is put changes none of this.
 
-The decided difference: Chromium gives a person's new tab an opener only when the tab is put at
-the end of the strip (`AddTab`). cmux puts a new item after the selected one by default, so R2
-gives the opener wherever the item is put.
+The decided difference is R2's lifetime. Chromium ends a new tab's opener when the selection
+leaves the tab only for a tab at the end of the strip (`AddTab`); a tab it puts in the middle
+("New Tab to the Right") keeps its opener as a link's tab does. cmux puts a new item after the
+selected one by default and uses the one lifetime wherever the item is put. Observed on Chrome
+156 for a tab in the middle: closed at once it returns to the tab the person came from, as in
+cmux; after a visit to that tab and back it still returns there (cmux: the next item); with
+link tabs of the same opener beside it, it selects the first of them (cmux: the opener). The
+caller chooses the lifetime (`kind`, `foreground`), so this needs no change of the module.
 
 | Case | Strip, selected item in bold | Steps | Selected after |
 | --- | --- | --- | --- |

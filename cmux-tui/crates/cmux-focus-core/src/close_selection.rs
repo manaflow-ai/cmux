@@ -16,11 +16,12 @@
 //!   opened, its opener, its group's or section's neighbor, else the NEXT
 //!   item, and the previous one only when it was the last;
 //! - R2 a person's new item (Cmd-T, the plus button, New Workspace) keeps a
-//!   [`OpenerKind::Quick`] opener, wherever the new item is put (cmux keeps
-//!   Chromium's "quick look-up" for an item put after the selected one too;
-//!   Chromium only has it for a tab put at the end); a link's or a tab
-//!   action's new tab keeps a [`OpenerKind::Task`] opener; nothing else has
-//!   one;
+//!   [`OpenerKind::Quick`] opener, wherever the new item is put (Chromium's
+//!   "quick look-up" of a new tab at the end of the strip; a tab Chromium
+//!   puts in the middle, "New Tab to the Right", keeps its opener as a
+//!   link's tab does, and the caller's `kind` and `foreground` can say
+//!   that); a link's or a tab action's new tab keeps a [`OpenerKind::Task`]
+//!   opener; nothing else has one;
 //! - R3 a deliberate selection of an unrelated item, and a typed navigation
 //!   that is not a just-made tab's first, forget every relation of the strip;
 //! - R4 a relation holds inside one strip only ([`Openers::left`]);
@@ -144,7 +145,10 @@ impl<T: Eq + Hash + Clone> Openers<T> {
     /// Any other navigation committed in `tab` (a link click, a redirect, a
     /// script's): the tab is no longer one the person just made, so its next
     /// typed navigation forgets (`IsNewTabAtEndOfTabStrip` wants one history
-    /// entry). No relation changes.
+    /// entry). No relation changes. Not for the new tab's own first page
+    /// load, and not for the commit of a typed navigation (that one is
+    /// [`Openers::typed_navigation`]'s): either would end "just made" before
+    /// the person's first address.
     pub fn navigated(&mut self, tab: &T) {
         self.fresh.remove(tab);
     }
@@ -194,7 +198,8 @@ impl<T: Eq + Hash + Clone> Openers<T> {
     }
 
     /// An opener relation is held, in any strip. While none is, a selection
-    /// change and a close need no call: the pick is positional.
+    /// change needs no call and a pick is positional. A close still reports
+    /// [`Openers::left`].
     pub fn has_relations(&self) -> bool {
         !self.relation.is_empty()
     }
