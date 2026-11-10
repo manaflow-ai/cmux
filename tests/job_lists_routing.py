@@ -72,17 +72,51 @@ def _needs(job: Mapping[str, Any]) -> list[str]:
     return [needs] if isinstance(needs, str) else [str(n) for n in needs]
 
 
-def merge_gating_jobs(workflow_texts: Mapping[str, str], contexts: Iterable[str]) -> set[tuple[str, str]]:
-    """(workflow, job) for every job that reports a required context, plus every job it needs:
-    a needed job that cannot start leaves the required context unreported."""
+def _name_patterns(job: Mapping[str, Any], job_id: str) -> tuple[set[str], list[re.Pattern]]:
+    """The names a job can report (workflow_jobs.name_values) and, for each part nothing resolves, a pattern of
+    the names it could still report (each `${{ }}` it holds is any text; a whole unresolved expression is any
+    name)."""
+    values, unresolved = workflow_jobs.name_values(job, job_id)
+    patterns = []
+    for part in unresolved:
+        if "${{" not in part:
+            patterns.append(re.compile(r".*", re.DOTALL))
+            continue
+        pieces = re.split(r"\$\{\{.*?\}\}", part, flags=re.DOTALL)
+        patterns.append(re.compile(".*".join(re.escape(piece) for piece in pieces), re.DOTALL))
+    return values, patterns
+
+
+def unresolved_name_jobs(workflow_texts: Mapping[str, str], contexts: Iterable[str]) -> set[tuple[str, str]]:
+    """(workflow, job) for every job that reports a required context only if a name part nothing resolves takes
+    a certain value (`name: ${{ inputs.check }}`, `name: ${{ needs.x.outputs.y || 'report' }}`)."""
     contexts = set(contexts)
+    found = set()
+    for workflow, text in workflow_texts.items():
+        for name, job in workflow_jobs.jobs(text).items():
+            values, patterns = _name_patterns(job, name)
+            if not values & contexts and any(p.fullmatch(c) for p in patterns for c in contexts):
+                found.add((workflow, name))
+    return found
+
+
+def merge_gating_jobs(workflow_texts: Mapping[str, str], contexts: Iterable[str],
+                      unresolved_exempt: Iterable[tuple[str, str]] = ()) -> set[tuple[str, str]]:
+    """(workflow, job) for every job that reports a required context, plus every job it needs:
+    a needed job that cannot start leaves the required context unreported. The name is read as GitHub reports
+    it (workflow_jobs.name_values: literal expressions read); a job that could report a required context through
+    a name part nothing resolves counts too (unresolved_name_jobs), unless `unresolved_exempt` names it."""
+    contexts = set(contexts)
+    exempt = set(unresolved_exempt)
     found: set[tuple[str, str]] = set()
     for workflow, text in workflow_texts.items():
         jobs = workflow_jobs.jobs(text)
-        # The name as GitHub reports it (workflow_jobs.name_values): literal expressions read, and a name nothing
-        # resolves counts as gating, so the trusted-runner guard checks it instead of letting it pass unseen.
-        pending = [name for name, job in jobs.items()
-                   if (names := workflow_jobs.name_values(job, name))[1] or names[0] & contexts]
+        pending = []
+        for name, job in jobs.items():
+            values, patterns = _name_patterns(job, name)
+            if values & contexts or ((workflow, name) not in exempt
+                                     and any(p.fullmatch(c) for p in patterns for c in contexts)):
+                pending.append(name)
         while pending:
             name = pending.pop()
             if (workflow, name) in found or name not in jobs:

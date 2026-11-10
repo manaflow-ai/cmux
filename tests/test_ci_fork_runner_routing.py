@@ -12,6 +12,7 @@ import workflow_jobs
 from job_lists_routing import (
     NIGHTLY,
     merge_gating_jobs,
+    unresolved_name_jobs,
     release_environment_jobs,
     required_checks,
     unresolved_environment_jobs,
@@ -184,6 +185,23 @@ TRUSTED_RUNNER_EXEMPT = {
         "the Linux failover variables can move between providers"
     ),
 }
+# (workflow, job) -> why a job whose name could report a required context only through a part nothing resolves
+# (job_lists_routing.unresolved_name_jobs) is not one. Any other such job counts as merge-gating, so it must take
+# the trusted route; an entry whose name now resolves, or that could no longer match, is stale.
+UNRESOLVED_NAME_EXEMPT = {
+    ("ci-compile-attribution.yml", "report"): (
+        "workflow_run/workflow_dispatch report job named by the analysis headline of a finished run; it reports "
+        "on that run's commit after the fact, never a pull request's required context"
+    ),
+    ("ci-guard-attribution.yml", "report"): (
+        "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
+        "commit after the fact, never a pull request's required context"
+    ),
+    ("rust-workspaces.yml", "workspace"): (
+        "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
+        "key), never one of the required context names"
+    ),
+}
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
 TRUSTED_RUNNER_EXTRA_JOBS = {
     ("web-complexity-trusted.yml", "complexity"): (
@@ -196,7 +214,8 @@ TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate"), ("cla.yml", "CLAAs
 
 
 def trusted_runner_jobs(texts: dict[str, str]) -> set[tuple[str, str]]:
-    return (merge_gating_jobs(texts, required_checks()) - set(TRUSTED_RUNNER_EXEMPT)) | set(TRUSTED_RUNNER_EXTRA_JOBS)
+    return ((merge_gating_jobs(texts, required_checks(), UNRESOLVED_NAME_EXEMPT) - set(TRUSTED_RUNNER_EXEMPT))
+            | set(TRUSTED_RUNNER_EXTRA_JOBS))
 
 
 def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], str]:
@@ -1327,10 +1346,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         texts = workflow_texts()
         derived = trusted_runner_jobs(texts)
         self.assertLessEqual(TRUSTED_RUNNER_ANCHORS, derived)
-        gating = merge_gating_jobs(texts, required_checks())
+        gating = merge_gating_jobs(texts, required_checks(), UNRESOLVED_NAME_EXEMPT)
         for context in required_checks():
             with self.subTest(context=context):
-                self.assertTrue(merge_gating_jobs(texts, [context]), f"no job reports {context!r}")
+                self.assertTrue(merge_gating_jobs(texts, [context], set(unresolved_name_jobs(texts, [context]))),
+                                f"no job reports {context!r}")
+        # Each unresolved-name exemption still names a job that could match only through an unresolved part.
+        self.assertLessEqual(set(UNRESOLVED_NAME_EXEMPT), unresolved_name_jobs(texts, required_checks()))
+        self.assertTrue(all(reason.strip() for reason in UNRESOLVED_NAME_EXEMPT.values()))
         # An exemption or extra that names no merge-gating job, or a job that is gone, is stale.
         self.assertLessEqual(set(TRUSTED_RUNNER_EXEMPT), gating)
         self.assertEqual(set(TRUSTED_RUNNER_EXTRA_JOBS) & gating, set())

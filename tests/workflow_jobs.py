@@ -238,16 +238,58 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
     return out
 
 
+def _split_top(expression: str, operator: str) -> list[str]:
+    """`expression` split at `operator` (`||` or `&&`) outside quotes and parentheses."""
+    parts, depth, quoted, start, index = [], 0, False, 0, 0
+    while index < len(expression):
+        char = expression[index]
+        if char == "'":
+            quoted = not quoted  # '' inside a literal toggles twice
+        elif not quoted and char in "([":
+            depth += 1
+        elif not quoted and char in ")]":
+            depth -= 1
+        elif not quoted and depth == 0 and expression.startswith(operator, index):
+            parts.append(expression[start:index])
+            start = index + len(operator)
+            index = start
+            continue
+        index += 1
+    parts.append(expression[start:])
+    return parts
+
+
+def _wrapped(term: str) -> bool:
+    """`term` is one parenthesized group, `( ... )`, not `(a) || (b)`."""
+    if not (term.startswith("(") and term.endswith(")")):
+        return False
+    depth, quoted = 0, False
+    for index, char in enumerate(term):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0 and index != len(term) - 1:
+                return False
+    return True
+
+
 def expression_values(expression: str) -> tuple[set[str], set[str]]:
     """The literal values a `${{ }}` expression can take, and the operands it can take a value
     from that are not literals. `c && 'a' || d && 'b' || 'e'` yields ({a, b, e}, set()); a value
-    read from a context (`needs.x.outputs.y`) comes back in the second set, and the guard decides."""
+    read from a context (`needs.x.outputs.y`) comes back in the second set, and the guard decides.
+    `||` and `&&` split only outside quotes and parentheses, so `(a || b) && 'x' || 'y'` is {x, y}."""
     values: set[str] = set()
     unresolved: set[str] = set()
-    for alternative in re.split(r"\|\|", expression):
-        term = re.split(r"&&", alternative)[-1].strip()
-        while term.startswith("(") and term.endswith(")"):
-            term = term[1:-1].strip()
+    for alternative in _split_top(expression, "||"):
+        term = _split_top(alternative, "&&")[-1].strip()
+        if _wrapped(term):
+            found, open_terms = expression_values(term[1:-1])
+            values |= found
+            unresolved |= open_terms
+            continue
         quoted = _QUOTED.match(term)
         if quoted:
             values.add(quoted.group(1).replace("''", "'"))
