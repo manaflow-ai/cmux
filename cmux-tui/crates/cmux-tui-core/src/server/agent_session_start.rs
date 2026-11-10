@@ -530,10 +530,7 @@ pub(in crate::server) fn connect(
 }
 
 /// [`connect`], and whether this call ran the starter (nothing listened).
-fn connect_noting(
-    mux: &Mux,
-    socket: &std::path::Path,
-) -> Result<(Arc<AcpmuxLink>, bool), Refusal> {
+fn connect_noting(mux: &Mux, socket: &std::path::Path) -> Result<(Arc<AcpmuxLink>, bool), Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok((link, false));
