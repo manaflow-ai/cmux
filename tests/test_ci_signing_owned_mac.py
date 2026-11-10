@@ -75,6 +75,7 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner  # noqa: E402
+import workflow_jobs  # noqa: E402
 import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard  # noqa: E402
 
 # The jobs glaeda's job-started hook admits as the exclusive class (glaeda scripts/glaeda-cmux-runner-hook
@@ -91,7 +92,7 @@ def picker_signing_jobs() -> tuple[set[tuple[str, str]], list[str]]:
     found, unresolved = set(), []
     for workflow, names in signing_runner.SIGNING_JOBS.items():
         path = WORKFLOWS / workflow
-        jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {} if path.is_file() else {}
+        jobs = workflow_jobs.jobs(path) if path.is_file() else {}
         for name in names:
             ids = [job_id for job_id, job in jobs.items() if isinstance(job, dict)
                    and str(job.get("name") or job_id).split(" (", 1)[0] == name]
@@ -189,8 +190,19 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
-# A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...).
-SPARKLE_KEY = re.compile(r"secrets\.\w*SPARKLE\w*PRIVATE_KEY", re.IGNORECASE)
+# A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...),
+# as a secret name tests/workflow_jobs.py reads in any form.
+SPARKLE_KEY = re.compile(r"\w*SPARKLE\w*PRIVATE_KEY")
+
+
+def reads_any_secret(value: Any) -> bool:
+    """value names a secret in any form (tests/workflow_jobs.py: secrets.X, secrets['X'], any case, toJSON(secrets))."""
+    return bool(workflow_jobs.secret_names(value))
+
+
+def reads_sparkle_key(value: Any) -> bool:
+    names = workflow_jobs.secret_names(value)
+    return workflow_jobs.ALL_SECRETS in names or any(SPARKLE_KEY.fullmatch(name) for name in names)
 # A fork's own runner (`github.repository_owner != 'manaflow-ai' && 'macos-26' ||`): never this repository's.
 FORK_ROUTE = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*'[^']*'\s*\|\|")
 LABEL_LITERAL = re.compile(r"'([^']*)'")
@@ -210,9 +222,7 @@ def dotted(value: Any) -> Any:
 def workflows() -> dict[str, dict]:
     out = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(document, dict):
-            out[path.name] = document
+        out[path.name] = workflow_jobs.document(path)
     return out
 
 
@@ -224,8 +234,8 @@ def keychain_job(job: dict) -> bool:
 
 
 def signing_job(job: dict) -> bool:
-    """A keychain job, or a job that holds a Sparkle private key (read in dot form, after dotted())."""
-    return keychain_job(job) or bool(SPARKLE_KEY.search(json.dumps(keychain_guard.inline_step_scripts(job))))
+    """A keychain job, or a job that holds a Sparkle private key."""
+    return keychain_job(job) or reads_sparkle_key(keychain_guard.inline_step_scripts(job))
 
 
 def owned_only(runs_on: str) -> bool:
@@ -260,7 +270,7 @@ def picker_ref_failures(name: str, job: dict) -> list[str]:
         after = AFTER_STEP.match(condition)
         if REF_CONDITION.search(condition) or (after and after.group(1) in pinned):
             pinned.add(str(step.get("id")))
-        elif "secrets." in json.dumps(step):
+        elif reads_any_secret(step):
             failures.append(f"picker {name} step {index} names a secret on any ref; its if must name the trusted ref "
                             "(github.ref or github.ref_name)")
     return failures
@@ -429,7 +439,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             # command set rule 7a uses, so no comment, echo, conditional or chained form stands in for it.
             claim = next((index for index, step in enumerate(steps)
                           if keychain_guard.runs_the_claim_script(step, job)), None)
-            first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
+            first_secret = next((index for index, step in enumerate(steps) if reads_any_secret(step)), None)
             if claim is None:
                 failures.append(f"{label}: routed to owned Macs without a step that runs {CLAIM}")
             elif first_secret is not None and first_secret <= claim:  # the claim step's own env is set before it runs
@@ -440,12 +450,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps, 0):
-                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE(step.get("if")):
+                    if reads_any_secret(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
-            if "secrets." in json.dumps(job.get("env") or {}):
+            if reads_any_secret(job.get("env") or {}):
                 failures.append(f"{label}: job-level env names a secret, which every step (the claim's too) holds")
-            if "secrets." in json.dumps(document.get("env") or {}):
+            if reads_any_secret(document.get("env") or {}):
                 failures.append(f"{label}: workflow-level env names a secret, which every step (the claim's too) holds")
             text = json.dumps(steps)
             if "security import" in text:
@@ -512,13 +522,13 @@ def owned_route(jobs: dict, job: dict) -> bool:
 
 def exclusive_trait(jobs: dict, job: dict) -> str:
     """Why glaeda must give this job the whole mini, or "": it carries the claim gate, runs the claim script, or
-    holds a signing secret (a keychain, a Sparkle key or any SIGNING_SECRET_REFERENCE) on a route to an owned Mac."""
+    holds a signing secret (a keychain, a Sparkle key or any keychain_guard.signing_secret()) on a route to an owned Mac."""
     steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or [] if isinstance(step, dict)]
     if any(str(step.get("id", "")) == CLAIM_GATE_ID for step in steps):
         return f"carries the claim gate ({CLAIM_GATE_ID})"
     if any(str(step.get("run", "")).strip() in keychain_guard.CLAIM_COMMANDS for step in steps):
         return f"runs {CLAIM}"
-    if ((signing_job(job) or keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(job)))
+    if ((signing_job(job) or keychain_guard.signing_secret(job))
             and owned_route(jobs, job)):
         return "holds a signing secret on a route to an owned Mac"
     return ""
@@ -1184,7 +1194,7 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID, "the first step must be the claim gate")
                 self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for(workflow).strip())
                 self.assertEqual(set(gate) - {"name", "run", "shell", "id"}, set())
-                self.assertNotIn("secrets.", json.dumps(document.get("env") or {}))
+                self.assertFalse(reads_any_secret(document.get("env") or {}))
                 self.assertTrue(keychain_guard.claim_gated(label, job), "rule 7a must hold for this job")
                 claim = [index for index, step in enumerate(steps)
                          if keychain_guard.runs_the_claim_script(step)]
@@ -1236,6 +1246,38 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(found, ["nightly.yml sparkle-fixture: holds a signing secret on a route to an owned Mac but "
                                  "is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's SIGNING_JOBS) or "
                                  "EXCLUSIVE_EXEMPT with a reason"])
+
+    def test_an_unlisted_job_reading_its_secret_by_index_or_in_lowercase_is_named(self) -> None:
+        """Codex: an unlisted job got through with `${{ secrets['SENTRY_AUTH_TOKEN'] }}`. The trait is read through
+        tests/workflow_jobs.py, so secrets['X'], secrets["X"], a lowercase name and toJSON(secrets) are all secrets."""
+        documents = workflows()
+        route = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}"
+        for form, value in (("single bracket", "${{ secrets['NIGHTLY_SPARKLE_PRIVATE_KEY'] }}"),
+                            ("double bracket", '${{ secrets["APPLE_CERTIFICATE_BASE64"] }}'),
+                            ("lowercase", "${{ Secrets.apple_certificate_password }}"),
+                            ("whole context", "${{ toJSON(secrets) }}")):
+            with self.subTest(form=form):
+                job = {"runs-on": route, "steps": [{"run": "sign", "env": {"KEY": value}}]}
+                found, _, _ = classification_failures(self._with(documents, "nightly.yml", "bracket-fixture", job))
+                self.assertEqual(found, ["nightly.yml bracket-fixture: holds a signing secret on a route to an owned "
+                                         "Mac but is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's "
+                                         "SIGNING_JOBS) or EXCLUSIVE_EXEMPT with a reason"])
+        # The owned pick read by index (needs['x'].outputs['y']) is the same read, so the cap list names it too.
+        base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
+        base = keychain_guard.bracketed(base)
+        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", str(base["runs-on"]))
+        found, _, _ = classification_failures(self._with(documents, "release.yml", "sign-split-fixture", base))
+        self.assertTrue(any(why.startswith("release.yml sign-split-fixture:") and "not in GLAEDA_EXCLUSIVE_JOBS" in why
+                            for why in found), found)
+        self.assertTrue(any(why.startswith("release.yml sign-split-fixture:")
+                            and "not in signing_runner.SIGNING_JOBS" in why for why in found), found)
+
+    def test_a_listed_job_added_to_the_whole_tree_stays_green(self) -> None:
+        """The fixtures add one job to every workflow document; one that is on its list leaves the guard green."""
+        documents = workflows()
+        twin = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize-blacksmith"])
+        self.assertEqual(classification_failures(self._with(documents, "release.yml",
+                                                            "build-sign-notarize-blacksmith", twin))[0], [])
 
     def test_an_exempt_twin_that_can_reach_an_owned_mac_is_named(self) -> None:
         documents = workflows()
@@ -1585,7 +1627,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
             for index, step in enumerate(keychain_guard.inline_step_scripts(job).get("steps") or []):
                 if not isinstance(step, dict):
                     continue
-                if not keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+                if not keychain_guard.signing_secret(step):
                     continue
                 with self.subTest(job=f"{workflow} {job_id}", step=index):
                     self.assertFalse(keychain_guard.runs_after_failure(step.get("if")), step.get("if"))
