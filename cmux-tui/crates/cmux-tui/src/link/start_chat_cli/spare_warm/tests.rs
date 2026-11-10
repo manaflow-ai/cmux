@@ -577,7 +577,7 @@ fn an_installed_warm_copy_is_the_starts_login_receipt() {
     assert!(!asked("user_a", MACHINE, "claude", 1_000_300));
     // The App reports it installed: that ends the copy, and a Claude start onto it skips its login check.
     let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
-    assert_eq!(call(&installed, 1_000_400), json!({"ok": true, "finished": false}));
+    assert_eq!(call(&installed, 1_000_400), json!({"ok": true, "finished": true}));
     assert!(!copy_in_flight(dir.path(), MACHINE, 1_000_500));
     assert!(asked("user_a", MACHINE, "claude", 1_000_500));
     // Only that account, that machine, the copied provider, and within the receipt's life.
