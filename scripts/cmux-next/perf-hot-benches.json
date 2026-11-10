@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "terminal-host-output": {
+      "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
+      "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",
+      "owner": "terminal host"
+    },
     "chats-window-query": {
       "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
       "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",

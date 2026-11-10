@@ -146,7 +146,7 @@ impl Harness {
         self.host
             .parser_commands
             .send(ParserCommand::Output {
-                bytes: bytes.to_vec(),
+                frame: Arc::new(Frame::new(MessageKind::Output, bytes.to_vec())),
                 source_cursor: self.cursor,
                 accounted_bytes: 0,
             })
@@ -379,7 +379,7 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
 /// could already see the read request.
 struct OwnerProbeClock {
     now: Instant,
-    owner_inbox: Mutex<Receiver<Frame>>,
+    owner_inbox: Mutex<Receiver<Arc<Frame>>>,
     request_visible_at_read: Mutex<Vec<bool>>,
 }
 
