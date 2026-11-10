@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42915662815",
+  "recorded_at": "2026-11-10T22:36:06Z",
+  "reason": "cmux-tui 6286eba3ca08 changes the image's cmux-tui (pinned 6b2d2b4dc103)",
+  "dry_run": false,
+  "cmux_tui": "6286eba3ca085694a7a8bcbf7340e08d9d081e60",
+  "fixes": [
+    {
+      "sha": "6286eba3ca085694a7a8bcbf7340e08d9d081e60",
+      "mergedAt": "2026-11-10T22:16:04Z",
+      "subject": "cmux-tui: a list with no scope builds its own collection, not the session snapshot (#40709)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T22:36:06Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
