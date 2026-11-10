@@ -17,7 +17,7 @@ extension PaletteModel {
         var deferred: [any PaletteProvider] = []
         for provider in page.providers {
             if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
-                state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
+                state.providerItems[provider.id] = deferredStandIn(provider.id, page: page.id, state: state)
                 deferred.append(provider)
                 continue
             }
@@ -115,6 +115,20 @@ extension PaletteModel {
             if !items.isEmpty { kept[provider.id] = items }
         }
         shownDeferredItems[page.id] = kept
+    }
+
+    /// The rows a hidden provider shows until it reads again after the frame: the Recent rows the
+    /// page's empty query last showed, each as `state` last read it. A reload of an open page (a
+    /// setting's write landed) must not show the copy kept before a keep-open run read the row
+    /// again: the empty query's rank keeps that copy only once it lands, so a write that landed
+    /// first flashed the row's old On/Off back.
+    func deferredStandIn(_ providerID: String, page pageID: String, state: PageState) -> [PaletteItem] {
+        let shown = shownDeferredItems[pageID]?[providerID] ?? []
+        guard !shown.isEmpty, let read = state.providerItems[providerID], !read.isEmpty else { return shown }
+        let ids = Set(shown.map(\.id))
+        var latest: [String: PaletteItem] = [:]
+        for item in read where ids.contains(item.id) { latest[item.id] = item }
+        return shown.map { latest[$0.id] ?? $0 }
     }
 
     /// Ranks the page's rows for its query and generation on the searcher,

@@ -18,15 +18,17 @@ import path from "node:path";
 import { contentionFactor, normalizeRows, probe } from "./hostLoad";
 import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 
+/// `ownPart`: run only when `--only` names it (perf-cron.py gives it a part of its own, outside the 30-minute cap).
 type Bench = {
   name: string;
   file: string;
   args: string[];
   env?: Record<string, string>;
   timeoutMs: number;
+  ownPart?: boolean;
 };
 
-/// Short arguments; the timeouts sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
+/// Short arguments; the timeouts of the benches without `ownPart` sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
@@ -87,6 +89,52 @@ export const BENCHES: readonly Bench[] = [
     file: "all-chats-list.bench.ts",
     args: ["3", "500"],
     timeoutMs: 90_000,
+  },
+  // One session's status, unread, title or cost changing at 100, 1,000 and 3,000 listed sessions: the cost per change
+  // and its growth, which should be none. perf-cron.py's web-ui-scale part (about 90 s on a lane VM).
+  {
+    name: "update-one",
+    file: "update-one.bench.ts",
+    args: ["--changes", "20", "--turns", "1000"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
+  // main-thread ms and React commits per update. Run with `--only extension-parity`.
+  {
+    name: "extension-parity",
+    file: "extension-parity.bench.ts",
+    args: ["3", "200"],
+    timeoutMs: 180_000,
+    ownPart: true,
+  },
+  // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
+  // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
+  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
+  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
+  {
+    name: "chat-open-god",
+    file: "chat-open.bench.ts",
+    args: ["3", "300"],
+    env: { FIXTURE: "god" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  {
+    name: "chat-switch-god",
+    file: "chat-switch.bench.ts",
+    args: ["3", "300"],
+    env: { FIXTURE: "god" },
+    timeoutMs: 420_000,
+    ownPart: true,
+  },
+  {
+    name: "transcript-replay-god",
+    file: "transcript-replay.bench.ts",
+    args: [],
+    env: { FIXTURE: "god" },
+    timeoutMs: 420_000,
+    ownPart: true,
   },
 ];
 
@@ -170,7 +218,7 @@ async function main() {
   const rows: PerfRow[] = [];
   const failed: Failure[] = [];
   const benches: Record<string, { exit: number | null; seconds: number; rows: number; load: number }> = {};
-  for (const bench of BENCHES.filter((each) => !only || only.includes(each.name))) {
+  for (const bench of BENCHES.filter((each) => (only ? only.includes(each.name) : !each.ownPart))) {
     console.log(`web-ui-suite: ${bench.name} ${bench.args.join(" ")}`);
     const before = probe();
     const result = await run(bench);

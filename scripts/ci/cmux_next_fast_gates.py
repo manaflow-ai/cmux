@@ -14,9 +14,12 @@ result is fresh for the tip they merge into.
       (true when web lint has something to lint) and checks= (true on a dispatch, or for a
       string catalog or protocol spec change, which ci-web's routing does not check) to --output
       (GITHUB_OUTPUT).
-  run --base BASE [--web true|false] [--checks true|false]
+  run --base BASE [--web true|false] [--checks true|false] [--budget-seconds N]
                                                   every gate on BASE..HEAD (the merge); exit 1
-                                                  when any gate fails, after running all of them
+                                                  when any gate fails, after running all of them.
+      With --budget-seconds, a gate still running N seconds after the run began is stopped
+      and reported as stalled (2026-11-09: a web lint whose bun install hung on the registry sat
+      silent until the job's limit cancelled it, and merge_hold refused the cancelled check).
 
 The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
@@ -45,8 +48,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -305,6 +310,27 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     ]
 
 
+def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
+    """The gate's exit code, or None when it gave no result in SECONDS: then its whole process group is stopped (a
+    gate's bun install child included), so a hung install ends as a named, stalled gate, not a cancelled job."""
+    process = subprocess.Popen(argv, cwd=repo, start_new_session=True)
+    try:
+        return process.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
+        # SIGTERM must not outlive its gate into the next one.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+                break
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        return None
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -316,6 +342,7 @@ def run(args: argparse.Namespace) -> int:
         return 2
     holder = Path(tempfile.mkdtemp(prefix="fast-gates-base-"))
     rows: list[tuple[str, str, float]] = []
+    deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
         for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true"):
@@ -323,14 +350,27 @@ def run(args: argparse.Namespace) -> int:
                 print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left < 1:
+                print(f"::error title=fast gates: {name}::{name} never started: the gates' {args.budget_seconds}s "
+                      "budget ran out on the gates before it", flush=True)
+                rows.append((name, "failed (no time left)", 0.0))
+                continue
             print(f"::group::{name}", flush=True)
             started = time.monotonic()
-            code = subprocess.run(argv, cwd=repo).returncode
+            code = run_gate(argv, repo, left)
             seconds = time.monotonic() - started
             print("::endgroup::", flush=True)
-            outcome = "passed" if code == 0 else f"failed (exit {code})"
+            if code is None:
+                outcome = f"failed (stalled: no result in {seconds:.0f}s)"
+                print(f"::error title=fast gates: {name} stalled::{name} gave no result in {seconds:.0f}s, the rest of "
+                      f"the gates' {args.budget_seconds}s budget, and was stopped so the job reports it instead of "
+                      "being cancelled at its limit. A stalled install (a registry that stops answering) is not a "
+                      "finding: rerun the job.", flush=True)
+            else:
+                outcome = "passed" if code == 0 else f"failed (exit {code})"
             print(f"{name}: {outcome} in {seconds:.1f}s", flush=True)
-            if code != 0:
+            if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
     finally:
@@ -367,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
     gate.add_argument("--checks", choices=("true", "false"), default="false")
     gate.add_argument("--summary", type=Path)
     gate.add_argument("--repo", type=Path, default=Path.cwd())
+    gate.add_argument("--budget-seconds", type=int,
+                      help="stop a gate still running this long after the run began, and report it stalled")
     args = parser.parse_args(argv)
     return prepare(args) if args.command == "prepare" else run(args)
 

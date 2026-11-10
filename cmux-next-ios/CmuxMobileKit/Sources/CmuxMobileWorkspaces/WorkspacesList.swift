@@ -81,6 +81,8 @@ public struct WorkspacesList: View {
     @State private var inboxMemo = WorkspaceInbox.Memo()
     /// The Macs' names and Filter rows, memoized (verify/perf-latency.md).
     @State private var macText = MacFilterMemo()
+    /// The collection's sections and items, modeled once per change of what they show.
+    @State private var listMemo = BuiltOncePerInput<ListModelInput, WorkspacesListModel>()
     @State private var closingFrame: CGRect = .zero
     /// The reveal request this list already answered (one back from the workspace's page).
     @State private var revealedRequest: Int?
@@ -154,6 +156,15 @@ public struct WorkspacesList: View {
 
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
     private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
+
+    /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
+    private var launchState: WorkspacesLaunchState {
+        WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
+                                      hasWorkspaces: !store.activeWorkspaces.isEmpty, isOffline: store.isOffline)
+    }
+
+    /// The list's own placeholder rows fill the page (Macs known, no rows yet).
+    private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
 
     public var body: some View {
         groupDialogs(page)
@@ -266,7 +277,13 @@ public struct WorkspacesList: View {
         if let mac = scopedMac {
             return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
-        if showsUpdating && isRefreshing { return "Updating…" }
+        let state = launchState
+        // One loading indicator at a time: over the placeholder rows the page already says it loads.
+        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
+        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
+        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
@@ -326,14 +343,17 @@ public struct WorkspacesList: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch store.teamDataState {
-        case .loading where store.activeWorkspaces.isEmpty || macs.isEmpty:
-            skeleton
-        case .failed:
-            EmptyState(symbol: "cloud", title: "Couldn't load workspaces",
+        switch launchState {
+        case .firstLoad(let offline):
+            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .failed(let offline):
+            EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
+                       message: offline ? "This iPhone is offline. Workspaces load when it's back online."
+                           : "cmux couldn't reach the service. It tries again on its own.",
+                       // The offline pill is status only: Retry stays here (the one on screen).
                        retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
-        case .loading, .loaded:
+        case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
                     email: accountEmail,
@@ -349,8 +369,9 @@ public struct WorkspacesList: View {
         }
     }
 
-    private var skeleton: some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8) }
+    /// The first load's placeholder rows, captioned with what they wait for.
+    private func skeleton(_ caption: LocalizedStringKey) -> some View {
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
     }
@@ -367,7 +388,7 @@ public struct WorkspacesList: View {
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
                 if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton }
+                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
                 } else if inbox.isEmpty {
                     emptyState
                 }
@@ -392,15 +413,56 @@ public struct WorkspacesList: View {
             .onDisappear { isShown = false }
     }
 
+    /// Everything the collection's model reads besides the inbox (named by its memo's build):
+    /// a body pass with the same input models no row. The minute clock is not here: a Mac
+    /// line reads it in its own view (`OnMinute`), so a tick redraws that line alone.
+    private struct ListModelInput: Equatable {
+        var inboxBuild: Int
+        var names: [String: String]
+        var rights: [String: WorkspaceCreator.MacRights]
+        var pending: Set<String>
+        var tracks: Bool
+        var compact: Bool
+        var grouping: WorkspaceListGrouping
+        var unfolded: Set<String>
+        var searching: Bool
+        var scopeMacID: String?
+        var typeSize: DynamicTypeSize
+        var canReconnect: Bool
+        var sameNames: MacNameDisambiguation
+        /// The Mac groups (`emptyGroups(on:)` reads them): the phone's own changes, and each
+        /// listed Mac's groups as it lists them (a group made or deleted on the Mac), in Mac order only.
+        var groupsRevision: Int
+        var macGroups: [String: [MacWorkspaceGroup]]
+    }
+
+    /// Sections and items for the collection, built once per change of their input.
+    private func listModel(_ inbox: WorkspaceInbox) -> WorkspacesListModel {
+        var rights: [String: WorkspaceCreator.MacRights] = [:]
+        for mac in macs { rights[mac.id] = creator.rights(onMac: mac.id) }
+        // The Macs whose empty groups the model lists (one per Mac group run, not per row).
+        var macGroups: [String: [MacWorkspaceGroup]] = [:]
+        if inbox.isMacOrder {
+            for section in inbox.recentSections where macGroups[section.macID] == nil {
+                macGroups[section.macID] = creator.listedGroups(on: section.macID)
+            }
+        }
+        let input = ListModelInput(inboxBuild: inboxMemo.builds, names: macNames(), rights: rights,
+                                   pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList,
+                                   grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
+                                   typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
+                                   groupsRevision: creator.groupsRevision, macGroups: macGroups)
+        return listMemo.value(input) { buildListModel(inbox, input) }
+    }
+
     /// Sections and items for the collection, in the SwiftUI list's order:
     /// the asleep note, Needs You, Pinned, Recent (with its group headers),
     /// each Mac's fold, then the placeholders.
-    private func listModel(_ inbox: WorkspaceInbox) -> WorkspacesListModel {
-        let names = macNames()
-        var rights: [String: WorkspaceCreator.MacRights] = [:]
-        for mac in macs { rights[mac.id] = creator.rights(onMac: mac.id) }
-        let pending = store.pendingWorkspaceIDs
-        let tracks = store.tracksMacData
+    private func buildListModel(_ inbox: WorkspaceInbox, _ input: ListModelInput) -> WorkspacesListModel {
+        let names = input.names
+        let rights = input.rights
+        let pending = input.pending
+        let tracks = input.tracks
         var model = WorkspacesListModel()
         func add(_ section: String, _ entries: [(String, WorkspacesListItem)]) {
             guard !entries.isEmpty else { return }
@@ -413,7 +475,7 @@ public struct WorkspacesList: View {
                 return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending, tracks: tracks)))
             }
         }
-        if inbox.allAsleep && query.isEmpty { add("asleep", [("asleep", .asleep)]) }
+        if inbox.allAsleep && !input.searching { add("asleep", [("asleep", .asleep)]) }
         if !inbox.needsYou.isEmpty { add("needs", [("title.needs", .title("Needs You"))] + rows(inbox.needsYou)) }
         if !inbox.pinned.isEmpty { add("pinned", [("title.pinned", .title("Pinned"))] + rows(inbox.pinned)) }
         if !inbox.recent.isEmpty {
@@ -422,7 +484,7 @@ public struct WorkspacesList: View {
                 // The Mac's sidebar order when the phone knows it, else newest first.
                 entries.append(("title.recent", .title(inbox.isMacOrder ? "Workspaces" : "Recent")))
             }
-            for section in WorkspaceListGrouping.arrange(inbox.recentSections, by: grouping) {
+            for section in WorkspaceListGrouping.arrange(inbox.recentSections, by: input.grouping) {
                 if let bucket = section.folder {
                     entries.append(("folder.\(section.macID).\(bucket)", .folder(WorkspaceFolderHeaderModel(folder: bucket, count: section.workspaces.count))))
                     entries += rows(section.workspaces)
@@ -446,15 +508,14 @@ public struct WorkspacesList: View {
             }
             add("recent", entries)
         }
-        let now = MinuteClock.shared.now
         for fold in inbox.folds {
-            let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
+            let isOpen = fold.isForcedOpen || input.unfolded.contains(fold.mac.id)
             var entries: [(String, WorkspacesListItem)] = []
             // Filtered to this Mac: its rows alone; the navigation subtitle already says when it was last seen.
-            if scope.macID != fold.mac.id {
+            if input.scopeMacID != fold.mac.id {
                 entries.append(("fold.\(fold.mac.id)", .fold(WorkspaceFoldLineModel(
-                    fold: fold, isOpen: isOpen, showsLine: true, typeSize: typeSize, canReconnect: reconnect != nil,
-                    sameNames: sameNames, now: now))))
+                    fold: fold, isOpen: isOpen, showsLine: true, typeSize: input.typeSize, canReconnect: input.canReconnect,
+                    sameNames: input.sameNames))))
             }
             if isOpen { entries += rows(fold.workspaces) }
             add("fold.\(fold.mac.id)", entries)
@@ -491,7 +552,8 @@ public struct WorkspacesList: View {
         case let .folder(header):
             AnyView(FolderHeaderLabel(folder: header.folder, count: header.count))
         case let .fold(line):
-            AnyView(foldLine(line.fold))
+            // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
+            AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
             AnyView(SkeletonList(rows: 4, leadingSquare: nil)
                 .allowsHitTesting(false)
@@ -708,10 +770,10 @@ public struct WorkspacesList: View {
     /// One line for an offline Mac ("MacBook Pro · Last seen 2h ago  3 ›"),
     /// unfolding its rows in place; or for an online Mac the phone is not
     /// linked to (live), linking it on a tap.
-    private func foldLine(_ fold: WorkspaceInbox.Fold) -> some View {
+    private func foldLine(_ fold: WorkspaceInbox.Fold, now: Date) -> some View {
         let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
         let detail = switch fold.reason {
-        case .offline: RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
+        case .offline: RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
         case .failed: "Can't connect"
         }

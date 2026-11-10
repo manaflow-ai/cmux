@@ -482,13 +482,14 @@ test("a held card shows its record's whole text and every attachment", async () 
           { kind: "document", name: "spec.pdf", mimeType: "application/pdf", size: 2048, pageCount: 3 },
           { kind: "audio", name: "note.m4a", mimeType: "audio/mp4", size: 4096 },
           { kind: "resource_link", name: "retry.ts", uri: "file:///repo/src/retry.ts", mimeType: "text/plain" },
+          { kind: "resource_link", name: "repro.mov", uri: "file:///repo/repro.mov" },
         ],
         _meta: fromCyMeta,
       },
     });
     await until(() => view.shown.queue?.length === 1);
     const row = queuedMessageRows(view.shown.queue)[0]!;
-    expect(row.inlineParts?.map((part) => part.kind)).toEqual(["text", "document", "audio", "file"]);
+    expect(row.inlineParts?.map((part) => part.kind)).toEqual(["text", "document", "audio", "file", "file"]);
     const { host } = await heldCard(row);
     // Drawn whole: no cut, no Show more, every line there.
     expect(host.querySelector(".cv-received__body[data-cut]")).toBeNull();
@@ -498,6 +499,9 @@ test("a held card shows its record's whole text and every attachment", async () 
       (each) => each.textContent,
     );
     expect(names).toEqual(["retry.ts", "spec.pdf", "note.m4a"]);
+    // A video is its tile, as in a sent prompt, never left out (Leo, 2026-11-06: "how come this
+    // didn't give a preview and only has file name?").
+    expect(host.querySelector(".cv-message__images .cv-user__video")?.getAttribute("title")).toBe("repro.mov");
   } finally {
     close();
   }

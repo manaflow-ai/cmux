@@ -53,7 +53,7 @@ fi
 
 BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 

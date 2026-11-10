@@ -118,12 +118,14 @@ fn go(request: &Request, key: &[u8]) -> Result<Value, Failure> {
 }
 
 #[test]
-fn a_classic_vm_call_reaches_the_api_through_the_daemon() {
-    let (origin, seen) = fake(|_| (200, r#"{"networks":[{"id":"n1"}]}"#.into()));
-    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({})), &[]);
-    assert_eq!(answer.unwrap(), json!([{"id": "n1"}]));
+fn a_classic_call_reaches_the_api_through_the_daemon() {
+    let (origin, seen) =
+        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
+    let args = json!({"id": "r1", "timeoutMs": 1});
+    let answer = go(&request(&origin, Auth::Stack, "runs.wait", args), &[]);
+    assert_eq!(answer.unwrap()["run"]["id"], "r1");
     let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/vm/network "));
+    assert!(seen[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
@@ -168,12 +170,12 @@ fn a_preview_link_is_created_on_the_platform_through_the_daemon() {
 }
 
 #[test]
-fn a_machine_exec_runs_through_the_daemon() {
+fn a_classic_machine_exec_is_refused_through_the_daemon() {
     let (origin, seen) = fake(|_| (200, r#"{"exitCode":0,"stdout":"ok","stderr":""}"#.into()));
     let args = json!({"op": "exec", "machine": "m1", "command": "true", "timeout_ms": 1000});
-    let answer = go(&request(&origin, Auth::Stack, "machine.io", args), &[]).unwrap();
-    assert_eq!(answer["stdout"], "ok");
-    assert!(seen.lock().unwrap()[0].line.starts_with("POST /api/vm/m1/exec "));
+    let failure = go(&request(&origin, Auth::Stack, "machine.io", args), &[]).unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 501, .. }), "{failure:?}");
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -185,7 +187,8 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
                 .into(),
         )
     });
-    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({})), &[]).unwrap_err();
+    let args = json!({"id": "r1", "timeoutMs": 1});
+    let failure = go(&request(&origin, Auth::Stack, "runs.wait", args), &[]).unwrap_err();
     assert_eq!(
         failure,
         Failure::PlanRequired {
@@ -199,7 +202,7 @@ fn a_refusal_comes_back_as_the_same_failure_with_no_credential() {
 #[test]
 fn a_daemon_that_is_not_running_is_a_transport_failure() {
     let missing = std::env::temp_dir().join(format!("cloud-api-none-{}.sock", std::process::id()));
-    let call = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
+    let call = request("https://cmux.com", Auth::Stack, "runs.wait", json!({"id": "r1"}));
     assert!(matches!(call_socket(&missing, false, None, &call, &[]), Err(Failure::Transport(_))));
 }
 

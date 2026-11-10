@@ -3,7 +3,18 @@
 cmux's pages (Settings, History, Cloud, the viewers) and the agent chat are React. Edit them in a
 cmux checkout and the app you're using right now changes as you save: no build, no relaunch, your
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
-Chromium, and it's on by default.
+Chromium, and it's on by default. The feature is called **cmux Live**.
+
+### Is cmux Live the same as Live Web Reload?
+
+Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
+**cmux Live** (`updates.liveWebReload`) is its on switch: on, the app may load your checkout's web
+UI; off, it shows the web UI it shipped with. `cmux live start` (or **Edit cmux Live…**) is the
+web path: it runs your checkout's dev server for the React pages and chat under `webviews/`.
+The other paths are flags: `cmux live start --swift` restarts a tagged DEV build into a live code
+build for the app's Swift ([live-code.md](live-code.md)), and `cmux live start --rust` swaps the
+daemon's Rust ([below](#the-daemons-rust-live)). When pages go blank or stop changing,
+`cmux live status` says first what the app loads its web UI from and why.
 
 `cmux live` and **Live Web Reload** are one feature, not one for Swift and one for React. `cmux live`
 (or **Edit cmux Live…**) is how you start and stop it; **Live Web Reload** in Settings > General is
@@ -49,13 +60,13 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
-| What's running | `cmux live status` |
+| What the app loads its web UI from, and why | `cmux live status` |
 | Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
-| Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
+| Turn the feature off | Settings > General > **cmux Live**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
 
-**Live Web Reload** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
+**cmux Live** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
 On, cmux reads `~/.config/cmux/web-dev.json` and serves what it names; with no such file nothing
 changes. Off, cmux ignores the file without touching it. Flip it from Settings > General, or from
 any terminal:
@@ -122,6 +133,16 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 (React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
+
+When the server stops or restarts under a page, the page never stays blank. A page drawn from the
+server shows a small note, "the dev server stopped", and reloads when it is back. A page whose code
+stops loading mid-load loads again: it gets the server's files if the server answers, else the
+shipped ones. It tries four times in about 8 seconds, then keeps a note that points at
+`cmux live status`. When the server exits on its own, its watch clears `server` from
+`web-dev.json`, so every page goes back to the shipped web UI, and writes the time to
+`dev-server.exit` in the state folder. `server --local` keeps each module's React Compiler output
+in that folder (`transforms`, about 50 MB per tree, entries older than 14 days are removed). So
+from the second start on, the agent pane is ready in about 6 s, not 35 s.
 
 ### A projection window
 
@@ -461,7 +482,14 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   `completion.json`, replaces the app's `bin/cmux`. The app's daemon then hands off to it as in
   `cmux live start --rust`: same app pid, terminals kept. `bin/cmux` is also `cmux-tui` and `acpmux`,
   so `cmux link`, the CLI in the app's terminals and acpmux daemons started after the swap run SHA's
-  build. A running acpmux daemon keeps its build until it restarts (`--acpmux-home H` restarts one).
+  build. A running acpmux daemon keeps its build until it restarts: `--restart-acpmux` restarts every
+  acpmux daemon running from the app's bin folder (`acpmux daemon run` or `cmux acp daemon run`, each
+  found by its socket's `daemon status`), so the agent daemon swaps too, its hosted sessions kept. Each
+  restarts with its own launch environment, read from the process, and must answer from a new pid. A
+  daemon a restart would cost its chats (a memory store without agent hosts), or one whose environment
+  can't be read, is left;
+  `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
+  left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
 - **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
@@ -523,11 +551,12 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 | Symptom | Check |
 |---|---|
 | Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200, and with `-H 'X-Cmux-Dev-Nonce: 1'` it adds an `X-Cmux-Dev-Proof` (none: the server is older than this change, or `web-dev.json` has no `token`). The app's commit includes #22664 (above). |
-| A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
+| A page loads, then stops updating | The dev server stopped: the page says so in its corner, and if the server exited, `dev-server.exit` in the state folder says when. Pages go back to the shipped web UI. Run `server --local` again. |
+| A page is blank, or a script "has a MIME type of text/html" | The server is older than this change: it answered files it lacks with its index page. Pull the checkout and start it again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
-| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
-| Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
+| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **cmux Live** off (`cmux settings set updates.liveWebReload false`). |
+| Nothing changes, and `status` says the server runs | The first lines of `cmux live status` say what the app loads and why. `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
 | `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
 | A page's React content goes blank, or a page shows another page or its HTML | The dev server answered a file it does not have (a bundled page's chunk, a page newer than your checkout) with the diff viewer's `index.html`. A server from a checkout with this change answers cmux a 404 there, and the app serves the bundled copy: pull, then `cmux live start` again. Serve a tree near the app's commit, so every page the app opens is in it. A page drawn as its HTML source in Chromium is fixed in apps from #37247 on. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |

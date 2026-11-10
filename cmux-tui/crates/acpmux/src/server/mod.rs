@@ -224,6 +224,9 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// What a first unix `initialize` declared about its caller (`cli_caller.rs`); unset for a
+    /// client that is no acpmux CLI and declared nothing.
+    declared: std::sync::OnceLock<crate::cli_caller::Declared>,
     /// The peers this connection leased (`hub/peer_lease.rs`); None once it
     /// closed, so a lease that settles after the close ends at once.
     peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
@@ -416,6 +419,56 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// What its first `initialize` declared about its caller (`cli_caller.rs`).
+    pub(super) fn declared(&self) -> Option<&crate::cli_caller::Declared> {
+        self.declared.get()
+    }
+
+    /// Whether an unnamed send on it may still be the owner's terminal send: it declared a
+    /// terminal, or it is no acpmux CLI and declared nothing (`requests.rs` `owner_terminal`).
+    pub(super) fn may_be_owner_terminal(&self) -> bool {
+        self.declared().is_none_or(crate::cli_caller::Declared::may_be_owner_terminal)
+    }
+
+    /// Whether an agent may be behind it rather than the owner's terminal: it named a session
+    /// (proven or not), or it declared no terminal (`cli_caller.rs`). Never for the proven person.
+    pub(super) fn agent_side(&self) -> bool {
+        !self.is_person()
+            && (self.caller().is_some()
+                || self.unproven_caller.get().is_some()
+                || !self.may_be_owner_terminal())
+    }
+
+    /// Whether it proved no session and an agent may be behind it: neither the person's terminal
+    /// nor a proven agent (an old acpmux CLI, a shell that declared no terminal, a token this
+    /// daemon does not know). Such a connection gets no person verb (team messages, the
+    /// person's workflow runs) and no agent's either.
+    pub(super) fn unproven_agent(&self) -> bool {
+        self.caller().is_none() && self.agent_side()
+    }
+
+    /// The refusal of `what` for this connection: `otherwise`, or, for an old acpmux CLI that
+    /// proved no session, the one refusal that names it and says which CLI to run
+    /// (`cli_caller::old_cli_refused`). A proven agent on an old CLI is refused as any agent: an
+    /// update would not change its answer.
+    pub(super) fn refusal(
+        &self,
+        what: &str,
+        otherwise: crate::rpc::RpcError,
+    ) -> crate::rpc::RpcError {
+        let old = self.declared().and_then(crate::cli_caller::Declared::old_client);
+        match old.filter(|_| self.caller().is_none()) {
+            Some(client) => crate::cli_caller::old_cli_refused(client, what),
+            None => otherwise,
+        }
+    }
+
+    /// The refusal of a verb only the person's own terminal may use, for this connection
+    /// ([`Conn::refusal`] of `person_required`).
+    pub(super) fn person_only(&self, what: &str) -> crate::rpc::RpcError {
+        self.refusal(what, crate::hub::person::person_required(what))
+    }
+
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
     pub(super) fn challengeable(&self) -> bool {
         matches!(self.origin, Origin::Local | Origin::LocalApp)
@@ -435,6 +488,11 @@ impl Conn {
             self.challenged.store(true, Ordering::SeqCst);
         }
         let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
+        if let Some(declared) =
+            params.as_ref().filter(|_| first_local).and_then(crate::cli_caller::of_initialize)
+        {
+            let _ = self.declared.set(declared);
+        }
         if let Some((id, token)) = caller.filter(|_| first_local) {
             let proven = hub.proven_caller((id.clone(), token)).is_some();
             let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
@@ -1584,6 +1642,7 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        declared: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
@@ -1887,6 +1946,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`. Not a
+    // logged record, so nothing but this notice goes out for it.
+    if ev.record.dir == crate::hub::COLD_CHANGED {
+        let attached = conn.sub_opts(&ev.session_id).is_some();
+        if (attached || conn.watch_all.load(Ordering::SeqCst))
+            && let Ok(s) = hub.resolve(&ev.session_id)
+        {
+            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
+                hub.session_summary(&s)
+            } else {
+                hub.session_list_summary(&s)
+            };
+            conn.send(&Message::notification(
+                method::MUX_SESSION_CHANGED,
+                json!({"sessionId": ev.session_id, "session": session, "kind": crate::hub::COLD_CHANGED, "recordKind": crate::hub::COLD_CHANGED, "seq": s.meta().last_seq}),
+            ));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
@@ -2030,10 +2108,23 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
-        if let Ok(s) = hub.resolve(&ev.session_id) {
+        // Built once per record, by the first watcher that sends it, and shared by the others
+        // (`HubEvent::row`): with many watchers, each built the whole row again.
+        let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+        let [list_row, full_row] = &*ev.row;
+        let row = if full { full_row } else { list_row };
+        let summary = match row.get() {
+            Some(summary) => Some(summary),
+            None => hub.resolve(&ev.session_id).ok().map(|s| {
+                row.get_or_init(|| {
+                    if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) }
+                })
+            }),
+        };
+        if let Some(summary) = summary {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { hub.session_summary(&s) } else { hub.session_list_summary(&s) }, "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
+                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
@@ -2103,11 +2194,15 @@ mod models_fanout;
 mod new_worktree;
 mod outbound;
 mod plan_build;
+mod project_new;
+mod prompt_coach;
 mod review_queue;
+mod run_elsewhere;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,
 };
+mod machine_tunnel;
 pub(crate) mod outbox;
 mod pairing;
 pub use pairing::serve_connection_device;
@@ -2209,3 +2304,12 @@ mod message_notice_tests;
 #[cfg(test)]
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
+
+// What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;
+
+#[cfg(test)]
+#[path = "chat_window_activity_tests.rs"]
+mod chat_window_activity_tests;

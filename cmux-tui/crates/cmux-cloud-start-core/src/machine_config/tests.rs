@@ -232,3 +232,50 @@ fn an_apply_waits_for_a_checkout_still_filling() {
     let whole = apply("done", "1").unwrap();
     assert_eq!(whole, ("applies".to_owned(), None), "a whole clone waits on nothing");
 }
+
+/// A delivered secret set of any size is read back whole: the applier masks every value of a
+/// machine-secrets.env past 4 MiB (the size it once refused setup at) and knows all its names.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_of_any_size_is_masked_and_named() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let scratch = std::env::temp_dir().join(format!("cmux-apply-secrets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("home/.config/cmux")).unwrap();
+    let root = Scratch(scratch.canonicalize().unwrap());
+    let home = root.0.join("home");
+    // 300 values of 16 KiB each: about 4.8 MiB.
+    let file: String = (0..300)
+        .map(|i| format!("export SECRET_{i}='{i:05}{}'\n", "x".repeat(16 * 1024 - 5)))
+        .collect();
+    assert!(file.len() > 4 << 20, "{}", file.len());
+    std::fs::write(home.join(".config/cmux/machine-secrets.env"), &file).unwrap();
+    let applier_path = root.0.join("apply");
+    std::fs::write(&applier_path, applier()).unwrap();
+    // These two read no TOML: a python3 older than 3.11 (no tomllib) loads the applier with a
+    // stand-in, so the check runs on every host that has a python3. The applier has no `.py`
+    // suffix, so its loader is named (a file-location spec would have none).
+    let call = "import importlib.machinery, importlib.util, sys, types\n\
+                try:\n    import tomllib\n\
+                except ImportError:\n    sys.modules['tomllib'] = types.ModuleType('tomllib')\n\
+                l = importlib.machinery.SourceFileLoader('applier', sys.argv[1])\n\
+                m = importlib.util.module_from_spec(importlib.util.spec_from_loader('applier', l))\n\
+                l.exec_module(m)\n\
+                try:\n    print(len(m.secret_values()), len(m.delivered()))\n\
+                except m.Refused as e:\n    print('refused:', e)\n";
+    let Ok(out) = std::process::Command::new("python3")
+        .args(["-I", "-c", call])
+        .arg(&applier_path)
+        .env("HOME", &home)
+        .output()
+    else {
+        return;
+    };
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    assert_eq!(said, "300 300", "{}", String::from_utf8_lossy(&out.stderr));
+}

@@ -53,11 +53,13 @@ mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+pub(crate) mod premigrate;
 mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
 mod host_identity;
+pub(crate) use host_identity::StoredIds;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -90,6 +92,8 @@ pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
+pub(crate) mod terminal_state_end;
+pub use terminal_state_end::EndedTerminalState;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
 mod terminal_unplaced_store;
@@ -2424,7 +2428,7 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
-fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
 
@@ -2602,7 +2606,7 @@ impl WorkspaceRegistry {
             };
         #[cfg(not(debug_assertions))]
         let first = open_once(&mut session_guard, &mut lease);
-        match first {
+        let registry = match first {
             Ok(mut registry) => {
                 // Also true on a later start when the swap start never got
                 // through a full start (killed during restore).
@@ -2619,7 +2623,10 @@ impl WorkspaceRegistry {
                 open_once(&mut session_guard, &mut lease)
             }
             Err(error) => Err(error),
-        }
+        }?;
+        // A roster the next build folded beside the previous owner.
+        premigrate::adopt(&registry);
+        Ok(registry)
     }
 
     /// Opens the registry and builds the owner from it with `load`. When this
@@ -2974,6 +2981,7 @@ impl WorkspaceRegistry {
             migrate_resource_agent_hook_state_add_ended_at(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.migrations.columns");
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             if first_state_foreign_key_violation(&connection)?.is_some() {
@@ -2982,6 +2990,7 @@ impl WorkspaceRegistry {
                 );
             }
         }
+        timings.lap("registry.migrations.foreign_key_check");
         if needs_sensitive_receipt_cleanup {
             checkpoint_and_truncate_wal(&connection)?;
             connection.execute_batch("VACUUM;")?;
@@ -2993,6 +3002,7 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        timings.lap("registry.migrations.receipt_cleanup");
         // Existing registries are migrated by the background journal
         // maintenance worker. VACUUM can rewrite a large cloud registry, so
         // startup only stamps fresh databases that already use incremental
@@ -3024,6 +3034,7 @@ impl WorkspaceRegistry {
             // Old page images must not keep the scrubbed values (WAL, main file).
             checkpoint_and_truncate_wal(&connection)?;
         }
+        timings.lap("registry.migrations.schema");
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(
@@ -3031,7 +3042,9 @@ impl WorkspaceRegistry {
             );
         }
         // A registry copied from another machine gets its own ids first.
-        host_identity::rehome_registry(&connection)?;
+        let mut rehome = crate::startup_timings::StartupTimings::start();
+        host_identity::rehome_registry(&connection, &mut rehome)?;
+        timings.absorb(rehome, "registry.migrations.rehome");
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
@@ -3332,6 +3345,7 @@ impl WorkspaceRegistry {
         )?;
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement.query_map([sqlite_revision], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -3345,6 +3359,7 @@ impl WorkspaceRegistry {
         })?;
         rows.map(|row| {
             let (revision, kind, terminal_id, workspace_key, origin, mutation_id, result) = row?;
+            let result = ids.text(result);
             Ok(TerminalRegistryEvent {
                 revision: u64::try_from(revision).context("terminal event revision is negative")?,
                 kind,
@@ -3385,13 +3400,15 @@ impl WorkspaceRegistry {
         let Some((stored_fingerprint, stored_result, revision)) = stored else {
             return Ok(None);
         };
-        if stored_fingerprint != fingerprint {
+        let ids = StoredIds::load(&self.connection.get())?;
+        if ids.fingerprint(stored_fingerprint)? != fingerprint {
             anyhow::bail!(
                 "mutation {} from {} was retried with a different payload",
                 mutation.id,
                 mutation.origin
             );
         }
+        let stored_result = ids.text(stored_result);
         Ok(Some(RegistryCommit {
             revision: u64::try_from(revision).context("stored mutation revision is negative")?,
             result: serde_json::from_str(&stored_result)?,
@@ -3519,6 +3536,7 @@ impl WorkspaceRegistry {
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
+        let ids = StoredIds::load(&db)?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
         let rows = statement.query_map([sqlite_revision], |row| {
@@ -3541,7 +3559,7 @@ impl WorkspaceRegistry {
                 workspace_key,
                 origin,
                 mutation_id,
-                result: serde_json::from_str(&result)?,
+                result: serde_json::from_str(&ids.text(result))?,
             })
         })
         .collect()
@@ -3628,6 +3646,9 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
+            let ids = StoredIds::load(&tx)?;
+            let stored_fingerprint = ids.fingerprint(stored_fingerprint)?;
+            let result_json = ids.text(result_json);
             if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
@@ -3943,7 +3964,7 @@ fn migrate_resource_api_frontend_projection_envelopes(
 /// with every terminal output chunk (millions of rows, gigabytes on a
 /// long-lived machine) and are append-only or sealed archives whose records
 /// are validated when they are read, so the open-time check skips them.
-const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+const JOURNAL_HISTORY_TABLES: [&str; 8] = [
     "session_journal",
     "journal_subject_index",
     "journal_event_index",
@@ -3951,6 +3972,7 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "journal_checkpoints",
     "journal_content_blobs",
     "journal_segment_kinds",
+    "journal_segment_reducer_records",
 ];
 
 /// Idempotency ledgers: one row per committed mutation, holding its result
@@ -4984,7 +5006,9 @@ fn terminal_replay(
     let Some((stored_fingerprint, stored_result, revision)) = stored else {
         return Ok(None);
     };
-    if stored_fingerprint != fingerprint {
+    let ids = StoredIds::load(connection)?;
+    let stored_result = ids.text(stored_result);
+    if ids.fingerprint(stored_fingerprint)? != fingerprint {
         anyhow::bail!(
             "terminal mutation {} from {} was retried with a different payload",
             mutation.id,
@@ -5241,6 +5265,172 @@ fn acquire_session_guard_from_private_dir(
     .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
     let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
+}
+
+/// Whether a daemon owns another session of `root` now, asked by the session
+/// guard every owner holds from its registry open to its exit
+/// (`mux/unowned_hosts.rs`). `component` is the guard's file stem
+/// ([`session_storage_component`]).
+pub(crate) enum SessionOwnerProbe {
+    /// No daemon holds the guard: the lease is held here until dropped, so
+    /// none can start the session meanwhile.
+    Unowned(SessionLease),
+    /// A daemon holds the guard, or the probe could not tell.
+    Owned,
+    /// The session has no guard file in `root`.
+    NoGuard,
+}
+
+/// Takes the guard of the session whose file stem is `component` when no
+/// daemon holds it, without waiting on a daemon (the coordinator's short
+/// bound). A daemon that starts the session while the lease is held here
+/// fails its start, as it does during a session reset.
+///
+/// The guard file itself is opened, never made: a missing one is
+/// [`SessionOwnerProbe::NoGuard`], and any other doubt (it cannot be opened,
+/// it changed while opening, its lock is taken) is
+/// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
+/// [`SessionLease::still_guards`] before each step that ends a host.
+pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let lock_path = session_guard_lock_component_path(&lock_dir, component);
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = match options.open(&lock_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return SessionOwnerProbe::NoGuard;
+        }
+        Err(_) => return SessionOwnerProbe::Owned,
+    };
+    let Ok(_coordinator) =
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
+    else {
+        return SessionOwnerProbe::Owned;
+    };
+    // Locked first, then checked: the path must still name the locked file.
+    if FileExt::try_lock(&file).is_err() || validate_session_lock_file(&lock_path, &file).is_err() {
+        return SessionOwnerProbe::Owned;
+    }
+    SessionOwnerProbe::Unowned(SessionLease { file, path: lock_path, coordinator_waiter_dir: None })
+}
+
+/// What the last owner run of the session `component` of `root` left in its
+/// session directory: the newest modification time and the total size of
+/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
+/// owner start and every adoption commits there, so a change means an owner
+/// ran in between; nothing else writes there while its guard is free.
+pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
+    let dir = platform::normalize_filesystem_path(root.join(component));
+    let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
+        files += 1;
+        size = size.saturating_add(metadata.len());
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos());
+        newest = newest.max(modified);
+    }
+    format!("{newest}:{size}:{files}")
+}
+
+/// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
+#[cfg(unix)]
+pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let mut components = fs::read_dir(lock_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let stem = name.strip_suffix(".lock")?;
+            (!stem.starts_with('.')).then(|| stem.to_owned())
+        })
+        .collect::<Vec<_>>();
+    components.sort();
+    components
+}
+
+/// The guard file stem of `session` ([`session_storage_component`]).
+#[cfg(any(windows, test))]
+pub(crate) fn session_guard_component(session: &str) -> String {
+    session_storage_component(session)
+}
+
+fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
+    platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
+}
+
+/// A daemon's start of `session` in `root` as a session reset takes it: the
+/// coordinator with its short bound, then the guard.
+#[cfg(test)]
+pub(crate) fn start_session_guard_for_test(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    fs::create_dir_all(root)?;
+    acquire_session_guard_from_private_dir(root, session_name, true)
+}
+
+#[cfg(test)]
+mod session_owner_probe_tests {
+    use super::*;
+
+    #[test]
+    fn a_held_probe_lease_keeps_the_session_from_starting_and_a_missing_guard_is_no_lease() {
+        let root = std::env::temp_dir().join(format!("owner-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let component = session_guard_component("cmux-app-gone");
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::NoGuard));
+
+        // The session ran once: its guard file exists and is free.
+        drop(acquire_session_guard(&root, "cmux-app-gone").unwrap());
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        // A daemon starting now cannot take the session (and adopt its hosts).
+        assert!(acquire_session_guard(&root, "cmux-app-gone").is_err());
+        drop(lease);
+        // A running daemon's guard is never taken.
+        let owner = acquire_session_guard(&root, "cmux-app-gone").unwrap();
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::Owned));
+        drop(owner);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Windows: a held guard renamed away and replaced by another file at
+    /// its path no longer guards the session.
+    #[cfg(windows)]
+    #[test]
+    fn a_guard_replaced_while_held_no_longer_guards_on_windows() {
+        let root = std::env::temp_dir().join(format!("owner-probe-win-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        drop(start_session_guard_for_test(&root, "cmux-app-gone").unwrap());
+        let component = session_guard_component("cmux-app-gone");
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        assert!(lease.still_guards(), "the held guard does not guard");
+        let guard = lease.path.clone();
+        fs::rename(&guard, guard.with_extension("old")).unwrap();
+        fs::write(&guard, b"").unwrap();
+        assert!(!lease.still_guards(), "a replaced guard still counts as held");
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
@@ -5639,6 +5829,28 @@ pub(crate) struct SessionLease {
 }
 
 impl SessionLease {
+    /// Whether the guard path still names the file this lease locked: a
+    /// guard deleted (and maybe made again) since is no longer held here,
+    /// and a daemon may own the session through the new file.
+    pub(crate) fn still_guards(&self) -> bool {
+        validate_session_lock_file(&self.path, &self.file).is_ok()
+    }
+
+    /// Runs `act` only while this lease still guards its session, with the
+    /// session-locks coordinator held from that check until `act` returns.
+    /// A daemon makes or replaces a guard file only under that coordinator
+    /// (`acquire_session_guard_from_private_dir` takes it before
+    /// [`SessionLease::acquire`] opens the guard), so none can own the
+    /// session in between. `None`: the coordinator is busy past its short
+    /// bound, or the guard no longer names this lease's file. Keep `act`
+    /// short: a daemon start waits on the coordinator meanwhile.
+    pub(crate) fn while_guarding<T>(&self, act: impl FnOnce() -> T) -> Option<T> {
+        let lock_dir = self.path.parent()?;
+        let _coordinator =
+            SessionLease::acquire_coordinator(&session_guard_coordinator_path(lock_dir)).ok()?;
+        self.still_guards().then(act)
+    }
+
     fn acquire(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -6096,7 +6308,68 @@ fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
             anyhow::bail!("session lock path changed while opening: {}", path.display());
         }
     }
+    // Windows: the held handle and a fresh open of the path must be one file
+    // (volume serial number and file id). The guard is opened with
+    // FILE_SHARE_DELETE (std's default share mode), so it can be deleted or
+    // renamed away while held and another file made at its path.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+
+        let fresh = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        if windows_file_identity(&fresh)? != windows_file_identity(file)? {
+            anyhow::bail!("session lock path changed while opening: {}", path.display());
+        }
+    }
     Ok(())
+}
+
+/// A Windows file's identity: its volume serial number and file id, the
+/// 128-bit `FILE_ID_INFO` where the file system has it (ReFS ids do not fit
+/// in 64 bits), else the 64-bit index of `BY_HANDLE_FILE_INFORMATION`.
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> std::io::Result<(u64, [u8; 16])> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO, FileIdInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+
+    let handle = file.as_raw_handle();
+    // SAFETY: a zeroed plain-old-data struct the call fills.
+    let mut id: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call; `id` is the size passed.
+    let filled = unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            std::ptr::from_mut(&mut id).cast(),
+            u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).unwrap_or(u32::MAX),
+        )
+    };
+    if filled != 0 {
+        return Ok((id.VolumeSerialNumber, id.FileId.Identifier));
+    }
+    // SAFETY: as above.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call.
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut index = [0_u8; 16];
+    let low = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    for (slot, byte) in index.iter_mut().zip(low.to_le_bytes()) {
+        *slot = byte;
+    }
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
 }
 
 #[cfg(unix)]

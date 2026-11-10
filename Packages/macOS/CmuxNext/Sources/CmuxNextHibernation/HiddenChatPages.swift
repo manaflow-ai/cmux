@@ -84,6 +84,11 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
     private var turnObservation: Task<Void, Never>?
+    /// The turn store `followTurns` follows, and the pages whose turns it observes now.
+    private var turns: AgentTurnStateStore?
+    private var turnKeys: Set<String> = []
+    /// Replans run (tests: a turn of a chat that is not hidden replans nothing).
+    package private(set) var replans = 0
     private var discardObservation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     package private(set) var setting: BrowserHibernationSetting = .fallback
@@ -139,19 +144,50 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050); nothing to clean up.
     nonisolated deinit {}
 
-    /// Re-plan only when the watched turns change; no per-page observers or polling.
+    /// Re-plan only when the watch or the turn of a hidden or frozen page changes, never for another chat's turn:
+    /// one agent's step in a shown chat replanned every hidden page (O(hidden) filters and a sort per event).
     package func followTurns(_ turns: AgentTurnStateStore) {
+        self.turns = turns
+        observeTurns(of: [], replanFirst: true)
+    }
+
+    /// Observes the turns of the pages a replan reads (`keys`): the watch and each one's busy state, nothing else.
+    /// `replanFirst`: the observation's first value replans too (a new follow); a change of `keys` comes from a replan.
+    private func observeTurns(of keys: Set<String>, replanFirst: Bool) {
+        guard let turns else { return }
+        turnKeys = keys
         turnObservation?.cancel()
+        let read: @MainActor @Sendable () -> TurnsRead = { [weak self] in
+            TurnsRead(watching: turns.watching, busy: keys.filter { self?.host?.pageTurnBusy($0) == true })
+        }
+        // What the replan that armed this saw, read now: a turn that changes before the stream's first value
+        // (it starts on a later turn) differs from it and replans, so no change between the two is lost.
+        let seen: TurnsRead? = replanFirst ? nil : read()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
+            var last = seen
+            for await now in ObservationStream(read) where now != last {
+                last = now
                 self?.replan()
             }
         }
     }
 
+    /// The turn facts a replan reads: whether the watch is up, and which observed pages' turns run or wait.
+    private struct TurnsRead: Equatable, Sendable {
+        var watching: Bool
+        var busy: Set<String>
+    }
+
+    /// Follows the turns of the pages hidden or frozen now, when they changed since the last observation.
+    private func followHiddenTurns() {
+        let keys = Set(hiddenAt.keys).union(frozenPages.keys)
+        if keys != turnKeys { observeTurns(of: keys, replanFirst: false) }
+    }
+
     package func stop() {
         turnObservation?.cancel()
         turnObservation = nil
+        turns = nil
         discardObservation?.cancel()
         discardObservation = nil
         deadline.cancel()
@@ -245,6 +281,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
 
     /// Releases every page that is due and arms one deadline for the next.
     package func replan() {
+        replans += 1
+        defer { followHiddenTurns() }
         guard let host, let pages = host.hibernationPages() else { return }
         hiddenAt = hiddenAt.filter { host.hibernationPage($0.key) != nil }
         shown = shown.filter { host.hibernationPage($0) != nil }
@@ -371,7 +409,10 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         guard let host, host.hibernationPage(key) != nil else { return .disabled }
         workspaceDue.insert(key)
         if hiddenAt[key] == nil { hiddenAt[key] = host.pageClock() }
-        if let kept = keepsPage(key) { return kept }
+        if let kept = keepsPage(key) {
+            followHiddenTurns() // its turn's end lets it go
+            return kept
+        }
         host.releasePage(key)
         return nil
     }

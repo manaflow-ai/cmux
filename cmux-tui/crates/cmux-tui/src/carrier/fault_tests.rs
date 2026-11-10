@@ -6,32 +6,37 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::super::drill::{EventRoutes, EventStream, TurnEvent, run_drill};
+use super::super::drill::{EventRoutes, EventStream, Opened, TurnEvent, run_drill};
+use super::super::ssh::Absent;
 use super::{
     FaultPlan, FaultSpec, GateRefusal, Route, capabilities, parse_spec, probe_account, probe_gate,
     routes, this_build,
 };
 
-fn turn(last: u64) -> Vec<TurnEvent> {
+pub(crate) fn turn(last: u64) -> Vec<TurnEvent> {
     (1..=last).map(|seq| TurnEvent { seq, last: seq == last }).collect()
 }
 
 /// One fake carrier: the whole turn, and how it misbehaves.
 #[derive(Clone, Default)]
-struct Carrier {
-    events: Vec<TurnEvent>,
+pub(crate) struct Carrier {
+    pub(crate) events: Vec<TurnEvent>,
     /// A resume replays this many events the client already has.
-    overlap: u64,
-    refuse: bool,
+    pub(crate) overlap: u64,
+    /// A resume skips this many events the client never had.
+    pub(crate) skip: u64,
+    /// Its answer says the seq its stream starts at (else only its first event tells).
+    pub(crate) states_from: bool,
+    pub(crate) refuse: bool,
     /// The stream never yields after this many events.
-    stall_after: Option<usize>,
-    killed: Arc<AtomicBool>,
+    pub(crate) stall_after: Option<usize>,
+    pub(crate) killed: Arc<AtomicBool>,
 }
 
 /// Every open the drill asked for: the carrier's index, its route and `afterSeq`.
-type Opens = Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>;
+pub(crate) type Opens = Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>;
 
-struct Routes {
+pub(crate) struct Routes {
     carriers: Vec<Carrier>,
     opens: Opens,
 }
@@ -66,24 +71,27 @@ impl EventRoutes for Routes {
         index: usize,
         route: Route,
         after_seq: Option<u64>,
-    ) -> Result<Box<dyn EventStream>, String> {
+    ) -> Result<Opened, String> {
         self.opens.lock().unwrap().push((index, route, after_seq));
         let carrier = self.carriers.get(index).cloned().ok_or("no such carrier")?;
         if carrier.refuse {
             return Err("refused".into());
         }
-        let from = after_seq.map_or(0, |after| after.saturating_sub(carrier.overlap));
+        let from = after_seq
+            .map_or(0, |after| after.saturating_sub(carrier.overlap).saturating_add(carrier.skip));
         let events: Vec<_> = carrier.events.into_iter().filter(|e| e.seq > from).collect();
-        Ok(Box::new(Stream {
+        let stated = events.first().map(|e| e.seq).filter(|_| carrier.states_from);
+        let stream = Box::new(Stream {
             events: events.into_iter(),
             stall_after: carrier.stall_after,
             sent: 0,
             killed: carrier.killed,
-        }))
+        });
+        Ok(Opened { stream, from_seq: stated })
     }
 }
 
-fn routes_of(carriers: Vec<Carrier>) -> (Routes, Opens) {
+pub(crate) fn routes_of(carriers: Vec<Carrier>) -> (Routes, Opens) {
     let opens = Arc::new(Mutex::new(Vec::new()));
     (Routes { carriers, opens: opens.clone() }, opens)
 }
@@ -137,7 +145,7 @@ fn judged_after_kill(record: &Value) -> Vec<String> {
 
 #[test]
 fn the_capability_line_has_the_probe_gates_fields_and_ssh_is_unavailable() {
-    let caps = capabilities(&this_build());
+    let caps = capabilities(&this_build(Err(Absent::Tunnel)));
     assert_eq!(caps["routes"], json!(["relay"]));
     assert_eq!(caps["faults"], json!(["kill-route"]));
     assert_eq!(caps["carriers"]["relay"]["available"], true);
@@ -145,9 +153,24 @@ fn the_capability_line_has_the_probe_gates_fields_and_ssh_is_unavailable() {
     assert_eq!(caps["carriers"]["relay"]["faults"], json!(["kill-route"]));
     assert_eq!(caps["carriers"]["ssh"]["available"], false);
     assert_eq!(caps["carriers"]["ssh"]["faults"], json!([]));
-    assert!(caps["carriers"]["ssh"]["reason"].as_str().unwrap().contains("ssh"));
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_tunnel");
+    assert!(caps["carriers"]["ssh"]["reason"].as_str().unwrap().contains("tunnel hub"));
     assert_eq!(caps["fault_gate"]["env"], "CMUX_CARRIER_PROBE_FAULTS");
-    assert_eq!(routes(&this_build()), vec![Route::Relay]);
+    assert_eq!(routes(&this_build(Err(Absent::Key))), vec![Route::Relay]);
+}
+
+/// With the dial's check passing, ssh is a route after the relay: what the
+/// probe's capability gate needs (`routes` with ssh, `faults` with kill-route).
+#[test]
+fn the_capability_line_lists_ssh_after_the_relay_when_the_device_has_it() {
+    let caps = capabilities(&this_build(Ok(())));
+    assert_eq!(caps["routes"], json!(["relay", "ssh"]));
+    assert_eq!(caps["faults"], json!(["kill-route"]));
+    assert_eq!(caps["carriers"]["ssh"]["available"], true);
+    assert_eq!(caps["carriers"]["ssh"]["probe"], true);
+    assert_eq!(caps["carriers"]["ssh"].get("reason"), None);
+    assert_eq!(caps["carriers"]["ssh"].get("code"), None);
+    assert_eq!(routes(&this_build(Ok(()))), vec![Route::Relay, Route::Ssh]);
 }
 
 #[test]
@@ -213,8 +236,9 @@ fn only_probe_accounts_pass_the_gate() {
 
 #[test]
 fn killing_the_relay_with_no_other_route_is_a_typed_refusal_before_the_turn() {
-    let caps = capabilities(&this_build());
-    let refused = FaultPlan::new(spec(3), routes(&this_build()), &caps).unwrap_err();
+    let carriers = this_build(Err(Absent::Tunnel));
+    let caps = capabilities(&carriers);
+    let refused = FaultPlan::new(spec(3), routes(&carriers), &caps).unwrap_err();
     assert_eq!(refused.code, "carrier_fault.no_other_route");
     assert!(refused.message.contains("ssh"), "{}", refused.message);
     assert_eq!(
@@ -235,8 +259,7 @@ fn killing_the_relay_with_no_other_route_is_a_typed_refusal_before_the_turn() {
 #[tokio::test]
 async fn a_relay_to_relay_drill_loses_and_repeats_nothing() {
     let first = Carrier { events: turn(10), ..Carrier::default() };
-    // The second relay replays two events the client already has: they are not delivered again.
-    let second = Carrier { events: turn(10), overlap: 2, ..Carrier::default() };
+    let second = Carrier { events: turn(10), ..Carrier::default() };
     let killed = first.killed.clone();
     let (mut fake, opens) = routes_of(vec![first, second]);
     let plan = FaultPlan::new(spec(4), vec![Route::Relay, Route::Relay], &caps_with_ssh()).unwrap();
@@ -255,6 +278,43 @@ async fn a_relay_to_relay_drill_loses_and_repeats_nothing() {
     assert!(judged_after_kill(&record).iter().all(|route| route == "relay"));
 }
 
+/// A server that replays events the client already had across the switch: the record has
+/// them twice, as they arrived (the judge's failover.repeated), and the resume's from_seq is
+/// where the server started, not the last seq plus one.
+#[tokio::test]
+async fn a_duplicate_delivered_across_the_switch_is_in_the_record() {
+    let relay = Carrier { events: turn(9), ..Carrier::default() };
+    let ssh = Carrier { events: turn(9), overlap: 2, ..Carrier::default() };
+    let (mut fake, opens) = routes_of(vec![relay, ssh]);
+    let plan = FaultPlan::new(spec(5), vec![Route::Relay, Route::Ssh], &caps_with_ssh()).unwrap();
+    let record = run_drill(&plan, &mut fake, caps_with_ssh(), deadline()).await.unwrap();
+    assert_eq!(opens.lock().unwrap()[1], (1, Route::Ssh, Some(5)), "the client asked after 5");
+    assert_eq!(seqs(&record), vec![1, 2, 3, 4, 5, 4, 5, 6, 7, 8, 9]);
+    let routes: Vec<&str> =
+        record["events"].as_array().unwrap().iter().map(|e| e["route"].as_str().unwrap()).collect();
+    assert_eq!(routes, [vec!["relay"; 5], vec!["ssh"; 6]].concat());
+    assert_eq!(record["resumes"][1]["after_seq"], 5);
+    assert_eq!(record["resumes"][1]["from_seq"], 4, "the seq the server resumed from");
+    assert_eq!(record["events"].as_array().unwrap().last().unwrap()["final"], true);
+}
+
+/// A server that resumes past the seq the client asked from: the record's from_seq is the
+/// server's, whether its answer states it or only its first event tells, and the gap shows.
+#[tokio::test]
+async fn a_server_resuming_from_the_wrong_seq_is_in_the_record() {
+    for states_from in [false, true] {
+        let relay = Carrier { events: turn(9), ..Carrier::default() };
+        let ssh = Carrier { events: turn(9), skip: 2, states_from, ..Carrier::default() };
+        let (mut fake, _) = routes_of(vec![relay, ssh]);
+        let plan =
+            FaultPlan::new(spec(5), vec![Route::Relay, Route::Ssh], &caps_with_ssh()).unwrap();
+        let record = run_drill(&plan, &mut fake, caps_with_ssh(), deadline()).await.unwrap();
+        assert_eq!(seqs(&record), vec![1, 2, 3, 4, 5, 8, 9], "states_from={states_from}");
+        let resume = &record["resumes"][1];
+        assert_eq!((resume["after_seq"].as_u64(), resume["from_seq"].as_u64()), (Some(5), Some(8)));
+    }
+}
+
 #[tokio::test]
 async fn a_relay_to_ssh_drill_is_the_record_the_judge_passes() {
     let relay = Carrier { events: turn(9), ..Carrier::default() };
@@ -267,7 +327,7 @@ async fn a_relay_to_ssh_drill_is_the_record_the_judge_passes() {
     assert_eq!(
         record["resumes"][1],
         json!({
-            "route": "ssh", "phase": "resume", "outcome": "ok", "from_seq": 6,
+            "route": "ssh", "phase": "resume", "outcome": "ok", "after_seq": 5, "from_seq": 6,
             "ms": record["resumes"][1]["ms"],
         })
     );
@@ -284,7 +344,9 @@ async fn a_refused_resume_is_a_typed_error_with_the_record() {
     assert_eq!(seqs(&error.record), vec![1, 2]);
     assert_eq!(error.record["kill"]["route"], "relay");
     assert_eq!(error.record["resumes"][1]["outcome"], "error");
-    assert_eq!(error.record["resumes"][1]["from_seq"], 3);
+    // The server never resumed: the record says what the client asked, and no from_seq.
+    assert_eq!(error.record["resumes"][1]["after_seq"], 2);
+    assert_eq!(error.record["resumes"][1].get("from_seq"), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -311,13 +373,21 @@ async fn a_turn_that_ends_before_the_kill_says_so() {
 }
 
 #[test]
-fn capabilities_takes_only_its_json_flag() {
+fn capabilities_takes_its_json_flag_and_the_dial_s_hub_flag() {
     let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    assert!(super::super::parse_capabilities(&words("capabilities")));
-    assert!(super::super::parse_capabilities(&words("capabilities --json")));
-    assert!(!super::super::parse_capabilities(&words("capabilities --json --json")));
-    assert!(!super::super::parse_capabilities(&words("capabilities --machine vm_x")));
-    assert!(!super::super::parse_capabilities(&words("capability")));
+    let parse = |text: &str| super::super::parse_capabilities(&words(text));
+    assert_eq!(parse("capabilities"), Some(None));
+    assert_eq!(parse("capabilities --json"), Some(None));
+    let hub = Some(Some(std::path::PathBuf::from("/tmp/hub.sock")));
+    assert_eq!(parse("capabilities --wg-hub /tmp/hub.sock"), hub);
+    assert_eq!(parse("capabilities --json --wg-hub /tmp/hub.sock"), hub);
+    assert_eq!(parse("capabilities --wg-hub relative.sock"), None);
+    assert_eq!(parse("capabilities --wg-hub"), None);
+    assert_eq!(parse("capabilities --wg-hub /tmp/a.sock --wg-hub /tmp/b.sock"), None);
+    assert_eq!(parse("capabilities --wg-hub /tmp/hub.sock --json"), None);
+    assert_eq!(parse("capabilities --json --json"), None);
+    assert_eq!(parse("capabilities --machine vm_x"), None);
+    assert_eq!(parse("capability"), None);
 }
 
 /// The accepted test accounts are exactly the ones the provisioner makes

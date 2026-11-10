@@ -1,0 +1,151 @@
+/* A no-prompt preset's approval card (PresetApprovalCard.tsx): the memory card's quiet hairline box
+   (the question tokens), the question in body weight, what the preset starts and the warning in
+   the detail size, Not now and Approve at the foot as small-radius rects, never pills. Answered,
+   the box fades its frame and folds to one muted line. Every fold is a grid row from 0fr to 1fr,
+   so what is below moves with it; reduced motion (or the motion gate) settles it in one frame. */
+.cv-preset-approval {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  margin: var(--ds-space-1, 4px) 0;
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 8px;
+  background: var(--acpmux-question-bg);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+  transition:
+    border-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    background-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+.cv-preset-approval[data-closed="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+.cv-preset-approval__fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.cv-preset-approval__fold[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.cv-preset-approval__clip {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+:root[data-cmux-motion="reduced"] .cv-preset-approval,
+:root[data-cmux-motion="reduced"] .cv-preset-approval__fold {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-preset-approval,
+  .cv-preset-approval__fold {
+    transition: none;
+  }
+}
+.cv-preset-approval__body > .cv-preset-approval__clip {
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}
+.cv-preset-approval__title {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cv-preset-approval__description,
+.cv-preset-approval__starts,
+.cv-preset-approval__warning {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.cv-preset-approval__starts {
+  color: var(--agent-text);
+}
+.cv-preset-approval__warning {
+  padding-top: var(--ds-space-1, 4px);
+}
+.cv-preset-approval__table {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0 var(--ds-space-2, 8px);
+  margin: var(--ds-space-1, 4px) 0 0;
+  font-size: var(--text-detail);
+}
+.cv-preset-approval__table dt {
+  color: var(--agent-muted);
+}
+.cv-preset-approval__table dd {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--cv-mono);
+  overflow-wrap: anywhere;
+}
+.cv-preset-approval__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.cv-preset-approval__text {
+  flex: 1;
+  min-width: 0;
+}
+.cv-preset-approval__foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--ds-space-2, 8px);
+}
+.cv-preset-approval__actions {
+  display: inline-flex;
+  flex: none;
+  gap: var(--ds-space-1, 4px);
+}
+.cv-preset-approval__button {
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.cv-preset-approval__button:hover:not(:disabled) {
+  background: var(--acpmux-question-highlight);
+}
+.cv-preset-approval__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+.cv-preset-approval__button.is-primary {
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+.cv-preset-approval__button.is-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.cv-preset-approval__button:disabled {
+  opacity: 0.6;
+}
+.cv-preset-approval__error {
+  display: block;
+  padding-top: var(--ds-space-2, 8px);
+  color: var(--agent-status-error, var(--acpmux-del));
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.cv-preset-approval__note {
+  margin: 0;
+  padding: var(--ds-space-1, 4px) 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}

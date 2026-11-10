@@ -622,6 +622,7 @@ impl Hub {
             }),
             human_authenticated: false,
             unproven_owner: false,
+            coach: None,
             agent: None,
             class: None,
             after_turn: None,
@@ -634,6 +635,7 @@ impl Hub {
             thread: None,
             wake_or_fail: false,
             inbox: false,
+            reply_reader: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

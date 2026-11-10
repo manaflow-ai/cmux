@@ -145,7 +145,7 @@
 /* Under Increase Contrast the search row's text step does not show (muted is the text color):
    the row takes the shared focus ring when its field has focus (cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .acpmux-mp-search:focus-within {
+  .acpmux-mp-search:is(:focus-visible, :has(:focus-visible)) {
     box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -839,7 +839,7 @@
 
 /* What a started chat ran, beside a held pick of another harness's model (QuickModelMenu
    UsedMark, Leo 2026-11-06): a quiet mark in secondary ink on the chat's own model row, provider
-   row and harness tab. `glyph` ships (the history glyph; its tab a hairline ring); `dot` and
+   row and harness tab, only while another harness's model is held. `glyph` ships (the history glyph; its tab a hairline ring); `dot` and
    `caption` are the gallery's other versions. */
 .acpmux-used-mark {
   flex: none;

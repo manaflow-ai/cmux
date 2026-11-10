@@ -552,11 +552,17 @@ pub(super) fn remove_surface(
     let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
-        // The app's rule, from the one place it lives: the tab before the
-        // closed one, else the one after it; an unselected close keeps it.
+        // The app's rule, from the one place it lives (Chrome's, positional
+        // here: the daemon keeps no opener): the tab after the closed one,
+        // else the one before it; an unselected close keeps it.
         let shown: HashSet<SurfaceId> = pane.tabs.iter().copied().collect();
-        let pick =
-            cmux_focus_core::close_focus::tab(selected.as_ref(), &old_order, &pane.tabs, &shown);
+        let pick = cmux_focus_core::close_focus::tab(
+            selected.as_ref(),
+            &old_order,
+            &pane.tabs,
+            &shown,
+            &cmux_focus_core::close_focus::TabRelations::<SurfaceId>::default(),
+        );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);

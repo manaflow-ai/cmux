@@ -64,6 +64,7 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
+mod team_audit;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -99,6 +100,9 @@ pub(super) async fn route(
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::vault::dispatch(conn, m).await {
         return reply;
     }
@@ -115,6 +119,10 @@ pub(super) async fn route(
     // `remote_guard` or a peer).
     if m == crate::rpc::method::MUX_COMPLETE {
         return hub.complete(conn.origin, &params).await;
+    }
+    // So does a hunk's summary (`hub/hunk_summary.rs`), which runs one on a cache miss.
+    if m == crate::rpc::method::MUX_HUNK_SUMMARY {
+        return hub.hunk_summary(conn.origin, &params).await;
     }
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
@@ -144,6 +152,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
@@ -152,6 +163,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::prompt_coach::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
@@ -185,6 +199,10 @@ pub(super) async fn route(
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
+    }
+    // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
+    if m == crate::rpc::method::MUX_TEAM_AUDIT {
+        return team_audit::handle(conn.origin, &params).await;
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
@@ -350,7 +368,7 @@ pub(super) async fn route(
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let (family, profile) = {
+            let (profile_name, profile) = {
                 let cfg = hub.config.read().await;
                 let (name, profile) =
                     crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
@@ -358,9 +376,9 @@ pub(super) async fn route(
                             "no ACP harness runs {harness} here, so its chat cannot fork"
                         ))
                     })?;
-                (crate::config::derive_family(name, profile), profile.clone())
+                (name.to_owned(), profile.clone())
             };
-            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
@@ -557,8 +575,20 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     if rec.dir != "mux" || !changes_activity(&rec.kind) {
         return;
     }
-    // A window shows the chat's activity too: its rows are recomputed.
-    super::chat_windows::activity_changed(conn);
+    // A window shows the chat's activity too: its rows are recomputed when it may show this one.
+    super::chat_windows::activity_changed(
+        conn,
+        &ev.session_id,
+        &rec.kind,
+        || {
+            hub.resolve(&ev.session_id)
+                .ok()
+                .and_then(|session| crate::chats::session_chat_key(&session))
+                .map(|key| crate::chats::key_text(&key))
+        },
+        // Read now, after the record: the newest session of the chat decides its fold.
+        |chat| hub.chat_activity().has_parent(chat),
+    );
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }

@@ -5,10 +5,12 @@
 // the toggle, outside its button, for the controls a row adds at the line's end (a menu, a queue tag,
 // Reply); `leading` sits before it, outside its button too, for a control of its own at the line's
 // start (an incoming message's sender, which opens its chat), with the icon then left to it.
-// A row that opens a chat (`onOpen`) is that chat's button: a click on the line opens it, and the
-// chevron after the status is its own button for the panel. No "Open chat" word beside it (Leo,
-// 2026-10-29: "Nobody asked for open chat. We can just click. Just have the thing be clickable, and
-// then you can open it.").
+// A row that opens a chat (`onOpen`) draws its label as that chat's link chip: a click on the chip
+// opens it, and only the chip lights under the pointer; the rest of the line opens the panel, as the
+// chevron after the status does (Leo, 2026-11-05: "subagents need to have their clickable bit be
+// highlighted instead of the whole line click sending me to the subagent righ split"). No "Open
+// chat" word beside it (Leo, 2026-10-29: "Nobody asked for open chat. We can just click. Just have
+// the thing be clickable, and then you can open it.").
 import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
@@ -18,6 +20,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
+import { AgentTag } from "../conversation/AgentTag";
 import "./DisclosureRow.css";
 import { openSessionAttributes } from "../conversation/menuParts";
 
@@ -31,11 +34,11 @@ export type DisclosureRowProps = {
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
-  /// The line's tooltip when it opens a chat ("Open chat").
+  /// The chip's accessible name when it opens a chat ("Open chat").
   openLabel?: string;
-  /// The line's tooltip, when it says more than `openLabel`.
+  /// The chip's tooltip, when it says more than `openLabel`.
   openTitle?: string;
-  /// Opens the row's chat: the line's click does this, and the chevron alone opens the panel.
+  /// Opens the row's chat: the label's chip does this, and the rest of the line opens the panel.
   onOpen?: () => void;
   /// The chat `onOpen` opens, for the right-click's Go to Chat (menuParts.ts `openSessionAttributes`).
   openSession?: string;
@@ -112,7 +115,18 @@ export function DisclosureRow({
           {icon}
         </span>
       )}
-      <span className="cv-disclosure__label">{label}</span>
+      {onOpen ? (
+        <AgentTag
+          name={label}
+          className="cv-disclosure__label"
+          title={openTitle ?? openLabel}
+          ariaLabel={openLabel}
+          attributes={openSession ? openSessionAttributes(openSession) : undefined}
+          onClick={onOpen}
+        />
+      ) : (
+        <span className="cv-disclosure__label">{label}</span>
+      )}
       {meta && <span className="cv-disclosure__meta">{meta}</span>}
       {status && <span className="cv-disclosure__status">{status}</span>}
     </>
@@ -134,15 +148,8 @@ export function DisclosureRow({
         {leading}
         {onOpen ? (
           <>
-            <button
-              type="button"
-              className="cv-disclosure__open"
-              title={openTitle ?? openLabel}
-              {...(openSession ? openSessionAttributes(openSession) : {})}
-              onClick={onOpen}
-            >
-              {content}
-            </button>
+            {/* No control itself: its chip opens the chat, a click elsewhere opens the panel. */}
+            <span className="cv-disclosure__open">{content}</span>
             <button
               type="button"
               className="cv-disclosure__toggle is-chevron"

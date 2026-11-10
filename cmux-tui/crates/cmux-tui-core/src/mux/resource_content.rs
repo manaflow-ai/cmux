@@ -806,7 +806,7 @@ fn ordered_terminal_tab_ids(
 fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLayoutNode> {
     Ok(match node {
         Node::Leaf(pane) => RegistryLayoutNode::Leaf { pane: pane_public_id(state, *pane)? },
-        Node::Split { id, dir, ratio, a, b } => RegistryLayoutNode::Split {
+        Node::Split { id, dir, ratio, a, b, divider_hidden } => RegistryLayoutNode::Split {
             split: split_public_id(state, *id)?,
             direction: match dir {
                 crate::SplitDir::Right => "right",
@@ -816,6 +816,7 @@ fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLa
             ratio: *ratio,
             first: Box::new(registry_layout_node(state, a)?),
             second: Box::new(registry_layout_node(state, b)?),
+            divider_hidden: *divider_hidden,
         },
         Node::Stack { panes, expanded } => RegistryLayoutNode::Stack {
             panes: pane_public_ids(state, panes.as_slice())?,

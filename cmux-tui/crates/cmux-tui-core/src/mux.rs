@@ -22,8 +22,9 @@ use terminal_records::{
 mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
-    acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
+    HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
+    request_terminal_host_end, terminal_host_record_liveness,
+    terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
@@ -155,7 +156,7 @@ use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
 mod agent_reports;
 mod agent_roster_fold;
-mod agent_roster_restore;
+pub(crate) mod agent_roster_restore;
 mod apply_layout;
 mod browser_create;
 mod browser_providers;
@@ -175,7 +176,8 @@ pub(crate) use browser_tab_create::{
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
 pub(crate) use spawn_options::{
-    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+    AROUND_SPLIT_FIELD, CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD,
+    terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) use topology_ops::split_direction_field;
@@ -225,7 +227,9 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
-pub(crate) use agent_prompts::{with_agent_session, with_last_reply};
+pub(crate) use agent_prompts::{
+    with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
+};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -233,6 +237,7 @@ use agent_types::{
     agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
     parse_projection_agent_state, published_agent_session_id,
 };
+mod divider_visibility;
 mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
@@ -316,6 +321,8 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
+#[cfg(any(unix, windows))]
+mod unowned_hosts;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod incognito_terminals;
 mod terminal_exit;
@@ -326,6 +333,8 @@ mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+mod terminal_tail_pins;
+pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
@@ -353,6 +362,8 @@ pub(crate) use agent_chat_columns::{
     is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
+pub(crate) use divider_visibility::DIVIDER_HIDDEN_FIELD;
+pub use divider_visibility::{DividerVisibilityError, SPLIT_DIVIDER_VISIBILITY_CAPABILITY};
 pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
@@ -633,6 +644,9 @@ pub struct Mux {
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
     terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
+    /// Tests: how many hosted readers' frame demultiplexers fail to start.
+    #[cfg(test)]
+    host_frames_spawn_failures: AtomicU64,
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
@@ -682,6 +696,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
+    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -714,6 +730,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Sealed segment sums `server-stats` `disk` keeps between requests.
+    disk_usage: Mutex<crate::diagnostics::DiskUsageCache>,
     /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
     output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
@@ -738,6 +756,10 @@ pub struct Mux {
     /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
     pending_diagnostics: Mutex<Vec<String>>,
+    /// Held across one call of `seal_journal_segments`: the owner's sealers
+    /// (the maintenance worker, a client's seal, the registry generator)
+    /// take turns, so none commits a segment another is preparing.
+    journal_seal: Mutex<()>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Runs right after a new screen's creation handoff is released, where a
@@ -833,8 +855,8 @@ pub struct Mux {
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
-    /// The running reaper's event receiver, so keep and grace changes can wake it.
-    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The reaper's event receiver while it runs, and its announcement.
+    terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// The settings owner (the settings file), started on first use or at
@@ -849,6 +871,9 @@ pub struct Mux {
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
+    /// Shell mode's commands on this machine (`shell-runs-v1`, `server/shell_wire.rs`).
+    #[cfg(unix)]
+    pub(crate) shell_runs: crate::shell_runs::ShellRuns,
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -899,6 +924,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -920,6 +946,7 @@ impl Mux {
                 machine_name: None,
                 session_id: registry.session_id(),
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,

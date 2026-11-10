@@ -17,6 +17,12 @@
 //! for a black hole) and is connected again within the bound. Each row prints its times (`carrier_faults row=...`) as the
 //! baseline. Rows that need behavior acpmux does not have yet are `#[ignore]` with the fix
 //! they wait for named.
+//!
+//! The Cloud carrier's ssh row (relay cut → ssh through `wg dial` → ssh cut → relay, after
+//! `carrier capabilities` lists ssh) runs the `cmux-tui` binary, so it lives beside that
+//! binary's tests: `cmux-tui/tests/carrier_ssh.rs`
+//! `carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back`, printing
+//! `carrier_faults row=cloud-ssh ...`.
 
 // The stand-in ssh and its permissions, and the WireGuard relay, are Unix-only.
 #![cfg(unix)]

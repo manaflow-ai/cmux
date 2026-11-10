@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
     method::MUX_COMPLETE,
+    method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
@@ -71,6 +72,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPT_WITHDRAW,
     // So is a chat's inbox drained (`hub/inbox_digest.rs`).
     method::MUX_INBOX_DIGEST,
+    // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
+    // NAME is the name to take, never a peer session to forward to, and its token stays here.
+    method::MUX_REGISTER,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -882,10 +886,18 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, &id, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
-        if result.is_err() && first_attach && m == method::MUX_ATTACH {
+        if first_attach
+            && m == method::MUX_ATTACH
+            && let Err(e) = &result
+        {
             // Do not strand the marker when the first baseline request failed.
             // A retry must be able to establish a fresh no-history cursor.
             peer.clear_attached(&id);
+            // The client was subscribed to the chat, and the link has no stream of it: one the
+            // peer did not refuse is attached again on this link while it stays up.
+            if !crate::peer::refuses_attach(e) {
+                peer.retry_attach(&id, link);
+            }
         }
         let mut result = result.map_err(|e| {
             if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
@@ -924,8 +936,12 @@ async fn forward_inner(
                 peer.note_hidden_attach_page(&id, &result);
             } else if let Some(after) = params.get("afterSeq").and_then(Value::as_u64) {
                 peer.note_attached_page_after(&id, after, &result);
-            } else {
-                // Advance only after permission-history filtering.
+            } else if held(&result).is_some_and(|n| n > 0)
+                || (params.get("kinds").is_none_or(Value::is_null) && held(&result) == before)
+            {
+                // Advance only after permission-history filtering. An empty page settles the
+                // baseline at its `pageThrough` only when it held every record through it: no
+                // `kinds` left some out, and no ask was taken out here.
                 peer.note_attached_page(&id, &result);
             }
         }
@@ -1124,6 +1140,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
+    /// name, so the caller's messaging token never leaves this daemon.
+    #[test]
+    fn a_registration_is_never_forwarded_to_a_peer() {
+        assert!(!names_a_session(method::MUX_REGISTER));
+    }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
     /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).

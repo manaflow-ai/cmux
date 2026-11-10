@@ -519,8 +519,9 @@ FORK_WRAPPED_POOL_READ = re.compile(
 
 
 def _routing_environment(environment: object) -> bool:
-    """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
-    if environment in (None, "", "ci-routing-agent"):
+    """No environment, `ci-routing-agent` (plain, or as {name, deployment: false}, which logs no deployment on the
+    PR), or one expression whose only values are those two."""
+    if environment in (None, "", "ci-routing-agent", {"name": "ci-routing-agent", "deployment": False}):
         return True
     if not isinstance(environment, str):
         return False

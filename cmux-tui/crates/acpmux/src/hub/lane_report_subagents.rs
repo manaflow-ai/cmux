@@ -26,9 +26,11 @@
 //! A subagent that calls acpmux through MCP tools (`mcp__acpmux__send`, cmux's
 //! `acpmux_bg_start`, a `cmux_exec` script) and not through Bash is named by its call's tool use
 //! id (`crate::subagent_call`). The end of a background task such a call started (`bg_start`,
-//! `run_wait`) takes the same rule as a report (`bg_notify.rs`). Not covered: a cmux workflow
-//! script's calls (they carry no tool use id) and a send the MCP server hands to the send relay;
-//! their reports and task ends go to the lead. A subagent that makes no Bash or acpmux MCP call
+//! `run_wait`) takes the same rule as a report (`bg_notify.rs`). A cmux workflow a subagent
+//! starts (`cmux_workflow`, in a `cmux_exec` script or on its own) runs as that subagent: the
+//! daemon reads the start call's tool use id (`RunRecord::caller_subagent`), and the workflow's
+//! commands and its script's acpmux calls carry the subagent's mark (`hub/workflow_runs.rs`).
+//! Not covered: a send the MCP server hands to the send relay; its report goes to the lead. A subagent that makes no Bash or acpmux MCP call
 //! after its report came keeps it until it ends.
 //! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
 //! runs. A message steered into a running turn, or one that joined another message's turn
@@ -106,12 +108,21 @@ impl Hub {
     /// Leaves `report` for its subagent in parent `p` (`report.for_subagent`): true when it is
     /// left for it, false when the subagent has stopped or no subagent of `p` runs, so the
     /// report goes to `p` itself.
-    pub(super) fn lane_report_to_subagent(&self, p: &Session, report: &Report) -> bool {
+    ///
+    /// `question`: the report answers a question the subagent asked a session it did not start
+    /// (`question_replies.rs`), so a sweep hands it to the lead that way, not as a lane's.
+    pub(super) fn lane_report_to_subagent(
+        &self,
+        p: &Session,
+        report: &Report,
+        question: bool,
+    ) -> bool {
         let Some(sub) = report.for_subagent.as_ref() else { return false };
         let notice = json!({
             "text": notice_text(report),
             "lane": report.session,
             "report": report,
+            "question": question,
         });
         self.subagent_notice_leave(p, sub, &report.prompt_id, &notice)
     }
@@ -205,8 +216,14 @@ impl Hub {
                     continue;
                 };
                 report.subagent_ended = true;
-                // The same checks as any report: the lane still reports here, its turn unread.
-                if let Err(e) = hub.lane_deliver(&parent, lane, &report).await {
+                // A question's reply goes to the lead (`question_replies.rs`); a lane's report
+                // has the same checks as any: the lane still reports here, its turn unread.
+                let delivered = if notice.get("question") == Some(&Value::Bool(true)) {
+                    hub.question_reply_deliver(&parent, lane, &report).await
+                } else {
+                    hub.lane_deliver(&parent, lane, &report).await
+                };
+                if let Err(e) = delivered {
                     tracing::warn!(parent = %parent, lane, "lane report not delivered: {}", e.message);
                     // Left again, for the next look (a turn end of the parent).
                     let _ = crate::subagent_notice::leave(&dir, &report.prompt_id, &notice);

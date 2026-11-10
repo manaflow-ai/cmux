@@ -228,7 +228,9 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         guard BuildCapabilities.current.push else { return }
         Task { @MainActor in
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if APNsRegistrationDecision.shouldRegister(push: true, authorization: status) {
+            let registers = APNsRegistrationDecision.shouldRegister(push: true, authorization: status)
+            log.info("APNs: authorization \(status.rawValue, privacy: .public), asks for a token: \(registers, privacy: .public)")
+            if registers {
                 UIApplication.shared.registerForRemoteNotifications()
             }
         }

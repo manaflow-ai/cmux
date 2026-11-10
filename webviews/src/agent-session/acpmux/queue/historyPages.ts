@@ -7,6 +7,7 @@ import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
+import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -17,6 +18,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
+  teamAudit(params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
   audit(params?: Record<string, unknown>): Promise<unknown>;
@@ -92,7 +94,11 @@ export function historyPages({
   sessions?: readonly AcpmuxSessionEntry[];
   /// Copies text, false when neither clipboard path took it (conversation/clipboard.ts).
   copy?: (text: string) => Promise<boolean>;
-}): { queue: ComponentProps<typeof QueueScreen>; ledger: ComponentProps<typeof LedgerScreen> } {
+}): {
+  queue: ComponentProps<typeof QueueScreen>;
+  ledger: ComponentProps<typeof LedgerScreen>;
+  team: ComponentProps<typeof TeamAuditScreen>;
+} {
   const connected = () => {
     const current = client();
     // l10n-allow: a rejection reason for the wire log only; the row shows its own localized failure text
@@ -150,6 +156,20 @@ export function historyPages({
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
       copy,
+      // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
+      // cannot save it (one that predates the kind, or a failed write) copies it instead.
+      save: async (text, suggestedName, kind) => {
+        try {
+          const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
+          return saved === true ? "saved" : "cancelled";
+        } catch {
+          // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
+          if (!(await copy(text))) throw new Error("clipboard refused");
+          return "copied";
+        }
+      },
     },
+    // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
+    team: { load: async (params) => connected().teamAudit(params) },
   };
 }

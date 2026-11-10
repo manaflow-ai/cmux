@@ -225,7 +225,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.start", "Edit cmux Live…"),
         hint: Some(t("ActionCatalog", "action.liveWeb.start.hint", "Change cmux's own UI and see it here at once, or let your agent do it. No build.")),
-        keywords: &["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+        keywords: &["cmux live", "live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
         category: "settings",
         symbol: "bolt.horizontal.circle",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -237,7 +237,7 @@ pub static ACTIONS: &[Action] = &[
         id: "liveWeb.stop",
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.stop", "Stop Editing cmux Live"),
-        keywords: &["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+        keywords: &["cmux live", "live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
         category: "settings",
         symbol: "bolt.horizontal.circle.fill",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -609,28 +609,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "globe",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings toggle-web-page-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.subtle",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.subtle", "Use Bouncy Animations"),
-        keywords: &["animation", "motion", "spring", "bounce", "bouncy", "appearance"],
-        category: "settings",
-        symbol: "arrow.up.and.down.and.sparkles",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-bouncy-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.none",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.none", "Use Animations Without Bounce"),
-        keywords: &["animation", "motion", "spring", "bounce", "critically damped", "appearance"],
-        category: "settings",
-        symbol: "arrow.right.to.line",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-animations-without-bounce",
         ..Action::DEFAULT
     },
     Action {

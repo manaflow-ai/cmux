@@ -12,7 +12,6 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
-import CmuxNextFeed
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -444,8 +443,8 @@ final class NotificationCenterService {
     /// terminal input did in the old app; focus, selection, and typing in
     /// a page or find bar keep it.
     private func clearUnreadMark(ofTab tab: String) {
-        // Runs per keystroke: no tab walk unless some workspace is marked.
-        guard let services, services.daemon.store.workspaces.contains(where: \.markedUnread),
+        // Runs per keystroke: no workspace or tab walk unless some workspace is marked (a kept count).
+        guard let services, services.daemon.store.unreadTotals.markedWorkspaces > 0,
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
         // One clear per echo window, however fast the keys come.
@@ -466,14 +465,14 @@ final class NotificationCenterService {
             chiefPet?.read(tab: tab.id)
             desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         }
-        let surface = tab.surface
         let driver = remote == nil ? feedDriver : nil
-        // Read now (dots, badges, Cmd-Opt-U); the tree's echo settles it, a failed ack rolls it back.
-        tab.expectNotificationRead()
-        (remote ?? services?.daemon)?.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) { connection in
-            let reply = try await connection.acknowledgeNotifications(of: surface)
+        // Read now (dots, badges, Cmd-Opt-U) and kept while the daemon is down or restoring; the tree's echo settles
+        // it, only the daemon's refusal rolls it back (DaemonService+TabReads).
+        guard let daemon = remote ?? services?.daemon else { return tab.expectNotificationRead() }
+        daemon.readNotification(of: tab) { reply in
             // Items that already moved are read in the cloud (B5).
-            if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
+            // task-owner: one hop to the feed driver per answered read; nothing to cancel
+            if let refused = reply.refused, !refused.isEmpty { Task { await driver?.acknowledged(refused) } }
         }
     }
 

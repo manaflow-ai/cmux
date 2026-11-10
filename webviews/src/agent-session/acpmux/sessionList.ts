@@ -5,6 +5,7 @@ import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
+import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
@@ -57,6 +58,9 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** Its log is in acpmux's cold archive (`coldArchive`, hub/cold_archive.rs): the row draws this
+   *  preview only, and opening the chat brings the log back. */
+  coldArchive?: ColdArchive;
   /** The latest message text from acpmux's summary, when present. */
   lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
@@ -121,6 +125,37 @@ export type AcpmuxSessionEntry = {
   usageStats?: SessionUsageStats;
 };
 
+/** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
+export type ColdArchive = {
+  archivedAt: number;
+  /** The prompts and replies its log held. */
+  messages: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  /** Its last few messages, oldest first, each cut short. */
+  last: { role: string; text: string; at: number }[];
+};
+
+const coldCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** acpmux's `coldArchive`, else undefined. */
+export function coldArchive(value: unknown): ColdArchive | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const cold = value as Record<string, unknown>;
+  const last = (Array.isArray(cold.last) ? cold.last : []).flatMap((item) => {
+    const message = item as Record<string, unknown> | null;
+    const body = text(message?.text);
+    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: coldCount(message?.at) }] : [];
+  });
+  return {
+    archivedAt: coldCount(cold.archivedAt),
+    messages: coldCount(cold.messages),
+    bytesBefore: coldCount(cold.bytesBefore),
+    bytesAfter: coldCount(cold.bytesAfter),
+    last,
+  };
+}
+
 export type LifecycleReceipt = {
   id: string;
   sequence: number;
@@ -168,7 +203,7 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
  * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
  * or question before its indicator moves to "input". A lost host cannot answer its old asks.
  */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+export const folded = (entry: AcpmuxSessionEntry, parents: Pick<ReadonlySet<string>, "has">) => {
   const needsPerson =
     entry.indicator !== "lost" &&
     ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
@@ -267,6 +302,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
+  const cold = coldArchive(session.coldArchive);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -301,6 +337,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // a list's preview reads the message.
     preview: shown(session.preview),
     lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
+    ...(cold && { coldArchive: cold }),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
@@ -496,6 +533,77 @@ export function mostRecentProject(
   return firstProject(recentLocalFolders(sessions), home, known);
 }
 
+/// `sessions` as it was when what `fields` reads of them last changed: the same array while only
+/// other fields of a session change (a status dot, unread, a title, a cost), so a projection that
+/// reads only `fields` (a memo over it) runs again only when its input moved, and one session's
+/// change costs one entry's fields here, not the projection over every listed chat. The pane keeps
+/// an unchanged session's entry object (direct.ts `sessionEntryList`), so an entry seen last time is
+/// not read again. A session added, removed or moved in the list counts as a change.
+export class SessionsBy {
+  private kept: readonly AcpmuxSessionEntry[] | undefined;
+  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
+  private count = -1;
+  /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
+  /// `noteReplaced`) is compared with at the replaced entries only.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+
+  constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
+    if (sessions === this.kept) return (this.last = sessions);
+    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
+    // Same length: updated in place, as an id not seen before marks the list moved. Another length
+    // starts again, so a session no longer listed leaves nothing behind.
+    if (moved) this.seen = new Map();
+    const positions = replaced ?? sessions.keys();
+    // A full pass also counts the ids listed: one listed twice changes what the list holds without
+    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
+    const listedIds = replaced ? undefined : new Set<string>();
+    for (const at of positions) {
+      const entry = sessions[at]!;
+      if (listedIds?.has(entry.sessionId)) moved = true;
+      listedIds?.add(entry.sessionId);
+      const before = this.seen.get(entry.sessionId);
+      if (before?.entry === entry) {
+        if (before.at !== at) {
+          before.at = at;
+          moved = true;
+        }
+        continue;
+      }
+      const key = JSON.stringify(this.fields(entry));
+      if (key !== before?.key || at !== before.at) moved = true;
+      if (before) {
+        before.entry = entry;
+        before.key = key;
+        before.at = at;
+      } else this.seen.set(entry.sessionId, { entry, key, at });
+    }
+    // A session that left while another came, or another listed twice, keeps the same length: drop
+    // what it left behind, so it is new again when it comes back.
+    const listed =
+      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
+    if (listed && this.seen.size !== listed.size)
+      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
+    this.count = sessions.length;
+    if (moved) this.kept = sessions;
+    return this.kept!;
+  }
+}
+
+/// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
+/// folder, where it runs, whether it is listed, and when it was last active.
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  session.cwd,
+  session.host,
+  session.hostKind,
+  session.peer,
+  listed(session),
+  activityTime(session),
+];
+
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
@@ -505,13 +613,12 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
     if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
     return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
   });
-  const folders: string[] = [];
+  const folders = new Set<string>();
   for (const session of byRecency(local)) {
-    const cwd = session.cwd!.replace(/\/+$/, "");
-    if (!folders.includes(cwd)) folders.push(cwd);
-    if (folders.length >= limit) break;
+    folders.add(session.cwd!.replace(/\/+$/, ""));
+    if (folders.size >= limit) break;
   }
-  return folders;
+  return [...folders];
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with

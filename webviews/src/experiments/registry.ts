@@ -16,6 +16,7 @@ import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.ex
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
@@ -27,6 +28,7 @@ import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgro
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
+import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
@@ -80,6 +82,7 @@ import { followMotion } from "../agent-session/acpmux/conversation/followMotion.
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
+import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -101,6 +104,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
+  threadMinimapRestTick,
   newTabHeadline,
   newTabComposerTrailingGap,
   newTabIconColumn,
@@ -156,6 +160,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
+  cloudStartComposerLook,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -167,6 +172,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendStopMorph,
   sendMenuLook,
   fieldGrowthMotion,
+  teamAudit,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

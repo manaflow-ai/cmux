@@ -56,6 +56,7 @@ const TAKES_VALUE: &[&str] = &["--on", "--repo", "--ref", "--timeout"];
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 /// The pause between two asks whether the machine's clone ended.
+// timeout: not a deadline, the pause between two polls; the clone itself is bounded by --timeout.
 const POLL_PAUSE: Duration = Duration::from_secs(3);
 
 /// Where the chat goes.
@@ -152,12 +153,7 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
             "--repo" => repo = Some(take()?),
             "--ref" => reference = Some(take()?),
             "--timeout" => {
-                let text = take()?;
-                let seconds = text.parse::<u64>().ok().filter(|seconds| *seconds > 0);
-                let seconds = seconds.ok_or_else(|| {
-                    UsageError::new(format!("--timeout takes seconds, not {text}"))
-                })?;
-                timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
+                timeout = chat_send::timeout_value(&take()?)?.min(MAX_TIMEOUT);
             }
             _ if word.starts_with('-') => {
                 return Err(UsageError::new(format!("unknown flag {word}")));
@@ -433,7 +429,7 @@ fn report(outcome: &Result<Value, Value>, output: OutputMode) -> i32 {
         Ok(answer) if output == OutputMode::Human => {
             let text = |key: &str| answer.get(key).and_then(Value::as_str).unwrap_or_default();
             println!(
-                "{} goes on in {} as {} on machine:{}.",
+                "{} goes on in {} as {} on vm:{}.",
                 text("forked_from"),
                 text("cwd"),
                 text("session_id"),

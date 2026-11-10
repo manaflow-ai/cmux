@@ -145,6 +145,36 @@ import Testing
         #expect(accepted == 2, "the found update kept waiting after Low Data Mode ended")
     }
 
+    /// Before the network monitor's first path the link counts as metered: a launch check's update
+    /// waits instead of downloading on Low Data Mode, and downloads once the first path says the
+    /// link is free (#39680 review F1). An update the organization requires still downloads.
+    @Test func theLinkCountsAsMeteredUntilTheFirstPath() {
+        let updater = Self.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.downloadSetting = (true, .deferLowData)
+        updater.networkPending = true
+        updater.applyDownloadPolicy()
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded before the monitor said which link this is")
+        updater.networkChanged(constrained: true, expensive: false)
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded on Low Data Mode")
+        updater.networkChanged(constrained: false, expensive: false)
+        #expect(updater.downloadsFoundUpdates && accepted == 1, "the found update kept waiting on a free link")
+
+        let free = Self.updater()
+        free.downloadSetting = (true, .deferLowData)
+        free.networkPending = true
+        free.applyDownloadPolicy()
+        free.networkChanged(constrained: false, expensive: false)
+        #expect(free.downloadsFoundUpdates, "a first path equal to the starting state left downloads off")
+
+        let always = Self.updater()
+        always.downloadSetting = (true, .download)
+        always.networkPending = true
+        always.applyDownloadPolicy()
+        #expect(always.downloadsFoundUpdates, "meteredNetwork download waited for the first path")
+    }
+
     @Test func theUsersCheckShowsTheCardNotTheButton() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)

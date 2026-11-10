@@ -16,8 +16,9 @@
 //!   a start schedules their cleanup);
 //! - workspaces, created by an owner through the resource API;
 //! - optionally sealed segments: an owner takes a checkpoint and seals the
-//!   first half of the journal through the daemon's own sealing path
-//!   (`Mux::seal_journal_segments`), then the second half stays live.
+//!   first half of the journal (or [`SynthOptions::seal_segments`] segments'
+//!   worth of rows) through the daemon's own sealing path
+//!   (`Mux::seal_journal_segments`), then the rest stays live.
 //!
 //! Rows are appended in large transactions on a connection of the
 //! generator's own, but every row goes through the daemon's record encoding
@@ -103,6 +104,10 @@ pub struct SynthOptions {
     pub payload_bytes: usize,
     /// Seal the first half of the journal into segments.
     pub seal: bool,
+    /// Seal about this many full segments instead of half the journal (a
+    /// segment holds up to 1,024 records), capped at the whole journal.
+    /// Implies [`Self::seal`].
+    pub seal_segments: Option<u64>,
     /// Write the roster snapshot one version behind the current reducer.
     pub roster_version_bump: bool,
     /// Rows per transaction.
@@ -121,6 +126,7 @@ impl Default for SynthOptions {
             workspaces: 4,
             payload_bytes: 6 * 1024,
             seal: false,
+            seal_segments: None,
             roster_version_bump: false,
             batch_rows: 20_000,
             progress: false,
@@ -201,10 +207,17 @@ pub fn generate(state_root: &Path, options: &SynthOptions) -> anyhow::Result<Syn
 
     let mut writer = Writer::open(&registry_path, options)?;
     let total = writer.plan.total();
-    let first_half = if options.seal { total / 2 } else { total };
+    let sealing = options.seal || options.seal_segments.is_some();
+    let first_half = match options.seal_segments {
+        Some(segments) => segments
+            .saturating_mul(super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64)
+            .min(total),
+        None if sealing => total / 2,
+        None => total,
+    };
     writer.append(first_half)?;
     writer.save_roster(AGENT_ROSTER_REDUCER_VERSION)?;
-    let (sealed_through, segments) = if options.seal {
+    let (sealed_through, segments) = if sealing {
         drop(writer.connection.take());
         let sealed = seal(state_root, options)?;
         writer.reopen(&registry_path)?;
@@ -283,6 +296,14 @@ fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)>
             crate::SurfaceOptions::default(),
             state_root,
         )
+    };
+    // The generator seals the registry itself; the owner's maintenance
+    // worker would seal the same checkpoint in between and could finish it
+    // under a seal call, which then finds its range already sealed.
+    let open = || {
+        let mux = open()?;
+        mux.stop_journal_maintenance();
+        anyhow::Ok(mux)
     };
     let mut mux = open()?;
     let mut opened = Instant::now();

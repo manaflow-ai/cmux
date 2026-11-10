@@ -61,6 +61,9 @@ public final class ChiefSession {
     public var status: String? {
         didSet { isReconnecting = false }
     }
+    /// The unavailable bar's title when it is not Chief that is missing (a
+    /// conversation kept from a dropped link); nil: "Chief isn't available".
+    public var unavailableTitle: String?
     /// Tries the Mac's Chief again (set by the link's coordinator); nil
     /// where there is nothing to try (no link).
     @ObservationIgnored public var reconnect: (@MainActor () -> Void)?

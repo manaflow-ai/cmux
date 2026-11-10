@@ -88,7 +88,7 @@ fn schema_json() -> Value {
         .rows
         .iter()
         .map(|row| {
-            let mut raw = row.raw.clone();
+            let mut raw = row.raw();
             if let Some(members) = raw.as_object_mut() {
                 members.remove("accepts");
                 members.remove("refuses");

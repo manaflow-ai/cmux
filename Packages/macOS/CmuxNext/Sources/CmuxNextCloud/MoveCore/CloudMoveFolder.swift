@@ -22,6 +22,19 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
     }
 
+    /// A Cloud start's folder that left this Mac after the start checked it (a worktree removed while the machine came up):
+    /// the start's card says the pane's own `cloud_folder_missing`, never the copy's OS error with the machine's name and a
+    /// Retry that could only fail the same way. Leo, 2026-11-06, on "Couldn't copy the folder to lease-lease_u_…: cannot
+    /// list …: No such file or directory (os error 2)": "what's this".
+    public struct Gone: Error {
+        public init() {}
+    }
+
+    /// `failure`, unless `root` is no longer a folder on this Mac: then ``Gone``.
+    public static func orGone(_ failure: any Error, root: String) async -> any Error {
+        await isFolder(root) ? failure : Gone()
+    }
+
     /// ``init(chat:)`` read off the main thread (it looks for `.git` above the folder).
     @concurrent nonisolated public static func read(chat folder: String) async -> CloudMoveFolder? {
         CloudMoveFolder(chat: folder)

@@ -10,6 +10,9 @@ that made it.
 - `scripts/ci/sealed_secrets.py`: `seal_bundle(repo, environment, key_id, key, {NAME: value})`
   seals with libsodium's `crypto_box_seal` (the encryption GitHub's secrets API takes) and returns a
   bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it.
+- A bundle whose environment is `None` goes to the repository's own Actions secrets, for a job with no
+  `environment:` (cmux-platform's `ci.yml`: targets `platform-staging` and `platform-production`). Pin
+  `gh api repos/OWNER/REPO/actions/secrets/public-key` for it; `put` needs write access to that repository's secrets.
 - Pin the target environment's `key_id` and `key` in the producing script. To read them, run
   `gh api repos/OWNER/REPO/environments/ENV/secrets/public-key`.
 - `put` reads the live public key first. If its `key_id` or bytes differ from the bundle's, it writes
@@ -35,3 +38,17 @@ python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 
 Rerun it to rotate the password. The capture job reads only the two secrets. It never sees the
 staging server key and never creates users.
+
+## Staging INTERNAL_TOKEN
+
+`.github/workflows/internal-token-staging.yml` runs only from `feat-cmux-next`, in `cmux-next-staging`. It mints a
+fresh `INTERNAL_TOKEN`, seals it to this repository's `cloud-vm-staging` environment as
+`PLATFORM_STAGING_INTERNAL_TOKEN` (the classic migration staging proof's bearer, cmuxterm-hq#8793), then puts it on
+`cmux-platform-staging` and, when that Worker already has one, `cmux-api-staging`. Every run is a rotation of all
+three. To run it and store the result:
+
+```sh
+gh workflow run internal-token-staging.yml -R manaflow-ai/cmux --ref feat-cmux-next
+gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
+python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
+```
