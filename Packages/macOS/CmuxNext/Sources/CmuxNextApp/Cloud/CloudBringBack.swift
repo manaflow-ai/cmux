@@ -83,7 +83,7 @@ struct CloudBringBack {
         // One run per chat at a time: a second's copy could land after the first's chat already ran there.
         guard !services.cloud.movingBack.contains(tab.id) else { throw ActionFailure(message: CloudMoveStrings.inProgress) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
-        let cli = services.cloud.move.runner(binary)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)
         // Only the refusal toast's "Ask first, then bring back" narrows the chat on the machine.
         let askFirst = invocation[Self.askFirstArgument] == .bool(true)
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).

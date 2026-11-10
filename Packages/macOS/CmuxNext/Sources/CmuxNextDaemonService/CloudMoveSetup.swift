@@ -1,4 +1,3 @@
-public import CmuxNextCloud
 public import Foundation
 
 /// What Move to Cloud (``CloudMove``) and Bring Back Local (``CloudBringBack``) run, and where
@@ -22,18 +21,12 @@ public struct CloudMoveSetup {
     /// How often a machine's granted folders are copied again (`cmux link access sync`).
     public var accessSync: Duration = .seconds(60)
     /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default), which every `cli` run is given so it
-    /// reads the ledgers the daemon writes.
+    /// reads the ledgers the daemon writes (pass it to every ``CloudMoveCLI``).
     public var stateDirectory: URL?
 
     public init(cli: URL? = nil, workRoots: [String] = ["/home/cmux/work", "/root/work"], timeout: Duration = .seconds(30 * 60),
                 ledger: UserDefaults? = nil, accessPoll: Duration = .seconds(3), accessSync: Duration = .seconds(60)) {
         (self.cli, self.workRoots, self.timeout, self.ledger, self.accessPoll, self.accessSync) = (cli, workRoots, timeout, ledger, accessPoll, accessSync)
-    }
-
-    /// A `cmux link` run through `binary` on the daemon's state root, so it reads the ledgers the daemon writes
-    /// (a tagged build's warm copies and login receipts); every app CLI run is made here.
-    public func runner(_ binary: URL, timeout: Duration? = nil) -> CloudMoveCLI {
-        CloudMoveCLI(binary: binary, timeout: timeout ?? self.timeout, stateDirectory: stateDirectory)
     }
 
     /// The work root (``workRoots``) a chat's synced folder is under.

@@ -93,7 +93,7 @@ final class CloudMachineUpdates {
     private static func target(_ machineID: String, services: AppServices, holdsForStarts: Bool = true) -> CloudMachineUpdateTarget? {
         guard CloudTunables.updatesCloudMachines, let session = services.machines.session(machineID),
               let binary = services.cloud.move.cli else { return nil }
-        let cli = services.cloud.move.runner(binary)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)
         var side = source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI, logger: logger)
         if holdsForStarts { side.starting = { [gate = services.cloud.startGate] in await gate.contains(machineID) } }
         return CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title, source: side)

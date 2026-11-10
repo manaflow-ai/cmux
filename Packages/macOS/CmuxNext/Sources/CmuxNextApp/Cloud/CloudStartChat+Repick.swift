@@ -48,7 +48,7 @@ extension CloudStartChat {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
-            let cli = services.cloud.move.runner(binary)
+            let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)
             // The pick wins over the send's first machine: the plan now names the picked one.
             _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))

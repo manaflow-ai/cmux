@@ -30,7 +30,7 @@ extension CloudStartChat {
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services, asker: asker), steps = CloudStartSteps(logger: cloud.logger)
         defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") } // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
-        if await decision.takeWarmReceipt(cli: cloud.move.cli.map { cloud.move.runner($0) }, machine: machineID, userID: userID, ask: ask) { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
+        if await decision.takeWarmReceipt(cli: cloud.move.cli, stateDirectory: cloud.move.stateDirectory, machine: machineID, userID: userID, ask: ask) { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
         await gate.read(into: &decision)
         steps.done("login.gate")
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
@@ -39,7 +39,7 @@ extension CloudStartChat {
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
                 // The guest's kind, the machine's own login and the transfer's guest check, at once (``CloudHarnessLoginDecision/readMachine(on:machineID:teamID:userID:otherTeams:warmCopy:)``).
-                try await decision.readMachine(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, warmCopy: cloud.move.cli.map { (cloud.move.runner($0), machineID, cloud.claimedCopies) })
+                try await decision.readMachine(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0, stateDirectory: cloud.move.stateDirectory), machineID, cloud.claimedCopies) })
                 steps.done("login.machine")
             }
             verdict = decision.verdict
