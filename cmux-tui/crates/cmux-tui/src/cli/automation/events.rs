@@ -11,9 +11,10 @@
 //!   the daemon; agent chats and permission prompts come from the app's state.
 //! - `pr-opened`: nothing pushes GitHub changes to cmux, so `gh search prs`
 //!   every [`PR_POLL_SECONDS`] (the GitHub pull requests signal's own pace),
-//!   and a line for each pull request not in the first read.
+//!   in every state from a creation-time cursor, and a line for each pull
+//!   request created since the source started.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 use std::time::Duration;
 
@@ -120,20 +121,79 @@ fn agent_events(
     kinds: &str,
     keep: &dyn Fn(&Value) -> bool,
 ) -> Result<(), Value> {
-    super::super::agents::follow_events(global, kinds, &mut |event| {
-        if !keep(event) || own_run(event) {
-            return true;
-        }
-        emit(&tagged(kind, event))
+    let mut own = OwnSessions::new(Box::new(acpmux_session_name));
+    super::super::agents::follow_events(global, kinds, &mut |event| match line_for(
+        kind, event, keep, &mut own,
+    ) {
+        Some(line) => emit(&line),
+        None => true,
     })
 }
 
-/// Whether `event` is an automation run's own session.
-fn own_run(event: &Value) -> bool {
-    ["agent_session", "session", "name"]
-        .iter()
-        .filter_map(|field| event[*field].as_str())
-        .any(|name| name.starts_with(OWN_SESSION_PREFIX))
+/// The line `event` makes, or none when `keep` drops it or it is an
+/// automation run's own session.
+fn line_for(
+    kind: &EventKind,
+    event: &Value,
+    keep: &dyn Fn(&Value) -> bool,
+    own: &mut OwnSessions,
+) -> Option<Value> {
+    (keep(event) && !own.is_own(event)).then(|| tagged(kind, event))
+}
+
+/// The fields of an event that name its session (`auto-...` for a run's own).
+const SESSION_NAME_FIELDS: [&str; 3] = ["session", "name", "session_name"];
+/// The fields that carry its acpmux session id: a chat's or a dialog's event
+/// carries the id, not the `auto-...` name, so the id is looked up.
+const SESSION_ID_FIELDS: [&str; 2] = ["agent_session", "session_id"];
+
+/// Which sessions are automation runs' own (`auto-<id>-<run>`), each id
+/// looked up once.
+struct OwnSessions {
+    lookup: Box<dyn FnMut(&str) -> Option<String>>,
+    known: HashMap<String, bool>,
+}
+
+impl OwnSessions {
+    fn new(lookup: Box<dyn FnMut(&str) -> Option<String>>) -> OwnSessions {
+        OwnSessions { lookup, known: HashMap::new() }
+    }
+
+    fn is_own(&mut self, event: &Value) -> bool {
+        let own_name = |name: &str| name.starts_with(OWN_SESSION_PREFIX);
+        if SESSION_NAME_FIELDS
+            .iter()
+            .chain(&SESSION_ID_FIELDS)
+            .filter_map(|f| event[*f].as_str())
+            .any(own_name)
+        {
+            return true;
+        }
+        SESSION_ID_FIELDS.iter().filter_map(|f| event[*f].as_str()).any(|id| {
+            if let Some(own) = self.known.get(id) {
+                return *own;
+            }
+            let own = (self.lookup)(id).is_some_and(|name| own_name(&name));
+            self.known.insert(id.to_string(), own);
+            own
+        })
+    }
+}
+
+/// The name of acpmux session `id` (`acpmux info ID --json`), when acpmux
+/// knows it.
+fn acpmux_session_name(id: &str) -> Option<String> {
+    let output = cmux_process::Command::new(cmux_automations::exec::acpmux())
+        .args(["info", id, "--json"])
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let info: Value = serde_json::from_slice(&output.stdout).ok()?;
+    info["name"].as_str().map(str::to_owned)
 }
 
 /// `event` with `"event": NAME`, so a condition script can tell sources apart.
@@ -150,18 +210,21 @@ fn tagged(kind: &EventKind, event: &Value) -> Value {
     Value::Object(line)
 }
 
-/// The person's open pull requests, newest first, as `gh` reads them.
-fn read_pull_requests() -> Result<Vec<Value>, Value> {
+/// The person's pull requests created at or after `since` (`YYYY-MM-DDTHH:MM:SSZ`),
+/// in every state: one opened and closed or merged between two reads is still
+/// an opening. Oldest first.
+fn read_pull_requests(since: &str) -> Result<Vec<Value>, Value> {
+    let created = format!("--created=>={since}");
     let output = cmux_process::Command::new("gh")
         .args([
             "search",
             "prs",
             "--author=@me",
-            "--state=open",
+            created.as_str(),
             "--sort=created",
-            "--order=desc",
-            "--limit=30",
-            "--json=url,title,number,repository,isDraft,createdAt",
+            "--order=asc",
+            "--limit=100",
+            "--json=url,title,number,repository,isDraft,state,createdAt",
         ])
         .stdin(cmux_process::Stdio::null())
         .output()
@@ -185,53 +248,78 @@ pub(super) fn pull_request_line(pr: &Value) -> Value {
         "number": pr["number"],
         "title": pr["title"],
         "draft": pr["isDraft"],
+        "state": pr["state"].as_str().map(str::to_lowercase),
         "created_at": pr["createdAt"],
     })
 }
 
-/// What `pr-opened` has seen: each pull request's url, and the newest
-/// creation time. Only one created at or after that time is new, so an old
-/// pull request that moves into the 30 `gh` lists when a newer one closes
-/// starts nothing.
-#[derive(Default)]
-pub(super) struct SeenPullRequests {
-    urls: HashSet<String>,
-    newest: String,
+/// Where `pr-opened` has read up to: the newest creation time seen (the next
+/// read's `--created` cursor), and the pull requests created at that time,
+/// so one is never an event twice.
+pub(super) struct PullRequestCursor {
+    pub(super) since: String,
+    at_since: HashSet<String>,
 }
 
-/// The pull requests in `now` that are new to `seen` (and marks them seen), oldest first.
-pub(super) fn new_pull_requests(seen: &mut SeenPullRequests, now: &[Value]) -> Vec<Value> {
-    let since = seen.newest.clone();
-    let mut fresh: Vec<Value> = now
-        .iter()
-        .filter(|pr| {
-            // RFC 3339 times in UTC (`gh` writes `...Z`) order as text.
-            let created = pr["createdAt"].as_str().unwrap_or("");
-            created >= since.as_str()
-                && pr["url"].as_str().is_some_and(|url| seen.urls.insert(url.to_string()))
-        })
-        .map(pull_request_line)
-        .collect();
-    for pr in now {
-        if let Some(created) = pr["createdAt"].as_str()
-            && created > seen.newest.as_str()
-        {
-            seen.newest = created.to_string();
-        }
+impl PullRequestCursor {
+    /// A cursor at `since`: pull requests created before it are not new.
+    pub(super) fn at(since: String) -> PullRequestCursor {
+        PullRequestCursor { since, at_since: HashSet::new() }
     }
-    fresh.reverse();
-    fresh
+
+    /// The pull requests in `now` that are new (and moves the cursor past
+    /// them), oldest first.
+    pub(super) fn advance(&mut self, now: &[Value]) -> Vec<Value> {
+        let mut fresh: Vec<&Value> = now
+            .iter()
+            .filter(|pr| {
+                // RFC 3339 times in UTC (`gh` writes `...Z`) order as text.
+                let created = pr["createdAt"].as_str().unwrap_or("");
+                let url = pr["url"].as_str().unwrap_or("");
+                created >= self.since.as_str()
+                    && !url.is_empty()
+                    && !(created == self.since && self.at_since.contains(url))
+            })
+            .collect();
+        fresh.sort_by(|a, b| a["createdAt"].as_str().cmp(&b["createdAt"].as_str()));
+        for pr in &fresh {
+            let (created, url) =
+                (pr["createdAt"].as_str().unwrap_or(""), pr["url"].as_str().unwrap_or(""));
+            if created > self.since.as_str() {
+                self.since = created.to_string();
+                self.at_since.clear();
+            }
+            self.at_since.insert(url.to_string());
+        }
+        fresh.into_iter().map(pull_request_line).collect()
+    }
+}
+
+/// Now in UTC to the second, as `gh` and GitHub search write times.
+fn utc_now() -> String {
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let c = cmux_automations::Zone::Utc.civil(t);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        c.year,
+        c.month,
+        c.day,
+        c.hour,
+        c.minute,
+        t.rem_euclid(60)
+    )
 }
 
 fn pull_requests() -> Result<(), Value> {
-    // The first read is what is already open: no event for it.
-    let mut seen = SeenPullRequests::default();
-    new_pull_requests(&mut seen, &read_pull_requests()?);
+    // Pull requests created before the source started are not new.
+    let mut cursor = PullRequestCursor::at(utc_now());
     loop {
         std::thread::sleep(Duration::from_secs(PR_POLL_SECONDS));
-        match read_pull_requests() {
+        match read_pull_requests(&cursor.since) {
             Ok(now) => {
-                for line in new_pull_requests(&mut seen, &now) {
+                for line in cursor.advance(&now) {
                     if !emit(&line) {
                         return Ok(());
                     }
@@ -251,29 +339,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_pull_request_is_an_event_once_and_only_after_the_first_read() {
-        let pr = |n: u64| {
+    fn a_pull_request_opened_after_the_start_is_an_event_once_in_any_state() {
+        let pr = |n: u64, state: &str| {
             json!({"url": format!("https://github.com/o/r/pull/{n}"), "number": n, "title": format!("t{n}"),
-                   "repository": {"nameWithOwner": "o/r"}, "isDraft": false,
-                   "createdAt": format!("2026-11-10T00:00:0{n}Z")})
+                   "repository": {"nameWithOwner": "o/r"}, "isDraft": false, "state": state,
+                   "createdAt": format!("2026-11-10T00:00:{n:02}Z")})
         };
-        let mut seen = SeenPullRequests::default();
-        assert_eq!(new_pull_requests(&mut seen, &[pr(3), pr(2)]).len(), 2, "the baseline read");
-        assert!(new_pull_requests(&mut seen, &[pr(3), pr(2)]).is_empty());
-        let fresh = new_pull_requests(&mut seen, &[pr(5), pr(4), pr(3)]);
+        let mut cursor = PullRequestCursor::at("2026-11-10T00:00:03Z".into());
+        // #2 is older than the start; #3 opened in the start's second.
+        let fresh = cursor.advance(&[pr(2, "OPEN"), pr(3, "OPEN")]);
+        assert_eq!(fresh.iter().map(|l| l["number"].as_u64().unwrap()).collect::<Vec<_>>(), [3]);
+        assert!(cursor.advance(&[pr(3, "OPEN")]).is_empty(), "never twice");
+        // #4 opened and merged between two reads, #5 still open: both, oldest first.
+        let fresh = cursor.advance(&[pr(5, "OPEN"), pr(4, "MERGED"), pr(3, "CLOSED")]);
         let numbers: Vec<_> = fresh.iter().map(|l| l["number"].as_u64().unwrap()).collect();
-        assert_eq!(numbers, [4, 5], "oldest first");
+        assert_eq!(numbers, [4, 5]);
+        assert_eq!(fresh[0]["state"], "merged");
         assert_eq!(fresh[0]["event"], "pr-opened");
         assert_eq!(fresh[0]["repo"], "o/r");
-        // #5 closes and #1, older than anything seen, moves into the window.
-        assert!(new_pull_requests(&mut seen, &[pr(4), pr(3), pr(1)]).is_empty());
+        assert_eq!(cursor.since, "2026-11-10T00:00:05Z", "the next read starts at the newest");
+        assert!(cursor.advance(&[pr(5, "CLOSED")]).is_empty());
+    }
+
+    #[test]
+    fn the_cursor_is_a_utc_time_to_the_second() {
+        let now = utc_now();
+        assert_eq!(now.len(), "2026-11-10T00:00:00Z".len(), "{now}");
+        assert!(now.ends_with('Z') && now.as_bytes()[10] == b'T', "{now}");
+    }
+
+    fn own_sessions(
+        names: &[(&'static str, &'static str)],
+    ) -> (OwnSessions, std::rc::Rc<std::cell::Cell<u32>>) {
+        let names = names.to_vec();
+        let lookups = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counter = lookups.clone();
+        let lookup = move |id: &str| {
+            counter.set(counter.get() + 1);
+            names.iter().find(|(known, _)| *known == id).map(|(_, name)| (*name).to_string())
+        };
+        (OwnSessions::new(Box::new(lookup)), lookups)
     }
 
     #[test]
     fn an_automation_runs_own_session_starts_nothing() {
-        assert!(own_run(&json!({"agent_session": "auto-auto_abc-run_x", "state": "idle"})));
-        assert!(!own_run(&json!({"agent_session": "fix-login", "state": "idle"})));
-        assert!(!own_run(&json!({"state": "idle"})));
+        let (mut own, _) = own_sessions(&[]);
+        assert!(own.is_own(&json!({"agent_session": "auto-auto_abc-run_x", "state": "idle"})));
+        assert!(own.is_own(&json!({"session_name": "auto-auto_abc-run_x"})));
+        assert!(!own.is_own(&json!({"agent_session": "fix-login", "state": "idle"})));
+        assert!(!own.is_own(&json!({"state": "idle"})));
+    }
+
+    #[test]
+    fn an_automations_own_chat_finishing_fires_nothing() {
+        // A run is `acpmux run -n auto-...`; its chat's event carries the
+        // session's id, which acpmux names.
+        let (mut own, lookups) =
+            own_sessions(&[("5f0c-run", "auto-auto_abc-run_x"), ("77aa-person", "fix-login")]);
+        let idle = find("agent-idle").unwrap();
+        let keep = |e: &Value| matches!(e["state"].as_str(), Some("idle" | "done"));
+        let chat = |id: &str| json!({"kind": "agent", "change": "state", "source": "chat", "state": "idle", "agent_session": id});
+        assert_eq!(
+            line_for(idle, &chat("5f0c-run"), &keep, &mut own),
+            None,
+            "the run's own completion"
+        );
+        assert_eq!(line_for(idle, &chat("5f0c-run"), &keep, &mut own), None);
+        assert_eq!(lookups.get(), 1, "each id is looked up once");
+        let line =
+            line_for(idle, &chat("77aa-person"), &keep, &mut own).expect("a person's chat fires");
+        assert_eq!(line["event"], "agent-idle");
+        // A permission prompt in the run's own chat (`agent-needs-input`).
+        let dialog = json!({"kind": "dialog", "change": "opened", "agent_session": "5f0c-run"});
+        assert!(own.is_own(&dialog));
+        // An id acpmux does not know is someone else's.
+        assert!(!own.is_own(&chat("unknown-id")));
     }
 
     #[test]
