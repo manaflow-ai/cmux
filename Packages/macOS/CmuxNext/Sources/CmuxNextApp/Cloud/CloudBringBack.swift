@@ -51,11 +51,10 @@ struct CloudBringBack {
 
     /// Starts bringing back the invocation's machine chat tab. Throws, before anything moves,
     /// when the tab is not a chat a move from this Mac put on a machine.
-    func start(_ invocation: ActionInvocation, context: AppActionContext, toMachine: Bool = false) throws {
+    func start(_ invocation: ActionInvocation, context: AppActionContext, toMachine asked: Bool = false) throws {
         guard let (tab, _) = context.daemonTab(invocation) else { return }
-        let action = toMachine ? Self.toMachine : Self.action
-        if !toMachine, case .show(let shown) = services.cloud.bringBackRetries[tab.id] {
-            return perform(tab: tab, action: action) { try await reshow(shown, tab: tab) }
+        if !asked, case .show(let shown) = services.cloud.bringBackRetries[tab.id] {
+            return perform(tab: tab, action: Self.action) { try await reshow(shown, tab: tab) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
               let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
@@ -65,9 +64,14 @@ struct CloudBringBack {
         // The move back committed before (this run or one before a relaunch): only open the tab.
         if let back = entry.broughtBack {
             // Brought back already: only its tab here opens, never a move on from a machine it left.
-            guard !toMachine else { throw ActionFailure(message: CloudBringBackStrings.notFromMove) }
-            return perform(tab: tab, action: action) { try await reshow(entry.shown(back), tab: tab) }
+            guard !asked else { throw ActionFailure(message: CloudBringBackStrings.notFromMove) }
+            return perform(tab: tab, action: Self.action) { try await reshow(entry.shown(back), tab: tab) }
         }
+        // A move to another machine that may have landed there (its pin, ``run(tab:entry:cli:askFirst:update:toMachine:invocation:)``)
+        // finishes first, whichever of the two ran: a bring back would drop the pin, and a later move would seed over what the
+        // chat already did there. Once it lands, Bring Back Local runs from that machine's tab.
+        let toMachine = asked || services.cloud.bringBackRetries[tab.id]?.machineID.map { $0 != entry.machineID } == true
+        let action = toMachine ? Self.toMachine : Self.action
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         // Only the refusal toast's "Ask first, then bring back" narrows the chat on the machine.

@@ -321,7 +321,8 @@ struct CloudMove {
     func machine(_ invocation: ActionInvocation, except: String? = nil, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let machines = services.machines, others = machines.cloud.filter { $0.machineID != except }
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
-        if let named {
+        // The machine a chat leaves is never its target (an update of it names it as the machine to rerun on).
+        if let named, (named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named) != except {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
             return try await Self.connected(session, invocation)
