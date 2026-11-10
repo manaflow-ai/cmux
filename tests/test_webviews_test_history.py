@@ -182,6 +182,18 @@ class Inputs(unittest.TestCase):
             (repo / "scripts/ci/pin-browser-test-font.sh").write_text("pin 2\n")
             self.git(repo, "commit", "-qam", "font")
             self.assertNotEqual(history.inputs(repo), second)
+            # From a subfolder (the push shards run from webviews/), the key is the top's.
+            self.assertEqual(history.inputs(repo / "webviews"), history.inputs(repo))
+
+    def test_a_tree_with_no_webview_inputs_has_no_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            (repo / "README").write_text("x\n")
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            with self.assertRaises(SystemExit):
+                history.inputs(repo)
 
 
 class Record(unittest.TestCase):

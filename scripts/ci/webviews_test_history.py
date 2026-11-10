@@ -94,6 +94,10 @@ def inputs(root: str | Path = ".") -> str:
     (known), so a path left out would let a base break through it read as green there."""
     here = Path(__file__).resolve().parent
     sys.path.insert(0, str(here))
+    # Every path below is from the repository's top: run from webviews/ (the push shards), a relative listing
+    # matched nothing and every push got the empty listing's key.
+    root = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                          check=True, capture_output=True, text=True).stdout.strip()
     import web_subareas  # noqa: PLC0415
     paths = sorted({p.rstrip("/") for p in (*web_subareas.REACT_PREFIXES, *web_subareas.REACT_EXACT,
                                             *web_subareas.ALL_SUBAREA_INPUTS, *EXTRA_INPUTS)})
@@ -103,6 +107,8 @@ def inputs(root: str | Path = ".") -> str:
                             check=True, capture_output=True, text=True).stdout.split()
     listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
                              check=True, capture_output=True, text=True).stdout
+    if "webviews" not in listed:
+        raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
 
 
