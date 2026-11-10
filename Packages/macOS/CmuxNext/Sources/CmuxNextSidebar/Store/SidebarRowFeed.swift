@@ -181,6 +181,8 @@ public final class SidebarRowFeed {
     private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
+    /// Listings the pass asked since the last `beginPass` (``roll()``).
+    private var asked: [WorkspaceID] = []
     /// Changed rows, at most once per flush.
     public var onChange: (([SidebarWorkspace]) -> Void)?
     /// Runs one flush later. The app hands the display frame (`FrameBatcher`): the row patches of
@@ -214,6 +216,7 @@ public final class SidebarRowFeed {
     public func beginPass(inputs: AnyHashable) {
         pass &+= 1
         named.removeAll(keepingCapacity: true)
+        asked.removeAll(keepingCapacity: true)
         if inputs != self.inputs {
             inputsChanged = true
             // A rule reads the pass's inputs by value too (whether the Home item shows the Home workspaces).
@@ -256,6 +259,7 @@ public final class SidebarRowFeed {
     /// when the answer flips.
     public func lists(_ id: WorkspaceID, rule: @escaping () -> Bool) -> Bool {
         _ = listingFlips.epoch
+        asked.append(id)
         if let listing = listings[id] ?? unparkedListing(id) {
             listing.pass = pass
             listing.rule = rule
@@ -290,6 +294,44 @@ public final class SidebarRowFeed {
         let stub = SidebarWorkspace(id: id, machineID: machine, title: "")
         entries[id] = Entry(make: make, row: stub, pass: pass)
         return stub
+    }
+
+    /// The rows a pass named, each with the revision of the row its caller holds, and the listings it asked: a later
+    /// pass over the same rows names them from this, with no walk of the session (``names(_:)``).
+    public struct Roll {
+        var rows: [(id: WorkspaceID, revision: UInt64)]
+        var asked: [WorkspaceID]
+    }
+
+    /// What the pass since the last `beginPass` named and asked (call after the pass, before `fill`).
+    public func roll() -> Roll {
+        Roll(rows: named.map { ($0, entries[$0]?.namedRevision ?? .max) }, asked: asked)
+    }
+
+    /// Names every row and asks every listing of `roll` again, as the pass that made it did (call after `beginPass`),
+    /// in O(rows of the roll). Returns the rows mapped again since the caller's copies (`roll` then holds their
+    /// revisions), or nil when the pass must run: a row or a listing is gone (`keeps`, new inputs), or a listing's
+    /// rule must run again. A pass that runs after a nil begins again, so what this named is not kept.
+    public func names(_ roll: inout Roll) -> [SidebarWorkspace]? {
+        _ = listingFlips.epoch
+        for id in roll.asked {
+            guard let listing = listings[id] ?? unparkedListing(id), !listing.stale else { return nil }
+            listing.pass = pass
+        }
+        asked.append(contentsOf: roll.asked)
+        var moved: [SidebarWorkspace] = []
+        for index in roll.rows.indices {
+            let id = roll.rows[index].id
+            guard let entry = entries[id] ?? unparkedEntry(id) else { return nil }
+            named.append(id)
+            entry.pass = pass
+            if entry.revision != roll.rows[index].revision {
+                moved.append(entry.row)
+                roll.rows[index].revision = entry.revision
+            }
+            entry.namedRevision = entry.revision
+        }
+        return moved
     }
 
     /// `sections` with every row the last pass named filled in: a new row
