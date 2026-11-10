@@ -176,7 +176,7 @@ enum BookmarkHandlers {
                   let url = page?.state.url ?? model?.url.flatMap(URL.init(string:)), BookmarkService.canBookmark(url) else { continue }
             let profile = services.bookmarks.profile(ofTab: id)
             guard only.map({ $0 == profile }) ?? true else { continue }
-            let link = (title: page?.state.title ?? model?.title ?? url.absoluteString, url: url)
+            let link = (title: page?.state.title ?? model?.titleText ?? url.absoluteString, url: url)
             if let index = folders.firstIndex(where: { $0.profile == profile }) { folders[index].pages.append(link) } else { folders.append((profile, [link])) }
         }
         guard !folders.isEmpty else { throw ActionFailure(message: BookmarkAppStrings.noTabs) }

@@ -144,7 +144,7 @@ public final class SidebarView: NSView {
     var lastState: RenderState?
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
-    /// The sections the list showed at the last render (for the space slide and the provisional check).
+    /// The sections the list showed at the last render (for the provisional check).
     var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
     var bandsDirty = true
