@@ -196,7 +196,7 @@ fn an_expect_agent_send_waits_for_a_failed_echo_after_the_replay() {
 }
 
 /// Settles the roster until `terminal`'s direct report is folded, within 20 s.
-fn wait_for_the_echo(mux: &Arc<Mux>, terminal: &crate::server::TerminalPublicId) {
+fn wait_for_the_echo(mux: &Arc<Mux>, terminal: &TerminalPublicId) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while mux.agent_report_unsettled(terminal) && Instant::now() < deadline {
         assert!(mux.settle_agent_roster_for_test());

@@ -325,6 +325,11 @@ impl Mux {
                 .into_iter()
                 .partition::<Vec<_>, _>(|failed| failed.retry_at <= now);
             echoes.failed = later;
+            // Out of the failed list until its append ends, so it counts as
+            // being appended: its terminal never looks folded in between.
+            for failed in &due {
+                echoes.terminals.entry(failed.echo.terminal_id.clone()).or_default().appending += 1;
+            }
             due
         };
         let appends = &self.agent_roster_worker.echo_appends;
@@ -345,6 +350,9 @@ impl Mux {
                 });
             {
                 let mut echoes = self.report_echoes();
+                if let Some(terminal) = echoes.terminals.get_mut(&terminal_id) {
+                    terminal.appending = terminal.appending.saturating_sub(1);
+                }
                 match journaled {
                     Ok(sequence) => {
                         if let (Some(sequence), Some(terminal)) =
