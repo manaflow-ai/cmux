@@ -39,10 +39,10 @@ thread_local! {
     static SPLITTING: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Tests: the metadata bytes this thread's saves wrote (parts files, `session.json` by
-/// `LocalStore::save`, journal `meta` records), for the before and after of a save's cost.
 #[cfg(test)]
 thread_local! {
+    /// Tests: the metadata bytes this thread's saves wrote (parts files, `session.json` by
+    /// `LocalStore::save`, journal `meta` records), for the before and after of a save's cost.
     pub(crate) static WRITTEN: Cell<u64> = const { Cell::new(0) };
 }
 
