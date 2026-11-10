@@ -33,7 +33,7 @@ import Testing
             store.apply(snapshot: next, diff: diff)
             // The memo let its old order go (freed on main, as the diff's array is not the old one).
             if diff == nil, !store.snapshotMemo.order.sharesStorage(with: memoOrder) { allocated += count }
-            #expect(store.workspaces[7 + round].screens.first?.panes.first?.tabs.first?.title == "renamed \(7 + round)")
+            #expect(store.workspaces[7 + round].screens.first?.panes.first?.tabs.first?.titleText == "renamed \(7 + round)")
         }
         #expect(store.snapshotMemo.order == session(count).workspaces.map(WorkspaceModel.identity))
         return Double(allocated) / Double(rounds)
