@@ -412,11 +412,14 @@ public final class TabStripView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         syncShown(false)
+        // The flush corner's wedges draw only under a shown top strip (vertical tabs hide it).
+        if CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         syncShown()
+        if CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a

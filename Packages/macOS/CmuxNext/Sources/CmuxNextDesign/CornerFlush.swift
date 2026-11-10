@@ -66,9 +66,9 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
             && ChromeTunables.mainPaneCornerRadius.override == nil
     }
 
-    /// The flush corner was picked in Debug Settings, not taken by default: only then does it
-    /// replace the sidebar's edge line, which `sidebar.border` sets otherwise.
-    @MainActor public static var isChosen: Bool { tunable.override.map { $0 != .off } ?? false }
+    /// The flush corner was picked in Debug Settings, not taken by default, and draws (compact keeps
+    /// the pill): only then does it replace the sidebar's edge line, which `sidebar.border` sets otherwise.
+    @MainActor public static var isChosen: Bool { tunable.override != nil && current.isOn }
 
     public var isOn: Bool { self != .off }
 
@@ -202,10 +202,20 @@ public final class CornerFlushChrome: NSView {
         defer { CATransaction.commit() }
         wedges.frame = bounds
         let square = leadingTabSelected(card: drawn.card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
-        wedges.path = Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
+        // No shown strip on the card's top (vertical tabs hide it): no tab row to round, so no wedges over the content.
+        wedges.path = hasTopStrip(card: drawn.card, in: root)
+            ? Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft) : nil
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
         shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+    }
+
+    /// Whether a shown strip of this window sits on the card's top edge. O(strips): a window's strips, not its tabs.
+    private func hasTopStrip(card: CGRect, in root: NSView) -> Bool {
+        strips.allObjects.contains { object in
+            guard let strip = object as? any TabStripCorner & NSView, strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
+            return abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2
+        }
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
