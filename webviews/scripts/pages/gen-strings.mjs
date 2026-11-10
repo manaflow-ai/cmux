@@ -247,6 +247,16 @@ export const PAGES = {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
   },
+  // The bookmarks bar (cmux-page://cmux.bookmarks-bar/): the bar's words from the same catalog.
+  "bookmarks-bar": {
+    out: "webviews/src/pages/bookmarks-bar/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
+        keys: () => ["root.bar", "root.other", "bar.more", "bar.emptyHint", "folder.empty", "verb.openAll"],
+      },
+    ],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
@@ -472,7 +482,18 @@ export const PAGES = {
   // next to it. The pane's build splits it into locales/<code>.js (build-agent-pane-web.sh).
   agentPane: {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
-    catalogs: [{ file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
+      // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
+      // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
+          ),
+      },
+    ],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {

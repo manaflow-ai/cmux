@@ -597,15 +597,24 @@ fn a_newer_copy_in_flight_holds_the_receipt_until_it_ends() {
     };
     let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
     call(&installed, 1_000_000);
-    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"], json!(true));
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"],
+        json!(true)
+    );
     // An abandoned copy re-answered by a claim: in flight again, so no receipt while it runs.
     assert!(call(&claimed(MACHINE), 1_000_200).get("copy").is_some());
-    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_300)["installed"], json!(false));
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_300)["installed"],
+        json!(false)
+    );
     // Reported installed again: one receipt, renewed.
     call(&installed, 1_000_400);
     assert_eq!(read(dir.path()).installed.len(), 1);
     assert_eq!(read(dir.path()).installed[0].at, 1_000_400);
-    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_500)["installed"], json!(true));
+    assert_eq!(
+        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_500)["installed"],
+        json!(true)
+    );
 }
 
 #[test]
@@ -613,7 +622,13 @@ fn a_receipt_question_goes_through_the_cli_with_no_credential() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = dir.path().join("ledger.json");
     let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
-    run(&flags(&installed), dir.path(), now_ms(), &mut stdin(Some(TEAM)).as_bytes(), &no_call).unwrap();
-    let ask = format!(r#"{{"account":"user_a","loginReceipt":{{"machine":"{MACHINE}","provider":"claude"}}}}"#);
-    assert_eq!(cli("warm-spare", &flags(&ask), &ledger), Some(json!({"ok": true, "installed": true})));
+    run(&flags(&installed), dir.path(), now_ms(), &mut stdin(Some(TEAM)).as_bytes(), &no_call)
+        .unwrap();
+    let ask = format!(
+        r#"{{"account":"user_a","loginReceipt":{{"machine":"{MACHINE}","provider":"claude"}}}}"#
+    );
+    assert_eq!(
+        cli("warm-spare", &flags(&ask), &ledger),
+        Some(json!({"ok": true, "installed": true}))
+    );
 }
