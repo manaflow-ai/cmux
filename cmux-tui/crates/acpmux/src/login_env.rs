@@ -38,6 +38,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 mod machine;
+#[cfg(test)]
+mod read_block_tests;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -565,11 +567,18 @@ fn refresh(throttled: bool) {
 /// not passed in, so what comes back is the person's setup.
 async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     let mut cmd = tokio::process::Command::new(shell);
-    cmd.args(["-l", "-i", "-c", &format!("printf '\\n{marker}\\n'; command env -0")])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
+    // The environment between two markers: output with both is a whole read; anything else (a
+    // startup file that replaced the shell first, a shell cut off mid-print) is a failed one.
+    cmd.args([
+        "-l",
+        "-i",
+        "-c",
+        &format!("printf '\\n{marker}\\n'; command env -0; printf '\\n{marker}{END_SUFFIX}\\n'"),
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .kill_on_drop(true);
     // Only the identity a login shell starts from, as a terminal gives it:
     // nothing of the daemon's own environment (a sandboxed starter's proxy,
     // PATH or endpoints) can come back as "the login environment".
@@ -599,7 +608,7 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
             Ok(())
         });
     }
-    let child = match cmd.spawn() {
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!("login shell env: {shell}: {e}");
@@ -607,23 +616,62 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
         }
     };
     let pid = child.id();
-    match tokio::time::timeout(TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(out)) => Some(String::from_utf8_lossy(&out.stdout).into_owned()),
-        Ok(Err(e)) => {
-            tracing::warn!("login shell env: {shell}: {e}");
-            None
-        }
-        Err(_) => {
-            // The future (and the shell) is dropped; its group goes too.
-            #[cfg(unix)]
-            if let Some(pid) = pid {
-                unsafe {
-                    libc::killpg(pid as i32, libc::SIGKILL);
-                }
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let out = match child.stdout.take() {
+        Some(stdout) => read_env_block(stdout, marker, deadline).await,
+        None => None,
+    };
+    // The shell ends right after its last printf. What its startup files left running in the
+    // background (`cmd &`) keeps running, as after a terminal's login shell; it may hold the
+    // pipe open, so the read above ends at the end marker, never at the pipe's end. Only a shell
+    // still running at the deadline is ended, with its process group.
+    if tokio::time::timeout_at(deadline, child.wait()).await.is_err() {
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            // SAFETY: the shell is not reaped (its wait did not end), so its group id is still
+            // the one it made with setsid.
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGKILL);
             }
-            None
         }
     }
+    out
+}
+
+/// What follows the run's marker on the line after the environment (`run_shell`).
+const END_SUFFIX: &str = "-end";
+/// A login environment larger than this is not one: the read fails.
+const MAX_SHELL_OUTPUT: usize = 16 << 20;
+
+/// The shell's output from the run's marker up to its end marker, read until the end marker
+/// arrives (never the pipe's end, which a background job can hold back); `None` when the pipe
+/// ends, the deadline passes, the output outgrows `MAX_SHELL_OUTPUT` or either marker is missing.
+async fn read_env_block(
+    mut stdout: impl tokio::io::AsyncRead + Unpin,
+    marker: &str,
+    deadline: tokio::time::Instant,
+) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+    let end = format!("\n{marker}{END_SUFFIX}\n");
+    let mut out = Vec::new();
+    let mut chunk = vec![0u8; 64 << 10];
+    let at = loop {
+        let n = match tokio::time::timeout_at(deadline, stdout.read(&mut chunk)).await {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => return None,
+            Ok(Ok(n)) => n,
+        };
+        // Only the bytes that can hold an end marker this read completed.
+        let from = out.len().saturating_sub(end.len());
+        out.extend_from_slice(chunk.get(..n)?);
+        if let Some(i) = out.get(from..)?.windows(end.len()).position(|w| w == end.as_bytes()) {
+            break from + i;
+        }
+        if out.len() > MAX_SHELL_OUTPUT {
+            return None;
+        }
+    };
+    let text = String::from_utf8_lossy(out.get(..at)?).into_owned();
+    text.contains(&format!("\n{marker}\n")).then_some(text)
 }
 
 /// The login variables children get: those the daemon's environment lacks,
